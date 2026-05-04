@@ -1,0 +1,55 @@
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  DeleteDateColumn,
+  Index,
+  ManyToOne,
+  JoinColumn,
+} from 'typeorm';
+import { Congregation } from './congregation.entity';
+import { UserRole } from '../common/enums/user-role.enum';
+
+@Entity('users')
+export class User {
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
+
+  @Column({ type: 'uuid' })
+  @Index()
+  congregationId!: string;
+
+  @ManyToOne(() => Congregation, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'congregation_id' })
+  congregation!: Congregation;
+
+  @Column({ type: 'varchar', length: 255, unique: true })
+  email!: string;
+
+  @Column({ type: 'varchar', length: 255, select: false })
+  passwordHash!: string;
+
+  @Column({
+    type: 'enum',
+    enum: UserRole,
+    default: UserRole.PUBLISHER,
+  })
+  role!: UserRole;
+
+  @Column({ type: 'boolean', default: true })
+  isActive!: boolean;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  lastLoginAt!: Date | null;
+
+  @CreateDateColumn({ type: 'timestamptz' })
+  createdAt!: Date;
+
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updatedAt!: Date;
+
+  @DeleteDateColumn({ type: 'timestamptz' })
+  deletedAt!: Date | null;
+}
