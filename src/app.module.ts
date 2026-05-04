@@ -10,6 +10,8 @@ import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { PublishersModule } from './publishers/publishers.module';
+import { FamiliesModule } from './families/families.module';
+import { ServiceGroupsModule } from './service-groups/service-groups.module';
 
 @Module({
   imports: [
@@ -41,6 +43,8 @@ import { PublishersModule } from './publishers/publishers.module';
     UsersModule,
     AuthModule,
     PublishersModule,
+    FamiliesModule,
+    ServiceGroupsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
