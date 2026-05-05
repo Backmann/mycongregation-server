@@ -3,7 +3,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere, IsNull, Not } from 'typeorm';
+import { Repository, FindOptionsWhere, IsNull, Not, In } from 'typeorm';
 import { Assignment } from '../entities/assignment.entity';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
@@ -95,6 +95,16 @@ export class AssignmentsService {
     return this.repo.save(assignment);
   }
 
+  async bulkCreate(
+    congregationId: string,
+    dtos: CreateAssignmentDto[],
+  ): Promise<Assignment[]> {
+    const entities = dtos.map((dto) =>
+      this.repo.create({ ...dto, congregationId }),
+    );
+    return this.repo.save(entities);
+  }
+
   async update(
     congregationId: string,
     id: string,
@@ -113,7 +123,7 @@ export class AssignmentsService {
   async remove(congregationId: string, id: string): Promise<void> {
     const existing = await this.getById(congregationId, id);
     if (existing.deletedAt) {
-      return; // already removed
+      return;
     }
     await this.repo.softDelete({
       id,

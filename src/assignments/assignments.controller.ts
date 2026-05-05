@@ -16,6 +16,7 @@ import { AssignmentsService } from './assignments.service';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { QueryAssignmentDto } from './dto/query-assignment.dto';
+import { BulkCreateAssignmentDto } from './dto/bulk-create-assignment.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -24,8 +25,6 @@ import { UserRole } from '../common/enums/user-role.enum';
 @Controller('assignments')
 export class AssignmentsController {
   constructor(private readonly service: AssignmentsService) {}
-
-  // ---- Reads (any authenticated user) ----
 
   @Get()
   list(
@@ -43,8 +42,6 @@ export class AssignmentsController {
     return this.service.getById(congregationId, id);
   }
 
-  // ---- Mutations (admin + elder) ----
-
   @Post()
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.ELDER)
@@ -53,6 +50,16 @@ export class AssignmentsController {
     @Body() dto: CreateAssignmentDto,
   ) {
     return this.service.create(congregationId, dto);
+  }
+
+  @Post('bulk')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  bulkCreate(
+    @TenantId() congregationId: string,
+    @Body() dto: BulkCreateAssignmentDto,
+  ) {
+    return this.service.bulkCreate(congregationId, dto.assignments);
   }
 
   @Patch(':id')
