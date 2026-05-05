@@ -16,6 +16,7 @@ import { AssignmentsModule } from './assignments/assignments.module';
 import { MwbImportModule } from './mwb-import/mwb-import.module';
 import { WtImportModule } from './wt-import/wt-import.module';
 import { ScheduleImportModule } from './schedule-import/schedule-import.module';
+import { PublicTalksModule } from './public-talks/public-talks.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { ScheduleImportModule } from './schedule-import/schedule-import.module';
     MwbImportModule,
     WtImportModule,
     ScheduleImportModule,
+    PublicTalksModule,
   ],
   controllers: [AppController],
   providers: [AppService],

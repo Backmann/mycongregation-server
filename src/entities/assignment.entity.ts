@@ -11,12 +11,14 @@ import {
 } from 'typeorm';
 import { Congregation } from './congregation.entity';
 import { Publisher } from './publisher.entity';
+import { PublicTalk } from './public-talk.entity';
 import { EventType } from '../common/enums/event-type.enum';
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 
 @Entity('assignments')
 @Index(['congregationId', 'weekStartDate', 'eventType'])
 @Index(['congregationId', 'publisherId'])
+@Index(['publicTalkId'])
 export class Assignment {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -79,6 +81,34 @@ export class Assignment {
   @ManyToOne(() => Publisher, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'assistant_publisher_id' })
   assistantPublisher!: Publisher | null;
+
+  // ---- Public talk reference (used when partKey = 'public_talk_speaker') ----
+  @Column({
+    type: 'uuid',
+    nullable: true,
+    comment: 'Reference to the global S-34 public talk catalog',
+  })
+  publicTalkId!: string | null;
+
+  @ManyToOne(() => PublicTalk, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'public_talk_id' })
+  publicTalk!: PublicTalk | null;
+
+  @Column({
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+    comment: 'For invited speakers from another congregation; null if local publisher',
+  })
+  speakerName!: string | null;
+
+  @Column({
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+    comment: 'Speaker home congregation name (for invited speakers)',
+  })
+  speakerCongregation!: string | null;
 
   // ---- State ----
   @Column({
