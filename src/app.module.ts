@@ -12,6 +12,7 @@ import { AuthModule } from './auth/auth.module';
 import { PublishersModule } from './publishers/publishers.module';
 import { FamiliesModule } from './families/families.module';
 import { ServiceGroupsModule } from './service-groups/service-groups.module';
+import { AssignmentsModule } from './assignments/assignments.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { ServiceGroupsModule } from './service-groups/service-groups.module';
     PublishersModule,
     FamiliesModule,
     ServiceGroupsModule,
+    AssignmentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
