@@ -154,6 +154,10 @@ export class Publisher {
   @Column({ type: 'text', nullable: true })
   notes!: string | null;
 
+  // ---- Capabilities (what assignments this publisher can perform) ----
+  @Column({ type: 'jsonb', default: {} })
+  capabilities!: Record<string, boolean>;
+
   // ---- Removal lifecycle ----
   @Column({ type: 'enum', enum: RemovalReason, nullable: true })
   removalReason!: RemovalReason | null;

@@ -3,6 +3,7 @@ import {
   IsDateString,
   IsEmail,
   IsEnum,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -144,4 +145,9 @@ export class CreatePublisherDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  // ---- Capabilities ----
+  @IsOptional()
+  @IsObject()
+  capabilities?: Record<string, boolean>;
 }
