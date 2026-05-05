@@ -14,6 +14,7 @@ import { PublicTalksService } from './public-talks.service';
 import { CreatePublicTalkDto } from './dto/create-public-talk.dto';
 import { UpdatePublicTalkDto } from './dto/update-public-talk.dto';
 import { BulkImportDto } from './dto/bulk-import.dto';
+import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -24,12 +25,13 @@ export class PublicTalksController {
 
   @Get()
   list(
+    @TenantId() congregationId: string,
     @Query('search') search?: string,
     @Query('includeInactive') includeInactive?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    return this.service.list({
+    return this.service.list(congregationId, {
       search,
       includeInactive: includeInactive === 'true',
       limit: limit ? Number(limit) : undefined,

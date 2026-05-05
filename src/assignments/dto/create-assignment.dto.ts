@@ -53,4 +53,18 @@ export class CreateAssignmentDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsUUID()
+  publicTalkId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  speakerName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  speakerCongregation?: string;
 }

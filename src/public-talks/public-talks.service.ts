@@ -5,8 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { PublicTalk } from '../entities/public-talk.entity';
+import { Assignment } from '../entities/assignment.entity';
+import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 import { CreatePublicTalkDto } from './dto/create-public-talk.dto';
 import { UpdatePublicTalkDto } from './dto/update-public-talk.dto';
 
@@ -15,6 +17,11 @@ export interface PaginatedResult<T> {
   total: number;
   limit: number;
   offset: number;
+}
+
+export interface PublicTalkWithHistory extends PublicTalk {
+  lastGivenAt: string | null;
+  lastGivenBy: string | null;
 }
 
 export interface BulkImportResult {
@@ -33,14 +40,23 @@ export class PublicTalksService {
   constructor(
     @InjectRepository(PublicTalk)
     private readonly repo: Repository<PublicTalk>,
+    @InjectRepository(Assignment)
+    private readonly assignmentsRepo: Repository<Assignment>,
   ) {}
 
-  async list(params: {
-    search?: string;
-    includeInactive?: boolean;
-    limit?: number;
-    offset?: number;
-  }): Promise<PaginatedResult<PublicTalk>> {
+  /**
+   * Lists talks. The catalog itself is global, but the lastGivenAt / lastGivenBy
+   * fields attached to each talk are scoped to the supplied congregation.
+   */
+  async list(
+    congregationId: string,
+    params: {
+      search?: string;
+      includeInactive?: boolean;
+      limit?: number;
+      offset?: number;
+    },
+  ): Promise<PaginatedResult<PublicTalkWithHistory>> {
     const limit = params.limit ?? 200;
     const offset = params.offset ?? 0;
 
@@ -52,15 +68,11 @@ export class PublicTalksService {
 
     if (params.search && params.search.trim()) {
       const search = params.search.trim();
-      // Match by partial title (ILIKE) OR by exact/prefix number
       const numeric = parseInt(search, 10);
       if (!isNaN(numeric)) {
         qb.andWhere(
           '(t.title ILIKE :titleLike OR CAST(t.number AS TEXT) LIKE :numLike)',
-          {
-            titleLike: `%${search}%`,
-            numLike: `${numeric}%`,
-          },
+          { titleLike: `%${search}%`, numLike: `${numeric}%` },
         );
       } else {
         qb.andWhere('t.title ILIKE :titleLike', { titleLike: `%${search}%` });
@@ -69,7 +81,52 @@ export class PublicTalksService {
 
     qb.orderBy('t.number', 'ASC').skip(offset).take(limit);
 
-    const [data, total] = await qb.getManyAndCount();
+    const [talks, total] = await qb.getManyAndCount();
+
+    if (talks.length === 0) {
+      return { data: [], total, limit, offset };
+    }
+
+    // Fetch all assignments for these talks in this congregation,
+    // ordered DESC so the first match per public_talk_id is the latest.
+    const talkIds = talks.map((t) => t.id);
+    const histories = await this.assignmentsRepo.find({
+      where: {
+        publicTalkId: In(talkIds),
+        congregationId,
+      },
+      relations: ['publisher'],
+      order: { weekStartDate: 'DESC' },
+    });
+
+    const latestByTalk = new Map<string, Assignment>();
+    for (const a of histories) {
+      if (a.status === AssignmentStatus.CANCELLED) continue;
+      if (!a.publicTalkId) continue;
+      if (!latestByTalk.has(a.publicTalkId)) {
+        latestByTalk.set(a.publicTalkId, a);
+      }
+    }
+
+    const data: PublicTalkWithHistory[] = talks.map((t) => {
+      const latest = latestByTalk.get(t.id);
+      let lastGivenBy: string | null = null;
+      if (latest) {
+        if (latest.publisher) {
+          const p = latest.publisher;
+          lastGivenBy =
+            [p.firstName, p.lastName].filter(Boolean).join(' ').trim() || null;
+        } else if (latest.speakerName) {
+          lastGivenBy = latest.speakerName;
+        }
+      }
+      return {
+        ...t,
+        lastGivenAt: latest?.weekStartDate ?? null,
+        lastGivenBy,
+      };
+    });
+
     return { data, total, limit, offset };
   }
 
@@ -99,7 +156,6 @@ export class PublicTalksService {
   async update(id: string, dto: UpdatePublicTalkDto): Promise<PublicTalk> {
     const existing = await this.getById(id);
 
-    // Number change: ensure no conflict
     if (dto.number != null && dto.number !== existing.number) {
       const conflict = await this.repo.findOne({
         where: { number: dto.number },
@@ -115,14 +171,12 @@ export class PublicTalksService {
     return this.repo.save(existing);
   }
 
-  /** Soft-disable (preserves FK integrity for past assignments). */
   async deactivate(id: string): Promise<PublicTalk> {
     const existing = await this.getById(id);
     existing.isActive = false;
     return this.repo.save(existing);
   }
 
-  /** Re-enable a previously deactivated talk. */
   async reactivate(id: string): Promise<PublicTalk> {
     const existing = await this.getById(id);
     existing.isActive = true;
@@ -130,9 +184,7 @@ export class PublicTalksService {
   }
 
   async bulkImport(text: string): Promise<BulkImportResult> {
-    // Match "1. Title", "1.Title", "  1.   Title" — robust to whitespace.
     const lineRegex = /^\s*(\d+)\.\s*(.+?)\s*$/;
-
     const lines = text.split(/\r?\n/);
     const parsed: Array<{ number: number; title: string }> = [];
     let invalid = 0;
@@ -143,8 +195,6 @@ export class PublicTalksService {
 
       const m = trimmed.match(lineRegex);
       if (!m) {
-        // Lines starting with a digit but not matching format → invalid attempt.
-        // Pure header text like "Публичные речи" → skip silently.
         if (/^\d/.test(trimmed)) invalid++;
         continue;
       }
