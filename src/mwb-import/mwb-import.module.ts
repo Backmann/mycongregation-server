@@ -8,5 +8,6 @@ import { MwbImportService } from './mwb-import.service';
   imports: [TypeOrmModule.forFeature([Assignment])],
   controllers: [MwbImportController],
   providers: [MwbImportService],
+  exports: [MwbImportService],
 })
 export class MwbImportModule {}

@@ -14,6 +14,8 @@ import { FamiliesModule } from './families/families.module';
 import { ServiceGroupsModule } from './service-groups/service-groups.module';
 import { AssignmentsModule } from './assignments/assignments.module';
 import { MwbImportModule } from './mwb-import/mwb-import.module';
+import { WtImportModule } from './wt-import/wt-import.module';
+import { ScheduleImportModule } from './schedule-import/schedule-import.module';
 
 @Module({
   imports: [
@@ -49,6 +51,8 @@ import { MwbImportModule } from './mwb-import/mwb-import.module';
     ServiceGroupsModule,
     AssignmentsModule,
     MwbImportModule,
+    WtImportModule,
+    ScheduleImportModule,
   ],
   controllers: [AppController],
   providers: [AppService],
