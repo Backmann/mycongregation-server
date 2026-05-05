@@ -13,6 +13,7 @@ import { PublishersModule } from './publishers/publishers.module';
 import { FamiliesModule } from './families/families.module';
 import { ServiceGroupsModule } from './service-groups/service-groups.module';
 import { AssignmentsModule } from './assignments/assignments.module';
+import { MwbImportModule } from './mwb-import/mwb-import.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { AssignmentsModule } from './assignments/assignments.module';
     FamiliesModule,
     ServiceGroupsModule,
     AssignmentsModule,
+    MwbImportModule,
   ],
   controllers: [AppController],
   providers: [AppService],
