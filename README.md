@@ -4,7 +4,7 @@ NestJS REST API for [mycongregation](https://github.com/Backmann/mycongregation-
 
 Production API: **https://api.mycongregation.org/api**
 
-> ⚠️ This is an unofficial, community-built tool. Not affiliated with or endorsed by the Watch Tower Bible and Tract Society.
+> ⚠️ This is an unofficial, community-built tool. Not affiliated with or endorsed by any religious organization.
 
 ## Features
 
@@ -13,7 +13,7 @@ Production API: **https://api.mycongregation.org/api**
 - 👨‍👩‍👧 Families and service groups with relational linking
 - 📋 Assignments for midweek and weekend meetings
 - 🎤 Public talks catalog with bulk import (190+ talks)
-- 📅 EPUB schedule parsing (MWB + Watchtower)
+- 📅 EPUB-based weekly meeting schedule import
 - 🏢 Multi-tenancy ready (`congregationId` scoping on all entities)
 - ✅ Manual TypeORM migrations (no auto-sync in production)
 
