@@ -1,0 +1,79 @@
+name: Deploy to production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config << 'EOF'
+          Host myserver
+              HostName ${{ secrets.SSH_HOST }}
+              User ${{ secrets.SSH_USER }}
+              IdentityFile ~/.ssh/deploy_key
+              UserKnownHostsFile ~/.ssh/known_hosts
+              IdentitiesOnly yes
+              StrictHostKeyChecking yes
+          EOF
+          chmod 600 ~/.ssh/config
+
+      - name: Create source tarball
+        run: |
+          tar -czf server-src.tar.gz \
+            --exclude=node_modules \
+            --exclude=.git \
+            --exclude=dist \
+            --exclude=.env \
+            --exclude=*.tar.gz \
+            .
+          ls -lh server-src.tar.gz
+
+      - name: Upload to server
+        run: scp server-src.tar.gz myserver:/tmp/server-src.tar.gz
+
+      - name: Deploy on server
+        run: |
+          ssh myserver bash << 'ENDSSH'
+          set -euo pipefail
+
+          echo "=== Extracting source ==="
+          cd /root/mycongregation/server
+          tar -xzf /tmp/server-src.tar.gz
+
+          echo "=== Rebuilding Docker image ==="
+          cd /root/mycongregation
+          docker compose build server
+
+          echo "=== Restarting container ==="
+          docker compose up -d server
+
+          echo "=== Waiting for container to be ready ==="
+          sleep 8
+
+          echo "=== Running migrations ==="
+          docker compose exec -T server npm run migration:run || echo "Migrations failed or none to run"
+
+          echo "=== Status ==="
+          docker compose ps server
+          docker compose logs --tail=15 server
+
+          echo "=== Cleanup ==="
+          rm /tmp/server-src.tar.gz
+          echo "Deploy complete"
+          ENDSSH
+
+      - name: Cleanup local
+        if: always()
+        run: rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts ~/.ssh/config server-src.tar.gz
