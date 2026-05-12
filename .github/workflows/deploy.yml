@@ -31,17 +31,17 @@ jobs:
 
       - name: Create source tarball
         run: |
-          tar -czf server-src.tar.gz \
+          tar -czf /tmp/server-src.tar.gz \
             --exclude=node_modules \
             --exclude=.git \
             --exclude=dist \
             --exclude=.env \
             --exclude=*.tar.gz \
             .
-          ls -lh server-src.tar.gz
+          ls -lh /tmp/server-src.tar.gz
 
       - name: Upload to server
-        run: scp server-src.tar.gz myserver:/tmp/server-src.tar.gz
+        run: scp /tmp/server-src.tar.gz myserver:/tmp/server-src.tar.gz
 
       - name: Deploy on server
         run: |
@@ -59,7 +59,7 @@ jobs:
           echo "=== Restarting container ==="
           docker compose up -d server
 
-          echo "=== Waiting for container to be ready ==="
+          echo "=== Waiting for container ==="
           sleep 8
 
           echo "=== Running migrations ==="
@@ -76,4 +76,4 @@ jobs:
 
       - name: Cleanup local
         if: always()
-        run: rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts ~/.ssh/config server-src.tar.gz
+        run: rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts ~/.ssh/config /tmp/server-src.tar.gz
