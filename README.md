@@ -1,5 +1,8 @@
 # mycongregation-server
 
+[![Deploy](https://github.com/Backmann/mycongregation-server/actions/workflows/deploy.yml/badge.svg)](https://github.com/Backmann/mycongregation-server/actions/workflows/deploy.yml)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+
 NestJS REST API for [mycongregation](https://github.com/Backmann/mycongregation-app) — congregation management for Jehovah's Witnesses congregations.
 
 Production API: **https://api.mycongregation.org/api**
@@ -71,4 +74,4 @@ Routes mapped under `/api` prefix. Key endpoints:
 
 [AGPL-3.0](LICENSE) — derivative works distributed over a network must publish their source.
 
-Copyright (C) 2026 Lionel Hovorukha
+Copyright (C) 2026 Lionel Backmann (Hovorukha)
