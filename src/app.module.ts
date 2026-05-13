@@ -17,6 +17,7 @@ import { MwbImportModule } from './mwb-import/mwb-import.module';
 import { WtImportModule } from './wt-import/wt-import.module';
 import { ScheduleImportModule } from './schedule-import/schedule-import.module';
 import { PublicTalksModule } from './public-talks/public-talks.module';
+import { ServiceReportsModule } from './service-reports/service-reports.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { PublicTalksModule } from './public-talks/public-talks.module';
     WtImportModule,
     ScheduleImportModule,
     PublicTalksModule,
+    ServiceReportsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
