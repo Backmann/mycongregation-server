@@ -1,14 +1,12 @@
 import {
   extractYearFromFilename,
   extractPartTitle,
+  parseWeekRange,
+  extractDuration,
+  extractNumber,
   ParsedPart,
 } from './mwb-parser';
 
-/**
- * Test helper: build a ParsedPart with sensible defaults that can be
- * overridden case-by-case. Without this, every test would need to
- * spell out every field.
- */
 function makePart(overrides: Partial<ParsedPart> = {}): ParsedPart {
   return {
     rawTitle: null,
@@ -52,6 +50,115 @@ describe('mwb-parser', () => {
       expect(extractYearFromFilename('random-name.epub')).toBe(
         new Date().getFullYear(),
       );
+    });
+  });
+
+  describe('parseWeekRange', () => {
+    it('parses same-month range', () => {
+      expect(parseWeekRange('11-17 мая', 2026)).toEqual({
+        start: '2026-05-11',
+        end: '2026-05-17',
+      });
+    });
+
+    it('parses cross-month range', () => {
+      expect(parseWeekRange('29 июня - 5 июля', 2026)).toEqual({
+        start: '2026-06-29',
+        end: '2026-07-05',
+      });
+    });
+
+    it('handles year crossover (Dec → Jan)', () => {
+      expect(parseWeekRange('29 декабря - 4 января', 2025)).toEqual({
+        start: '2025-12-29',
+        end: '2026-01-04',
+      });
+    });
+
+    it('normalizes em-dash to hyphen', () => {
+      expect(parseWeekRange('11—17 мая', 2026)).toEqual({
+        start: '2026-05-11',
+        end: '2026-05-17',
+      });
+    });
+
+    it('normalizes en-dash to hyphen', () => {
+      expect(parseWeekRange('11–17 мая', 2026)).toEqual({
+        start: '2026-05-11',
+        end: '2026-05-17',
+      });
+    });
+
+    it('returns null for unparseable text', () => {
+      expect(parseWeekRange('not a date', 2026)).toBeNull();
+    });
+
+    it('returns null for empty string', () => {
+      expect(parseWeekRange('', 2026)).toBeNull();
+    });
+
+    it('returns null for invalid month name', () => {
+      expect(parseWeekRange('11-17 fakemonth', 2026)).toBeNull();
+    });
+  });
+
+  describe('extractDuration', () => {
+    it('extracts duration with parentheses', () => {
+      const result = extractDuration('(4 мин.)');
+      expect(result.min).toBe(4);
+      expect(result.raw).toBe('(4 мин');
+    });
+
+    it('extracts two-digit duration', () => {
+      expect(extractDuration('(10 мин.)').min).toBe(10);
+    });
+
+    it('extracts duration from text with prefix', () => {
+      expect(extractDuration('5. Чтение (3 мин)').min).toBe(3);
+    });
+
+    it('extracts duration without parentheses (fallback)', () => {
+      expect(extractDuration('Длительность 30 мин всего').min).toBe(30);
+    });
+
+    it('returns null for text without duration', () => {
+      const result = extractDuration('просто текст без минут');
+      expect(result.min).toBeNull();
+      expect(result.raw).toBeNull();
+    });
+
+    it('returns null for empty string', () => {
+      expect(extractDuration('').min).toBeNull();
+    });
+  });
+
+  describe('extractNumber', () => {
+    it('extracts single-digit number', () => {
+      expect(extractNumber('5. Чтение Библии')).toBe(5);
+    });
+
+    it('extracts two-digit number', () => {
+      expect(extractNumber('15. CBS')).toBe(15);
+    });
+
+    it('handles leading whitespace', () => {
+      expect(extractNumber('  3. With leading space')).toBe(3);
+    });
+
+    it('returns null when no number prefix', () => {
+      expect(extractNumber('Без префикса')).toBeNull();
+    });
+
+    it('returns null without space after dot', () => {
+      expect(extractNumber('5.NoSpaceAfter')).toBeNull();
+    });
+
+    it('returns null without dot', () => {
+      expect(extractNumber('5 без точки')).toBeNull();
+    });
+
+    it('returns null for empty string', () => {
+      expect(extractNumber('')).toBeNull();
     });
   });
 

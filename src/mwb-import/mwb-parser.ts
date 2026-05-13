@@ -76,7 +76,7 @@ function formatISO(year: number, month: number, day: number): string {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
-function parseWeekRange(
+export function parseWeekRange(
   text: string,
   year: number,
 ): { start: string; end: string } | null {
@@ -112,7 +112,7 @@ function parseWeekRange(
   return null;
 }
 
-function extractDuration(text: string): {
+export function extractDuration(text: string): {
   min: number | null;
   raw: string | null;
 } {
@@ -123,7 +123,7 @@ function extractDuration(text: string): {
   return { min: null, raw: null };
 }
 
-function extractNumber(text: string): number | null {
+export function extractNumber(text: string): number | null {
   const m = text.match(/^\s*(\d+)\.\s+/);
   return m ? parseInt(m[1], 10) : null;
 }
