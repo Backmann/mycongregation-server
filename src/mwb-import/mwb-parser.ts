@@ -291,13 +291,19 @@ function parseWeeklyFile(
             });
         }
 
+        // Collect <p> elements within sibling containers (divs) after this h3,
+        // until the next h2/h3. Strip leading "(N мин.)" duration marker since
+        // duration is captured separately in part.durationMin.
         const notes: string[] = [];
         $(el)
-          .nextUntil('h3, h2', 'p')
+          .nextUntil('h3, h2')
+          .find('p')
           .slice(0, 3)
           .each((_, p) => {
-            const nt = $(p).text().replace(/\s+/g, ' ').trim();
-            if (nt && !/^\(\s*\d+\s*мин/u.test(nt)) {
+            let nt = $(p).text().replace(/\s+/g, ' ').trim();
+            if (!nt) return;
+            nt = nt.replace(/^\(\s*\d+\s*мин\.?\s*\)\s*/u, '').trim();
+            if (nt) {
               notes.push(nt.slice(0, 120));
             }
           });
@@ -373,9 +379,6 @@ function parseWeeklyFile(
  *
  * "1. Почувствуйте, как Иегова щедро вознаграждает" (no notes)
  *    → "Почувствуйте, как Иегова щедро вознаграждает"
- *
- * "Песня 21 и молитва | Вступительные слова (1 мин.)" (no notes)
- *    → "Песня 21 и молитва | Вступительные слова"
  */
 export function extractPartTitle(part: ParsedPart): string | null {
   if (part.synthetic) return null;
