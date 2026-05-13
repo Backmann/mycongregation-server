@@ -193,7 +193,7 @@ function parseStudyArticle(
     {
       partKey: 'watchtower_reader',
       partOrder: 5,
-      partTitle: articleTitle,
+      partTitle: null,
       durationMin: 60,
     },
     {
