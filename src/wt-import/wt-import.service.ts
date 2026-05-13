@@ -18,7 +18,6 @@ function isEmptyTemplate(a: Assignment): boolean {
   return (
     !a.publisherId &&
     !a.assistantPublisherId
-    (!a.partTitle || a.partTitle.trim() === '')
   );
 }
 
