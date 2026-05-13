@@ -364,9 +364,18 @@ function parseWeeklyFile(
 // ---------- Public API ----------
 
 /**
- * Strips numeric prefix and trailing duration to get a clean title for storage.
- * "1. Почувствуйте, как Иегова щедро вознаграждает" → "Почувствуйте, как Иегова щедро вознаграждает"
- * "Песня 21 и молитва | Вступительные слова (1 мин.)" → "Песня 21 и молитва | Вступительные слова"
+ * Strips numeric prefix and trailing duration to get a clean title for storage,
+ * then enriches with the first content note (scripture reference, talk content).
+ *
+ * Examples:
+ * "5. Чтение Библии (4 мин.)" + notes=["Иса 60:1-22"]
+ *    → "Чтение Библии: Иса 60:1-22"
+ *
+ * "1. Почувствуйте, как Иегова щедро вознаграждает" (no notes)
+ *    → "Почувствуйте, как Иегова щедро вознаграждает"
+ *
+ * "Песня 21 и молитва | Вступительные слова (1 мин.)" (no notes)
+ *    → "Песня 21 и молитва | Вступительные слова"
  */
 export function extractPartTitle(part: ParsedPart): string | null {
   if (part.synthetic) return null;
@@ -374,6 +383,12 @@ export function extractPartTitle(part: ParsedPart): string | null {
   let title = part.rawTitle.trim();
   title = title.replace(/^\d+\.\s*/, '');
   title = title.replace(/\s*\(\s*\d+\s*мин\.?\s*\)\s*$/u, '').trim();
+
+  // Append first content note (scripture reference, talk content, etc.)
+  if (part.notes && part.notes.length > 0 && part.notes[0]) {
+    title = `${title}: ${part.notes[0]}`;
+  }
+
   return title || null;
 }
 
