@@ -82,7 +82,9 @@ jobs:
           sleep 8
 
           echo "=== Running migrations ==="
-          docker compose exec -T server npm run migration:run || echo "Migrations failed or none to run"
+          docker compose exec -T server npm run migration:run:prod
+          echo "=== Verifying migrations applied ==="
+          docker compose exec -T server npm run migration:show:prod
 
           echo "=== Status ==="
           docker compose ps server
