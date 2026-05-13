@@ -15,6 +15,14 @@ import { UsersService } from '../users/users.service';
 import { BootstrapDto } from './dto/bootstrap.dto';
 import { LoginDto } from './dto/login.dto';
 
+interface RefreshTokenPayload {
+  sub: string;
+  email: string;
+  role: UserRole;
+  congregationId: string;
+  tokenType: 'refresh';
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -60,7 +68,7 @@ export class AuthService {
       return { congregation, user };
     });
 
-    return this.issueToken(result.user);
+    return this.issueTokens(result.user);
   }
 
   async login(dto: LoginDto) {
@@ -73,19 +81,67 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
     await this.usersService.touchLastLogin(user.id);
-    return this.issueToken(user);
+    return this.issueTokens(user);
   }
 
-  private issueToken(user: User) {
+  /**
+   * Exchanges a valid refresh token for a fresh access token.
+   * Trusts the JWT signature; no DB lookup on the hot path.
+   * Throws UnauthorizedException if token is invalid, expired, or wrong type.
+   */
+  async refresh(refreshToken: string) {
+    let payload: RefreshTokenPayload;
+    try {
+      payload = this.jwtService.verify<RefreshTokenPayload>(refreshToken, {
+        secret: this.config.get<string>('jwt.refreshSecret'),
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    if (payload.tokenType !== 'refresh') {
+      throw new UnauthorizedException('Token is not a refresh token');
+    }
+
+    const accessPayload = {
+      sub: payload.sub,
+      email: payload.email,
+      role: payload.role,
+      congregationId: payload.congregationId,
+    };
+    const accessToken = this.jwtService.sign(accessPayload);
+    return { accessToken };
+  }
+
+  private signAccessToken(user: User): string {
     const payload = {
       sub: user.id,
       email: user.email,
       role: user.role,
       congregationId: user.congregationId,
     };
-    const accessToken = this.jwtService.sign(payload);
+    return this.jwtService.sign(payload);
+  }
+
+  private signRefreshToken(user: User): string {
+    const payload: RefreshTokenPayload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      congregationId: user.congregationId,
+      tokenType: 'refresh',
+    };
+    return this.jwtService.sign(payload, {
+      secret: this.config.get<string>('jwt.refreshSecret'),
+      expiresIn: (this.config.get<string>('jwt.refreshExpiresIn') ??
+        '30d') as never,
+    });
+  }
+
+  private issueTokens(user: User) {
     return {
-      accessToken,
+      accessToken: this.signAccessToken(user),
+      refreshToken: this.signRefreshToken(user),
       user: {
         id: user.id,
         email: user.email,

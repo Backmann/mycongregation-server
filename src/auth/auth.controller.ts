@@ -9,6 +9,7 @@ import {
 import { AuthService } from './auth.service';
 import { BootstrapDto } from './dto/bootstrap.dto';
 import { LoginDto } from './dto/login.dto';
+import { RefreshDto } from './dto/refresh.dto';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import type { AuthenticatedUser } from './decorators/current-user.decorator';
@@ -28,6 +29,13 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('refresh')
+  refresh(@Body() dto: RefreshDto) {
+    return this.authService.refresh(dto.refreshToken);
   }
 
   @Get('me')
