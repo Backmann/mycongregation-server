@@ -76,13 +76,13 @@ function formatISO(year: number, month: number, day: number): string {
 }
 
 /** Days between two YYYY-MM-DD dates (end - start). */
-function daysBetween(startISO: string, endISO: string): number {
+export function daysBetween(startISO: string, endISO: string): number {
   const start = new Date(startISO + 'T00:00:00Z').getTime();
   const end = new Date(endISO + 'T00:00:00Z').getTime();
   return Math.round((end - start) / 86_400_000);
 }
 
-function parseDateRange(
+export function parseDateRange(
   text: string,
 ): { start: string; end: string; year: number } | null {
   const normalized = text
@@ -125,7 +125,7 @@ function parseDateRange(
   return null;
 }
 
-function extractSongs(text: string): number[] {
+export function extractSongs(text: string): number[] {
   const matches = text.match(/ПЕСН[ЯИ]?\s+(\d+)/giu) ?? [];
   return matches
     .map((s) => parseInt(s.match(/\d+/)?.[0] ?? '0', 10))
