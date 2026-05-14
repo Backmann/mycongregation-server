@@ -26,4 +26,5 @@ export const validationSchema = Joi.object({
   BCRYPT_ROUNDS: Joi.number().integer().min(10).max(15).default(12),
 
   EXPO_ACCESS_TOKEN: Joi.string().allow('').optional(),
+  KEK_BASE64: Joi.string().required().length(44),
 });

@@ -18,6 +18,7 @@ import { WtImportModule } from './wt-import/wt-import.module';
 import { ScheduleImportModule } from './schedule-import/schedule-import.module';
 import { PublicTalksModule } from './public-talks/public-talks.module';
 import { ServiceReportsModule } from './service-reports/service-reports.module';
+import { CryptoModule } from './crypto/crypto.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { ServiceReportsModule } from './service-reports/service-reports.module';
         logging: config.get<string>('app.nodeEnv') === 'development',
       }),
     }),
+    CryptoModule,
     UsersModule,
     AuthModule,
     PublishersModule,
