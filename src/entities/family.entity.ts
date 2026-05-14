@@ -1,4 +1,5 @@
 import {
+import { encryptedTransformer } from '../crypto/encrypted.transformer';
   Entity,
   PrimaryGeneratedColumn,
   Column,
@@ -34,7 +35,7 @@ export class Family {
   @Index()
   headPublisherId!: string | null;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   notes!: string | null;
 
   @CreateDateColumn({ type: 'timestamptz' })

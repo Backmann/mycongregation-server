@@ -1,4 +1,5 @@
 import {
+import { encryptedTransformer } from '../crypto/encrypted.transformer';
   Entity,
   PrimaryGeneratedColumn,
   Column,
@@ -78,13 +79,13 @@ export class Publisher {
   birthDate!: string | null;
 
   // ---- Contacts ----
-  @Column({ type: 'varchar', length: 32, nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   mobilePhone!: string | null;
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   email!: string | null;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   address!: string | null;
 
   // ---- Status flags ----
@@ -148,10 +149,10 @@ export class Publisher {
   @Column({ type: 'boolean', default: false })
   sendsReportDirectly!: boolean;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   spiritualNotes!: string | null;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   notes!: string | null;
 
   // ---- Capabilities (what assignments this publisher can perform) ----
@@ -165,7 +166,7 @@ export class Publisher {
   @Column({ type: 'timestamptz', nullable: true })
   removedAt!: Date | null;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   removedNote!: string | null;
 
   @Column({ type: 'timestamptz', nullable: true })

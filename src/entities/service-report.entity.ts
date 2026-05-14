@@ -1,4 +1,5 @@
 import {
+import { encryptedTransformer } from '../crypto/encrypted.transformer';
   Entity,
   PrimaryGeneratedColumn,
   Column,
@@ -66,8 +67,7 @@ export class ServiceReport {
   @Column({ type: 'integer', default: 0 })
   bibleStudies!: number;
 
-  // TODO: encrypt at rest once data-protection.md is designed.
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   notes!: string | null;
 
   // ---- Submission metadata ----

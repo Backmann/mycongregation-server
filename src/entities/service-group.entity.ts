@@ -1,4 +1,5 @@
 import {
+import { encryptedTransformer } from '../crypto/encrypted.transformer';
   Entity,
   PrimaryGeneratedColumn,
   Column,
@@ -41,7 +42,7 @@ export class ServiceGroup {
   @Column({ type: 'text', nullable: true })
   meetingLocation!: string | null;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   notes!: string | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
