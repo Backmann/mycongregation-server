@@ -1,7 +1,7 @@
 # Service Reports Architecture
 
 **Status:** Design (not yet implemented).
-**Last updated:** 2026-05-13.
+**Last updated:** 2026-05-14.
 **Owner:** @Backmann.
 
 ## Goals
@@ -28,9 +28,13 @@ and permission rules in this subsystem.
 2. **Self-submission first, secretary on behalf as fallback.** Publishers
    own their reports. The secretary submits on behalf only when a publisher
    has no login or cannot do it themselves.
-3. **Edits go through the secretary.** Once a report is submitted, the
-   publisher cannot modify it. The secretary is the gatekeeper for
-   corrections; every edit is audit-logged.
+3. **Edits route by role and timing.** A publisher may self-edit their
+   own report during the **self-edit window** — the 1st through 10th
+   of the month following the report month (inclusive). After the
+   window closes, only the secretary may edit. Every edit (self or
+   secretary) stamps `lastEditedAt` and `lastEditedBy`; secretary
+   edits additionally write a full `AuditLog` entry with before/after
+   diff (Phase C).
 4. **Status is derived, not stored authoritatively.** A daily background
    job computes and caches each publisher's status (active, irregular,
    inactive) from their reporting pattern. The secretary may override the
@@ -174,7 +178,8 @@ Server-side guards enforce these rules; client-side rendering reflects them.
 | Submit own report | yes | yes | yes | yes | yes | yes |
 | View own historical reports | yes | yes | yes | yes | yes | yes |
 | Submit on behalf of another publisher | no | no | yes | no | yes | no |
-| Edit any existing report | no | no | yes | no | yes | no |
+| Edit own report (within self-edit window) | yes | yes | yes | yes | yes | n/a |
+| Edit any report (outside window or someone else's) | no | no | yes | no | yes | no |
 | View own service group's reports | yes | yes | yes | yes | yes | no |
 | View all congregation reports | no | no | yes | yes | yes | no |
 | Manually override publisher status | no | no | yes | no | yes | no |
@@ -193,8 +198,47 @@ A group overseer who is also an elder sees all reports (as elder).
 4. Publisher fills the form and clicks submit.
 5. `ServiceReport` row is created with `submittedBy = self`, `submittedOnBehalfOf = null`.
 
-If a report for the same publisher and month already exists, the form
-shows existing data read-only plus a notice: "Contact secretary to edit."
+If a report for the same publisher and month already exists:
+
+- **Within the self-edit window** (today is the 1st-10th of the month
+  following `reportMonth`): the form shows current values pre-filled
+  and editable. Submitting issues PATCH to update the existing report;
+  `lastEditedAt` and `lastEditedBy` are stamped. The `reportMonth`
+  field is locked.
+- **After the self-edit window**: the form shows existing data
+  read-only plus a notice: "Contact secretary to edit."
+
+### Self-edit own report (within window)
+
+The self-edit window is open from the 1st to the 10th (inclusive) of
+the month following the report month. For example, an April 2026
+report (`reportMonth = "2026-04"`) can be self-edited from May 1
+through May 10 2026; on May 11 the window closes.
+
+Window check (server-side):
+
+    const reportDate = new Date(report.reportMonth + '-01');
+    const windowEnd = new Date(
+      reportDate.getFullYear(),
+      reportDate.getMonth() + 1,
+      11,                                   // 11th of next month
+    );                                      // half-open: < windowEnd
+    const isInWindow = new Date() < windowEnd;
+
+GET endpoints that return a report include a derived boolean
+`canEdit`:
+
+    canEdit = isSecretaryOrAdmin
+           || (isOwnReport && isInWindow)
+
+The mobile/web client uses `canEdit` to show or hide the edit
+button. The PATCH endpoint re-verifies the same logic server-side;
+the boolean in the response is a hint, not authority.
+
+Duplicate prevention: when a publisher opens the create form, the
+month picker greys out months that already have a report. To correct
+an existing month, the publisher uses the edit flow (if within window)
+or contacts the secretary.
 
 ### Submit on behalf (secretary)
 
@@ -206,13 +250,16 @@ shows existing data read-only plus a notice: "Contact secretary to edit."
 5. Submits — row is created with `submittedBy = secretary's User.id`,
    `submittedOnBehalfOf = the publisher's id`.
 
-### Edit a report (secretary only)
+### Edit any report (secretary)
+
+Used for edits OUTSIDE the self-edit window, or for reports submitted
+by someone other than the secretary themselves.
 
 1. Secretary opens any existing report.
 2. Editable form with current values pre-filled.
 3. Saves changes.
 4. `lastEditedAt` and `lastEditedBy` updated. `AuditLog` entry created
-   with full before/after diff.
+   with full before/after diff (Phase C).
 
 ### Annual reviews (system-prompted)
 
@@ -320,9 +367,9 @@ Date formatting uses `Intl.DateTimeFormat` with the user's UI locale.
 
 | Phase | Scope | Estimated effort |
 |-------|-------|------------------|
-| **A** | `ServiceReport` entity + migration. Self-submission form for BOTH regular and pioneer shapes. Own history view. | 2-3 hours |
+| **A** | `ServiceReport` entity + migration. Self-submission for both regular and pioneer shapes. Self-edit within the 10-day window. Own history view with `canEdit` indicator. Duplicate-month prevention in the form. | 3-4 hours |
 | **B** | Service group overseer view (own group's reports). Group aggregate on dashboard. | 1-1.5 hours |
-| **C** | Secretary and service overseer views (all reports + filters). On-behalf submission. Edit flow with audit log. Manual status override. | 2-3 hours |
+| **C** | Secretary and service overseer views (all reports + filters). On-behalf submission. Edit flow for reports outside the self-edit window or submitted by others, with full `AuditLog` (before/after diff). Manual status override. | 2-3 hours |
 | **D** | `AuxiliaryPioneerEnrollment` entity. Enrollment workflow (apply, approve, cancel). Hour-quota integration. Structured `hourCredits` field. | 3-4 hours |
 | **E** | Pioneer cycle dashboard. March 1 and September 1 review banners. Service Year aggregations. Branch report export (CSV/PDF). | 2-3 hours |
 
