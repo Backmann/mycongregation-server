@@ -84,6 +84,17 @@ export class ServiceReport {
   @Column({ type: 'boolean', default: false })
   submittedOnBehalfOf!: boolean;
 
+  // ---- Edit tracking ----
+  @Column({ type: 'timestamptz', nullable: true })
+  lastEditedAt!: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  lastEditedById!: string | null;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'last_edited_by_id' })
+  lastEditedBy!: User | null;
+
   // ---- Standard ----
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

@@ -3,11 +3,15 @@ import {
   Body,
   Controller,
   Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
 import { ServiceReportsService } from './service-reports.service';
 import { SubmitReportDto } from './dto/submit-report.dto';
+import { UpdateReportDto } from './dto/update-report.dto';
 import {
   CurrentUser,
   type AuthenticatedUser,
@@ -42,6 +46,25 @@ export class ServiceReportsController {
         throw new BadRequestException('year must be between 2000 and 2100');
       }
     }
-    return this.serviceReportsService.findMyReports(tenantId, user.id, year);
+    return this.serviceReportsService.findMyReports(tenantId, user, year);
+  }
+
+  @Get(':id')
+  findOne(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.serviceReportsService.findOne(tenantId, user, id);
+  }
+
+  @Patch(':id')
+  update(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateReportDto,
+  ) {
+    return this.serviceReportsService.updateReport(tenantId, user, id, dto);
   }
 }
