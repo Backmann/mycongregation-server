@@ -1,5 +1,4 @@
 import {
-import { encryptedTransformer } from '../crypto/encrypted.transformer';
   Entity,
   PrimaryGeneratedColumn,
   Column,
@@ -10,6 +9,7 @@ import { encryptedTransformer } from '../crypto/encrypted.transformer';
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { encryptedTransformer } from '../crypto/encrypted.transformer';
 import { Congregation } from './congregation.entity';
 
 @Entity('service_groups')

@@ -1,5 +1,4 @@
 import {
-import { encryptedTransformer } from '../crypto/encrypted.transformer';
   Entity,
   PrimaryGeneratedColumn,
   Column,
@@ -11,6 +10,7 @@ import { encryptedTransformer } from '../crypto/encrypted.transformer';
   JoinColumn,
   Unique,
 } from 'typeorm';
+import { encryptedTransformer } from '../crypto/encrypted.transformer';
 import { Congregation } from './congregation.entity';
 import { Publisher } from './publisher.entity';
 import { User } from './user.entity';
