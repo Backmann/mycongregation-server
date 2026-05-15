@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
@@ -76,7 +76,9 @@ export class ServiceReportsService {
     tenantId: string,
     user: AuthenticatedUser,
     year?: number,
-  ): Promise<(ServiceReport & { canEdit: boolean })[]> {
+  ): Promise<
+    (ServiceReport & { canEdit: boolean; lastEditedByName: string | null })[]
+  > {
     const publisher = await this.resolveUserPublisher(tenantId, user.id);
 
     const qb = this.reportsRepo
@@ -92,7 +94,12 @@ export class ServiceReportsService {
     }
 
     const reports = await qb.getMany();
-    return reports.map((r) => this.withCanEdit(r, user));
+    reports.forEach((r) => this.withCanEdit(r, user));
+    await this.enrichEditorNames(reports);
+    return reports as (ServiceReport & {
+      canEdit: boolean;
+      lastEditedByName: string | null;
+    })[];
   }
 
   /**
@@ -103,7 +110,9 @@ export class ServiceReportsService {
     tenantId: string,
     user: AuthenticatedUser,
     reportId: string,
-  ): Promise<ServiceReport & { canEdit: boolean }> {
+  ): Promise<
+    ServiceReport & { canEdit: boolean; lastEditedByName: string | null }
+  > {
     const report = await this.reportsRepo.findOne({
       where: { id: reportId, congregationId: tenantId },
     });
@@ -118,7 +127,12 @@ export class ServiceReportsService {
       throw new ForbiddenException('You may only view your own reports.');
     }
 
-    return this.withCanEdit(report, user);
+    this.withCanEdit(report, user);
+    await this.enrichEditorNames([report]);
+    return report as ServiceReport & {
+      canEdit: boolean;
+      lastEditedByName: string | null;
+    };
   }
 
   /**
@@ -139,7 +153,9 @@ export class ServiceReportsService {
     user: AuthenticatedUser,
     reportId: string,
     dto: UpdateReportDto,
-  ): Promise<ServiceReport & { canEdit: boolean }> {
+  ): Promise<
+    ServiceReport & { canEdit: boolean; lastEditedByName: string | null }
+  > {
     const report = await this.reportsRepo.findOne({
       where: { id: reportId, congregationId: tenantId },
     });
@@ -190,7 +206,12 @@ export class ServiceReportsService {
     report.lastEditedById = user.id;
 
     const saved = await this.reportsRepo.save(report);
-    return this.withCanEdit(saved, user);
+    this.withCanEdit(saved, user);
+    await this.enrichEditorNames([saved]);
+    return saved as ServiceReport & {
+      canEdit: boolean;
+      lastEditedByName: string | null;
+    };
   }
 
   /**
@@ -269,6 +290,45 @@ export class ServiceReportsService {
       throw new BadRequestException(
         'At least one field must be provided to update.',
       );
+    }
+  }
+
+  /**
+   * Populate `lastEditedByName` on each report by looking up the editor's
+   * publisher record in a single batch query. Mutates the array in place.
+   *
+   * Reports without `lastEditedById`, or whose editor has no linked
+   * publisher record in this congregation, get `lastEditedByName: null`.
+   */
+  private async enrichEditorNames(reports: ServiceReport[]): Promise<void> {
+    const editorIds = [
+      ...new Set(
+        reports
+          .map((r) => r.lastEditedById)
+          .filter((id): id is string => id !== null && id !== undefined),
+      ),
+    ];
+
+    let nameByUserId: Map<string, string>;
+    if (editorIds.length === 0) {
+      nameByUserId = new Map();
+    } else {
+      const publishers = await this.publishersRepo.find({
+        where: { userId: In(editorIds) },
+      });
+      nameByUserId = new Map(
+        publishers
+          .filter((p): p is Publisher & { userId: string } => p.userId !== null)
+          .map((p) => [p.userId, p.displayName]),
+      );
+    }
+
+    for (const r of reports) {
+      (r as ServiceReport & {
+        lastEditedByName: string | null;
+      }).lastEditedByName = r.lastEditedById
+        ? nameByUserId.get(r.lastEditedById) ?? null
+        : null;
     }
   }
 
