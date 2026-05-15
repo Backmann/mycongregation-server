@@ -49,6 +49,29 @@ export class ServiceReportsController {
     return this.serviceReportsService.findMyReports(tenantId, user, year);
   }
 
+  @Get('group')
+  findGroup(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('reportMonth') reportMonthRaw?: string,
+  ) {
+    if (!reportMonthRaw) {
+      throw new BadRequestException(
+        'reportMonth query parameter is required (YYYY-MM)',
+      );
+    }
+    if (!/^\d{4}-\d{2}(-\d{2})?$/.test(reportMonthRaw)) {
+      throw new BadRequestException(
+        'reportMonth must be in YYYY-MM or YYYY-MM-DD format',
+      );
+    }
+    return this.serviceReportsService.findGroupReports(
+      tenantId,
+      user,
+      reportMonthRaw,
+    );
+  }
+
   @Get(':id')
   findOne(
     @TenantId() tenantId: string,

@@ -9,11 +9,27 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Publisher } from '../entities/publisher.entity';
+import { ServiceGroup } from '../entities/service-group.entity';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { SubmitReportDto } from './dto/submit-report.dto';
 import { UpdateReportDto } from './dto/update-report.dto';
+
+export interface GroupReportsResponse {
+  reportMonth: string;
+  scopeLabel: string;
+  publishers: GroupReportRow[];
+}
+
+export interface GroupReportRow {
+  publisherId: string;
+  displayName: string;
+  isPioneer: boolean;
+  report:
+    | (ServiceReport & { canEdit: boolean; lastEditedByName: string | null })
+    | null;
+}
 
 @Injectable()
 export class ServiceReportsService {
@@ -22,6 +38,8 @@ export class ServiceReportsService {
     private readonly reportsRepo: Repository<ServiceReport>,
     @InjectRepository(Publisher)
     private readonly publishersRepo: Repository<Publisher>,
+    @InjectRepository(ServiceGroup)
+    private readonly serviceGroupsRepo: Repository<ServiceGroup>,
   ) {}
 
   /**
@@ -211,6 +229,100 @@ export class ServiceReportsService {
     return saved as ServiceReport & {
       canEdit: boolean;
       lastEditedByName: string | null;
+    };
+  }
+
+  /**
+   * Group-level pastoral view: for one month, lists every publisher in
+   * the caller's scope and their report (if submitted) or `null`.
+   *
+   * Scope rules:
+   * - ADMIN or ELDER → all publishers in the congregation.
+   * - Publisher who oversees one or more service groups → publishers in
+   *   those groups.
+   * - Otherwise → ForbiddenException.
+   *
+   * Each report includes `canEdit` and `lastEditedByName` (same as
+   * other endpoints).
+   */
+  async findGroupReports(
+    tenantId: string,
+    user: AuthenticatedUser,
+    reportMonthInput: string,
+  ): Promise<GroupReportsResponse> {
+    const normalizedMonth = this.normalizeReportMonth(reportMonthInput);
+    const isElderOrAdmin =
+      user.role === UserRole.ADMIN || user.role === UserRole.ELDER;
+
+    let publisherScope: Publisher[];
+    let scopeLabel: string;
+
+    if (isElderOrAdmin) {
+      publisherScope = await this.publishersRepo.find({
+        where: { congregationId: tenantId },
+        order: { lastName: 'ASC', firstName: 'ASC' },
+      });
+      scopeLabel = 'Congregation';
+    } else {
+      // Caller must be the overseer of at least one service group.
+      const myPublisher = await this.resolveUserPublisher(tenantId, user.id);
+      const overseerGroups = await this.serviceGroupsRepo.find({
+        where: {
+          congregationId: tenantId,
+          overseerPublisherId: myPublisher.id,
+        },
+      });
+
+      if (overseerGroups.length === 0) {
+        throw new ForbiddenException(
+          'You are not authorized to view group reports. Group reports are ' +
+            'visible to elders, admins, and service group overseers.',
+        );
+      }
+
+      const groupIds = overseerGroups.map((g) => g.id);
+      publisherScope = await this.publishersRepo.find({
+        where: {
+          congregationId: tenantId,
+          serviceGroupId: In(groupIds),
+        },
+        order: { lastName: 'ASC', firstName: 'ASC' },
+      });
+      scopeLabel = overseerGroups.map((g) => g.name).join(', ');
+    }
+
+    const publisherIds = publisherScope.map((p) => p.id);
+    const reports =
+      publisherIds.length === 0
+        ? []
+        : await this.reportsRepo.find({
+            where: {
+              congregationId: tenantId,
+              publisherId: In(publisherIds),
+              reportMonth: normalizedMonth,
+            },
+          });
+
+    reports.forEach((r) => this.withCanEdit(r, user));
+    await this.enrichEditorNames(reports);
+
+    const reportByPubId = new Map(reports.map((r) => [r.publisherId, r]));
+
+    return {
+      reportMonth: normalizedMonth,
+      scopeLabel,
+      publishers: publisherScope.map((p) => ({
+        publisherId: p.id,
+        displayName: p.displayName,
+        isPioneer: p.pioneerType !== PioneerType.NONE,
+        report:
+          (reportByPubId.get(p.id) as
+            | (ServiceReport & {
+                canEdit: boolean;
+                lastEditedByName: string | null;
+              })
+            | undefined) ?? null,
+      })),
     };
   }
 

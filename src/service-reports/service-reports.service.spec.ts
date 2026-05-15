@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 import { ServiceReportsService } from './service-reports.service';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Publisher } from '../entities/publisher.entity';
+import { ServiceGroup } from '../entities/service-group.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -71,6 +72,7 @@ describe('ServiceReportsService', () => {
   let service: ServiceReportsService;
   let reportsRepo: jest.Mocked<Repository<ServiceReport>>;
   let publishersRepo: jest.Mocked<Repository<Publisher>>;
+  let serviceGroupsRepo: jest.Mocked<Repository<ServiceGroup>>;
 
   beforeEach(() => {
     reportsRepo = {
@@ -86,7 +88,16 @@ describe('ServiceReportsService', () => {
       find: jest.fn(),
     } as unknown as jest.Mocked<Repository<Publisher>>;
 
-    service = new ServiceReportsService(reportsRepo, publishersRepo);
+    serviceGroupsRepo = {
+      find: jest.fn(),
+      findOne: jest.fn(),
+    } as unknown as jest.Mocked<Repository<ServiceGroup>>;
+
+    service = new ServiceReportsService(
+      reportsRepo,
+      publishersRepo,
+      serviceGroupsRepo,
+    );
   });
 
   afterEach(() => {
@@ -705,6 +716,138 @@ describe('ServiceReportsService', () => {
       await expect(
         service.findMyReports('cong-1', makeUser({ id: 'orphan' })),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  // =========================================================
+  // findGroupReports (Phase B)
+  // =========================================================
+
+  describe('findGroupReports', () => {
+    it('allows ADMIN to see all publishers in the congregation', async () => {
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      publishersRepo.find.mockResolvedValue([
+        makePublisher({ id: 'p1', displayName: 'Alpha' }),
+        makePublisher({ id: 'p2', displayName: 'Beta' }),
+      ]);
+      reportsRepo.find.mockResolvedValue([]);
+
+      const result = await service.findGroupReports(
+        'cong-1',
+        makeUser({ id: 'admin', role: UserRole.ADMIN }),
+        '2026-04',
+      );
+
+      expect(result.scopeLabel).toBe('Congregation');
+      expect(result.publishers).toHaveLength(2);
+      expect(serviceGroupsRepo.find).not.toHaveBeenCalled();
+    });
+
+    it('allows ELDER to see all publishers in the congregation', async () => {
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      publishersRepo.find.mockResolvedValue([
+        makePublisher({ id: 'p1' }),
+      ]);
+      reportsRepo.find.mockResolvedValue([]);
+
+      const result = await service.findGroupReports(
+        'cong-1',
+        makeUser({ id: 'elder', role: UserRole.ELDER }),
+        '2026-04',
+      );
+
+      expect(result.publishers).toHaveLength(1);
+      expect(serviceGroupsRepo.find).not.toHaveBeenCalled();
+    });
+
+    it('forbids non-elder/admin who oversees no group', async () => {
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ id: 'pub-me' }),
+      );
+      serviceGroupsRepo.find.mockResolvedValue([]);
+
+      await expect(
+        service.findGroupReports(
+          'cong-1',
+          makeUser({ id: 'user-self', role: UserRole.PUBLISHER }),
+          '2026-04',
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('allows overseer to see publishers in their group(s)', async () => {
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ id: 'pub-overseer' }),
+      );
+      serviceGroupsRepo.find.mockResolvedValue([
+        { id: 'group-1', name: 'Group 1' } as ServiceGroup,
+      ]);
+      publishersRepo.find.mockResolvedValue([
+        makePublisher({ id: 'p1', displayName: 'Alpha' }),
+        makePublisher({ id: 'p2', displayName: 'Beta' }),
+      ]);
+      reportsRepo.find.mockResolvedValue([]);
+
+      const result = await service.findGroupReports(
+        'cong-1',
+        makeUser({ id: 'user-overseer', role: UserRole.PUBLISHER }),
+        '2026-04',
+      );
+
+      expect(result.scopeLabel).toBe('Group 1');
+      expect(result.publishers).toHaveLength(2);
+      expect(serviceGroupsRepo.find).toHaveBeenCalledWith({
+        where: {
+          congregationId: 'cong-1',
+          overseerPublisherId: 'pub-overseer',
+        },
+      });
+    });
+
+    it('returns null report for publishers without a submission', async () => {
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      publishersRepo.find.mockResolvedValue([
+        makePublisher({ id: 'p1', displayName: 'Alpha' }),
+        makePublisher({ id: 'p2', displayName: 'Beta' }),
+      ]);
+      reportsRepo.find.mockResolvedValue([
+        makeReport({ id: 'r1', publisherId: 'p1' }),
+      ]);
+
+      const result = await service.findGroupReports(
+        'cong-1',
+        makeUser({ id: 'admin', role: UserRole.ADMIN }),
+        '2026-04',
+      );
+
+      expect(result.publishers[0].report).not.toBeNull();
+      expect(result.publishers[0].report!.id).toBe('r1');
+      expect(result.publishers[1].report).toBeNull();
+    });
+
+    it('enriches each report with canEdit and lastEditedByName', async () => {
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      publishersRepo.find.mockResolvedValue([
+        makePublisher({ id: 'p1' }),
+      ]);
+      reportsRepo.find.mockResolvedValue([
+        makeReport({
+          id: 'r1',
+          publisherId: 'p1',
+          lastEditedById: null,
+        }),
+      ]);
+
+      const result = await service.findGroupReports(
+        'cong-1',
+        makeUser({ id: 'admin', role: UserRole.ADMIN }),
+        '2026-04',
+      );
+
+      expect(result.publishers[0].report).not.toBeNull();
+      expect(result.publishers[0].report!.canEdit).toBe(true);
+      expect(result.publishers[0].report!.lastEditedByName).toBeNull();
     });
   });
 });
