@@ -22,9 +22,11 @@ import { CryptoModule } from './crypto/crypto.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ScheduledJobsModule } from './scheduled-jobs/scheduled-jobs.module';
 import { PushNotificationsModule } from './push-notifications/push-notifications.module';
+import { ActivityFeedModule } from './activity-feed/activity-feed.module';
 
 @Module({
   imports: [
+    ActivityFeedModule,
     ConfigModule.forRoot({
       isGlobal: true,
       load: [configuration],
