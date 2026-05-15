@@ -43,16 +43,28 @@ export class ServiceReportsService {
   ) {}
 
   /**
-   * Submit own monthly service report.
-   * Authenticated user is resolved to their Publisher record.
-   * One report per Publisher per month is enforced by UNIQUE constraint.
+   * Submit a monthly service report.
+   *
+   * Two modes (driven by `dto.publisherId`):
+   * - Self-submission (default): the authenticated user's publisher.
+   * - On-behalf submission (admin/elder only): the report is for the
+   *   publisher identified by `dto.publisherId`. `submittedById` remains
+   *   the secretary's user id, and `submittedOnBehalfOf` is set to true.
+   *
+   * Form variant (regular vs pioneer) is determined by the TARGET
+   * publisher's pioneerType, not the caller's. One report per publisher
+   * per month is still enforced by the UNIQUE constraint.
    */
   async submitOwnReport(
     tenantId: string,
-    userId: string,
+    user: AuthenticatedUser,
     dto: SubmitReportDto,
   ): Promise<ServiceReport> {
-    const publisher = await this.resolveUserPublisher(tenantId, userId);
+    const { publisher, onBehalf } = await this.resolveSubmitTarget(
+      tenantId,
+      user,
+      dto.publisherId,
+    );
     const reportMonth = this.normalizeReportMonth(dto.reportMonth);
     const isPioneer = publisher.pioneerType !== PioneerType.NONE;
 
@@ -67,8 +79,8 @@ export class ServiceReportsService {
       bibleStudies: dto.bibleStudies,
       notes: dto.notes ?? null,
       submittedAt: new Date(),
-      submittedById: userId,
-      submittedOnBehalfOf: false,
+      submittedById: user.id,
+      submittedOnBehalfOf: onBehalf,
     });
 
     try {
@@ -82,6 +94,52 @@ export class ServiceReportsService {
       }
       throw err;
     }
+  }
+
+  /**
+   * Resolve which publisher the report is for plus whether the submission
+   * is on-behalf:
+   * - No `dtoPublisherId`: caller's own publisher (self).
+   * - `dtoPublisherId === caller's own publisher.id`: explicit self.
+   * - `dtoPublisherId` of someone else's publisher: requires the caller
+   *   to be ADMIN or ELDER, else ForbiddenException. Target must exist
+   *   within the same congregation.
+   */
+  private async resolveSubmitTarget(
+    tenantId: string,
+    user: AuthenticatedUser,
+    dtoPublisherId: string | undefined,
+  ): Promise<{ publisher: Publisher; onBehalf: boolean }> {
+    if (!dtoPublisherId) {
+      const publisher = await this.resolveUserPublisher(tenantId, user.id);
+      return { publisher, onBehalf: false };
+    }
+
+    const myPublisher = await this.publishersRepo.findOne({
+      where: { congregationId: tenantId, userId: user.id },
+    });
+
+    if (myPublisher && myPublisher.id === dtoPublisherId) {
+      return { publisher: myPublisher, onBehalf: false };
+    }
+
+    const isElderOrAdmin =
+      user.role === UserRole.ADMIN || user.role === UserRole.ELDER;
+    if (!isElderOrAdmin) {
+      throw new ForbiddenException(
+        'Only elders and admins may submit reports on behalf of other publishers.',
+      );
+    }
+
+    const target = await this.publishersRepo.findOne({
+      where: { id: dtoPublisherId, congregationId: tenantId },
+    });
+    if (!target) {
+      throw new BadRequestException(
+        'Target publisher not found in this congregation.',
+      );
+    }
+    return { publisher: target, onBehalf: true };
   }
 
   /**

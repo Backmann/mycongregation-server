@@ -30,7 +30,7 @@ export class ServiceReportsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: SubmitReportDto,
   ) {
-    return this.serviceReportsService.submitOwnReport(tenantId, user.id, dto);
+    return this.serviceReportsService.submitOwnReport(tenantId, user, dto);
   }
 
   @Get('my')

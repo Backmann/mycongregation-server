@@ -220,7 +220,7 @@ describe('ServiceReportsService', () => {
         const saved = makeReport();
         reportsRepo.save.mockResolvedValue(saved);
 
-        const result = await service.submitOwnReport('cong-1', 'user-self', {
+        const result = await service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
           reportMonth: '2026-04',
           servedThisMonth: true,
           bibleStudies: 2,
@@ -241,7 +241,7 @@ describe('ServiceReportsService', () => {
 
       it('throws BadRequest if hoursReported is supplied (form variant mismatch)', async () => {
         await expect(
-          service.submitOwnReport('cong-1', 'user-self', {
+          service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
             reportMonth: '2026-04',
             hoursReported: 50,
             bibleStudies: 0,
@@ -251,7 +251,7 @@ describe('ServiceReportsService', () => {
 
       it('throws BadRequest if servedThisMonth is missing', async () => {
         await expect(
-          service.submitOwnReport('cong-1', 'user-self', {
+          service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
             reportMonth: '2026-04',
             bibleStudies: 0,
           }),
@@ -270,7 +270,7 @@ describe('ServiceReportsService', () => {
         const saved = makeReport({ servedThisMonth: null, hoursReported: 60 });
         reportsRepo.save.mockResolvedValue(saved);
 
-        const result = await service.submitOwnReport('cong-1', 'user-self', {
+        const result = await service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
           reportMonth: '2026-04',
           hoursReported: 60,
           bibleStudies: 1,
@@ -287,7 +287,7 @@ describe('ServiceReportsService', () => {
 
       it('throws BadRequest if servedThisMonth is supplied', async () => {
         await expect(
-          service.submitOwnReport('cong-1', 'user-self', {
+          service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
             reportMonth: '2026-04',
             servedThisMonth: true,
             bibleStudies: 0,
@@ -297,7 +297,7 @@ describe('ServiceReportsService', () => {
 
       it('throws BadRequest if hoursReported is missing', async () => {
         await expect(
-          service.submitOwnReport('cong-1', 'user-self', {
+          service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
             reportMonth: '2026-04',
             bibleStudies: 0,
           }),
@@ -316,7 +316,7 @@ describe('ServiceReportsService', () => {
         reportsRepo.save.mockRejectedValue(pgErr);
 
         await expect(
-          service.submitOwnReport('cong-1', 'user-self', {
+          service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
             reportMonth: '2026-04',
             servedThisMonth: true,
             bibleStudies: 0,
@@ -329,7 +329,7 @@ describe('ServiceReportsService', () => {
         reportsRepo.save.mockRejectedValue(otherErr);
 
         await expect(
-          service.submitOwnReport('cong-1', 'user-self', {
+          service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
             reportMonth: '2026-04',
             servedThisMonth: true,
             bibleStudies: 0,
@@ -343,7 +343,7 @@ describe('ServiceReportsService', () => {
         publishersRepo.findOne.mockResolvedValue(null);
 
         await expect(
-          service.submitOwnReport('cong-1', 'orphan-user', {
+          service.submitOwnReport('cong-1', makeUser({ id: 'orphan-user' }), {
             reportMonth: '2026-04',
             servedThisMonth: true,
             bibleStudies: 0,
@@ -359,7 +359,7 @@ describe('ServiceReportsService', () => {
       });
 
       it('normalizes "YYYY-MM" → "YYYY-MM-01"', async () => {
-        await service.submitOwnReport('cong-1', 'user-self', {
+        await service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
           reportMonth: '2026-04',
           servedThisMonth: true,
           bibleStudies: 0,
@@ -370,13 +370,152 @@ describe('ServiceReportsService', () => {
       });
 
       it('normalizes "YYYY-MM-DD" → "YYYY-MM-01" regardless of day', async () => {
-        await service.submitOwnReport('cong-1', 'user-self', {
+        await service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
           reportMonth: '2026-04-25',
           servedThisMonth: true,
           bibleStudies: 0,
         });
         expect(reportsRepo.create).toHaveBeenCalledWith(
           expect.objectContaining({ reportMonth: '2026-04-01' }),
+        );
+      });
+    });
+
+    describe('on-behalf submission (admin/elder)', () => {
+      it('accepts on-behalf when caller is ADMIN', async () => {
+        publishersRepo.findOne.mockImplementation(async (opts: any) => {
+          if (opts.where.userId === 'admin-id') {
+            return makePublisher({ id: 'pub-admin', userId: 'admin-id' });
+          }
+          if (opts.where.id === 'pub-target') {
+            return makePublisher({
+              id: 'pub-target',
+              userId: 'target-user',
+              displayName: 'Target Pub',
+              pioneerType: PioneerType.NONE,
+            });
+          }
+          return null;
+        });
+        reportsRepo.save.mockImplementation(async (r: any) => r);
+
+        await service.submitOwnReport(
+          'cong-1',
+          makeUser({ id: 'admin-id', role: UserRole.ADMIN }),
+          {
+            reportMonth: '2026-04',
+            publisherId: 'pub-target',
+            servedThisMonth: true,
+            bibleStudies: 1,
+          },
+        );
+
+        expect(reportsRepo.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            publisherId: 'pub-target',
+            submittedById: 'admin-id',
+            submittedOnBehalfOf: true,
+          }),
+        );
+      });
+
+      it('accepts on-behalf when caller is ELDER', async () => {
+        publishersRepo.findOne.mockImplementation(async (opts: any) => {
+          if (opts.where.userId === 'elder-id') {
+            return makePublisher({ id: 'pub-elder', userId: 'elder-id' });
+          }
+          if (opts.where.id === 'pub-target') {
+            return makePublisher({
+              id: 'pub-target',
+              pioneerType: PioneerType.NONE,
+            });
+          }
+          return null;
+        });
+        reportsRepo.save.mockImplementation(async (r: any) => r);
+
+        await service.submitOwnReport(
+          'cong-1',
+          makeUser({ id: 'elder-id', role: UserRole.ELDER }),
+          {
+            reportMonth: '2026-04',
+            publisherId: 'pub-target',
+            servedThisMonth: false,
+            bibleStudies: 0,
+          },
+        );
+
+        expect(reportsRepo.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            publisherId: 'pub-target',
+            submittedOnBehalfOf: true,
+          }),
+        );
+      });
+
+      it('forbids non-admin/elder from submitting on behalf of others', async () => {
+        publishersRepo.findOne.mockImplementation(async (opts: any) => {
+          if (opts.where.userId === 'user-self') {
+            return makePublisher({ id: 'pub-self', userId: 'user-self' });
+          }
+          return null;
+        });
+
+        await expect(
+          service.submitOwnReport(
+            'cong-1',
+            makeUser({ id: 'user-self', role: UserRole.PUBLISHER }),
+            {
+              reportMonth: '2026-04',
+              publisherId: 'pub-someone-else',
+              servedThisMonth: true,
+              bibleStudies: 0,
+            },
+          ),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+      });
+
+      it('throws BadRequest when target publisher does not exist in this congregation', async () => {
+        publishersRepo.findOne.mockImplementation(async (opts: any) => {
+          if (opts.where.userId === 'admin-id') {
+            return makePublisher({ id: 'pub-admin', userId: 'admin-id' });
+          }
+          return null;
+        });
+
+        await expect(
+          service.submitOwnReport(
+            'cong-1',
+            makeUser({ id: 'admin-id', role: UserRole.ADMIN }),
+            {
+              reportMonth: '2026-04',
+              publisherId: 'pub-nonexistent',
+              servedThisMonth: true,
+              bibleStudies: 0,
+            },
+          ),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      });
+
+      it("treats publisherId === caller's own publisher as a self submission", async () => {
+        publishersRepo.findOne.mockResolvedValue(
+          makePublisher({ id: 'pub-self', userId: 'user-self' }),
+        );
+        reportsRepo.save.mockImplementation(async (r: any) => r);
+
+        await service.submitOwnReport(
+          'cong-1',
+          makeUser({ id: 'user-self', role: UserRole.PUBLISHER }),
+          {
+            reportMonth: '2026-04',
+            publisherId: 'pub-self',
+            servedThisMonth: true,
+            bibleStudies: 0,
+          },
+        );
+
+        expect(reportsRepo.create).toHaveBeenCalledWith(
+          expect.objectContaining({ submittedOnBehalfOf: false }),
         );
       });
     });

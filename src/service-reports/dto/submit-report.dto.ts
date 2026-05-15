@@ -3,12 +3,22 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
   Min,
 } from 'class-validator';
 
 export class SubmitReportDto {
+  // Optional: when an elder/admin submits on behalf of another publisher,
+  // this is the target publisher's id. If omitted, the report is for the
+  // currently authenticated user's own publisher record. If supplied and
+  // equal to the caller's own publisher id, the submission is still
+  // treated as self (no on-behalf flag).
+  @IsOptional()
+  @IsUUID()
+  publisherId?: string;
+
   // Accepts "YYYY-MM" or "YYYY-MM-DD"; server normalizes to first of month.
   @Matches(/^\d{4}-\d{2}(-\d{2})?$/, {
     message: 'reportMonth must be in YYYY-MM or YYYY-MM-DD format',
