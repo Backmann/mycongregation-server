@@ -12,6 +12,7 @@ import { ServiceReport } from '../entities/service-report.entity';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { OverrideStatusDto } from './dto/override-status.dto';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
@@ -74,6 +75,7 @@ export class PublishersService {
     @InjectRepository(ServiceReport)
     private readonly reportsRepo: Repository<ServiceReport>,
     private readonly auditLogService: AuditLogService,
+    private readonly pushNotificationsService: PushNotificationsService,
   ) {}
 
   /**
@@ -129,6 +131,21 @@ export class PublishersService {
         fields: ['status'],
       });
     }
+    // Fire-and-forget push to admin/elder devices. Best-effort: errors are
+    // swallowed so a push failure can never break the status pipeline.
+    this.pushNotificationsService
+      .sendStatusChange(
+        tenantId,
+        { id: publisher.id, displayName: publisher.displayName },
+        before.status,
+        newStatus,
+        publisher.userId ?? undefined,
+      )
+      .catch((err: any) => {
+        this.logger.warn(
+          `sendStatusChange failed for publisher=${publisher.id}: ${err?.message ?? err}`,
+        );
+      });
     return 'updated';
   }
 

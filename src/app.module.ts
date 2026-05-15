@@ -21,6 +21,7 @@ import { ServiceReportsModule } from './service-reports/service-reports.module';
 import { CryptoModule } from './crypto/crypto.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ScheduledJobsModule } from './scheduled-jobs/scheduled-jobs.module';
+import { PushNotificationsModule } from './push-notifications/push-notifications.module';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { ScheduledJobsModule } from './scheduled-jobs/scheduled-jobs.module';
     ServiceReportsModule,
     ScheduleModule.forRoot(),
     ScheduledJobsModule,
+    PushNotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
