@@ -19,6 +19,8 @@ import { ScheduleImportModule } from './schedule-import/schedule-import.module';
 import { PublicTalksModule } from './public-talks/public-talks.module';
 import { ServiceReportsModule } from './service-reports/service-reports.module';
 import { CryptoModule } from './crypto/crypto.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { ScheduledJobsModule } from './scheduled-jobs/scheduled-jobs.module';
 
 @Module({
   imports: [
@@ -59,6 +61,8 @@ import { CryptoModule } from './crypto/crypto.module';
     ScheduleImportModule,
     PublicTalksModule,
     ServiceReportsModule,
+    ScheduleModule.forRoot(),
+    ScheduledJobsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

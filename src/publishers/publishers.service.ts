@@ -2,10 +2,11 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, MoreThanOrEqual, Repository } from 'typeorm';
+import { Brackets, IsNull, MoreThanOrEqual, Repository } from 'typeorm';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceReport } from '../entities/service-report.entity';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
@@ -61,8 +62,12 @@ import { UpdatePublisherDto } from './dto/update-publisher.dto';
 import { QueryPublishersDto } from './dto/query-publishers.dto';
 import { RemovePublisherDto } from './dto/remove-publisher.dto';
 
+export type RecomputeResult = 'skipped_override' | 'unchanged' | 'updated';
+
 @Injectable()
 export class PublishersService {
+  private readonly logger = new Logger(PublishersService.name);
+
   constructor(
     @InjectRepository(Publisher)
     private readonly publishersRepo: Repository<Publisher>,
@@ -76,14 +81,17 @@ export class PublishersService {
    * reports. No-op when statusManuallyOverridden=true. Skips the save if
    * the computed status matches the stored value.
    */
-  async recomputeStatus(tenantId: string, publisherId: string): Promise<void> {
+  async recomputeStatus(
+    tenantId: string,
+    publisherId: string,
+  ): Promise<RecomputeResult> {
     const publisher = await this.publishersRepo.findOne({
       where: { id: publisherId, congregationId: tenantId },
     });
     if (!publisher) {
       throw new NotFoundException('Publisher not found.');
     }
-    if (publisher.statusManuallyOverridden) return;
+    if (publisher.statusManuallyOverridden) return 'skipped_override';
 
     const now = new Date(Date.now());
     const windowStart = new Date(
@@ -102,7 +110,7 @@ export class PublishersService {
     });
 
     const newStatus = computeStatusFromReports(reports, now);
-    if (publisher.status === newStatus) return;
+    if (publisher.status === newStatus) return 'unchanged';
 
     const before = { status: publisher.status };
     publisher.status = newStatus;
@@ -121,6 +129,55 @@ export class PublishersService {
         fields: ['status'],
       });
     }
+    return 'updated';
+  }
+
+  /**
+   * Iterate every active publisher across all congregations and recompute
+   * status. Used by both the nightly cron and the admin manual trigger.
+   * Per-publisher errors are caught and counted — one bad row does not
+   * fail the run.
+   */
+  async recomputeAllStatuses(): Promise<{
+    processed: number;
+    updated: number;
+    unchanged: number;
+    skipped: number;
+    errors: number;
+    durationMs: number;
+  }> {
+    const startedAt = Date.now();
+    const publishers = await this.publishersRepo.find({
+      where: { removedAt: IsNull() },
+    });
+
+    let updated = 0;
+    let unchanged = 0;
+    let skipped = 0;
+    let errors = 0;
+
+    for (const p of publishers) {
+      try {
+        const result = await this.recomputeStatus(p.congregationId, p.id);
+        if (result === 'updated') updated++;
+        else if (result === 'unchanged') unchanged++;
+        else if (result === 'skipped_override') skipped++;
+      } catch (err: any) {
+        errors++;
+        this.logger.warn(
+          `recomputeStatus failed for publisher=${p.id} cong=${p.congregationId}: ${err?.message ?? err}`,
+        );
+      }
+    }
+
+    return {
+      processed: publishers.length,
+      updated,
+      unchanged,
+      skipped,
+      errors,
+      durationMs: Date.now() - startedAt,
+    };
   }
 
   /**

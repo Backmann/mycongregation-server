@@ -329,4 +329,109 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       );
     });
   });
+
+  describe('recomputeStatus return values', () => {
+    it("returns 'updated' when computed status differs from stored", async () => {
+      const pub = makePublisher({
+        id: 'pub-1',
+        status: PublisherStatus.INACTIVE,
+        statusManuallyOverridden: false,
+      });
+      publishersRepo.findOne.mockResolvedValue(pub);
+      reportsRepo.find.mockResolvedValue([
+        makeReport({ reportMonth: '2026-04-01', servedThisMonth: true }),
+      ]);
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
+
+      const result = await service.recomputeStatus('cong-1', 'pub-1');
+      expect(result).toBe('updated');
+    });
+
+    it("returns 'unchanged' when computed status equals stored", async () => {
+      const pub = makePublisher({
+        id: 'pub-1',
+        status: PublisherStatus.INACTIVE,
+        statusManuallyOverridden: false,
+      });
+      publishersRepo.findOne.mockResolvedValue(pub);
+      reportsRepo.find.mockResolvedValue([]);
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
+
+      const result = await service.recomputeStatus('cong-1', 'pub-1');
+      expect(result).toBe('unchanged');
+    });
+
+    it("returns 'skipped_override' when statusManuallyOverridden=true", async () => {
+      const pub = makePublisher({
+        id: 'pub-1',
+        status: PublisherStatus.ACTIVE,
+        statusManuallyOverridden: true,
+      });
+      publishersRepo.findOne.mockResolvedValue(pub);
+
+      const result = await service.recomputeStatus('cong-1', 'pub-1');
+      expect(result).toBe('skipped_override');
+    });
+  });
+
+  describe('recomputeAllStatuses', () => {
+    it('iterates publishers, aggregates counts, respects overrides', async () => {
+      const pubs = [
+        makePublisher({
+          id: 'a',
+          congregationId: 'cong-1',
+          status: PublisherStatus.INACTIVE,
+          statusManuallyOverridden: false,
+        }),
+        makePublisher({
+          id: 'b',
+          congregationId: 'cong-1',
+          status: PublisherStatus.ACTIVE,
+          statusManuallyOverridden: true,
+        }),
+        makePublisher({
+          id: 'c',
+          congregationId: 'cong-1',
+          status: PublisherStatus.INACTIVE,
+          statusManuallyOverridden: false,
+        }),
+      ];
+      publishersRepo.find.mockResolvedValue(pubs as any);
+      publishersRepo.findOne.mockImplementation(async (options: any) => {
+        const id = options?.where?.id;
+        return pubs.find((p) => p.id === id) ?? null;
+      });
+      reportsRepo.find.mockImplementation(async (options: any) => {
+        const pubId = options?.where?.publisherId;
+        if (pubId === 'a') {
+          return [
+            makeReport({ reportMonth: '2026-04-01', servedThisMonth: true }),
+          ] as any;
+        }
+        return [] as any;
+      });
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
+
+      const summary = await service.recomputeAllStatuses();
+      expect(summary.processed).toBe(3);
+      expect(summary.updated).toBe(1); // 'a': inactive → irregular
+      expect(summary.unchanged).toBe(1); // 'c': stays inactive
+      expect(summary.skipped).toBe(1); // 'b': manual override
+      expect(summary.errors).toBe(0);
+    });
+
+    it('counts per-publisher errors without failing the whole run', async () => {
+      publishersRepo.find.mockResolvedValue([
+        makePublisher({ id: 'broken', congregationId: 'cong-1' }),
+      ] as any);
+      publishersRepo.findOne.mockRejectedValue(new Error('boom'));
+
+      const summary = await service.recomputeAllStatuses();
+      expect(summary.processed).toBe(1);
+      expect(summary.errors).toBe(1);
+      expect(summary.updated).toBe(0);
+    });
+  });
 });
