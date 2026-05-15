@@ -10,6 +10,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { encryptedTransformer } from '../crypto/encrypted.transformer';
+import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { Congregation } from './congregation.entity';
 import { User } from './user.entity';
 import { Family } from './family.entity';
@@ -168,6 +169,35 @@ export class Publisher {
 
   @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   removedNote!: string | null;
+
+  // ---- Status (computed from reports; manual override is sticky) ----
+  @Column({
+    type: 'varchar',
+    length: 16,
+    default: PublisherStatus.INACTIVE,
+  })
+  status!: PublisherStatus;
+
+  @Column({
+    type: 'boolean',
+    name: 'status_manually_overridden',
+    default: false,
+  })
+  statusManuallyOverridden!: boolean;
+
+  @Column({
+    type: 'uuid',
+    name: 'status_overridden_by_id',
+    nullable: true,
+  })
+  statusOverriddenById!: string | null;
+
+  @Column({
+    type: 'timestamptz',
+    name: 'status_overridden_at',
+    nullable: true,
+  })
+  statusOverriddenAt!: Date | null;
 
   @Column({ type: 'timestamptz', nullable: true })
   restoredAt!: Date | null;

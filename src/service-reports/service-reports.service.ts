@@ -11,6 +11,7 @@ import { ServiceReport } from '../entities/service-report.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { PublishersService } from '../publishers/publishers.service';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -42,6 +43,7 @@ export class ServiceReportsService {
     @InjectRepository(ServiceGroup)
     private readonly serviceGroupsRepo: Repository<ServiceGroup>,
     private readonly auditLogService: AuditLogService,
+    private readonly publishersService: PublishersService,
   ) {}
 
   /**
@@ -85,8 +87,9 @@ export class ServiceReportsService {
       submittedOnBehalfOf: onBehalf,
     });
 
+    let saved: ServiceReport;
     try {
-      return await this.reportsRepo.save(report);
+      saved = await this.reportsRepo.save(report);
     } catch (err: any) {
       // PostgreSQL unique_violation
       if (err?.code === '23505') {
@@ -96,6 +99,9 @@ export class ServiceReportsService {
       }
       throw err;
     }
+    // Recompute target publisher's status (no-op if manually overridden).
+    await this.publishersService.recomputeStatus(tenantId, publisher.id);
+    return saved;
   }
 
   /**
@@ -305,6 +311,8 @@ export class ServiceReportsService {
       },
       fields: ['servedThisMonth', 'hoursReported', 'bibleStudies', 'notes'],
     });
+    // Recompute target publisher's status (no-op if manually overridden).
+    await this.publishersService.recomputeStatus(tenantId, report.publisherId);
     this.withCanEdit(saved, user);
     await this.enrichEditorNames([saved]);
     return saved as ServiceReport & {

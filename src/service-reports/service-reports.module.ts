@@ -6,11 +6,13 @@ import { ServiceGroup } from '../entities/service-group.entity';
 import { ServiceReportsController } from './service-reports.controller';
 import { ServiceReportsService } from './service-reports.service';
 import { AuditLogModule } from '../audit-log/audit-log.module';
+import { PublishersModule } from '../publishers/publishers.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([ServiceReport, Publisher, ServiceGroup]),
     AuditLogModule,
+    PublishersModule,
   ],
   controllers: [ServiceReportsController],
   providers: [ServiceReportsService],

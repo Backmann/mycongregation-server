@@ -24,6 +24,27 @@ import { UserRole } from '../common/enums/user-role.enum';
 export class PublishersController {
   constructor(private readonly publishersService: PublishersService) {}
 
+  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @Patch(':id/status')
+  overrideStatus(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: OverrideStatusDto,
+  ) {
+    return this.publishersService.overrideStatus(tenantId, user, id, dto);
+  }
+
+  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @Delete(':id/status-override')
+  clearOverride(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.publishersService.clearOverride(tenantId, user, id);
+  }
+
   @Get()
   findAll(
     @TenantId() tenantId: string,

@@ -75,6 +75,7 @@ describe('ServiceReportsService', () => {
   let publishersRepo: jest.Mocked<Repository<Publisher>>;
   let serviceGroupsRepo: jest.Mocked<Repository<ServiceGroup>>;
   let auditLogService: { logUpdate: jest.Mock; findForEntity: jest.Mock };
+  let publishersService: { recomputeStatus: jest.Mock };
 
   beforeEach(() => {
     reportsRepo = {
@@ -99,11 +100,13 @@ describe('ServiceReportsService', () => {
       logUpdate: jest.fn(),
       findForEntity: jest.fn(),
     };
+    publishersService = { recomputeStatus: jest.fn() };
     service = new ServiceReportsService(
       reportsRepo,
       publishersRepo,
       serviceGroupsRepo,
       auditLogService as any,
+      publishersService as any,
     );
   });
 
