@@ -100,6 +100,24 @@ export class ServiceReportsController {
     );
   }
 
+  @Get('by-publisher/:publisherId')
+  async findHistoryForPublisher(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('publisherId', ParseUUIDPipe) publisherId: string,
+    @Query('months') monthsRaw?: string,
+  ) {
+    const months = monthsRaw
+      ? Math.max(1, Math.min(24, parseInt(monthsRaw, 10) || 12))
+      : 12;
+    return this.serviceReportsService.findHistoryForPublisher(
+      tenantId,
+      user,
+      publisherId,
+      months,
+    );
+  }
+
   @Get(':id')
   findOne(
     @TenantId() tenantId: string,

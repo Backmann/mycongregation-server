@@ -6,13 +6,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, MoreThanOrEqual, Repository } from 'typeorm';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { PublishersService } from '../publishers/publishers.service';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
+import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { SubmitReportDto } from './dto/submit-report.dto';
@@ -31,6 +32,24 @@ export interface GroupReportRow {
   report:
     | (ServiceReport & { canEdit: boolean; lastEditedByName: string | null })
     | null;
+}
+
+export interface PublisherHistoryEntry {
+  reportMonth: string;
+  report:
+    | (ServiceReport & { canEdit: boolean; lastEditedByName: string | null })
+    | null;
+}
+
+export interface PublisherHistoryResponse {
+  publisher: {
+    id: string;
+    displayName: string;
+    status: PublisherStatus;
+    statusManuallyOverridden: boolean;
+    isPioneer: boolean;
+  };
+  timeline: PublisherHistoryEntry[];
 }
 
 @Injectable()
@@ -421,6 +440,91 @@ export class ServiceReportsService {
    * Single source of truth for the canEdit boolean returned in API
    * responses AND the guard inside updateReport.
    */
+  /**
+   * Per-publisher history view — returns the last N months as a dense
+   * timeline (null entries for months with no report). Admin/elder may view
+   * any publisher in their tenant; regular publishers may only view their
+   * own user-linked publisher record.
+   */
+  async findHistoryForPublisher(
+    tenantId: string,
+    user: AuthenticatedUser,
+    publisherId: string,
+    months: number,
+  ): Promise<PublisherHistoryResponse> {
+    const publisher = await this.publishersRepo.findOne({
+      where: { id: publisherId, congregationId: tenantId },
+    });
+    if (!publisher) {
+      throw new NotFoundException('Publisher not found.');
+    }
+
+    const isElderOrAdmin =
+      user.role === UserRole.ADMIN || user.role === UserRole.ELDER;
+    const isOwner = publisher.userId === user.id;
+    if (!isElderOrAdmin && !isOwner) {
+      throw new ForbiddenException(
+        'You may only view your own report history.',
+      );
+    }
+
+    const now = new Date();
+    const windowStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1),
+    );
+    const windowStartStr = `${windowStart.getUTCFullYear()}-${String(
+      windowStart.getUTCMonth() + 1,
+    ).padStart(2, '0')}-01`;
+
+    const reports = await this.reportsRepo.find({
+      where: {
+        publisherId,
+        congregationId: tenantId,
+        reportMonth: MoreThanOrEqual(windowStartStr),
+      },
+      order: { reportMonth: 'DESC' },
+    });
+
+    await this.enrichEditorNames(reports);
+
+    type EnrichedReport = ServiceReport & {
+      canEdit: boolean;
+      lastEditedByName: string | null;
+    };
+
+    for (const r of reports) {
+      this.withCanEdit(r as EnrichedReport, user);
+    }
+
+    const timeline: PublisherHistoryEntry[] = [];
+    for (let i = 0; i < months; i++) {
+      const m = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1),
+      );
+      const mStr = `${m.getUTCFullYear()}-${String(
+        m.getUTCMonth() + 1,
+      ).padStart(2, '0')}-01`;
+      const found = reports.find(
+        (r) => String(r.reportMonth).slice(0, 7) === mStr.slice(0, 7),
+      );
+      timeline.push({
+        reportMonth: mStr,
+        report: (found as EnrichedReport) ?? null,
+      });
+    }
+
+    return {
+      publisher: {
+        id: publisher.id,
+        displayName: publisher.displayName,
+        status: publisher.status,
+        statusManuallyOverridden: publisher.statusManuallyOverridden,
+        isPioneer: publisher.pioneerType !== PioneerType.NONE,
+      },
+      timeline,
+    };
+  }
+
   private canEditReport(
     report: ServiceReport,
     user: AuthenticatedUser,
