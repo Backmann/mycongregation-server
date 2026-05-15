@@ -806,6 +806,7 @@ describe('ServiceReportsService', () => {
         publishersRepo.findOne.mockResolvedValue(
           makePublisher({ pioneerType: PioneerType.NONE }),
         );
+        publishersRepo.find.mockResolvedValue([]);
         reportsRepo.save.mockImplementation(async (x: any) => x);
 
         jest
@@ -848,6 +849,7 @@ describe('ServiceReportsService', () => {
         publishersRepo.findOne.mockResolvedValue(
           makePublisher({ pioneerType: PioneerType.NONE }),
         );
+        publishersRepo.find.mockResolvedValue([]);
         reportsRepo.save.mockImplementation(async (x: any) => x);
 
         jest
