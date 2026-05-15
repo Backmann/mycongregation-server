@@ -13,7 +13,6 @@ import { ServiceReport } from '../entities/service-report.entity';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
-import { Gender } from '../common/enums/gender.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
 function makePublisher(overrides: Partial<Publisher> = {}): Publisher {
@@ -23,7 +22,6 @@ function makePublisher(overrides: Partial<Publisher> = {}): Publisher {
     displayName: 'Test Publisher',
     firstName: 'Test',
     lastName: 'Publisher',
-    gender: Gender.MALE,
     isActive: true,
     isRegular: true,
     pioneerType: PioneerType.NONE,

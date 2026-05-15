@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, Repository } from 'typeorm';
+import { Brackets, MoreThanOrEqual, Repository } from 'typeorm';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceReport } from '../entities/service-report.entity';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
@@ -93,12 +93,13 @@ export class PublishersService {
       windowStart.getUTCMonth() + 1,
     ).padStart(2, '0')}-01`;
 
-    const reports = await this.reportsRepo
-      .createQueryBuilder('r')
-      .where('r.publisher_id = :pid', { pid: publisherId })
-      .andWhere('r.congregation_id = :tid', { tid: tenantId })
-      .andWhere('r.report_month >= :start', { start: windowStartStr })
-      .getMany();
+    const reports = await this.reportsRepo.find({
+      where: {
+        publisherId,
+        congregationId: tenantId,
+        reportMonth: MoreThanOrEqual(windowStartStr),
+      },
+    });
 
     const newStatus = computeStatusFromReports(reports, now);
     if (publisher.status === newStatus) return;
