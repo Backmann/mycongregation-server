@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   ParseUUIDPipe,
@@ -11,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { ServiceReportsService } from './service-reports.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { UserRole } from '../common/enums/user-role.enum';
 import { SubmitReportDto } from './dto/submit-report.dto';
 import { UpdateReportDto } from './dto/update-report.dto';
 import {
