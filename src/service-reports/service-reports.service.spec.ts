@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { ServiceReportsService } from './service-reports.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
@@ -73,6 +74,7 @@ describe('ServiceReportsService', () => {
   let reportsRepo: jest.Mocked<Repository<ServiceReport>>;
   let publishersRepo: jest.Mocked<Repository<Publisher>>;
   let serviceGroupsRepo: jest.Mocked<Repository<ServiceGroup>>;
+  let auditLogService: { logUpdate: jest.Mock; findForEntity: jest.Mock };
 
   beforeEach(() => {
     reportsRepo = {
@@ -93,10 +95,15 @@ describe('ServiceReportsService', () => {
       findOne: jest.fn(),
     } as unknown as jest.Mocked<Repository<ServiceGroup>>;
 
+    auditLogService = {
+      logUpdate: jest.fn(),
+      findForEntity: jest.fn(),
+    };
     service = new ServiceReportsService(
       reportsRepo,
       publishersRepo,
       serviceGroupsRepo,
+      auditLogService as any,
     );
   });
 
@@ -783,6 +790,80 @@ describe('ServiceReportsService', () => {
             notes: 'x',
           }),
         ).rejects.toBeInstanceOf(NotFoundException);
+      });
+    });
+
+    describe('audit logging', () => {
+      it('calls auditLogService.logUpdate with before/after snapshots', async () => {
+        const r = makeReport({
+          id: 'r-1',
+          submittedById: 'user-self',
+          reportMonth: '2026-04-01',
+          bibleStudies: 2,
+          notes: 'old',
+        });
+        reportsRepo.findOne.mockResolvedValue(r);
+        publishersRepo.findOne.mockResolvedValue(
+          makePublisher({ pioneerType: PioneerType.NONE }),
+        );
+        reportsRepo.save.mockImplementation(async (x: any) => x);
+
+        jest
+          .spyOn(Date, 'now')
+          .mockReturnValue(Date.UTC(2026, 4, 5, 12, 0, 0));
+
+        await service.updateReport(
+          'cong-1',
+          makeUser({ id: 'user-self', role: UserRole.PUBLISHER }),
+          'r-1',
+          { bibleStudies: 3, notes: 'new' },
+        );
+
+        expect(auditLogService.logUpdate).toHaveBeenCalledTimes(1);
+        const call = auditLogService.logUpdate.mock.calls[0][0];
+        expect(call.tenantId).toBe('cong-1');
+        expect(call.entityType).toBe('ServiceReport');
+        expect(call.entityId).toBe('r-1');
+        expect(call.actorUserId).toBe('user-self');
+        expect(call.fields).toEqual([
+          'servedThisMonth',
+          'hoursReported',
+          'bibleStudies',
+          'notes',
+        ]);
+        expect(call.before.bibleStudies).toBe(2);
+        expect(call.before.notes).toBe('old');
+        expect(call.after.bibleStudies).toBe(3);
+        expect(call.after.notes).toBe('new');
+      });
+
+      it('still calls logUpdate even when no fields actually changed (service decides no-op)', async () => {
+        const r = makeReport({
+          id: 'r-1',
+          submittedById: 'user-self',
+          reportMonth: '2026-04-01',
+          bibleStudies: 2,
+        });
+        reportsRepo.findOne.mockResolvedValue(r);
+        publishersRepo.findOne.mockResolvedValue(
+          makePublisher({ pioneerType: PioneerType.NONE }),
+        );
+        reportsRepo.save.mockImplementation(async (x: any) => x);
+
+        jest
+          .spyOn(Date, 'now')
+          .mockReturnValue(Date.UTC(2026, 4, 5, 12, 0, 0));
+
+        await service.updateReport(
+          'cong-1',
+          makeUser({ id: 'user-self', role: UserRole.PUBLISHER }),
+          'r-1',
+          { bibleStudies: 2 },
+        );
+
+        // The service forwards to audit log unconditionally; the audit log
+        // service itself decides whether to write a row.
+        expect(auditLogService.logUpdate).toHaveBeenCalledTimes(1);
       });
     });
   });

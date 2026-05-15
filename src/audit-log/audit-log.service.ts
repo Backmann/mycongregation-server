@@ -1,0 +1,107 @@
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { In, Repository } from 'typeorm';
+import { AuditLog } from '../entities/audit-log.entity';
+import { Publisher } from '../entities/publisher.entity';
+
+export type AuditAction = 'UPDATE' | 'CREATE' | 'DELETE';
+
+export interface AuditLogEntry {
+  id: string;
+  action: AuditAction;
+  actorUserId: string;
+  actorName: string | null;
+  changedFields: string[];
+  before: Record<string, any> | null;
+  after: Record<string, any> | null;
+  createdAt: string;
+}
+
+@Injectable()
+export class AuditLogService {
+  constructor(
+    @InjectRepository(AuditLog)
+    private readonly auditRepo: Repository<AuditLog>,
+    @InjectRepository(Publisher)
+    private readonly publishersRepo: Repository<Publisher>,
+  ) {}
+
+  /**
+   * Records an UPDATE diff. Only fields whose before/after values differ
+   * are stored. If the resulting diff is empty (no fields changed) the
+   * call is a no-op and no row is written.
+   */
+  async logUpdate<T extends Record<string, any>>(opts: {
+    tenantId: string;
+    entityType: string;
+    entityId: string;
+    actorUserId: string;
+    before: T;
+    after: T;
+    fields: (keyof T)[];
+  }): Promise<void> {
+    const changed: string[] = [];
+    const beforeChanged: Record<string, any> = {};
+    const afterChanged: Record<string, any> = {};
+    for (const f of opts.fields) {
+      const a = opts.before[f];
+      const b = opts.after[f];
+      if (a !== b) {
+        const name = f as string;
+        changed.push(name);
+        beforeChanged[name] = a ?? null;
+        afterChanged[name] = b ?? null;
+      }
+    }
+    if (changed.length === 0) return;
+
+    await this.auditRepo.save(
+      this.auditRepo.create({
+        congregationId: opts.tenantId,
+        entityType: opts.entityType,
+        entityId: opts.entityId,
+        action: 'UPDATE',
+        actorUserId: opts.actorUserId,
+        beforeJson: JSON.stringify(beforeChanged),
+        afterJson: JSON.stringify(afterChanged),
+        changedFields: changed,
+      }),
+    );
+  }
+
+  /**
+   * Returns audit log entries for a single entity (newest first), with
+   * actor display names enriched from the Publisher table (best-effort:
+   * `actorName` is null if the actor has no Publisher record).
+   */
+  async findForEntity(
+    tenantId: string,
+    entityType: string,
+    entityId: string,
+  ): Promise<AuditLogEntry[]> {
+    const rows = await this.auditRepo.find({
+      where: { congregationId: tenantId, entityType, entityId },
+      order: { createdAt: 'DESC' },
+    });
+    if (rows.length === 0) return [];
+
+    const actorIds = Array.from(new Set(rows.map((r) => r.actorUserId)));
+    const publishers = actorIds.length
+      ? await this.publishersRepo.find({
+          where: { congregationId: tenantId, userId: In(actorIds) },
+        })
+      : [];
+    const pubByUserId = new Map(publishers.map((p) => [p.userId, p]));
+
+    return rows.map((r) => ({
+      id: r.id,
+      action: r.action as AuditAction,
+      actorUserId: r.actorUserId,
+      actorName: pubByUserId.get(r.actorUserId)?.displayName ?? null,
+      changedFields: r.changedFields ?? [],
+      before: r.beforeJson ? JSON.parse(r.beforeJson) : null,
+      after: r.afterJson ? JSON.parse(r.afterJson) : null,
+      createdAt: r.createdAt.toISOString(),
+    }));
+  }
+}

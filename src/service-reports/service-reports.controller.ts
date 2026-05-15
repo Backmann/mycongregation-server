@@ -10,6 +10,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ServiceReportsService } from './service-reports.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { SubmitReportDto } from './dto/submit-report.dto';
 import { UpdateReportDto } from './dto/update-report.dto';
 import {
@@ -22,6 +23,7 @@ import { TenantId } from '../common/decorators/tenant-id.decorator';
 export class ServiceReportsController {
   constructor(
     private readonly serviceReportsService: ServiceReportsService,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   @Post()
@@ -69,6 +71,30 @@ export class ServiceReportsController {
       tenantId,
       user,
       reportMonthRaw,
+    );
+  }
+
+  @Get(':id/audit-log')
+  async getAuditLog(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) reportId: string,
+  ) {
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.ELDER) {
+      throw new ForbiddenException(
+        'Only elders and admins may view audit logs.',
+      );
+    }
+    // Verify the report exists in this tenant (findOne enforces access).
+    const report = await this.serviceReportsService.findOne(
+      tenantId,
+      user,
+      reportId,
+    );
+    return this.auditLogService.findForEntity(
+      tenantId,
+      'ServiceReport',
+      report.id,
     );
   }
 

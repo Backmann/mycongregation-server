@@ -10,6 +10,7 @@ import { In, Repository } from 'typeorm';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -40,6 +41,7 @@ export class ServiceReportsService {
     private readonly publishersRepo: Repository<Publisher>,
     @InjectRepository(ServiceGroup)
     private readonly serviceGroupsRepo: Repository<ServiceGroup>,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   /**
@@ -265,6 +267,13 @@ export class ServiceReportsService {
 
     this.validateUpdateFormVariant(dto, isPioneer);
 
+    const before = {
+      servedThisMonth: report.servedThisMonth,
+      hoursReported: report.hoursReported,
+      bibleStudies: report.bibleStudies,
+      notes: report.notes,
+    };
+
     if (dto.servedThisMonth !== undefined) {
       report.servedThisMonth = dto.servedThisMonth;
     }
@@ -282,6 +291,20 @@ export class ServiceReportsService {
     report.lastEditedById = user.id;
 
     const saved = await this.reportsRepo.save(report);
+    await this.auditLogService.logUpdate({
+      tenantId,
+      entityType: 'ServiceReport',
+      entityId: saved.id,
+      actorUserId: user.id,
+      before,
+      after: {
+        servedThisMonth: saved.servedThisMonth,
+        hoursReported: saved.hoursReported,
+        bibleStudies: saved.bibleStudies,
+        notes: saved.notes,
+      },
+      fields: ['servedThisMonth', 'hoursReported', 'bibleStudies', 'notes'],
+    });
     this.withCanEdit(saved, user);
     await this.enrichEditorNames([saved]);
     return saved as ServiceReport & {
