@@ -1,3 +1,20 @@
+// Mock expo-server-sdk to avoid Jest ESM parse errors. Specs that transitively
+// import publishers.service.ts pull in push-notifications.service.ts, which
+// imports the real Expo SDK; the SDK uses ESM (`import assert from 'node:assert'`)
+// that Jest's default transform doesn't process inside node_modules.
+jest.mock('expo-server-sdk', () => {
+  class MockExpo {
+    static isExpoPushToken() {
+      return true;
+    }
+    chunkPushNotifications(messages: any[]) {
+      return [messages];
+    }
+    sendPushNotificationsAsync = jest.fn().mockResolvedValue([]);
+  }
+  return { Expo: MockExpo };
+});
+
 import { ScheduledJobsService } from './scheduled-jobs.service';
 
 describe('ScheduledJobsService', () => {
