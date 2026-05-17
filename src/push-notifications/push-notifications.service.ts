@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Not, Repository } from 'typeorm';
 import { Expo, ExpoPushMessage } from 'expo-server-sdk';
 import { PushToken } from '../entities/push-token.entity';
+import { PushReceipt } from '../entities/push-receipt.entity';
 import { User } from '../entities/user.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import {
@@ -11,6 +12,22 @@ import {
   SupportedLanguage,
 } from '../common/i18n/supported-languages';
 import { PUSH_STRINGS, translateStatus } from '../common/i18n/push-strings';
+
+type SendBatchResult = {
+  token: string;
+  ticketId: string | null;
+  errorCode: string | null;
+};
+
+type PendingReceipt = {
+  ticketId: string;
+  token: string;
+  userId: string;
+  congregationId: string;
+  status: 'pending';
+  errorCode: null;
+  sentAt: Date;
+};
 
 @Injectable()
 export class PushNotificationsService {
@@ -22,6 +39,8 @@ export class PushNotificationsService {
     private readonly pushTokenRepo: Repository<PushToken>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    @InjectRepository(PushReceipt)
+    private readonly pushReceiptRepo: Repository<PushReceipt>,
   ) {}
 
   /**
@@ -123,10 +142,20 @@ export class PushNotificationsService {
       after,
     };
 
-    // Per-language batch send.
+    // Build token → userId map for receipt persistence.
+    const userIdByToken = new Map<string, string>();
+    for (const t of tokens) {
+      userIdByToken.set(t.token, t.userId);
+    }
+
+    const now = new Date();
+
+    // Per-language batch send + persist successful tickets for later receipt
+    // checking (the cron in ScheduledJobsService will fetch receipts and act
+    // on errors like DeviceNotRegistered).
     for (const [lang, langTokens] of tokensByLang) {
       const strings = PUSH_STRINGS[lang].statusChange;
-      await this.sendBatch(
+      const results = await this.sendBatch(
         langTokens,
         strings.title,
         strings.body({
@@ -136,19 +165,52 @@ export class PushNotificationsService {
         }),
         data,
       );
+
+      const receipts: PendingReceipt[] = [];
+      for (const r of results) {
+        if (!r.ticketId) continue;
+        const userId = userIdByToken.get(r.token);
+        if (!userId) continue;
+        receipts.push({
+          ticketId: r.ticketId,
+          token: r.token,
+          userId,
+          congregationId: tenantId,
+          status: 'pending',
+          errorCode: null,
+          sentAt: now,
+        });
+      }
+      if (receipts.length > 0) {
+        await this.pushReceiptRepo.save(receipts);
+      }
+
+      const immediateErrors = results.filter((r) => r.errorCode);
+      if (immediateErrors.length > 0) {
+        this.logger.warn(`Push send had ${immediateErrors.length} immediate errors: ${immediateErrors.map((e) => e.errorCode).join(', ')}`);
+      }
     }
   }
 
-  private async sendBatch(
-    tokens: string[],
-    title: string,
-    body: string,
-    data: Record<string, any>,
-  ): Promise<void> {
-    const valid = tokens.filter((t) => Expo.isExpoPushToken(t));
+  /**
+   * Low-level batch send. Returns one result per input token (same order),
+   * so the caller can persist tickets (status='pending') for later receipt
+   * checking and log immediate errors.
+   */
+  private async sendBatch(tokens: string[], title: string, body: string, data: Record<string, any>): Promise<SendBatchResult[]> {
+    const results: SendBatchResult[] = [];
+
+    const valid: string[] = [];
+    for (const token of tokens) {
+      if (Expo.isExpoPushToken(token)) {
+        valid.push(token);
+      } else {
+        results.push({ token, ticketId: null, errorCode: 'InvalidExpoPushToken' });
+      }
+    }
     if (valid.length === 0) {
       this.logger.warn('No valid Expo push tokens to send to');
-      return;
+      return results;
     }
 
     const messages: ExpoPushMessage[] = valid.map((to) => ({
@@ -160,14 +222,31 @@ export class PushNotificationsService {
     }));
 
     const chunks = this.expo.chunkPushNotifications(messages);
+    let validIdx = 0;
     for (const chunk of chunks) {
       try {
-        await this.expo.sendPushNotificationsAsync(chunk);
+        const tickets = await this.expo.sendPushNotificationsAsync(chunk);
+        for (let i = 0; i < chunk.length; i++) {
+          const ticket = tickets[i];
+          const token = valid[validIdx];
+          if (!ticket) {
+            results.push({ token, ticketId: null, errorCode: 'NoTicket' });
+          } else if (ticket.status === 'ok') {
+            results.push({ token, ticketId: ticket.id, errorCode: null });
+          } else {
+            results.push({ token, ticketId: null, errorCode: ticket.details?.error ?? 'SendError' });
+          }
+          validIdx++;
+        }
       } catch (err: any) {
-        this.logger.warn(
-          `sendPushNotificationsAsync failed: ${err?.message ?? err}`,
-        );
+        this.logger.warn(`sendPushNotificationsAsync failed: ${err?.message ?? err}`);
+        for (let i = 0; i < chunk.length; i++) {
+          results.push({ token: valid[validIdx], ticketId: null, errorCode: 'NetworkError' });
+          validIdx++;
+        }
       }
     }
+
+    return results;
   }
 }
