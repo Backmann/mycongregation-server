@@ -72,4 +72,31 @@ export class ScheduledJobsService {
       );
     }
   }
+
+  /**
+   * Cron — daily cleanup of push_receipts older than 7 days. Runs at
+   * 03:30 UTC, just after the nightly status recompute, to keep the table
+   * small. Expo only retains receipt data for ~24h anyway, so older
+   * 'pending' rows are effectively orphans.
+   */
+  @Cron('30 3 * * *', {
+    name: 'push-receipt-cleanup',
+    timeZone: 'UTC',
+  })
+  async handleReceiptCleanup(): Promise<void> {
+    this.logger.log('[PushReceiptsCleanup] starting daily cleanup...');
+    const start = Date.now();
+    try {
+      const deleted = await this.pushNotificationsService.cleanupOldReceipts();
+      const tookMs = Date.now() - start;
+      this.logger.log(
+        `[PushReceiptsCleanup] done — deleted=${deleted} tookMs=${tookMs}`,
+      );
+    } catch (err: any) {
+      this.logger.error(
+        '[PushReceiptsCleanup] daily cleanup failed',
+        err?.stack ?? err?.message ?? String(err),
+      );
+    }
+  }
 }

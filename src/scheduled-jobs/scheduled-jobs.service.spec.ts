@@ -36,6 +36,7 @@ describe('ScheduledJobsService', () => {
     };
     pushNotificationsService = {
       checkReceipts: jest.fn().mockResolvedValue({ checked: 0, ok: 0, errors: 0, tokensDeleted: 0 }),
+      cleanupOldReceipts: jest.fn().mockResolvedValue(0),
     } as unknown as jest.Mocked<PushNotificationsService>;
     service = new ScheduledJobsService(publishersService as any, pushNotificationsService);
   });

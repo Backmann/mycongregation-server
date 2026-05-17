@@ -327,4 +327,17 @@ export class PushNotificationsService {
 
     return { checked: checked.length, ok: okCount, errors: errorCount, tokensDeleted };
   }
+
+  /**
+   * Daily cleanup: delete push_receipts older than 7 days regardless of
+   * status. Expo only keeps receipt data for ~24h, so 'pending' rows past
+   * that age will never resolve. Called by ScheduledJobsService at 03:30 UTC.
+   */
+  async cleanupOldReceipts(): Promise<number> {
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const result = await this.pushReceiptRepo.delete({
+      sentAt: LessThan(cutoff),
+    });
+    return result.affected ?? 0;
+  }
 }
