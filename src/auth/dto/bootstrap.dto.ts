@@ -1,5 +1,6 @@
 import {
   IsEmail,
+  IsIn,
   IsOptional,
   IsString,
   Length,
@@ -7,6 +8,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
+import { SUPPORTED_LANGUAGES } from '../../common/i18n/supported-languages';
 
 export class BootstrapDto {
   @IsString()
@@ -24,7 +26,9 @@ export class BootstrapDto {
   country!: string;
 
   @IsString()
-  @Length(2, 5)
+  @IsIn([...SUPPORTED_LANGUAGES], {
+    message: `language must be one of: ${SUPPORTED_LANGUAGES.join(', ')}`,
+  })
   language!: string;
 
   @IsOptional()

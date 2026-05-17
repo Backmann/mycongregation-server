@@ -62,6 +62,7 @@ export class AuthService {
         passwordHash,
         role: UserRole.ADMIN,
         isActive: true,
+        uiLanguage: dto.language,
       });
       await manager.save(user);
 
