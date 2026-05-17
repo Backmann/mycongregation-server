@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -13,6 +14,8 @@ import { Congregation } from '../entities/congregation.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { UsersService } from '../users/users.service';
 import { BootstrapDto } from './dto/bootstrap.dto';
+import { UpdateMeDto } from './dto/update-me.dto';
+import type { AuthenticatedUser } from './decorators/current-user.decorator';
 import { LoginDto } from './dto/login.dto';
 
 interface RefreshTokenPayload {
@@ -83,6 +86,23 @@ export class AuthService {
     }
     await this.usersService.touchLastLogin(user.id);
     return this.issueTokens(user);
+  }
+
+  async updateMe(userId: string, dto: UpdateMeDto): Promise<AuthenticatedUser> {
+    if (dto.uiLanguage !== undefined) {
+      await this.usersService.updateUiLanguage(userId, dto.uiLanguage);
+    }
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      congregationId: user.congregationId,
+      uiLanguage: user.uiLanguage,
+    };
   }
 
   /**

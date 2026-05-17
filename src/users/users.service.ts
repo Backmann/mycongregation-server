@@ -31,4 +31,9 @@ export class UsersService {
   touchLastLogin(id: string): Promise<unknown> {
     return this.usersRepo.update(id, { lastLoginAt: new Date() });
   }
+
+  async updateUiLanguage(id: string, uiLanguage: string): Promise<User | null> {
+    await this.usersRepo.update(id, { uiLanguage });
+    return this.findById(id);
+  }
 }

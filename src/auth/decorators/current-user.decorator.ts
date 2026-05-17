@@ -6,6 +6,7 @@ export interface AuthenticatedUser {
   email: string;
   role: UserRole;
   congregationId: string;
+  uiLanguage: string;
 }
 
 export const CurrentUser = createParamDecorator(
