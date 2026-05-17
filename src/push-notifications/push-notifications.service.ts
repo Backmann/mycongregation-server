@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Not, Repository } from 'typeorm';
-import { Expo, ExpoPushMessage } from 'expo-server-sdk';
+import { In, LessThan, Not, Repository } from 'typeorm';
+import { Expo, ExpoPushMessage, ExpoPushReceipt } from 'expo-server-sdk';
 import { PushToken } from '../entities/push-token.entity';
 import { PushReceipt } from '../entities/push-receipt.entity';
 import { User } from '../entities/user.entity';
@@ -248,5 +248,83 @@ export class PushNotificationsService {
     }
 
     return results;
+  }
+
+  /**
+   * Cron-driven: fetch receipts for tickets sent at least 15 minutes ago,
+   * update push_receipts.status, and clean up push_tokens for which Expo
+   * reports DeviceNotRegistered. Called by ScheduledJobsService every 30 min.
+   */
+  async checkReceipts(): Promise<{ checked: number; ok: number; errors: number; tokensDeleted: number }> {
+    const cutoff = new Date(Date.now() - 15 * 60 * 1000);
+    const pending = await this.pushReceiptRepo.find({
+      where: { status: 'pending', sentAt: LessThan(cutoff) },
+      take: 1000,
+    });
+
+    if (pending.length === 0) {
+      return { checked: 0, ok: 0, errors: 0, tokensDeleted: 0 };
+    }
+
+    const receiptByTicketId = new Map<string, PushReceipt>();
+    for (const r of pending) {
+      receiptByTicketId.set(r.ticketId, r);
+    }
+
+    const ticketIds = pending.map((r) => r.ticketId);
+    const chunks = this.expo.chunkPushNotificationReceiptIds(ticketIds);
+
+    let okCount = 0;
+    let errorCount = 0;
+    const tokensToDelete = new Set<string>();
+    const now = new Date();
+
+    for (const chunk of chunks) {
+      let receiptsMap: { [id: string]: ExpoPushReceipt };
+      try {
+        receiptsMap = await this.expo.getPushNotificationReceiptsAsync(chunk);
+      } catch (err: any) {
+        this.logger.warn(`getPushNotificationReceiptsAsync failed: ${err?.message ?? err}`);
+        continue;
+      }
+
+      for (const ticketId of chunk) {
+        const expoReceipt = receiptsMap[ticketId];
+        const ourReceipt = receiptByTicketId.get(ticketId);
+        if (!ourReceipt) continue;
+        // Receipt not yet available — Expo still processing; leave as pending.
+        if (!expoReceipt) continue;
+
+        if (expoReceipt.status === 'ok') {
+          ourReceipt.status = 'ok';
+          ourReceipt.errorCode = null;
+          okCount++;
+        } else {
+          const errorCode = expoReceipt.details?.error ?? 'Unknown';
+          ourReceipt.status = 'error';
+          ourReceipt.errorCode = errorCode;
+          errorCount++;
+          if (errorCode === 'DeviceNotRegistered') {
+            tokensToDelete.add(ourReceipt.token);
+          }
+        }
+        ourReceipt.checkedAt = now;
+      }
+    }
+
+    const checked = pending.filter((r) => r.checkedAt !== null);
+    if (checked.length > 0) {
+      await this.pushReceiptRepo.save(checked);
+    }
+
+    let tokensDeleted = 0;
+    if (tokensToDelete.size > 0) {
+      const result = await this.pushTokenRepo.delete({
+        token: In([...tokensToDelete]),
+      });
+      tokensDeleted = result.affected ?? 0;
+    }
+
+    return { checked: checked.length, ok: okCount, errors: errorCount, tokensDeleted };
   }
 }
