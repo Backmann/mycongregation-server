@@ -19,15 +19,12 @@ export function translateStatus(status: string, lang: SupportedLanguage): string
  * Mirrors the per-component STR pattern described in
  * `docs/architecture/internationalization.md` Layer A.
  */
-export const PUSH_STRINGS: Record
-  SupportedLanguage,
-  {
-    statusChange: {
-      title: string;
-      body: (params: { publisher: string; before: string; after: string }) => string;
-    };
-  }
-> = {
+type PushTemplate = {
+  title: string;
+  body: (params: { publisher: string; before: string; after: string }) => string;
+};
+
+export const PUSH_STRINGS: Record<SupportedLanguage, { statusChange: PushTemplate }> = {
   en: {
     statusChange: {
       title: 'Status changed',
