@@ -43,6 +43,7 @@ function makeUser(
     email: 'self@example.com',
     role: UserRole.PUBLISHER,
     congregationId: 'cong-1',
+    uiLanguage: 'ru',
     ...overrides,
   };
 }
