@@ -12,6 +12,8 @@ import {
   SupportedLanguage,
 } from '../common/i18n/supported-languages';
 import { PUSH_STRINGS, translateStatus } from '../common/i18n/push-strings';
+import { WebPushService } from '../web-push/web-push.service';
+import { WebPushSubscription } from '../entities/web-push-subscription.entity';
 
 type SendBatchResult = {
   token: string;
@@ -41,6 +43,7 @@ export class PushNotificationsService {
     private readonly userRepo: Repository<User>,
     @InjectRepository(PushReceipt)
     private readonly pushReceiptRepo: Repository<PushReceipt>,
+    private readonly webPushService: WebPushService,
   ) {}
 
   /**
@@ -108,7 +111,11 @@ export class PushNotificationsService {
     }
 
     const tokens = await this.pushTokenRepo.find({ where });
-    if (tokens.length === 0) {
+    const webSubs = await this.webPushService.getSubscriptionsByTenant(
+      tenantId,
+      excludeUserId,
+    );
+    if (tokens.length === 0 && webSubs.length === 0) {
       this.logger.log(
         `No push recipients in tenant=${tenantId}; skipping send`,
       );
@@ -117,7 +124,14 @@ export class PushNotificationsService {
 
     // Fetch recipient languages so notifications arrive in each user's preferred
     // language. Fresh lookup per send — avoids stale snapshots on language change.
-    const userIds = [...new Set(tokens.map((t) => t.userId).filter(Boolean))];
+    const userIds = [
+      ...new Set(
+        [
+          ...tokens.map((t) => t.userId),
+          ...webSubs.map((s) => s.userId),
+        ].filter(Boolean),
+      ),
+    ];
     let langByUserId = new Map<string, SupportedLanguage>();
     if (userIds.length > 0) {
       const users = await this.userRepo.findBy({ id: In(userIds) });
@@ -188,6 +202,33 @@ export class PushNotificationsService {
       const immediateErrors = results.filter((r) => r.errorCode);
       if (immediateErrors.length > 0) {
         this.logger.warn(`Push send had ${immediateErrors.length} immediate errors: ${immediateErrors.map((e) => e.errorCode).join(', ')}`);
+      }
+    }
+
+    // === Web Push (PWA) delivery — in parallel with Expo, same payload model ===
+    if (webSubs.length > 0) {
+      const subsByLang = new Map<SupportedLanguage, WebPushSubscription[]>();
+      for (const sub of webSubs) {
+        const lang = langByUserId.get(sub.userId) ?? DEFAULT_LANGUAGE;
+        if (!subsByLang.has(lang)) subsByLang.set(lang, []);
+        subsByLang.get(lang)!.push(sub);
+      }
+
+      for (const [lang, langSubs] of subsByLang) {
+        const strings = PUSH_STRINGS[lang].statusChange;
+        const payload = {
+          title: strings.title,
+          body: strings.body({
+            publisher: publisher.displayName,
+            before: translateStatus(before, lang),
+            after: translateStatus(after, lang),
+          }),
+          data,
+        };
+
+        await Promise.all(
+          langSubs.map((sub) => this.webPushService.sendToSubscription(sub, payload)),
+        );
       }
     }
   }

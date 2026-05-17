@@ -3,6 +3,7 @@ import { Repository } from 'typeorm';
 import { PushNotificationsService } from './push-notifications.service';
 import { PushToken } from '../entities/push-token.entity';
 import { PushReceipt } from '../entities/push-receipt.entity';
+import type { WebPushService } from '../web-push/web-push.service';
 import { User } from '../entities/user.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 
@@ -28,6 +29,7 @@ describe('PushNotificationsService', () => {
   let pushTokenRepo: jest.Mocked<Repository<PushToken>>;
   let userRepo: jest.Mocked<Repository<User>>;
   let pushReceiptRepo: jest.Mocked<Repository<PushReceipt>>;
+  let webPushService: jest.Mocked<WebPushService>;
 
   beforeEach(() => {
     pushTokenRepo = {
@@ -46,7 +48,11 @@ describe('PushNotificationsService', () => {
       find: jest.fn().mockResolvedValue([]),
       delete: jest.fn().mockResolvedValue({ affected: 0 }),
     } as unknown as jest.Mocked<Repository<PushReceipt>>;
-    service = new PushNotificationsService(pushTokenRepo, userRepo, pushReceiptRepo);
+    webPushService = {
+      getSubscriptionsByTenant: jest.fn().mockResolvedValue([]),
+      sendToSubscription: jest.fn().mockResolvedValue({ ok: true, errorCode: null }),
+    } as unknown as jest.Mocked<WebPushService>;
+    service = new PushNotificationsService(pushTokenRepo, userRepo, pushReceiptRepo, webPushService);
   });
 
   describe('registerToken', () => {
