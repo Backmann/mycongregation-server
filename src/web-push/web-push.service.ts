@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as webpush from 'web-push';
 import { WebPushSubscription } from '../entities/web-push-subscription.entity';
+import { UserRole } from '../common/enums/user-role.enum';
+import { RegisterWebPushSubscriptionDto } from './dto/register-web-push-subscription.dto';
 
 /**
  * Web Push delivery for PWA clients (native Android/iOS use Expo Push via
@@ -46,6 +48,48 @@ export class WebPushService {
     return this.vapidConfigured;
   }
 
-  // Subscribe / unsubscribe handlers come in M.2.
-  // Actual send method comes in M.3.
+  /**
+   * Upsert by endpoint (UNIQUE column). On re-subscribe from the same
+   * device, the row's user/keys/userAgent are refreshed and lastFailedAt
+   * cleared so the subscription is "back in good standing".
+   */
+  async registerSubscription(
+    userId: string,
+    congregationId: string,
+    role: UserRole,
+    dto: RegisterWebPushSubscriptionDto,
+  ): Promise<WebPushSubscription> {
+    const existing = await this.subRepo.findOne({ where: { endpoint: dto.endpoint } });
+    if (existing) {
+      existing.userId = userId;
+      existing.congregationId = congregationId;
+      existing.role = role;
+      existing.p256dh = dto.keys.p256dh;
+      existing.auth = dto.keys.auth;
+      existing.userAgent = dto.userAgent ?? null;
+      existing.lastFailedAt = null;
+      return this.subRepo.save(existing);
+    }
+
+    const sub = this.subRepo.create({
+      userId,
+      congregationId,
+      role,
+      endpoint: dto.endpoint,
+      p256dh: dto.keys.p256dh,
+      auth: dto.keys.auth,
+      userAgent: dto.userAgent ?? null,
+    });
+    return this.subRepo.save(sub);
+  }
+
+  /**
+   * Scoped to (userId, endpoint) — a user can only remove their own subs.
+   */
+  async removeSubscription(userId: string, endpoint: string): Promise<{ removed: number }> {
+    const result = await this.subRepo.delete({ userId, endpoint });
+    return { removed: result.affected ?? 0 };
+  }
+
+  // Send method comes in M.3.
 }
