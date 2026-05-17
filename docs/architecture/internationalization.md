@@ -1,7 +1,7 @@
 # Internationalization (i18n) Architecture
 
-**Status:** Design (not yet implemented).
-**Last updated:** 2026-05-13.
+**Status:** 🟡 Client implemented (Phases I.1–I.6, May 2026); server pending (planned Phase K).
+**Last updated:** 2026-05-16.
 **Owner:** @Backmann.
 
 ## Goals

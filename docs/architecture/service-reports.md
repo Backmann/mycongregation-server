@@ -1,7 +1,7 @@
 # Service Reports Architecture
 
-**Status:** Design (not yet implemented).
-**Last updated:** 2026-05-14.
+**Status:** ✅ Implemented (Phases A2.3–H, shipped May 2026).
+**Last updated:** 2026-05-16.
 **Owner:** @Backmann.
 
 ## Goals

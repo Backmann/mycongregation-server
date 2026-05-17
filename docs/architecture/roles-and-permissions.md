@@ -1,7 +1,7 @@
 # Roles and Permissions Architecture
 
-**Status:** Design (not yet fully implemented in code).
-**Last updated:** 2026-05-13.
+**Status:** 🟡 Partially implemented — admin/elder/ministerial_servant/publisher roles + JWT guards live; sub-roles (secretary, coordinator-of-elders) and capability scoping pending.
+**Last updated:** 2026-05-16.
 **Owner:** @Backmann.
 
 ## Goals
