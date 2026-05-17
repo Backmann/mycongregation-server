@@ -1,12 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PublishersService } from '../publishers/publishers.service';
+import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 
 @Injectable()
 export class ScheduledJobsService {
   private readonly logger = new Logger(ScheduledJobsService.name);
 
-  constructor(private readonly publishersService: PublishersService) {}
+  constructor(
+    private readonly publishersService: PublishersService,
+    private readonly pushNotificationsService: PushNotificationsService,
+  ) {}
 
   /**
    * Nightly job — recompute every active publisher's status from the last
@@ -33,6 +37,37 @@ export class ScheduledJobsService {
     } catch (err: any) {
       this.logger.error(
         '[StatusRecompute] nightly run failed',
+        err?.stack ?? err?.message ?? String(err),
+      );
+    }
+  }
+
+  /**
+   * Cron — every 30 minutes, fetch Expo push receipts for tickets sent at
+   * least 15 minutes ago, update push_receipts.status, and clean up
+   * push_tokens whose Expo receipt is DeviceNotRegistered.
+   *
+   * Runs at :00 and :30 of every hour, UTC. NestJS Schedule prevents
+   * overlapping ticks automatically.
+   */
+  @Cron('*/30 * * * *', {
+    name: 'push-receipt-check',
+    timeZone: 'UTC',
+  })
+  async handleReceiptCheck(): Promise<void> {
+    this.logger.log('[PushReceipts] starting receipt-check run...');
+    const start = Date.now();
+    try {
+      const summary = await this.pushNotificationsService.checkReceipts();
+      const tookMs = Date.now() - start;
+      this.logger.log(
+        `[PushReceipts] done — checked=${summary.checked} ok=${summary.ok} ` +
+          `errors=${summary.errors} tokensDeleted=${summary.tokensDeleted} ` +
+          `tookMs=${tookMs}`,
+      );
+    } catch (err: any) {
+      this.logger.error(
+        '[PushReceipts] receipt-check run failed',
         err?.stack ?? err?.message ?? String(err),
       );
     }

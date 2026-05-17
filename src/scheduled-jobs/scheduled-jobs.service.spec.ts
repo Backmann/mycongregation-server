@@ -16,10 +16,12 @@ jest.mock('expo-server-sdk', () => {
 });
 
 import { ScheduledJobsService } from './scheduled-jobs.service';
+import type { PushNotificationsService } from '../push-notifications/push-notifications.service';
 
 describe('ScheduledJobsService', () => {
   let service: ScheduledJobsService;
   let publishersService: { recomputeAllStatuses: jest.Mock };
+  let pushNotificationsService: jest.Mocked<PushNotificationsService>;
 
   beforeEach(() => {
     publishersService = {
@@ -32,7 +34,10 @@ describe('ScheduledJobsService', () => {
         durationMs: 250,
       }),
     };
-    service = new ScheduledJobsService(publishersService as any);
+    pushNotificationsService = {
+      checkReceipts: jest.fn().mockResolvedValue({ checked: 0, ok: 0, errors: 0, tokensDeleted: 0 }),
+    } as unknown as jest.Mocked<PushNotificationsService>;
+    service = new ScheduledJobsService(publishersService as any, pushNotificationsService);
   });
 
   it('handleNightlyStatusRecompute delegates to recomputeAllStatuses', async () => {
