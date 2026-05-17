@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { PushNotificationsService } from './push-notifications.service';
 import { PushToken } from '../entities/push-token.entity';
+import { User } from '../entities/user.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 
 jest.mock('expo-server-sdk', () => {
@@ -20,6 +21,7 @@ jest.mock('expo-server-sdk', () => {
 describe('PushNotificationsService', () => {
   let service: PushNotificationsService;
   let pushTokenRepo: jest.Mocked<Repository<PushToken>>;
+  let userRepo: jest.Mocked<Repository<User>>;
 
   beforeEach(() => {
     pushTokenRepo = {
@@ -30,7 +32,10 @@ describe('PushNotificationsService', () => {
       create: jest.fn().mockImplementation((data: any) => data),
     } as unknown as jest.Mocked<Repository<PushToken>>;
 
-    service = new PushNotificationsService(pushTokenRepo);
+    userRepo = {
+      findBy: jest.fn().mockResolvedValue([]),
+    } as unknown as jest.Mocked<Repository<User>>;
+    service = new PushNotificationsService(pushTokenRepo, userRepo);
   });
 
   describe('registerToken', () => {

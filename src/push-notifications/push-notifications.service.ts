@@ -3,7 +3,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Not, Repository } from 'typeorm';
 import { Expo, ExpoPushMessage } from 'expo-server-sdk';
 import { PushToken } from '../entities/push-token.entity';
+import { User } from '../entities/user.entity';
 import { UserRole } from '../common/enums/user-role.enum';
+import {
+  coerceLanguage,
+  DEFAULT_LANGUAGE,
+  SupportedLanguage,
+} from '../common/i18n/supported-languages';
+import { PUSH_STRINGS, translateStatus } from '../common/i18n/push-strings';
 
 @Injectable()
 export class PushNotificationsService {
@@ -13,6 +20,8 @@ export class PushNotificationsService {
   constructor(
     @InjectRepository(PushToken)
     private readonly pushTokenRepo: Repository<PushToken>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
   ) {}
 
   /**
@@ -87,8 +96,25 @@ export class PushNotificationsService {
       return;
     }
 
-    const title = 'Status changed';
-    const body = `${publisher.displayName}: ${before} → ${after}`;
+    // Fetch recipient languages so notifications arrive in each user's preferred
+    // language. Fresh lookup per send — avoids stale snapshots on language change.
+    const userIds = [...new Set(tokens.map((t) => t.userId).filter(Boolean))];
+    let langByUserId = new Map<string, SupportedLanguage>();
+    if (userIds.length > 0) {
+      const users = await this.userRepo.findBy({ id: In(userIds) });
+      langByUserId = new Map(
+        users.map((u) => [u.id, coerceLanguage(u.uiLanguage)]),
+      );
+    }
+
+    // Group tokens by recipient language; unknown defaults to DEFAULT_LANGUAGE.
+    const tokensByLang = new Map<SupportedLanguage, string[]>();
+    for (const t of tokens) {
+      const lang = langByUserId.get(t.userId) ?? DEFAULT_LANGUAGE;
+      if (!tokensByLang.has(lang)) tokensByLang.set(lang, []);
+      tokensByLang.get(lang)!.push(t.token);
+    }
+
     const data = {
       type: 'publisher_status_change',
       publisherId: publisher.id,
@@ -97,12 +123,20 @@ export class PushNotificationsService {
       after,
     };
 
-    await this.sendBatch(
-      tokens.map((t) => t.token),
-      title,
-      body,
-      data,
-    );
+    // Per-language batch send.
+    for (const [lang, langTokens] of tokensByLang) {
+      const strings = PUSH_STRINGS[lang].statusChange;
+      await this.sendBatch(
+        langTokens,
+        strings.title,
+        strings.body({
+          publisher: publisher.displayName,
+          before: translateStatus(before, lang),
+          after: translateStatus(after, lang),
+        }),
+        data,
+      );
+    }
   }
 
   private async sendBatch(
