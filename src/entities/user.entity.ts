@@ -41,6 +41,14 @@ export class User {
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;
 
+  @Column({
+    type: 'varchar',
+    length: 2,
+    default: 'ru',
+    comment: 'ISO 639-1 UI language code (ru, en, de)',
+  })
+  uiLanguage!: string;
+
   @Column({ type: 'timestamptz', nullable: true })
   lastLoginAt!: Date | null;
 
