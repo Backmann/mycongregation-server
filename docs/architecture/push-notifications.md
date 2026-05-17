@@ -1,12 +1,14 @@
 # Push notifications
 
-**Status:** ✅ **Implemented** (Phases G + G.2, shipped May 2026)
+**Status:** ✅ **Implemented** (Phases G + G.2 + M, shipped May 2026)
 **Last updated:** 2026-05-17
 
-End-to-end push pipeline for status-change notifications, including ticket
-persistence, receipt processing, and stale-token cleanup. Currently targets
-Android and iOS clients via Expo Push API; PWA Web Push is the next phase
-(see ROADMAP medium-term item 1).
+End-to-end dual-channel push pipeline for status-change notifications.
+Native Android/iOS clients are reached via Expo Push API (with 2-phase
+ticket/receipt flow + stale-token cleanup). PWA browser clients are reached
+via Web Push protocol (synchronous send + HTTP-code-based cleanup).
+A single call to `PushNotificationsService.sendStatusChange` fans out to
+both channels with shared localization.
 
 ---
 
@@ -57,25 +59,28 @@ Indexes: `(status, sent_at)`, `(token)`, `(congregation_id)`.
 
 ## Send flow
 
-`PushNotificationsService.sendStatusChange(tenant, publisher, before, after, actorUserId?)`:
+`PushNotificationsService.sendStatusChange(tenant, publisher, before, after, excludeUserId?)`
+orchestrates delivery to both channels in one pass:
 
-1. Fetch all `push_tokens` for the tenant. Excludes the actor if
-   `actorUserId` is passed (so a user is not notified about their own
-   action).
-2. Look up `user.uiLanguage` for each recipient via a single `In(...)`
-   query; group tokens by language.
-3. Per language batch, build a localized title/body using
-   `PUSH_STRINGS[lang]` and `translateStatus()` from
-   `common/i18n/push-strings.ts`.
-4. Call `sendBatch(tokens, title, body, data)` which:
-   - filters out invalid Expo tokens (recorded as immediate
-     `InvalidExpoPushToken` errors)
-   - chunks valid tokens and calls `expo.sendPushNotificationsAsync(chunk)`
-   - returns one `SendBatchResult` per input token in order:
-     `{ token, ticketId, errorCode }`
-5. For each successful ticket (`ticketId !== null`), insert a row into
-   `push_receipts` with `status = 'pending'`. Immediate failures (no ticket
-   id) are logged but not persisted — there is nothing to poll later.
+1. Fetch all `push_tokens` (Expo native) **and** `web_push_subscriptions`
+   (PWA browsers) for the tenant in parallel. Excludes the actor if
+   `excludeUserId` is passed.
+2. Short-circuit if both lists are empty.
+3. Look up `user.uiLanguage` for the union of unique recipient user ids via
+   a single `In(...)` query; build a shared `langByUserId` map.
+4. Group both `push_tokens` and `web_push_subscriptions` by language.
+5. **Expo branch** (per language): build localized title/body via
+   `PUSH_STRINGS[lang]` + `translateStatus()`, call `sendBatch(...)`
+   which filters invalid tokens, chunks, and calls
+   `expo.sendPushNotificationsAsync`. For each `status: 'ok'` ticket,
+   insert a row in `push_receipts` (`status='pending'`) for the
+   receipt-check cron to follow up. Immediate failures (no ticket id) are
+   logged but not persisted.
+6. **Web Push branch** (per language): same localized payload, fanned out
+   to subscriptions via `Promise.all(langSubs.map(s =>
+   WebPushService.sendToSubscription(s, payload)))`. The push service
+   responds synchronously with an HTTP code that drives inline cleanup —
+   no separate poll phase needed.
 
 ---
 
@@ -101,6 +106,28 @@ minutes.
 6. Network errors from Expo are caught at the chunk level — the chunk is
    skipped, those receipts stay pending, the run continues with other
    chunks.
+
+---
+
+## Web Push response handling
+
+Unlike Expo, Web Push is single-phase: the HTTP response from the push
+service tells us the outcome immediately, so there is no separate poll
+step. `WebPushService.sendToSubscription` reacts inline:
+
+| HTTP code | `errorCode` returned | Action |
+|---|---|---|
+| 201 Created | `null` (ok) | Update `last_used_at`, clear `last_failed_at` |
+| 410 Gone / 404 Not Found | `SubscriptionGone` | Delete the row (parallel to Expo's `DeviceNotRegistered`) |
+| 413 Payload Too Large | `MessageTooBig` | Log + record `last_failed_at` |
+| 429 Too Many Requests | `MessageRateExceeded` | Log + record `last_failed_at` |
+| 5xx | `PushServiceError` | Log + record `last_failed_at` |
+| other | `SendError` | Log + record `last_failed_at` |
+
+The client-side Service Worker (`public/service-worker.js` in the app repo)
+listens for `push` events, renders the payload as a system notification,
+and routes click events back into the PWA (focusing the existing tab if open,
+otherwise opening a new one to the relevant route).
 
 ---
 
@@ -146,15 +173,13 @@ back to `DEFAULT_LANGUAGE` from `common/i18n/supported-languages.ts`
 
 ## Future
 
-- **Phase M — Web Push** for PWA users: Service Worker + VAPID keys, dual
-  send pipeline (Expo for native, Web Push for browser). Separate
-  `web_push_subscriptions` table; the receipt model can stay similar in
-  shape, but Web Push receipts work differently (synchronous 4xx/5xx from
-  the push service, no separate poll phase). Likely a parallel
-  `web_push_receipts` table or a discriminator column.
 - **Per-user notification preferences** — e.g. opt out of status-change
   pushes while keeping schedule reminders. Would require a new
   `user_notification_prefs` table or jsonb on `users`.
 - **Per-tenant rate limiting** — currently we rely on Expo's
-  `MessageRateExceeded` surfacing through the receipt flow. A proactive
-  token-bucket per tenant would catch runaway loops earlier.
+  `MessageRateExceeded` and Web Push's 429 surfacing through normal flow.
+  A proactive token-bucket per tenant would catch runaway loops earlier.
+- **Receipt aggregation / metrics** — push success/failure dashboards for
+  ops visibility. Now that both channels persist receipt-like state
+  (`push_receipts` for Expo; `last_used_at` / `last_failed_at` on web subs),
+  building a per-tenant delivery health view is feasible.

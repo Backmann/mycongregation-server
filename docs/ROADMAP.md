@@ -24,10 +24,10 @@
 - **Service Reports** — self + on-behalf submission, edit window enforced (1st-10th of next month), regular + pioneer forms
 - **Audit Log** — per-report edit history with field-level diffs
 - **Activity Feed** — cursor-paginated combined feed (status changes, report events, overrides)
-- **Push Notifications** — Expo Push API; ticket persistence + receipt-checking cron + automatic cleanup of stale tokens; per-language localized message bodies (see [`push-notifications.md`](architecture/push-notifications.md))
+- **Push Notifications** — Dual-channel delivery: Expo Push (native iOS/Android) + Web Push (PWA browsers); ticket persistence + receipt-checking cron for Expo; HTTP-code-based stale-subscription cleanup for both channels; per-language localized message bodies (see [`push-notifications.md`](architecture/push-notifications.md))
 - **Scheduled Jobs** — NestJS `@Cron`: nightly status recompute (03:00 UTC), push receipt check (every 30 min), receipt cleanup (03:30 UTC daily). BullMQ powers the email-send queue.
 
-**Quality:** 240 tests across 14 suites · 6 migrations in production · test gate in CI
+**Quality:** 254 tests across 15 suites · 7 migrations in production · test gate in CI
 
 ### Frontend (Expo SDK 54 — Web + Android single codebase)
 
@@ -36,6 +36,7 @@
 - **Schedule** — JW-authentic colored sub-sections (Treasures / Apply Yourself / Living as Christians) for midweek; locale-aware week navigator
 - **i18n** — Russian, English, German (~485 keys); first-launch language picker; runtime switching
 - **Authentication** — proactive JWT refresh prevents intermittent 401 UI flashes
+- **Web Push (PWA)** — Service Worker–based notifications for browser users, opt-in toggle in Profile with iOS Safari standalone-mode hint
 
 ### Infrastructure
 
@@ -68,14 +69,13 @@ Canonical references under `docs/architecture/`:
 
 ### 🟢 Near-term (current sprint, hours-days)
 
-*Phase K (backend i18n) and Phase G.2 (push receipt pipeline) shipped 2026-05-17 — see phase history. Pick next from medium-term.*
+*Phase K (backend i18n), Phase G.2 (push receipt pipeline), and Phase M (Web Push for PWA) all shipped 2026-05-17 — see phase history. Pick next from medium-term.*
 
 ### 🟡 Medium-term (next 1-2 months)
 
-1. **Web Push for PWA** — Service Worker registration, VAPID keys, server-side dual push pipeline (Expo + Web Push). *Estimate: ~1 day.*
-2. **App-side CI test gate** — the app repo currently deploys without tests. Add minimal Jest setup + critical-path tests + gate. *Estimate: ~half day.*
-3. **Data protection L1+L2** — encryption at rest for sensitive fields (addresses, phones, pastoral notes) per `data-protection.md`. AES-256-GCM column transformers + per-tenant key wrapping. *Estimate: ~1-2 days.*
-4. **Roles & permissions full implementation** — sub-roles (secretary, coordinator-of-elders, etc.), capability-scoped queries per `roles-and-permissions.md`. *Estimate: ~2-3 days.*
+1. **App-side CI test gate** — the app repo currently deploys without tests. Add minimal Jest setup + critical-path tests + gate. *Estimate: ~half day.*
+2. **Data protection L1+L2** — encryption at rest for sensitive fields (addresses, phones, pastoral notes) per `data-protection.md`. AES-256-GCM column transformers + per-tenant key wrapping. *Estimate: ~1-2 days.*
+3. **Roles & permissions full implementation** — sub-roles (secretary, coordinator-of-elders, etc.), capability-scoped queries per `roles-and-permissions.md`. *Estimate: ~2-3 days.*
 
 ### 🔵 Long-term (next 3-12 months)
 
@@ -102,6 +102,7 @@ Rough chronological log of completed milestones.
 | 2026-05-16 | J.1–J.7 | UX restructure: families nested under publishers · "List / By family" view toggle · JW-style colored midweek sub-sections (Treasures / Apply Yourself / Living as Christians) · structural integrity (unassign vs delete) · proactive JWT refresh · WeekNavigator locale-aware dates |
 | 2026-05-17 | K | Backend i18n: `users.ui_language` column, BootstrapDto language inheritance, `PATCH /auth/me` for client→server sync, per-language localized push notification bodies |
 | 2026-05-17 | G.2 | Push receipt pipeline: `push_receipts` table + entity, ticket persistence in sendStatusChange, receipt-check cron (every 30 min), DeviceNotRegistered token cleanup, daily receipt purge (7d retention), 7 dedicated tests |
+| 2026-05-17 | M | Web Push for PWA: `web_push_subscriptions` table, subscribe/unsubscribe endpoints, dual-channel send in `sendStatusChange` (Expo + Web Push in one call), Service Worker, `lib/web-push.ts` client API, Profile toggle, iOS Safari standalone hint, 14 dedicated tests |
 
 ---
 
