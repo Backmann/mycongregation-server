@@ -15,6 +15,10 @@ jest.mock('expo-server-sdk', () => {
       return [messages];
     }
     sendPushNotificationsAsync = jest.fn().mockResolvedValue([]);
+    chunkPushNotificationReceiptIds(ids: string[]) {
+      return [ids];
+    }
+    getPushNotificationReceiptsAsync = jest.fn().mockResolvedValue({});
   }
   return { Expo: MockExpo };
 });
@@ -39,6 +43,8 @@ describe('PushNotificationsService', () => {
     } as unknown as jest.Mocked<Repository<User>>;
     pushReceiptRepo = {
       save: jest.fn().mockResolvedValue([]),
+      find: jest.fn().mockResolvedValue([]),
+      delete: jest.fn().mockResolvedValue({ affected: 0 }),
     } as unknown as jest.Mocked<Repository<PushReceipt>>;
     service = new PushNotificationsService(pushTokenRepo, userRepo, pushReceiptRepo);
   });
@@ -147,6 +153,108 @@ describe('PushNotificationsService', () => {
         userId: 'user-1',
         token: 'ExponentPushToken[abc123]',
       });
+    });
+  });
+
+  describe('checkReceipts', () => {
+    it('returns zero counts when nothing is pending', async () => {
+      pushReceiptRepo.find.mockResolvedValue([]);
+
+      const result = await service.checkReceipts();
+
+      expect(result).toEqual({ checked: 0, ok: 0, errors: 0, tokensDeleted: 0 });
+      const expo = (service as any).expo;
+      expect(expo.getPushNotificationReceiptsAsync).not.toHaveBeenCalled();
+    });
+
+    it('marks ok receipts and saves them', async () => {
+      const pending = [
+        { ticketId: 'ticket-1', token: 'ExponentPushToken[a]', status: 'pending', checkedAt: null, errorCode: null },
+        { ticketId: 'ticket-2', token: 'ExponentPushToken[b]', status: 'pending', checkedAt: null, errorCode: null },
+      ];
+      pushReceiptRepo.find.mockResolvedValue(pending as any);
+      (service as any).expo.getPushNotificationReceiptsAsync.mockResolvedValue({
+        'ticket-1': { status: 'ok' },
+        'ticket-2': { status: 'ok' },
+      });
+
+      const result = await service.checkReceipts();
+
+      expect(result.ok).toBe(2);
+      expect(result.errors).toBe(0);
+      expect(result.tokensDeleted).toBe(0);
+      expect(pushReceiptRepo.save).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ ticketId: 'ticket-1', status: 'ok' }),
+          expect.objectContaining({ ticketId: 'ticket-2', status: 'ok' }),
+        ]),
+      );
+    });
+
+    it('deletes push_tokens when receipt status is DeviceNotRegistered', async () => {
+      const pending = [
+        { ticketId: 'ticket-1', token: 'ExponentPushToken[stale]', status: 'pending', checkedAt: null, errorCode: null },
+      ];
+      pushReceiptRepo.find.mockResolvedValue(pending as any);
+      pushTokenRepo.delete.mockResolvedValue({ affected: 1 } as any);
+      (service as any).expo.getPushNotificationReceiptsAsync.mockResolvedValue({
+        'ticket-1': { status: 'error', message: 'gone', details: { error: 'DeviceNotRegistered' } },
+      });
+
+      const result = await service.checkReceipts();
+
+      expect(result.errors).toBe(1);
+      expect(result.tokensDeleted).toBe(1);
+      expect(pushTokenRepo.delete).toHaveBeenCalledTimes(1);
+      const deleteArg = pushTokenRepo.delete.mock.calls[0][0] as any;
+      expect(deleteArg.token).toBeDefined();
+    });
+
+    it('leaves receipts as pending when Expo has no receipt yet', async () => {
+      const pending = [
+        { ticketId: 'ticket-1', token: 'ExponentPushToken[a]', status: 'pending', checkedAt: null, errorCode: null },
+      ];
+      pushReceiptRepo.find.mockResolvedValue(pending as any);
+      (service as any).expo.getPushNotificationReceiptsAsync.mockResolvedValue({});
+
+      const result = await service.checkReceipts();
+
+      expect(result.checked).toBe(0);
+      expect(pushReceiptRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('handles Expo network errors gracefully', async () => {
+      const pending = [
+        { ticketId: 'ticket-1', token: 'ExponentPushToken[a]', status: 'pending', checkedAt: null, errorCode: null },
+      ];
+      pushReceiptRepo.find.mockResolvedValue(pending as any);
+      (service as any).expo.getPushNotificationReceiptsAsync.mockRejectedValue(new Error('network down'));
+
+      const result = await service.checkReceipts();
+
+      expect(result).toEqual({ checked: 0, ok: 0, errors: 0, tokensDeleted: 0 });
+      expect(pushReceiptRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('cleanupOldReceipts', () => {
+    it('delegates to repo.delete with a cutoff and returns affected count', async () => {
+      pushReceiptRepo.delete.mockResolvedValue({ affected: 42 } as any);
+
+      const count = await service.cleanupOldReceipts();
+
+      expect(count).toBe(42);
+      expect(pushReceiptRepo.delete).toHaveBeenCalledTimes(1);
+      const arg = pushReceiptRepo.delete.mock.calls[0][0] as any;
+      expect(arg.sentAt).toBeDefined();
+    });
+
+    it('returns 0 when delete.affected is null', async () => {
+      pushReceiptRepo.delete.mockResolvedValue({ affected: null } as any);
+
+      const count = await service.cleanupOldReceipts();
+
+      expect(count).toBe(0);
     });
   });
 });
