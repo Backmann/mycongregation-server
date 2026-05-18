@@ -29,37 +29,45 @@ import { AuditLog } from '../entities/audit-log.entity';
  */
 
 interface ExpectedField {
+  /** Display name like "Publisher.mobilePhone" — used by Jest test title. */
+  name: string;
   entity: Function;
-  entityName: string;
   property: string;
 }
 
 const TIER_1_FIELDS: ExpectedField[] = [
   // Publisher — 6 sensitive fields
-  { entity: Publisher, entityName: 'Publisher', property: 'mobilePhone' },
-  { entity: Publisher, entityName: 'Publisher', property: 'email' },
-  { entity: Publisher, entityName: 'Publisher', property: 'address' },
-  { entity: Publisher, entityName: 'Publisher', property: 'spiritualNotes' },
-  { entity: Publisher, entityName: 'Publisher', property: 'notes' },
-  { entity: Publisher, entityName: 'Publisher', property: 'removedNote' },
+  { name: 'Publisher.mobilePhone', entity: Publisher, property: 'mobilePhone' },
+  { name: 'Publisher.email', entity: Publisher, property: 'email' },
+  { name: 'Publisher.address', entity: Publisher, property: 'address' },
+  {
+    name: 'Publisher.spiritualNotes',
+    entity: Publisher,
+    property: 'spiritualNotes',
+  },
+  { name: 'Publisher.notes', entity: Publisher, property: 'notes' },
+  { name: 'Publisher.removedNote', entity: Publisher, property: 'removedNote' },
 
   // ServiceReport — 1
-  { entity: ServiceReport, entityName: 'ServiceReport', property: 'notes' },
+  { name: 'ServiceReport.notes', entity: ServiceReport, property: 'notes' },
 
   // Family — 1
-  { entity: Family, entityName: 'Family', property: 'notes' },
+  { name: 'Family.notes', entity: Family, property: 'notes' },
 
   // ServiceGroup — 1
-  { entity: ServiceGroup, entityName: 'ServiceGroup', property: 'notes' },
+  { name: 'ServiceGroup.notes', entity: ServiceGroup, property: 'notes' },
 
   // AuditLog — 2 (mirror of changes to encrypted source records)
-  { entity: AuditLog, entityName: 'AuditLog', property: 'beforeJson' },
-  { entity: AuditLog, entityName: 'AuditLog', property: 'afterJson' },
+  { name: 'AuditLog.beforeJson', entity: AuditLog, property: 'beforeJson' },
+  { name: 'AuditLog.afterJson', entity: AuditLog, property: 'afterJson' },
 ];
 
 describe('Encryption wiring (data-protection.md Phase 1)', () => {
+  // Single $name token avoids Jest's $key.$key dotted-template parsing,
+  // which otherwise produced "PublishermobilePhone" instead of
+  // "Publisher.mobilePhone" in test output.
   it.each(TIER_1_FIELDS)(
-    '$entityName.$property uses encryptedTransformer',
+    '$name uses encryptedTransformer',
     ({ entity, property }) => {
       const column = getMetadataArgsStorage().columns.find(
         (c) => c.target === entity && c.propertyName === property,
@@ -78,8 +86,8 @@ describe('Encryption wiring (data-protection.md Phase 1)', () => {
     expect(TIER_1_FIELDS).toHaveLength(11);
   });
 
-  it('every Tier 1 entry has a distinct (entity, property) pair', () => {
-    const keys = TIER_1_FIELDS.map((f) => `${f.entityName}.${f.property}`);
-    expect(new Set(keys).size).toBe(keys.length);
+  it('every Tier 1 entry has a distinct name', () => {
+    const names = TIER_1_FIELDS.map((f) => f.name);
+    expect(new Set(names).size).toBe(names.length);
   });
 });
