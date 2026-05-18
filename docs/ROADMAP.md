@@ -44,7 +44,7 @@
 - **API:** `api.mycongregation.org`
 - **PWA:** `mycongregation.org`
 - **CDN:** Cloudflare
-- **CI/CD:** GitHub Actions — server has test gate, app has build+deploy
+- **CI/CD:** GitHub Actions — server has test gate + auto-deploy, app has lint gate + auto-deploy (both deploy on push to main)
 - **Mobile build:** EAS Build (Android APK)
 - **Operations:** Daily DB backups · Sentry + Better Stack monitoring
 
@@ -69,11 +69,11 @@ Canonical references under `docs/architecture/`:
 
 ### 🟢 Near-term (current sprint, hours-days)
 
-*Phase K (backend i18n), Phase G.2 (push receipt pipeline), and Phase M (Web Push for PWA) all shipped 2026-05-17 — see phase history. Pick next from medium-term.*
+*Phase K (backend i18n), Phase G.2 (push receipt pipeline), and Phase M (Web Push for PWA) all shipped 2026-05-17. App-side CI workflow + production bug fixes shipped 2026-05-18 — see phase history. Pick next from medium-term.*
 
 ### 🟡 Medium-term (next 1-2 months)
 
-1. **App-side CI test gate** — the app repo currently deploys without tests. Add minimal Jest setup + critical-path tests + gate. *Estimate: ~half day.*
+1. **App-side Jest test suite** — CI workflow now runs lint as a gate (shipped 2026-05-18); next layer is adding Jest setup + critical-path tests so the lint gate expands into a real test gate. *Estimate: ~half day.*
 2. **Data protection L1+L2** — encryption at rest for sensitive fields (addresses, phones, pastoral notes) per `data-protection.md`. AES-256-GCM column transformers + per-tenant key wrapping. *Estimate: ~1-2 days.*
 3. **Roles & permissions full implementation** — sub-roles (secretary, coordinator-of-elders, etc.), capability-scoped queries per `roles-and-permissions.md`. *Estimate: ~2-3 days.*
 
@@ -103,6 +103,8 @@ Rough chronological log of completed milestones.
 | 2026-05-17 | K | Backend i18n: `users.ui_language` column, BootstrapDto language inheritance, `PATCH /auth/me` for client→server sync, per-language localized push notification bodies |
 | 2026-05-17 | G.2 | Push receipt pipeline: `push_receipts` table + entity, ticket persistence in sendStatusChange, receipt-check cron (every 30 min), DeviceNotRegistered token cleanup, daily receipt purge (7d retention), 7 dedicated tests |
 | 2026-05-17 | M | Web Push for PWA: `web_push_subscriptions` table, subscribe/unsubscribe endpoints, dual-channel send in `sendStatusChange` (Expo + Web Push in one call), Service Worker, `lib/web-push.ts` client API, Profile toggle, iOS Safari standalone hint, 14 dedicated tests |
+| 2026-05-18 | M | Phase M end-to-end **production-verified** — nightly StatusRecompute cron fires `sendStatusChange` → WNS + FCM both accept push (`last_used_at` updates on both subscriptions) |
+| 2026-05-18 | hardening | App-side CI workflow (lint gate + auto-deploy mirroring server pattern); `lib/api.ts` now throws in production when `EXPO_PUBLIC_API_URL` is unset (was silently falling back to localhost — bit us during today's deploy); DTO `@Transform` on 4 date fields (birthDate / baptismDate / ministryStartDate / pioneerSince) fixes `must be a valid ISO 8601 date string` when fields are empty strings or null |
 
 ---
 
