@@ -1,6 +1,6 @@
 # Roles and Permissions Architecture
 
-**Status:** 🟡 Partially implemented — Phase 1 (admin-only critical endpoints) shipped 2026-05-18: import, user management (CRUD), role changes, password reset are all behind `@Roles(ADMIN)`. Sub-roles (secretary, body-coordinator, life-ministry-overseer) and capability scoping (Phases 2+) pending.
+**Status:** 🟡 Partially implemented — Phase 1 (admin-only critical endpoints + self-service password change) shipped 2026-05-18: import, user management (CRUD), role changes, admin password reset, and self-service password change are all wired. Sub-roles (secretary, body-coordinator, life-ministry-overseer) and capability scoping (Phases 2+) pending.
 **Last updated:** 2026-05-18.
 **Owner:** @Backmann.
 
@@ -207,10 +207,10 @@ The server remains authoritative; the client check is purely for UX.
 
 | Phase | Scope | Status | Estimated effort |
 |-------|-------|--------|------------------|
-| 1 | `@Roles` guard for admin-only critical endpoints (import, user CRUD, role changes, password reset). | 🟢 done 2026-05-18 | actual: ~4h |
+| 1 | `@Roles` guard for admin-only critical endpoints (import, user CRUD, role changes, password reset) + self-service password change for all roles. | 🟢 done 2026-05-18 | actual: ~5h |
 | 2 | `Responsibility` table + admin UI for assigning responsibilities. `@RequireResponsibility` guard. | ⚪ pending | 2 to 3 hours |
 | 3 | `PublisherApprovals` fields + admin UI for granting. Use in assignment eligibility filters. | ⚪ pending | 1 to 2 hours |
-| 4 | Client-side `usePermissions` hook + conditional rendering across screens. | ⚪ pending | 1 to 2 hours |
+| 4 | Client-side `usePermissions` hook + conditional rendering across screens (admin user-management screen lives here). | ⚪ pending — next session | 2 to 3 hours |
 | 5 | Self-service publisher edit with audit log. | ⚪ pending | 1 hour |
 
 Each phase is independently shippable. Phase 1 alone provides meaningful
@@ -226,7 +226,7 @@ Endpoints under `@Roles(ADMIN)` (in addition to the global `JwtAuthGuard`):
 | ✓ | POST | `/schedule-import/upload` | `@Roles(ADMIN, ELDER)` |
 | ✓ | POST | `/admin/recompute-statuses` | `@Roles(ADMIN)` |
 
-New endpoints in `UsersController` (all `@Roles(ADMIN)`):
+New admin endpoints in `UsersController` (all `@Roles(ADMIN)`):
 
 | Method | Path | Body | Notes |
 |---|---|---|---|
@@ -237,10 +237,18 @@ New endpoints in `UsersController` (all `@Roles(ADMIN)`):
 | PATCH | `/users/:id/activate` | — | Reactivates a previously deactivated user |
 | POST | `/users/:id/reset-password` | `{password}` | Returns 204; new hash recorded with redacted audit entry |
 
+New self-service endpoint in `AuthController` (no role restriction —
+any authenticated user, satisfying the "Change own password — yes for all"
+row of the permission matrix):
+
+| Method | Path | Body | Notes |
+|---|---|---|---|
+| PATCH | `/auth/me/password` | `{currentPassword, newPassword}` | 204 on success. Requires correct `currentPassword`; mismatch returns **400 BadRequest** (not 401, to avoid triggering the client's token-refresh interceptor). Audit log records `actorUserId === entityId` to mark this as a self action, distinguishable from an admin reset. |
+
 Defense-in-depth invariants (enforced in `UsersService`):
 
-- Multi-tenant: every read/write is scoped via `findByIdInCongregation`. A
-  user in cong A cannot be touched by an admin in cong B (404 instead of 403,
+- Multi-tenant: every admin read/write is scoped via `findByIdInCongregation`.
+  A user in cong A cannot be touched by an admin in cong B (404 instead of 403,
   to avoid information leak about existence).
 - Last-admin protection: `countActiveAdminsInCongregation` blocks demotion
   or deactivation when it would leave the congregation without an active admin.
@@ -257,12 +265,14 @@ Defense-in-depth invariants (enforced in `UsersService`):
 
 **Deferred to next sessions:**
 
-- `PATCH /auth/me/password` — self-service password change (every role can do it,
-  per the permission matrix; this is separate from Phase 1's admin-only scope).
 - Server-side responsibility-aware import (e.g. `@RequireResponsibility('life_ministry_overseer')`
   on `/mwb-import/upload`). Currently both imports accept `ADMIN, ELDER`, which is broader
   than the canonical matrix but operational for now.
-- Client-side `usePermissions` hook and admin user-management UI (Phase 4).
+- Client-side `usePermissions` hook and admin user-management UI (Phase 4) —
+  next session, separate repo (`mycongregation-app`).
+- Token rotation on password change. Currently, after a password change the
+  old access/refresh tokens remain valid until natural expiry. Acceptable for
+  Phase 1 but worth revisiting if compromise scenarios become a concern.
 
 ## Glossary
 

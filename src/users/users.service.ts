@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -276,6 +277,62 @@ export class UsersService {
       entityType: 'User',
       entityId: targetId,
       actorUserId,
+      changedFields: ['passwordHash'],
+      before: { passwordHash: '<redacted>' },
+      after: { passwordHash: '<redacted>' },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Self-service operations (Phase 1 follow-up)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Self-service password change — the caller proves possession of the
+   * current password before being allowed to set a new one. Available to
+   * any authenticated user (no role restriction).
+   *
+   * Distinguished from `resetPasswordByAdmin` in the audit log by
+   * `actorUserId === entityId` — a forensic marker that this was a self
+   * action, not an admin reset.
+   *
+   * Throws:
+   *   - NotFoundException when the user no longer exists (e.g. stale token
+   *     against a deleted account)
+   *   - BadRequestException when `currentPassword` does not match. NOT
+   *     UnauthorizedException, because 401 would trigger the client's
+   *     token-refresh interceptor — the caller IS still authenticated,
+   *     they just typed the wrong current password.
+   */
+  async changePasswordSelfService(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    // passwordHash is excluded from the entity by default — re-add it.
+    const user = await this.usersRepo
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('user.id = :id', { id: userId })
+      .getOne();
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!ok) {
+      throw new BadRequestException('Current password is incorrect');
+    }
+
+    const passwordHash = await this.hashPassword(newPassword);
+    await this.usersRepo.update(userId, { passwordHash });
+
+    await this.auditLog.logRawUpdate({
+      tenantId: user.congregationId,
+      entityType: 'User',
+      entityId: userId,
+      actorUserId: userId, // self-action: actor === target
       changedFields: ['passwordHash'],
       before: { passwordHash: '<redacted>' },
       after: { passwordHash: '<redacted>' },

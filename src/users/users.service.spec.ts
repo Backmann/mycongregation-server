@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
@@ -17,6 +18,12 @@ type MockRepo<T extends object = any> = Partial<
   Record<keyof Repository<T>, jest.Mock>
 >;
 
+const makeQueryBuilder = () => ({
+  addSelect: jest.fn().mockReturnThis(),
+  where: jest.fn().mockReturnThis(),
+  getOne: jest.fn(),
+});
+
 const makeUsersRepo = (): MockRepo<User> => ({
   count: jest.fn(),
   find: jest.fn(),
@@ -24,6 +31,7 @@ const makeUsersRepo = (): MockRepo<User> => ({
   create: jest.fn().mockImplementation((x) => x),
   save: jest.fn().mockImplementation(async (x) => x),
   update: jest.fn().mockResolvedValue({ affected: 1 }),
+  createQueryBuilder: jest.fn(),
 });
 
 const makeAuditLog = (): jest.Mocked<Partial<AuditLogService>> => ({
@@ -417,6 +425,74 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
       (repo.findOne as jest.Mock).mockResolvedValue(null);
       await expect(
         service.resetPasswordByAdmin('u-1', 'newpass123', CONG, ADMIN_ID),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(repo.update).not.toHaveBeenCalled();
+      expect(audit.logRawUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // changePasswordSelfService (Phase 1 follow-up)
+  // ---------------------------------------------------------------------------
+
+  describe('changePasswordSelfService', () => {
+    /**
+     * The method loads the user via createQueryBuilder (to re-include the
+     * normally-excluded passwordHash). Tests prime that builder so the
+     * mocked `getOne` returns the fixture we want for each scenario.
+     */
+    async function primeQbWithUser(user: User | null): Promise<void> {
+      const qb = makeQueryBuilder();
+      qb.getOne.mockResolvedValue(user);
+      (repo.createQueryBuilder as jest.Mock).mockReturnValue(qb);
+    }
+
+    it('hashes and updates the new password, audits as a self-action', async () => {
+      // Set up a real hash for the "current password" check
+      const realHash = await bcrypt.hash('oldsecret', 4);
+      await primeQbWithUser(
+        userFixture({ id: 'u-1', passwordHash: realHash }),
+      );
+
+      await service.changePasswordSelfService('u-1', 'oldsecret', 'newpass123');
+
+      const updateCall = (repo.update as jest.Mock).mock.calls[0];
+      expect(updateCall[0]).toBe('u-1');
+      const newHash = updateCall[1].passwordHash;
+      expect(await bcrypt.compare('newpass123', newHash)).toBe(true);
+
+      // Audit shows self-action (actorUserId === entityId) and redacted hashes.
+      expect(audit.logRawUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: CONG,
+          entityType: 'User',
+          entityId: 'u-1',
+          actorUserId: 'u-1',
+          changedFields: ['passwordHash'],
+          before: { passwordHash: '<redacted>' },
+          after: { passwordHash: '<redacted>' },
+        }),
+      );
+    });
+
+    it('throws BadRequestException when current password is wrong (NOT 401)', async () => {
+      const realHash = await bcrypt.hash('actualcurrent', 4);
+      await primeQbWithUser(
+        userFixture({ id: 'u-1', passwordHash: realHash }),
+      );
+
+      await expect(
+        service.changePasswordSelfService('u-1', 'wrongguess', 'newpass123'),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(repo.update).not.toHaveBeenCalled();
+      expect(audit.logRawUpdate).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when user no longer exists', async () => {
+      await primeQbWithUser(null);
+
+      await expect(
+        service.changePasswordSelfService('u-1', 'anything', 'newpass123'),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(repo.update).not.toHaveBeenCalled();
       expect(audit.logRawUpdate).not.toHaveBeenCalled();
