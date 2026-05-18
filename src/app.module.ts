@@ -45,6 +45,14 @@ import { ActivityFeedModule } from './activity-feed/activity-feed.module';
         username: config.get<string>('database.username'),
         password: config.get<string>('database.password'),
         database: config.get<string>('database.database'),
+        // TLS on production (Phase L Phase 4B). When POSTGRES_SSL=true is set
+        // in the runtime .env, TypeORM negotiates TLS with the server.
+        // rejectUnauthorized: false because the cert is self-signed on the
+        // internal docker network — the password still authenticates.
+        ssl:
+          process.env.POSTGRES_SSL === 'true'
+            ? { rejectUnauthorized: false }
+            : false,
         entities: [join(__dirname, '**', '*.entity.{ts,js}')],
         migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
         namingStrategy: new SnakeNamingStrategy(),
