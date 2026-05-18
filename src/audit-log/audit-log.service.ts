@@ -70,6 +70,69 @@ export class AuditLogService {
   }
 
   /**
+   * Records a CREATE event. Used when a new entity is inserted by an admin
+   * (e.g. user invitation) and there is no meaningful "before" state.
+   *
+   * The `after` snapshot is stored verbatim — callers are responsible for
+   * omitting sensitive fields (e.g. passwordHash) from the payload.
+   */
+  async logCreate(opts: {
+    tenantId: string;
+    entityType: string;
+    entityId: string;
+    actorUserId: string;
+    after: Record<string, any>;
+  }): Promise<void> {
+    await this.auditRepo.save(
+      this.auditRepo.create({
+        congregationId: opts.tenantId,
+        entityType: opts.entityType,
+        entityId: opts.entityId,
+        action: 'CREATE',
+        actorUserId: opts.actorUserId,
+        beforeJson: null,
+        afterJson: JSON.stringify(opts.after),
+        changedFields: Object.keys(opts.after),
+      }),
+    );
+  }
+
+  /**
+   * Records an UPDATE event WITHOUT auto-diffing. The caller provides
+   * `changedFields`, `before` and `after` snapshots explicitly.
+   *
+   * Use this when sensitive values must be masked — e.g. an admin password
+   * reset records `{ passwordHash: '<redacted>' }` on both sides because the
+   * actual hash must never appear in the audit log. The auto-diffing
+   * `logUpdate` would otherwise treat equal masked values as "unchanged"
+   * and write nothing.
+   */
+  async logRawUpdate(opts: {
+    tenantId: string;
+    entityType: string;
+    entityId: string;
+    actorUserId: string;
+    changedFields: string[];
+    before: Record<string, any>;
+    after: Record<string, any>;
+  }): Promise<void> {
+    if (opts.changedFields.length === 0) return;
+
+    await this.auditRepo.save(
+      this.auditRepo.create({
+        congregationId: opts.tenantId,
+        entityType: opts.entityType,
+        entityId: opts.entityId,
+        action: 'UPDATE',
+        actorUserId: opts.actorUserId,
+        beforeJson: JSON.stringify(opts.before),
+        afterJson: JSON.stringify(opts.after),
+        changedFields: opts.changedFields,
+      }),
+    );
+  }
+
+  /**
    * Returns audit log entries for a single entity (newest first), with
    * actor display names enriched from the Publisher table (best-effort:
    * `actorName` is null if the actor has no Publisher record).

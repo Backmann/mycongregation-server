@@ -1,7 +1,7 @@
 # Roles and Permissions Architecture
 
-**Status:** 🟡 Partially implemented — admin/elder/ministerial_servant/publisher roles + JWT guards live; sub-roles (secretary, coordinator-of-elders) and capability scoping pending.
-**Last updated:** 2026-05-16.
+**Status:** 🟡 Partially implemented — Phase 1 (admin-only critical endpoints) shipped 2026-05-18: import, user management (CRUD), role changes, password reset are all behind `@Roles(ADMIN)`. Sub-roles (secretary, body-coordinator, life-ministry-overseer) and capability scoping (Phases 2+) pending.
+**Last updated:** 2026-05-18.
 **Owner:** @Backmann.
 
 ## Goals
@@ -205,16 +205,64 @@ The server remains authoritative; the client check is purely for UX.
 
 ## Implementation Phases
 
-| Phase | Scope | Estimated effort |
-|-------|-------|------------------|
-| 1 | `@Roles` guard for admin-only critical endpoints (import, user creation, role changes). | 45 min |
-| 2 | `Responsibility` table + admin UI for assigning responsibilities. `@RequireResponsibility` guard. | 2 to 3 hours |
-| 3 | `PublisherApprovals` fields + admin UI for granting. Use in assignment eligibility filters. | 1 to 2 hours |
-| 4 | Client-side `usePermissions` hook + conditional rendering across screens. | 1 to 2 hours |
-| 5 | Self-service publisher edit with audit log. | 1 hour |
+| Phase | Scope | Status | Estimated effort |
+|-------|-------|--------|------------------|
+| 1 | `@Roles` guard for admin-only critical endpoints (import, user CRUD, role changes, password reset). | 🟢 done 2026-05-18 | actual: ~4h |
+| 2 | `Responsibility` table + admin UI for assigning responsibilities. `@RequireResponsibility` guard. | ⚪ pending | 2 to 3 hours |
+| 3 | `PublisherApprovals` fields + admin UI for granting. Use in assignment eligibility filters. | ⚪ pending | 1 to 2 hours |
+| 4 | Client-side `usePermissions` hook + conditional rendering across screens. | ⚪ pending | 1 to 2 hours |
+| 5 | Self-service publisher edit with audit log. | ⚪ pending | 1 hour |
 
 Each phase is independently shippable. Phase 1 alone provides meaningful
 production protection.
+
+### Phase 1 — shipped 2026-05-18
+
+Endpoints under `@Roles(ADMIN)` (in addition to the global `JwtAuthGuard`):
+
+| Pre-existing | Method | Path | Notes |
+|:---:|---|---|---|
+| ✓ | POST | `/mwb-import/upload` | `@Roles(ADMIN, ELDER)` |
+| ✓ | POST | `/schedule-import/upload` | `@Roles(ADMIN, ELDER)` |
+| ✓ | POST | `/admin/recompute-statuses` | `@Roles(ADMIN)` |
+
+New endpoints in `UsersController` (all `@Roles(ADMIN)`):
+
+| Method | Path | Body | Notes |
+|---|---|---|---|
+| GET | `/users` | — | Lists users in caller's congregation, omits `passwordHash` |
+| POST | `/users` | `{email, password, role, uiLanguage?}` | Creates user; admin supplies initial password out-of-band |
+| PATCH | `/users/:id/role` | `{role}` | 403 on self; 403 if demoting last active admin |
+| PATCH | `/users/:id/deactivate` | — | 403 on self; 403 if deactivating last active admin |
+| PATCH | `/users/:id/activate` | — | Reactivates a previously deactivated user |
+| POST | `/users/:id/reset-password` | `{password}` | Returns 204; new hash recorded with redacted audit entry |
+
+Defense-in-depth invariants (enforced in `UsersService`):
+
+- Multi-tenant: every read/write is scoped via `findByIdInCongregation`. A
+  user in cong A cannot be touched by an admin in cong B (404 instead of 403,
+  to avoid information leak about existence).
+- Last-admin protection: `countActiveAdminsInCongregation` blocks demotion
+  or deactivation when it would leave the congregation without an active admin.
+- Self-protection: the caller cannot change their own role or deactivate themselves.
+- Password hash is never echoed to the audit log — `AuditLogService.logRawUpdate`
+  records `{ passwordHash: '<redacted>' }` on both sides.
+
+`AuditLogService` was extended with two new methods to support these flows:
+
+- `logCreate(opts)` — for entity creation events (no diff, `before = null`).
+- `logRawUpdate(opts)` — for events where the caller provides `changedFields`
+  explicitly (used to record password resets with masked values; the auto-diffing
+  `logUpdate` cannot represent "field changed but value masked").
+
+**Deferred to next sessions:**
+
+- `PATCH /auth/me/password` — self-service password change (every role can do it,
+  per the permission matrix; this is separate from Phase 1's admin-only scope).
+- Server-side responsibility-aware import (e.g. `@RequireResponsibility('life_ministry_overseer')`
+  on `/mwb-import/upload`). Currently both imports accept `ADMIN, ELDER`, which is broader
+  than the canonical matrix but operational for now.
+- Client-side `usePermissions` hook and admin user-management UI (Phase 4).
 
 ## Glossary
 
