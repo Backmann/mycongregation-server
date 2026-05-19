@@ -45,7 +45,10 @@ export function computeStatusFromReports(
     // r.reportMonth is YYYY-MM-DD; normalise to YYYY-MM-01 UTC.
     const ymd = r.reportMonth.slice(0, 10);
     const d = new Date(`${ymd.slice(0, 7)}-01T00:00:00Z`);
-    if (d.getTime() < windowStart.getTime() || d.getTime() > windowEnd.getTime()) {
+    if (
+      d.getTime() < windowStart.getTime() ||
+      d.getTime() > windowEnd.getTime()
+    ) {
       continue;
     }
     const served =
@@ -344,7 +347,9 @@ export class PublishersService {
     }
 
     const sortColumn = `publisher.${query.sortBy ?? 'lastName'}`;
-    const sortOrder = (query.sortOrder ?? 'asc').toUpperCase() as 'ASC' | 'DESC';
+    const sortOrder = (query.sortOrder ?? 'asc').toUpperCase() as
+      | 'ASC'
+      | 'DESC';
     qb.orderBy(sortColumn, sortOrder);
 
     qb.take(query.limit ?? 50);
@@ -371,10 +376,7 @@ export class PublishersService {
     return publisher;
   }
 
-  async create(
-    tenantId: string,
-    dto: CreatePublisherDto,
-  ): Promise<Publisher> {
+  async create(tenantId: string, dto: CreatePublisherDto): Promise<Publisher> {
     const displayName = this.buildDisplayName(
       dto.firstName,
       dto.middleName ?? null,
