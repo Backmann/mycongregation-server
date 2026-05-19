@@ -26,7 +26,8 @@
     "typeorm:prod": "typeorm -d dist/src/data-source.js",
     "migration:run:prod": "npm run typeorm:prod -- migration:run",
     "migration:show:prod": "npm run typeorm:prod -- migration:show",
-    "migration:revert:prod": "npm run typeorm:prod -- migration:revert"
+    "migration:revert:prod": "npm run typeorm:prod -- migration:revert",
+    "prepare": "husky"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -81,7 +82,9 @@
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",
     "globals": "^17.0.0",
+    "husky": "^9.1.7",
     "jest": "^30.0.0",
+    "lint-staged": "^16.4.0",
     "prettier": "^3.4.2",
     "source-map-support": "^0.5.21",
     "supertest": "^7.0.0",
@@ -108,5 +111,13 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
+  },
+  "lint-staged": {
+    "src/**/*.ts": [
+      "prettier --write"
+    ],
+    "test/**/*.ts": [
+      "prettier --write"
+    ]
   }
 }
