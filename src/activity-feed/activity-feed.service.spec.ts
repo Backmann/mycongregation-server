@@ -35,7 +35,7 @@ describe('ActivityFeedService', () => {
       changedFields: [],
       createdAt: new Date('2026-05-15T10:00:00Z'),
       ...overrides,
-    } as AuditLog;
+    };
   }
 
   it('returns empty feed when no audit entries', async () => {

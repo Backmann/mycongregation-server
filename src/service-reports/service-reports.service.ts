@@ -493,7 +493,7 @@ export class ServiceReportsService {
     };
 
     for (const r of reports) {
-      this.withCanEdit(r as EnrichedReport, user);
+      this.withCanEdit(r, user);
     }
 
     const timeline: PublisherHistoryEntry[] = [];

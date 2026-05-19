@@ -425,7 +425,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
           statusManuallyOverridden: false,
         }),
       ];
-      publishersRepo.find.mockResolvedValue(pubs as any);
+      publishersRepo.find.mockResolvedValue(pubs);
       publishersRepo.findOne.mockImplementation(async (options: any) => {
         const id = options?.where?.id;
         return pubs.find((p) => p.id === id) ?? null;
@@ -435,9 +435,9 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         if (pubId === 'a') {
           return [
             makeReport({ reportMonth: '2026-04-01', servedThisMonth: true }),
-          ] as any;
+          ];
         }
-        return [] as any;
+        return [];
       });
       publishersRepo.save.mockImplementation(async (x: any) => x);
       jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
@@ -453,7 +453,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
     it('counts per-publisher errors without failing the whole run', async () => {
       publishersRepo.find.mockResolvedValue([
         makePublisher({ id: 'broken', congregationId: 'cong-1' }),
-      ] as any);
+      ]);
       publishersRepo.findOne.mockRejectedValue(new Error('boom'));
 
       const summary = await service.recomputeAllStatuses();

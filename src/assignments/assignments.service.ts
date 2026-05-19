@@ -72,7 +72,7 @@ export class AssignmentsService {
 
   async getById(congregationId: string, id: string): Promise<Assignment> {
     const assignment = await this.repo.findOne({
-      where: { id, congregationId } as FindOptionsWhere<Assignment>,
+      where: { id, congregationId },
       withDeleted: true,
     });
     if (!assignment) {
@@ -125,7 +125,7 @@ export class AssignmentsService {
     await this.repo.softDelete({
       id,
       congregationId,
-    } as FindOptionsWhere<Assignment>);
+    });
   }
 
   async restore(congregationId: string, id: string): Promise<Assignment> {
@@ -134,7 +134,7 @@ export class AssignmentsService {
         id,
         congregationId,
         deletedAt: Not(IsNull()),
-      } as FindOptionsWhere<Assignment>,
+      },
       withDeleted: true,
     });
     if (!existing) {
@@ -143,7 +143,7 @@ export class AssignmentsService {
     await this.repo.restore({
       id,
       congregationId,
-    } as FindOptionsWhere<Assignment>);
+    });
     return this.getById(congregationId, id);
   }
 }
