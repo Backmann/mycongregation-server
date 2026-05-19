@@ -27,7 +27,7 @@
     "migration:run:prod": "npm run typeorm:prod -- migration:run",
     "migration:show:prod": "npm run typeorm:prod -- migration:show",
     "migration:revert:prod": "npm run typeorm:prod -- migration:revert",
-    "prepare": "husky"
+    "prepare": "husky || true"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
