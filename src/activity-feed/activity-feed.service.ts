@@ -1,3 +1,19 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+//
+// TODO P1 #17 Etap 3: properly type audit log JSON column access.
+// This service reads beforeJson/afterJson columns from AuditLog, which
+// store polymorphic snapshots whose shape depends on entityType
+// ('publisher' vs 'service_report' vs others). Proper fix requires:
+//   (1) typing parseJson<T>() with a generic
+//   (2) defining per-entity snapshot interfaces (PublisherSnapshot,
+//       ServiceReportSnapshot, etc.)
+//   (3) discriminated-union access based on row.entityType
+// Until then, suppressing the 48 unsafe-* errors here so the rest of
+// the baseline can land in CI.
+
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, LessThan, Repository } from 'typeorm';
