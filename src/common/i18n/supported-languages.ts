@@ -8,7 +8,9 @@ export const SUPPORTED_LANGUAGES = ['ru', 'en', 'de'] as const;
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 export const DEFAULT_LANGUAGE: SupportedLanguage = 'ru';
 
-export function isSupportedLanguage(value: unknown): value is SupportedLanguage {
+export function isSupportedLanguage(
+  value: unknown,
+): value is SupportedLanguage {
   return (
     typeof value === 'string' &&
     (SUPPORTED_LANGUAGES as readonly string[]).includes(value)

@@ -28,10 +28,7 @@ export class FamiliesController {
   constructor(private readonly familiesService: FamiliesService) {}
 
   @Get()
-  findAll(
-    @TenantId() tenantId: string,
-    @Query() query: QueryFamiliesDto,
-  ) {
+  findAll(@TenantId() tenantId: string, @Query() query: QueryFamiliesDto) {
     return this.familiesService.findAll(tenantId, query);
   }
 
@@ -54,10 +51,7 @@ export class FamiliesController {
 
   @Roles(UserRole.ADMIN, UserRole.ELDER, UserRole.MINISTERIAL_SERVANT)
   @Post()
-  create(
-    @TenantId() tenantId: string,
-    @Body() dto: CreateFamilyDto,
-  ) {
+  create(@TenantId() tenantId: string, @Body() dto: CreateFamilyDto) {
     return this.familiesService.create(tenantId, dto);
   }
 
@@ -74,10 +68,7 @@ export class FamiliesController {
   @Roles(UserRole.ADMIN, UserRole.ELDER)
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(
-    @TenantId() tenantId: string,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  remove(@TenantId() tenantId: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.familiesService.remove(tenantId, id);
   }
 

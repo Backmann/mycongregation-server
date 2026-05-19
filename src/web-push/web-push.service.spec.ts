@@ -65,11 +65,16 @@ describe('WebPushService', () => {
       subRepo.findOne.mockResolvedValue(null);
       subRepo.save.mockImplementation(async (x: any) => x);
 
-      await service.registerSubscription('user-1', 'cong-1', UserRole.PUBLISHER, {
-        endpoint: 'https://fcm.googleapis.com/abc',
-        keys: { p256dh: 'pub', auth: 'auth1' },
-        userAgent: 'Mozilla/5.0',
-      });
+      await service.registerSubscription(
+        'user-1',
+        'cong-1',
+        UserRole.PUBLISHER,
+        {
+          endpoint: 'https://fcm.googleapis.com/abc',
+          keys: { p256dh: 'pub', auth: 'auth1' },
+          userAgent: 'Mozilla/5.0',
+        },
+      );
 
       expect(subRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -98,11 +103,16 @@ describe('WebPushService', () => {
       } as any);
       subRepo.save.mockImplementation(async (x: any) => x);
 
-      await service.registerSubscription('user-new', 'cong-new', UserRole.ELDER, {
-        endpoint: 'https://fcm.googleapis.com/abc',
-        keys: { p256dh: 'newkey', auth: 'newauth' },
-        userAgent: 'New UA',
-      });
+      await service.registerSubscription(
+        'user-new',
+        'cong-new',
+        UserRole.ELDER,
+        {
+          endpoint: 'https://fcm.googleapis.com/abc',
+          keys: { p256dh: 'newkey', auth: 'newauth' },
+          userAgent: 'New UA',
+        },
+      );
 
       expect(subRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -127,7 +137,10 @@ describe('WebPushService', () => {
     it('deletes by (userId, endpoint) and returns affected count', async () => {
       subRepo.delete.mockResolvedValue({ affected: 1 } as any);
 
-      const result = await service.removeSubscription('user-1', 'https://fcm.googleapis.com/abc');
+      const result = await service.removeSubscription(
+        'user-1',
+        'https://fcm.googleapis.com/abc',
+      );
 
       expect(subRepo.delete).toHaveBeenCalledWith({
         userId: 'user-1',
@@ -187,7 +200,9 @@ describe('WebPushService', () => {
     });
 
     it('returns ok and updates lastUsedAt on successful send', async () => {
-      (webpush.sendNotification as jest.Mock).mockResolvedValue({ statusCode: 201 });
+      (webpush.sendNotification as jest.Mock).mockResolvedValue({
+        statusCode: 201,
+      });
 
       const result = await service.sendToSubscription(sampleSub, {
         title: 'Hello',
@@ -205,27 +220,42 @@ describe('WebPushService', () => {
     });
 
     it('deletes the subscription on HTTP 410 Gone', async () => {
-      (webpush.sendNotification as jest.Mock).mockRejectedValue({ statusCode: 410 });
+      (webpush.sendNotification as jest.Mock).mockRejectedValue({
+        statusCode: 410,
+      });
 
-      const result = await service.sendToSubscription(sampleSub, { title: 't', body: 'b' });
+      const result = await service.sendToSubscription(sampleSub, {
+        title: 't',
+        body: 'b',
+      });
 
       expect(result).toEqual({ ok: false, errorCode: 'SubscriptionGone' });
       expect(subRepo.delete).toHaveBeenCalledWith({ id: 'sub-1' });
     });
 
     it('deletes on HTTP 404 Not Found', async () => {
-      (webpush.sendNotification as jest.Mock).mockRejectedValue({ statusCode: 404 });
+      (webpush.sendNotification as jest.Mock).mockRejectedValue({
+        statusCode: 404,
+      });
 
-      const result = await service.sendToSubscription(sampleSub, { title: 't', body: 'b' });
+      const result = await service.sendToSubscription(sampleSub, {
+        title: 't',
+        body: 'b',
+      });
 
       expect(result.errorCode).toBe('SubscriptionGone');
       expect(subRepo.delete).toHaveBeenCalled();
     });
 
     it('marks lastFailedAt and returns MessageRateExceeded on HTTP 429', async () => {
-      (webpush.sendNotification as jest.Mock).mockRejectedValue({ statusCode: 429 });
+      (webpush.sendNotification as jest.Mock).mockRejectedValue({
+        statusCode: 429,
+      });
 
-      const result = await service.sendToSubscription(sampleSub, { title: 't', body: 'b' });
+      const result = await service.sendToSubscription(sampleSub, {
+        title: 't',
+        body: 'b',
+      });
 
       expect(result.errorCode).toBe('MessageRateExceeded');
       expect(subRepo.delete).not.toHaveBeenCalled();
@@ -235,8 +265,13 @@ describe('WebPushService', () => {
     });
 
     it('returns PushServiceError on 5xx', async () => {
-      (webpush.sendNotification as jest.Mock).mockRejectedValue({ statusCode: 503 });
-      const result = await service.sendToSubscription(sampleSub, { title: 't', body: 'b' });
+      (webpush.sendNotification as jest.Mock).mockRejectedValue({
+        statusCode: 503,
+      });
+      const result = await service.sendToSubscription(sampleSub, {
+        title: 't',
+        body: 'b',
+      });
       expect(result.errorCode).toBe('PushServiceError');
     });
 
@@ -245,7 +280,10 @@ describe('WebPushService', () => {
       delete process.env.VAPID_PRIVATE_KEY;
       const unconfigured = new WebPushService(subRepo);
 
-      const result = await unconfigured.sendToSubscription(sampleSub, { title: 't', body: 'b' });
+      const result = await unconfigured.sendToSubscription(sampleSub, {
+        title: 't',
+        body: 'b',
+      });
 
       expect(result).toEqual({ ok: false, errorCode: 'VapidNotConfigured' });
       expect(webpush.sendNotification).not.toHaveBeenCalled();

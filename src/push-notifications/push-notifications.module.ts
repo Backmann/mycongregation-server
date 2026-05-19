@@ -8,7 +8,10 @@ import { PushNotificationsService } from './push-notifications.service';
 import { PushNotificationsController } from './push-notifications.controller';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([PushToken, User, PushReceipt]), WebPushModule],
+  imports: [
+    TypeOrmModule.forFeature([PushToken, User, PushReceipt]),
+    WebPushModule,
+  ],
   controllers: [PushNotificationsController],
   providers: [PushNotificationsService],
   exports: [PushNotificationsService],

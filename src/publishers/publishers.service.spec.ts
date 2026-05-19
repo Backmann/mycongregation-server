@@ -64,7 +64,9 @@ function makeReport(overrides: Partial<ServiceReport> = {}): ServiceReport {
   } as unknown as ServiceReport;
 }
 
-function makeUser(overrides: Partial<AuthenticatedUser> = {}): AuthenticatedUser {
+function makeUser(
+  overrides: Partial<AuthenticatedUser> = {},
+): AuthenticatedUser {
   return {
     id: 'user-self',
     email: 'self@example.com',
@@ -94,7 +96,11 @@ describe('computeStatusFromReports (pure function)', () => {
       '2026-05-01',
     ];
     const reports = months.map((m) =>
-      makeReport({ reportMonth: m, servedThisMonth: true, hoursReported: null }),
+      makeReport({
+        reportMonth: m,
+        servedThisMonth: true,
+        hoursReported: null,
+      }),
     );
     expect(computeStatusFromReports(reports, may2026)).toBe(
       PublisherStatus.ACTIVE,

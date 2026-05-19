@@ -25,7 +25,11 @@ export enum SortOrder {
 }
 
 const toBool = ({ value }: { value: unknown }) =>
-  value === 'true' || value === true ? true : value === 'false' || value === false ? false : undefined;
+  value === 'true' || value === true
+    ? true
+    : value === 'false' || value === false
+      ? false
+      : undefined;
 
 export class QueryPublishersDto {
   @IsOptional()

@@ -104,9 +104,9 @@ describe('wt-parser', () => {
 
   describe('extractSongs', () => {
     it('finds multiple song numbers in text', () => {
-      expect(
-        extractSongs('Песня 21 в начале и Песня 153 в конце'),
-      ).toEqual([21, 153]);
+      expect(extractSongs('Песня 21 в начале и Песня 153 в конце')).toEqual([
+        21, 153,
+      ]);
     });
 
     it('handles uppercase ПЕСНЯ', () => {

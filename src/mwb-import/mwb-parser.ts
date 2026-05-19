@@ -85,7 +85,9 @@ export function parseWeekRange(
     .replace(/\s+/g, ' ')
     .trim();
 
-  let m = normalized.match(/^(\d+)\s+([А-Яа-яё]+)\s*-\s*(\d+)\s+([А-Яа-яё]+)$/u);
+  let m = normalized.match(
+    /^(\d+)\s+([А-Яа-яё]+)\s*-\s*(\d+)\s+([А-Яа-яё]+)$/u,
+  );
   if (m) {
     const [, sd, sm, ed, em] = m;
     const startMonth = MONTHS_RU[sm];
@@ -171,7 +173,11 @@ function classify(
 
   if (section === 'intro') {
     if (lower.includes('молитва') || lower.includes('вступит')) {
-      return { partKey: 'midweek_opening_prayer', partOrder: 2, confidence: 'high' };
+      return {
+        partKey: 'midweek_opening_prayer',
+        partOrder: 2,
+        confidence: 'high',
+      };
     }
     return { partKey: 'unknown', partOrder: 0, confidence: 'unknown' };
   }
@@ -217,7 +223,11 @@ function classify(
       return { partKey: 'cbs_conductor', partOrder: 13, confidence: 'high' };
     }
     if (lower.includes('заключит') || lower.includes('молитва')) {
-      return { partKey: 'midweek_closing_prayer', partOrder: 15, confidence: 'high' };
+      return {
+        partKey: 'midweek_closing_prayer',
+        partOrder: 15,
+        confidence: 'high',
+      };
     }
     const pos = counters.living_christians++;
     if (pos >= 0 && pos < 3) {
@@ -308,7 +318,13 @@ function parseWeeklyFile(
             }
           });
 
-        const cls = classify(text, number, currentSection, durationMin, counters);
+        const cls = classify(
+          text,
+          number,
+          currentSection,
+          durationMin,
+          counters,
+        );
 
         parts.push({
           rawTitle: text,

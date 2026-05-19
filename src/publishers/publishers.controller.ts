@@ -50,10 +50,7 @@ export class PublishersController {
   }
 
   @Get()
-  findAll(
-    @TenantId() tenantId: string,
-    @Query() query: QueryPublishersDto,
-  ) {
+  findAll(@TenantId() tenantId: string, @Query() query: QueryPublishersDto) {
     return this.publishersService.findAll(tenantId, query);
   }
 
@@ -67,10 +64,7 @@ export class PublishersController {
 
   @Roles(UserRole.ADMIN, UserRole.ELDER, UserRole.MINISTERIAL_SERVANT)
   @Post()
-  create(
-    @TenantId() tenantId: string,
-    @Body() dto: CreatePublisherDto,
-  ) {
+  create(@TenantId() tenantId: string, @Body() dto: CreatePublisherDto) {
     return this.publishersService.create(tenantId, dto);
   }
 

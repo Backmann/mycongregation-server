@@ -50,9 +50,16 @@ describe('PushNotificationsService', () => {
     } as unknown as jest.Mocked<Repository<PushReceipt>>;
     webPushService = {
       getSubscriptionsByTenant: jest.fn().mockResolvedValue([]),
-      sendToSubscription: jest.fn().mockResolvedValue({ ok: true, errorCode: null }),
+      sendToSubscription: jest
+        .fn()
+        .mockResolvedValue({ ok: true, errorCode: null }),
     } as unknown as jest.Mocked<WebPushService>;
-    service = new PushNotificationsService(pushTokenRepo, userRepo, pushReceiptRepo, webPushService);
+    service = new PushNotificationsService(
+      pushTokenRepo,
+      userRepo,
+      pushReceiptRepo,
+      webPushService,
+    );
   });
 
   describe('registerToken', () => {
@@ -168,15 +175,32 @@ describe('PushNotificationsService', () => {
 
       const result = await service.checkReceipts();
 
-      expect(result).toEqual({ checked: 0, ok: 0, errors: 0, tokensDeleted: 0 });
+      expect(result).toEqual({
+        checked: 0,
+        ok: 0,
+        errors: 0,
+        tokensDeleted: 0,
+      });
       const expo = (service as any).expo;
       expect(expo.getPushNotificationReceiptsAsync).not.toHaveBeenCalled();
     });
 
     it('marks ok receipts and saves them', async () => {
       const pending = [
-        { ticketId: 'ticket-1', token: 'ExponentPushToken[a]', status: 'pending', checkedAt: null, errorCode: null },
-        { ticketId: 'ticket-2', token: 'ExponentPushToken[b]', status: 'pending', checkedAt: null, errorCode: null },
+        {
+          ticketId: 'ticket-1',
+          token: 'ExponentPushToken[a]',
+          status: 'pending',
+          checkedAt: null,
+          errorCode: null,
+        },
+        {
+          ticketId: 'ticket-2',
+          token: 'ExponentPushToken[b]',
+          status: 'pending',
+          checkedAt: null,
+          errorCode: null,
+        },
       ];
       pushReceiptRepo.find.mockResolvedValue(pending as any);
       (service as any).expo.getPushNotificationReceiptsAsync.mockResolvedValue({
@@ -199,12 +223,22 @@ describe('PushNotificationsService', () => {
 
     it('deletes push_tokens when receipt status is DeviceNotRegistered', async () => {
       const pending = [
-        { ticketId: 'ticket-1', token: 'ExponentPushToken[stale]', status: 'pending', checkedAt: null, errorCode: null },
+        {
+          ticketId: 'ticket-1',
+          token: 'ExponentPushToken[stale]',
+          status: 'pending',
+          checkedAt: null,
+          errorCode: null,
+        },
       ];
       pushReceiptRepo.find.mockResolvedValue(pending as any);
       pushTokenRepo.delete.mockResolvedValue({ affected: 1 } as any);
       (service as any).expo.getPushNotificationReceiptsAsync.mockResolvedValue({
-        'ticket-1': { status: 'error', message: 'gone', details: { error: 'DeviceNotRegistered' } },
+        'ticket-1': {
+          status: 'error',
+          message: 'gone',
+          details: { error: 'DeviceNotRegistered' },
+        },
       });
 
       const result = await service.checkReceipts();
@@ -218,10 +252,18 @@ describe('PushNotificationsService', () => {
 
     it('leaves receipts as pending when Expo has no receipt yet', async () => {
       const pending = [
-        { ticketId: 'ticket-1', token: 'ExponentPushToken[a]', status: 'pending', checkedAt: null, errorCode: null },
+        {
+          ticketId: 'ticket-1',
+          token: 'ExponentPushToken[a]',
+          status: 'pending',
+          checkedAt: null,
+          errorCode: null,
+        },
       ];
       pushReceiptRepo.find.mockResolvedValue(pending as any);
-      (service as any).expo.getPushNotificationReceiptsAsync.mockResolvedValue({});
+      (service as any).expo.getPushNotificationReceiptsAsync.mockResolvedValue(
+        {},
+      );
 
       const result = await service.checkReceipts();
 
@@ -231,14 +273,27 @@ describe('PushNotificationsService', () => {
 
     it('handles Expo network errors gracefully', async () => {
       const pending = [
-        { ticketId: 'ticket-1', token: 'ExponentPushToken[a]', status: 'pending', checkedAt: null, errorCode: null },
+        {
+          ticketId: 'ticket-1',
+          token: 'ExponentPushToken[a]',
+          status: 'pending',
+          checkedAt: null,
+          errorCode: null,
+        },
       ];
       pushReceiptRepo.find.mockResolvedValue(pending as any);
-      (service as any).expo.getPushNotificationReceiptsAsync.mockRejectedValue(new Error('network down'));
+      (service as any).expo.getPushNotificationReceiptsAsync.mockRejectedValue(
+        new Error('network down'),
+      );
 
       const result = await service.checkReceipts();
 
-      expect(result).toEqual({ checked: 0, ok: 0, errors: 0, tokensDeleted: 0 });
+      expect(result).toEqual({
+        checked: 0,
+        ok: 0,
+        errors: 0,
+        tokensDeleted: 0,
+      });
       expect(pushReceiptRepo.save).not.toHaveBeenCalled();
     });
   });

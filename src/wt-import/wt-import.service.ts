@@ -15,10 +15,7 @@ import {
 } from '../mwb-import/dto/import-result.dto';
 
 function isEmptyTemplate(a: Assignment): boolean {
-  return (
-    !a.publisherId &&
-    !a.assistantPublisherId
-  );
+  return !a.publisherId && !a.assistantPublisherId;
 }
 
 @Injectable()

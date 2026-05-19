@@ -14,9 +14,7 @@ export const AppDataSource = new DataSource({
   database: process.env.POSTGRES_DB,
   // TLS on production (Phase L Phase 4B). See app.module.ts for rationale.
   ssl:
-    process.env.POSTGRES_SSL === 'true'
-      ? { rejectUnauthorized: false }
-      : false,
+    process.env.POSTGRES_SSL === 'true' ? { rejectUnauthorized: false } : false,
   entities: [join(__dirname, '**', '*.entity.{ts,js}')],
   migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
   namingStrategy: new SnakeNamingStrategy(),

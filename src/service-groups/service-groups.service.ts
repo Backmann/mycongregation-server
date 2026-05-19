@@ -39,7 +39,9 @@ export class ServiceGroupsService {
     }
 
     const sortColumn = `sg.${query.sortBy ?? 'name'}`;
-    const sortOrder = (query.sortOrder ?? 'asc').toUpperCase() as 'ASC' | 'DESC';
+    const sortOrder = (query.sortOrder ?? 'asc').toUpperCase() as
+      | 'ASC'
+      | 'DESC';
     qb.orderBy(sortColumn, sortOrder);
 
     qb.take(query.limit ?? 50);

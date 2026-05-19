@@ -14,7 +14,12 @@ describe('ActivityFeedService', () => {
     publisherRepo = { findBy: jest.fn().mockResolvedValue([]) };
     reportRepo = { findBy: jest.fn().mockResolvedValue([]) };
 
-    service = new ActivityFeedService(auditRepo, userRepo, publisherRepo, reportRepo);
+    service = new ActivityFeedService(
+      auditRepo,
+      userRepo,
+      publisherRepo,
+      reportRepo,
+    );
   });
 
   function makeAuditLog(overrides: Partial<AuditLog> = {}): AuditLog {
@@ -67,8 +72,14 @@ describe('ActivityFeedService', () => {
   it('formats override applied with actor name', async () => {
     auditRepo.find.mockResolvedValue([
       makeAuditLog({
-        beforeJson: JSON.stringify({ statusManuallyOverridden: false, status: 'inactive' }),
-        afterJson: JSON.stringify({ statusManuallyOverridden: true, status: 'active' }),
+        beforeJson: JSON.stringify({
+          statusManuallyOverridden: false,
+          status: 'inactive',
+        }),
+        afterJson: JSON.stringify({
+          statusManuallyOverridden: true,
+          status: 'active',
+        }),
       }),
     ]);
     userRepo.findBy.mockResolvedValue([
@@ -88,8 +99,14 @@ describe('ActivityFeedService', () => {
   it('formats override cleared', async () => {
     auditRepo.find.mockResolvedValue([
       makeAuditLog({
-        beforeJson: JSON.stringify({ statusManuallyOverridden: true, status: 'active' }),
-        afterJson: JSON.stringify({ statusManuallyOverridden: false, status: 'active' }),
+        beforeJson: JSON.stringify({
+          statusManuallyOverridden: true,
+          status: 'active',
+        }),
+        afterJson: JSON.stringify({
+          statusManuallyOverridden: false,
+          status: 'active',
+        }),
       }),
     ]);
     userRepo.findBy.mockResolvedValue([{ id: 'user-1', email: 'admin@x.com' }]);

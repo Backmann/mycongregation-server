@@ -10,14 +10,22 @@ export class WidenEncryptedColumns1779000000000 implements MigrationInterface {
     //
     // Companion to data-protection.md Phase 1: applies to columns where
     // encryptedTransformer is now active on their entity definitions.
-    await queryRunner.query(`ALTER TABLE "publishers" ALTER COLUMN "mobile_phone" TYPE text`);
-    await queryRunner.query(`ALTER TABLE "publishers" ALTER COLUMN "email" TYPE text`);
+    await queryRunner.query(
+      `ALTER TABLE "publishers" ALTER COLUMN "mobile_phone" TYPE text`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "publishers" ALTER COLUMN "email" TYPE text`,
+    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     // Reverse widening. Safe only if no encrypted values are stored yet,
     // since ciphertext does not fit back into the original varchar sizes.
-    await queryRunner.query(`ALTER TABLE "publishers" ALTER COLUMN "email" TYPE varchar(255)`);
-    await queryRunner.query(`ALTER TABLE "publishers" ALTER COLUMN "mobile_phone" TYPE varchar(32)`);
+    await queryRunner.query(
+      `ALTER TABLE "publishers" ALTER COLUMN "email" TYPE varchar(255)`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "publishers" ALTER COLUMN "mobile_phone" TYPE varchar(32)`,
+    );
   }
 }

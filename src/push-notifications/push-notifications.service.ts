@@ -201,7 +201,9 @@ export class PushNotificationsService {
 
       const immediateErrors = results.filter((r) => r.errorCode);
       if (immediateErrors.length > 0) {
-        this.logger.warn(`Push send had ${immediateErrors.length} immediate errors: ${immediateErrors.map((e) => e.errorCode).join(', ')}`);
+        this.logger.warn(
+          `Push send had ${immediateErrors.length} immediate errors: ${immediateErrors.map((e) => e.errorCode).join(', ')}`,
+        );
       }
     }
 
@@ -227,7 +229,9 @@ export class PushNotificationsService {
         };
 
         await Promise.all(
-          langSubs.map((sub) => this.webPushService.sendToSubscription(sub, payload)),
+          langSubs.map((sub) =>
+            this.webPushService.sendToSubscription(sub, payload),
+          ),
         );
       }
     }
@@ -238,7 +242,12 @@ export class PushNotificationsService {
    * so the caller can persist tickets (status='pending') for later receipt
    * checking and log immediate errors.
    */
-  private async sendBatch(tokens: string[], title: string, body: string, data: Record<string, any>): Promise<SendBatchResult[]> {
+  private async sendBatch(
+    tokens: string[],
+    title: string,
+    body: string,
+    data: Record<string, any>,
+  ): Promise<SendBatchResult[]> {
     const results: SendBatchResult[] = [];
 
     const valid: string[] = [];
@@ -246,7 +255,11 @@ export class PushNotificationsService {
       if (Expo.isExpoPushToken(token)) {
         valid.push(token);
       } else {
-        results.push({ token, ticketId: null, errorCode: 'InvalidExpoPushToken' });
+        results.push({
+          token,
+          ticketId: null,
+          errorCode: 'InvalidExpoPushToken',
+        });
       }
     }
     if (valid.length === 0) {
@@ -275,14 +288,24 @@ export class PushNotificationsService {
           } else if (ticket.status === 'ok') {
             results.push({ token, ticketId: ticket.id, errorCode: null });
           } else {
-            results.push({ token, ticketId: null, errorCode: ticket.details?.error ?? 'SendError' });
+            results.push({
+              token,
+              ticketId: null,
+              errorCode: ticket.details?.error ?? 'SendError',
+            });
           }
           validIdx++;
         }
       } catch (err: any) {
-        this.logger.warn(`sendPushNotificationsAsync failed: ${err?.message ?? err}`);
+        this.logger.warn(
+          `sendPushNotificationsAsync failed: ${err?.message ?? err}`,
+        );
         for (let i = 0; i < chunk.length; i++) {
-          results.push({ token: valid[validIdx], ticketId: null, errorCode: 'NetworkError' });
+          results.push({
+            token: valid[validIdx],
+            ticketId: null,
+            errorCode: 'NetworkError',
+          });
           validIdx++;
         }
       }
@@ -296,7 +319,12 @@ export class PushNotificationsService {
    * update push_receipts.status, and clean up push_tokens for which Expo
    * reports DeviceNotRegistered. Called by ScheduledJobsService every 30 min.
    */
-  async checkReceipts(): Promise<{ checked: number; ok: number; errors: number; tokensDeleted: number }> {
+  async checkReceipts(): Promise<{
+    checked: number;
+    ok: number;
+    errors: number;
+    tokensDeleted: number;
+  }> {
     const cutoff = new Date(Date.now() - 15 * 60 * 1000);
     const pending = await this.pushReceiptRepo.find({
       where: { status: 'pending', sentAt: LessThan(cutoff) },
@@ -325,7 +353,9 @@ export class PushNotificationsService {
       try {
         receiptsMap = await this.expo.getPushNotificationReceiptsAsync(chunk);
       } catch (err: any) {
-        this.logger.warn(`getPushNotificationReceiptsAsync failed: ${err?.message ?? err}`);
+        this.logger.warn(
+          `getPushNotificationReceiptsAsync failed: ${err?.message ?? err}`,
+        );
         continue;
       }
 
@@ -366,7 +396,12 @@ export class PushNotificationsService {
       tokensDeleted = result.affected ?? 0;
     }
 
-    return { checked: checked.length, ok: okCount, errors: errorCount, tokensDeleted };
+    return {
+      checked: checked.length,
+      ok: okCount,
+      errors: errorCount,
+      tokensDeleted,
+    };
   }
 
   /**

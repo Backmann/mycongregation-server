@@ -145,9 +145,7 @@ export class PublicTalksService {
       where: { number: dto.number },
     });
     if (existing) {
-      throw new ConflictException(
-        `Public talk #${dto.number} already exists`,
-      );
+      throw new ConflictException(`Public talk #${dto.number} already exists`);
     }
     const talk = this.repo.create(dto);
     return this.repo.save(talk);
@@ -202,7 +200,12 @@ export class PublicTalksService {
       const number = parseInt(m[1], 10);
       const title = m[2].trim();
 
-      if (number < 1 || number > 999 || title.length < 3 || title.length > 500) {
+      if (
+        number < 1 ||
+        number > 999 ||
+        title.length < 3 ||
+        title.length > 500
+      ) {
         invalid++;
         continue;
       }

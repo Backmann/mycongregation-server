@@ -20,7 +20,8 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
         // expiresIn type in @nestjs/jwt is the strict ms-StringValue template literal
         // ("15m" | "30d" | ...). Our string from .env is correct at runtime but
         // TypeScript can't narrow it, so we cast the value only.
-        const expiresIn = (config.get<string>('jwt.expiresIn') ?? '15m') as never;
+        const expiresIn = (config.get<string>('jwt.expiresIn') ??
+          '15m') as never;
         return {
           secret: config.get<string>('jwt.secret'),
           signOptions: { expiresIn },

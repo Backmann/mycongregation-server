@@ -35,10 +35,15 @@ describe('ScheduledJobsService', () => {
       }),
     };
     pushNotificationsService = {
-      checkReceipts: jest.fn().mockResolvedValue({ checked: 0, ok: 0, errors: 0, tokensDeleted: 0 }),
+      checkReceipts: jest
+        .fn()
+        .mockResolvedValue({ checked: 0, ok: 0, errors: 0, tokensDeleted: 0 }),
       cleanupOldReceipts: jest.fn().mockResolvedValue(0),
     } as unknown as jest.Mocked<PushNotificationsService>;
-    service = new ScheduledJobsService(publishersService as any, pushNotificationsService);
+    service = new ScheduledJobsService(
+      publishersService as any,
+      pushNotificationsService,
+    );
   });
 
   it('handleNightlyStatusRecompute delegates to recomputeAllStatuses', async () => {
@@ -47,9 +52,7 @@ describe('ScheduledJobsService', () => {
   });
 
   it('swallows errors without re-throwing so the cron host stays alive', async () => {
-    publishersService.recomputeAllStatuses.mockRejectedValue(
-      new Error('boom'),
-    );
+    publishersService.recomputeAllStatuses.mockRejectedValue(new Error('boom'));
     await expect(
       service.handleNightlyStatusRecompute(),
     ).resolves.toBeUndefined();

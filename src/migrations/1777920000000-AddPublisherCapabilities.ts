@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddPublisherCapabilities1777920000000
-  implements MigrationInterface
-{
+export class AddPublisherCapabilities1777920000000 implements MigrationInterface {
   name = 'AddPublisherCapabilities1777920000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

@@ -10,9 +10,7 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 
 @Controller('push-tokens')
 export class PushNotificationsController {
-  constructor(
-    private readonly pushService: PushNotificationsService,
-  ) {}
+  constructor(private readonly pushService: PushNotificationsService) {}
 
   @Post()
   async register(

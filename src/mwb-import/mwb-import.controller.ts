@@ -39,7 +39,9 @@ export class MwbImportController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     if (!file) {
-      throw new BadRequestException('No file uploaded (field name must be "file")');
+      throw new BadRequestException(
+        'No file uploaded (field name must be "file")',
+      );
     }
     return this.service.import(congregationId, file.buffer, file.originalname);
   }

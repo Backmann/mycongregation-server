@@ -51,10 +51,7 @@ export class AuthController {
   }
 
   @Patch('me')
-  updateMe(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: UpdateMeDto,
-  ) {
+  updateMe(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateMeDto) {
     return this.authService.updateMe(user.id, dto);
   }
 

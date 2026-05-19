@@ -59,7 +59,9 @@ export class WebPushService {
     role: UserRole,
     dto: RegisterWebPushSubscriptionDto,
   ): Promise<WebPushSubscription> {
-    const existing = await this.subRepo.findOne({ where: { endpoint: dto.endpoint } });
+    const existing = await this.subRepo.findOne({
+      where: { endpoint: dto.endpoint },
+    });
     if (existing) {
       existing.userId = userId;
       existing.congregationId = congregationId;
@@ -86,7 +88,10 @@ export class WebPushService {
   /**
    * Scoped to (userId, endpoint) — a user can only remove their own subs.
    */
-  async removeSubscription(userId: string, endpoint: string): Promise<{ removed: number }> {
+  async removeSubscription(
+    userId: string,
+    endpoint: string,
+  ): Promise<{ removed: number }> {
     const result = await this.subRepo.delete({ userId, endpoint });
     return { removed: result.affected ?? 0 };
   }

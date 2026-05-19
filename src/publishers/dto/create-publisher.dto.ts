@@ -34,7 +34,9 @@ export class CreatePublisherDto {
   gender!: Gender;
 
   @IsOptional()
-  @Transform(({ value }) => (value === '' || value === null ? undefined : value))
+  @Transform(({ value }) =>
+    value === '' || value === null ? undefined : value,
+  )
   @IsDateString()
   birthDate?: string;
 
@@ -105,12 +107,16 @@ export class CreatePublisherDto {
   appointment?: PublisherAppointment;
 
   @IsOptional()
-  @Transform(({ value }) => (value === '' || value === null ? undefined : value))
+  @Transform(({ value }) =>
+    value === '' || value === null ? undefined : value,
+  )
   @IsDateString()
   baptismDate?: string;
 
   @IsOptional()
-  @Transform(({ value }) => (value === '' || value === null ? undefined : value))
+  @Transform(({ value }) =>
+    value === '' || value === null ? undefined : value,
+  )
   @IsDateString()
   ministryStartDate?: string;
 
@@ -119,7 +125,9 @@ export class CreatePublisherDto {
   pioneerType?: PioneerType;
 
   @IsOptional()
-  @Transform(({ value }) => (value === '' || value === null ? undefined : value))
+  @Transform(({ value }) =>
+    value === '' || value === null ? undefined : value,
+  )
   @IsDateString()
   pioneerSince?: string;
 

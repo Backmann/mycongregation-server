@@ -629,10 +629,12 @@ export class ServiceReportsService {
     }
 
     for (const r of reports) {
-      (r as ServiceReport & {
-        lastEditedByName: string | null;
-      }).lastEditedByName = r.lastEditedById
-        ? nameByUserId.get(r.lastEditedById) ?? null
+      (
+        r as ServiceReport & {
+          lastEditedByName: string | null;
+        }
+      ).lastEditedByName = r.lastEditedById
+        ? (nameByUserId.get(r.lastEditedById) ?? null)
         : null;
     }
   }

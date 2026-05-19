@@ -450,9 +450,7 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
     it('hashes and updates the new password, audits as a self-action', async () => {
       // Set up a real hash for the "current password" check
       const realHash = await bcrypt.hash('oldsecret', 4);
-      await primeQbWithUser(
-        userFixture({ id: 'u-1', passwordHash: realHash }),
-      );
+      await primeQbWithUser(userFixture({ id: 'u-1', passwordHash: realHash }));
 
       await service.changePasswordSelfService('u-1', 'oldsecret', 'newpass123');
 
@@ -477,9 +475,7 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
 
     it('throws BadRequestException when current password is wrong (NOT 401)', async () => {
       const realHash = await bcrypt.hash('actualcurrent', 4);
-      await primeQbWithUser(
-        userFixture({ id: 'u-1', passwordHash: realHash }),
-      );
+      await primeQbWithUser(userFixture({ id: 'u-1', passwordHash: realHash }));
 
       await expect(
         service.changePasswordSelfService('u-1', 'wrongguess', 'newpass123'),

@@ -30,10 +30,7 @@ describe('UsersController', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [UsersController],
-      providers: [
-        { provide: UsersService, useValue: service },
-        Reflector,
-      ],
+      providers: [{ provide: UsersService, useValue: service }, Reflector],
     })
       // Bypass RolesGuard in controller-level unit tests — guard logic is
       // covered separately in src/common/guards/roles.guard.spec.ts.
@@ -56,11 +53,7 @@ describe('UsersController', () => {
       role: UserRole.PUBLISHER,
     };
     await controller.create(dto, CONG, ADMIN);
-    expect(service.createUserByAdmin).toHaveBeenCalledWith(
-      dto,
-      CONG,
-      ADMIN.id,
-    );
+    expect(service.createUserByAdmin).toHaveBeenCalledWith(dto, CONG, ADMIN.id);
   });
 
   it('PATCH /users/:id/role → service.updateRoleByAdmin', async () => {

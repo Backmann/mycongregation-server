@@ -46,34 +46,35 @@ describe('RolesGuard', () => {
     });
 
     it('allows when user has any of multiple required roles', () => {
-      const ctx = createContext(
-        { role: UserRole.ELDER },
-        [UserRole.ADMIN, UserRole.ELDER],
-      );
+      const ctx = createContext({ role: UserRole.ELDER }, [
+        UserRole.ADMIN,
+        UserRole.ELDER,
+      ]);
       expect(guard.canActivate(ctx)).toBe(true);
     });
 
     it('allows MS when MS is in the required list', () => {
-      const ctx = createContext(
-        { role: UserRole.MINISTERIAL_SERVANT },
-        [UserRole.ADMIN, UserRole.ELDER, UserRole.MINISTERIAL_SERVANT],
-      );
+      const ctx = createContext({ role: UserRole.MINISTERIAL_SERVANT }, [
+        UserRole.ADMIN,
+        UserRole.ELDER,
+        UserRole.MINISTERIAL_SERVANT,
+      ]);
       expect(guard.canActivate(ctx)).toBe(true);
     });
 
     it('rejects when user role is not in required list', () => {
-      const ctx = createContext(
-        { role: UserRole.PUBLISHER },
-        [UserRole.ADMIN, UserRole.ELDER],
-      );
+      const ctx = createContext({ role: UserRole.PUBLISHER }, [
+        UserRole.ADMIN,
+        UserRole.ELDER,
+      ]);
       expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
     });
 
     it('rejects MS when MS is not in required list', () => {
-      const ctx = createContext(
-        { role: UserRole.MINISTERIAL_SERVANT },
-        [UserRole.ADMIN, UserRole.ELDER],
-      );
+      const ctx = createContext({ role: UserRole.MINISTERIAL_SERVANT }, [
+        UserRole.ADMIN,
+        UserRole.ELDER,
+      ]);
       expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
     });
 
@@ -88,10 +89,10 @@ describe('RolesGuard', () => {
     });
 
     it('forbidden message names the required roles', () => {
-      const ctx = createContext(
-        { role: UserRole.PUBLISHER },
-        [UserRole.ADMIN, UserRole.ELDER],
-      );
+      const ctx = createContext({ role: UserRole.PUBLISHER }, [
+        UserRole.ADMIN,
+        UserRole.ELDER,
+      ]);
       expect(() => guard.canActivate(ctx)).toThrow(
         /Requires one of roles.*admin.*elder/,
       );

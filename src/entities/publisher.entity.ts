@@ -126,7 +126,11 @@ export class Publisher {
   @Column({ type: 'date', nullable: true })
   baptismDate!: string | null;
 
-  @Column({ type: 'date', nullable: true, comment: 'For unbaptized publishers' })
+  @Column({
+    type: 'date',
+    nullable: true,
+    comment: 'For unbaptized publishers',
+  })
   ministryStartDate!: string | null;
 
   @Column({ type: 'enum', enum: PioneerType, default: PioneerType.NONE })

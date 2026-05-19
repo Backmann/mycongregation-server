@@ -28,10 +28,7 @@ export class ServiceGroupsController {
   constructor(private readonly serviceGroupsService: ServiceGroupsService) {}
 
   @Get()
-  findAll(
-    @TenantId() tenantId: string,
-    @Query() query: QueryServiceGroupsDto,
-  ) {
+  findAll(@TenantId() tenantId: string, @Query() query: QueryServiceGroupsDto) {
     return this.serviceGroupsService.findAll(tenantId, query);
   }
 
@@ -54,10 +51,7 @@ export class ServiceGroupsController {
 
   @Roles(UserRole.ADMIN, UserRole.ELDER, UserRole.MINISTERIAL_SERVANT)
   @Post()
-  create(
-    @TenantId() tenantId: string,
-    @Body() dto: CreateServiceGroupDto,
-  ) {
+  create(@TenantId() tenantId: string, @Body() dto: CreateServiceGroupDto) {
     return this.serviceGroupsService.create(tenantId, dto);
   }
 
@@ -74,10 +68,7 @@ export class ServiceGroupsController {
   @Roles(UserRole.ADMIN, UserRole.ELDER)
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(
-    @TenantId() tenantId: string,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  remove(@TenantId() tenantId: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.serviceGroupsService.remove(tenantId, id);
   }
 

@@ -8,7 +8,9 @@ import { ActivityFeedController } from './activity-feed.controller';
 import { ActivityFeedService } from './activity-feed.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([AuditLog, Publisher, ServiceReport, User])],
+  imports: [
+    TypeOrmModule.forFeature([AuditLog, Publisher, ServiceReport, User]),
+  ],
   controllers: [ActivityFeedController],
   providers: [ActivityFeedService],
 })

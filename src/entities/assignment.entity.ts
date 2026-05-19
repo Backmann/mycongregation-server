@@ -45,7 +45,8 @@ export class Assignment {
   @Column({
     type: 'varchar',
     length: 64,
-    comment: 'Programmatic key, e.g. bible_reading, treasures_talk, apply_yourself_1',
+    comment:
+      'Programmatic key, e.g. bible_reading, treasures_talk, apply_yourself_1',
   })
   partKey!: string;
 
@@ -98,7 +99,8 @@ export class Assignment {
     type: 'varchar',
     length: 255,
     nullable: true,
-    comment: 'For invited speakers from another congregation; null if local publisher',
+    comment:
+      'For invited speakers from another congregation; null if local publisher',
   })
   speakerName!: string | null;
 

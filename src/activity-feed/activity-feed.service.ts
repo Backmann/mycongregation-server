@@ -193,8 +193,13 @@ export class ActivityFeedService {
       const publisher = report ? (pubMap.get(report.publisherId) as any) : null;
       const publisherName = publisher?.displayName ?? '(unknown publisher)';
       const reportMonth =
-        report?.reportMonth ?? after?.reportMonth ?? before?.reportMonth ?? null;
-      const monthLabel = reportMonth ? formatMonth(reportMonth) : '(unknown month)';
+        report?.reportMonth ??
+        after?.reportMonth ??
+        before?.reportMonth ??
+        null;
+      const monthLabel = reportMonth
+        ? formatMonth(reportMonth)
+        : '(unknown month)';
 
       if (row.action === 'create') {
         return {
@@ -262,8 +267,18 @@ function formatUserName(u: any): string | null {
 }
 
 const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 
 function formatMonth(reportMonth: string): string {

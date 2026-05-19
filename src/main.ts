@@ -68,9 +68,7 @@ async function bootstrap() {
 
   app.enableCors({
     origin:
-      corsOrigin === '*'
-        ? true
-        : corsOrigin.split(',').map((s) => s.trim()),
+      corsOrigin === '*' ? true : corsOrigin.split(',').map((s) => s.trim()),
     credentials: true,
   });
 

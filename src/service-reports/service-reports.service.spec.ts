@@ -182,10 +182,8 @@ describe('ServiceReportsService', () => {
   // =========================================================
 
   describe('canEditReport', () => {
-    const callCan = (
-      report: ServiceReport,
-      user: AuthenticatedUser,
-    ): boolean => (service as any).canEditReport(report, user);
+    const callCan = (report: ServiceReport, user: AuthenticatedUser): boolean =>
+      (service as any).canEditReport(report, user);
 
     beforeEach(() => {
       // Inside window for April reports.
@@ -248,11 +246,15 @@ describe('ServiceReportsService', () => {
         const saved = makeReport();
         reportsRepo.save.mockResolvedValue(saved);
 
-        const result = await service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
-          reportMonth: '2026-04',
-          servedThisMonth: true,
-          bibleStudies: 2,
-        });
+        const result = await service.submitOwnReport(
+          'cong-1',
+          makeUser({ id: 'user-self' }),
+          {
+            reportMonth: '2026-04',
+            servedThisMonth: true,
+            bibleStudies: 2,
+          },
+        );
 
         expect(reportsRepo.create).toHaveBeenCalledWith(
           expect.objectContaining({
@@ -298,11 +300,15 @@ describe('ServiceReportsService', () => {
         const saved = makeReport({ servedThisMonth: null, hoursReported: 60 });
         reportsRepo.save.mockResolvedValue(saved);
 
-        const result = await service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
-          reportMonth: '2026-04',
-          hoursReported: 60,
-          bibleStudies: 1,
-        });
+        const result = await service.submitOwnReport(
+          'cong-1',
+          makeUser({ id: 'user-self' }),
+          {
+            reportMonth: '2026-04',
+            hoursReported: 60,
+            bibleStudies: 1,
+          },
+        );
 
         expect(reportsRepo.create).toHaveBeenCalledWith(
           expect.objectContaining({
@@ -339,7 +345,9 @@ describe('ServiceReportsService', () => {
       });
 
       it('translates Postgres unique violation (23505) to ConflictException', async () => {
-        const pgErr: any = new Error('duplicate key value violates unique constraint');
+        const pgErr: any = new Error(
+          'duplicate key value violates unique constraint',
+        );
         pgErr.code = '23505';
         reportsRepo.save.mockRejectedValue(pgErr);
 
@@ -830,9 +838,7 @@ describe('ServiceReportsService', () => {
         publishersRepo.find.mockResolvedValue([]);
         reportsRepo.save.mockImplementation(async (x: any) => x);
 
-        jest
-          .spyOn(Date, 'now')
-          .mockReturnValue(Date.UTC(2026, 4, 5, 12, 0, 0));
+        jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5, 12, 0, 0));
 
         await service.updateReport(
           'cong-1',
@@ -873,9 +879,7 @@ describe('ServiceReportsService', () => {
         publishersRepo.find.mockResolvedValue([]);
         reportsRepo.save.mockImplementation(async (x: any) => x);
 
-        jest
-          .spyOn(Date, 'now')
-          .mockReturnValue(Date.UTC(2026, 4, 5, 12, 0, 0));
+        jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5, 12, 0, 0));
 
         await service.updateReport(
           'cong-1',
@@ -988,9 +992,7 @@ describe('ServiceReportsService', () => {
 
     it('allows ELDER to see all publishers in the congregation', async () => {
       jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
-      publishersRepo.find.mockResolvedValue([
-        makePublisher({ id: 'p1' }),
-      ]);
+      publishersRepo.find.mockResolvedValue([makePublisher({ id: 'p1' })]);
       reportsRepo.find.mockResolvedValue([]);
 
       const result = await service.findGroupReports(
@@ -1004,9 +1006,7 @@ describe('ServiceReportsService', () => {
     });
 
     it('forbids non-elder/admin who oversees no group', async () => {
-      publishersRepo.findOne.mockResolvedValue(
-        makePublisher({ id: 'pub-me' }),
-      );
+      publishersRepo.findOne.mockResolvedValue(makePublisher({ id: 'pub-me' }));
       serviceGroupsRepo.find.mockResolvedValue([]);
 
       await expect(
@@ -1071,9 +1071,7 @@ describe('ServiceReportsService', () => {
 
     it('enriches each report with canEdit and lastEditedByName', async () => {
       jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
-      publishersRepo.find.mockResolvedValue([
-        makePublisher({ id: 'p1' }),
-      ]);
+      publishersRepo.find.mockResolvedValue([makePublisher({ id: 'p1' })]);
       reportsRepo.find.mockResolvedValue([
         makeReport({
           id: 'r1',

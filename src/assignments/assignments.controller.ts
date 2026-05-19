@@ -27,10 +27,7 @@ export class AssignmentsController {
   constructor(private readonly service: AssignmentsService) {}
 
   @Get()
-  list(
-    @TenantId() congregationId: string,
-    @Query() query: QueryAssignmentDto,
-  ) {
+  list(@TenantId() congregationId: string, @Query() query: QueryAssignmentDto) {
     return this.service.list(congregationId, query);
   }
 
@@ -45,10 +42,7 @@ export class AssignmentsController {
   @Post()
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.ELDER)
-  create(
-    @TenantId() congregationId: string,
-    @Body() dto: CreateAssignmentDto,
-  ) {
+  create(@TenantId() congregationId: string, @Body() dto: CreateAssignmentDto) {
     return this.service.create(congregationId, dto);
   }
 

@@ -10,20 +10,14 @@ import {
   parseMwbBuffer,
   ParsedPart,
 } from './mwb-parser';
-import {
-  ImportResultDto,
-  WeekImportSummary,
-} from './dto/import-result.dto';
+import { ImportResultDto, WeekImportSummary } from './dto/import-result.dto';
 
 /**
  * Returns true if an existing assignment is empty (no publisher and no
  * meaningful title) — and therefore safe to overwrite during EPUB import.
  */
 function isEmptyTemplate(a: Assignment): boolean {
-  return (
-    !a.publisherId &&
-    !a.assistantPublisherId
-  );
+  return !a.publisherId && !a.assistantPublisherId;
 }
 
 @Injectable()
@@ -64,7 +58,14 @@ export class MwbImportService {
     }
 
     for (const week of parsed.weeks) {
-      const summary = await this.importWeek(congregationId, week.weekStartDate, week.weekEndDate, week.biblePassage, week.parts, result);
+      const summary = await this.importWeek(
+        congregationId,
+        week.weekStartDate,
+        week.weekEndDate,
+        week.biblePassage,
+        week.parts,
+        result,
+      );
       result.weeks.push(summary);
       result.weeksImported++;
     }

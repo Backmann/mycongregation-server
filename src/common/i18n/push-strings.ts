@@ -10,7 +10,10 @@ const STATUS_NAMES: Record<string, Record<SupportedLanguage, string>> = {
   inactive: { en: 'Inactive', ru: 'Неактивный', de: 'Inaktiv' },
 };
 
-export function translateStatus(status: string, lang: SupportedLanguage): string {
+export function translateStatus(
+  status: string,
+  lang: SupportedLanguage,
+): string {
   return STATUS_NAMES[status]?.[lang] ?? status;
 }
 
@@ -21,10 +24,17 @@ export function translateStatus(status: string, lang: SupportedLanguage): string
  */
 type PushTemplate = {
   title: string;
-  body: (params: { publisher: string; before: string; after: string }) => string;
+  body: (params: {
+    publisher: string;
+    before: string;
+    after: string;
+  }) => string;
 };
 
-export const PUSH_STRINGS: Record<SupportedLanguage, { statusChange: PushTemplate }> = {
+export const PUSH_STRINGS: Record<
+  SupportedLanguage,
+  { statusChange: PushTemplate }
+> = {
   en: {
     statusChange: {
       title: 'Status changed',
