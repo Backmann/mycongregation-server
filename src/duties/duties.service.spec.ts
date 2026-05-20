@@ -7,6 +7,9 @@ import { Assignment } from '../entities/assignment.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { DutyType } from '../common/enums/duty-type.enum';
+import { EventType } from '../common/enums/event-type.enum';
+
+const MIDWEEK = 'midweek' as EventType;
 
 describe('DutiesService', () => {
   let service: DutiesService;
@@ -63,7 +66,7 @@ describe('DutiesService', () => {
     service = moduleRef.get(DutiesService);
   });
 
-  const gen = { weekStartDate: '2026-05-18', eventType: 'midweek' as const };
+  const gen = { weekStartDate: '2026-05-18', eventType: MIDWEEK };
 
   it('generateWeek inserts 2 + micCount + 5 slots (mics from settings)', async () => {
     meetingRepo.find.mockResolvedValue([{ microphoneSlots: 3 }]);
@@ -87,7 +90,7 @@ describe('DutiesService', () => {
     id: 'd1',
     congregationId: 'c1',
     weekStartDate: '2026-05-18',
-    eventType: 'midweek',
+    eventType: MIDWEEK,
     dutyType: DutyType.MICROPHONE,
     slotIndex: 0,
     customLabel: null,
@@ -141,7 +144,7 @@ describe('DutiesService', () => {
     qb.getRawOne.mockResolvedValue({ max: 1 });
     const res = await service.createCustom('c1', {
       weekStartDate: '2026-05-18',
-      eventType: 'midweek',
+      eventType: MIDWEEK,
       customLabel: 'Door',
     });
     expect(res.duty.slotIndex).toBe(2);
