@@ -25,6 +25,7 @@ import { PushNotificationsModule } from './push-notifications/push-notifications
 import { WebPushModule } from './web-push/web-push.module';
 import { ActivityFeedModule } from './activity-feed/activity-feed.module';
 import { ResponsibilitiesModule } from './responsibilities/responsibilities.module';
+import { MeetingSettingsModule } from './meeting-settings/meeting-settings.module';
 
 @Module({
   imports: [
@@ -79,6 +80,7 @@ import { ResponsibilitiesModule } from './responsibilities/responsibilities.modu
     PushNotificationsModule,
     WebPushModule,
     ResponsibilitiesModule,
+    MeetingSettingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
