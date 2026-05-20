@@ -32,4 +32,6 @@ export enum ResponsibilityType {
   PUBLIC_WITNESSING = 'public_witnessing',
   /** Координатор уборки — Kingdom Hall cleaning rotation. */
   CLEANING_COORDINATOR = 'cleaning_coordinator',
+  /** Координатор обязанностей на встречах — meeting duties (security, mics, A/V, …). */
+  DUTIES_COORDINATOR = 'duties_coordinator',
 }

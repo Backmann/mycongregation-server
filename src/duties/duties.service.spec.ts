@@ -1,0 +1,157 @@
+import { Test } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { NotFoundException } from '@nestjs/common';
+import { DutiesService } from './duties.service';
+import { Duty } from '../entities/duty.entity';
+import { Assignment } from '../entities/assignment.entity';
+import { Publisher } from '../entities/publisher.entity';
+import { MeetingSettings } from '../entities/meeting-settings.entity';
+import { DutyType } from '../common/enums/duty-type.enum';
+
+describe('DutiesService', () => {
+  let service: DutiesService;
+  let repo: {
+    createQueryBuilder: jest.Mock;
+    findOne: jest.Mock;
+    count: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
+    remove: jest.Mock;
+  };
+  let assignmentRepo: { count: jest.Mock };
+  let publisherRepo: { findOne: jest.Mock };
+  let meetingRepo: { find: jest.Mock };
+  let qb: Record<string, jest.Mock>;
+
+  beforeEach(async () => {
+    qb = {
+      insert: jest.fn().mockReturnThis(),
+      into: jest.fn().mockReturnThis(),
+      values: jest.fn().mockReturnThis(),
+      orIgnore: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({}),
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+      getRawOne: jest.fn().mockResolvedValue({ max: null }),
+    };
+    repo = {
+      createQueryBuilder: jest.fn(() => qb),
+      findOne: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
+      create: jest.fn((x) => x),
+      save: jest.fn((x) => Promise.resolve({ id: x.id ?? 'd1', ...x })),
+      remove: jest.fn().mockResolvedValue(undefined),
+    };
+    assignmentRepo = { count: jest.fn().mockResolvedValue(0) };
+    publisherRepo = { findOne: jest.fn() };
+    meetingRepo = { find: jest.fn().mockResolvedValue([]) };
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        DutiesService,
+        { provide: getRepositoryToken(Duty), useValue: repo },
+        { provide: getRepositoryToken(Assignment), useValue: assignmentRepo },
+        { provide: getRepositoryToken(Publisher), useValue: publisherRepo },
+        { provide: getRepositoryToken(MeetingSettings), useValue: meetingRepo },
+      ],
+    }).compile();
+
+    service = moduleRef.get(DutiesService);
+  });
+
+  const gen = { weekStartDate: '2026-05-18', eventType: 'midweek' as const };
+
+  it('generateWeek inserts 2 + micCount + 5 slots (mics from settings)', async () => {
+    meetingRepo.find.mockResolvedValue([{ microphoneSlots: 3 }]);
+    await service.generateWeek('c1', gen);
+    expect(qb.insert).toHaveBeenCalled();
+    const rows = qb.values.mock.calls[0][0] as Array<{ dutyType: DutyType }>;
+    expect(rows).toHaveLength(2 + 3 + 5); // before + mics + after
+    expect(rows.filter((r) => r.dutyType === DutyType.MICROPHONE)).toHaveLength(
+      3,
+    );
+  });
+
+  it('generateWeek defaults to 2 mics when there is no meeting settings', async () => {
+    meetingRepo.find.mockResolvedValue([]);
+    await service.generateWeek('c1', gen);
+    const rows = qb.values.mock.calls[0][0] as unknown[];
+    expect(rows).toHaveLength(2 + 2 + 5);
+  });
+
+  const duty: Duty = {
+    id: 'd1',
+    congregationId: 'c1',
+    weekStartDate: '2026-05-18',
+    eventType: 'midweek',
+    dutyType: DutyType.MICROPHONE,
+    slotIndex: 0,
+    customLabel: null,
+    publisherId: null,
+    publisher: null,
+    notes: null,
+  } as unknown as Duty;
+
+  it('assign clears the slot and returns no warnings when publisherId is null', async () => {
+    repo.findOne.mockResolvedValue({ ...duty });
+    const res = await service.assign('c1', 'd1', { publisherId: null });
+    expect(res.duty.publisherId).toBeNull();
+    expect(res.warnings).toEqual([]);
+  });
+
+  it('assign flags capability_off when the duty_<type> capability is not set', async () => {
+    repo.findOne.mockResolvedValue({ ...duty });
+    publisherRepo.findOne.mockResolvedValue({ id: 'p1', capabilities: {} });
+    const res = await service.assign('c1', 'd1', { publisherId: 'p1' });
+    expect(res.warnings).toContain('capability_off');
+  });
+
+  it('assign flags already_on_duty and has_program_part', async () => {
+    repo.findOne.mockResolvedValue({ ...duty });
+    repo.count.mockResolvedValue(1); // another duty same meeting
+    assignmentRepo.count.mockResolvedValue(1); // program part same meeting
+    publisherRepo.findOne.mockResolvedValue({
+      id: 'p1',
+      capabilities: { duty_microphone: true },
+    });
+    const res = await service.assign('c1', 'd1', { publisherId: 'p1' });
+    expect(res.warnings).toEqual(
+      expect.arrayContaining(['already_on_duty', 'has_program_part']),
+    );
+    expect(res.warnings).not.toContain('capability_off');
+  });
+
+  it('custom duties skip the capability check', async () => {
+    const custom = {
+      ...duty,
+      dutyType: DutyType.CUSTOM,
+      customLabel: 'Greeter',
+    };
+    repo.findOne.mockResolvedValue(custom);
+    const res = await service.assign('c1', 'd1', { publisherId: 'p1' });
+    expect(res.warnings).not.toContain('capability_off');
+    expect(publisherRepo.findOne).not.toHaveBeenCalled();
+  });
+
+  it('createCustom uses the next slotIndex after the current max', async () => {
+    qb.getRawOne.mockResolvedValue({ max: 1 });
+    const res = await service.createCustom('c1', {
+      weekStartDate: '2026-05-18',
+      eventType: 'midweek',
+      customLabel: 'Door',
+    });
+    expect(res.duty.slotIndex).toBe(2);
+    expect(res.duty.dutyType).toBe(DutyType.CUSTOM);
+  });
+
+  it('remove throws when the duty does not exist', async () => {
+    repo.findOne.mockResolvedValue(null);
+    await expect(service.remove('c1', 'nope')).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+});

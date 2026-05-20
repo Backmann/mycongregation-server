@@ -26,6 +26,7 @@ import { WebPushModule } from './web-push/web-push.module';
 import { ActivityFeedModule } from './activity-feed/activity-feed.module';
 import { ResponsibilitiesModule } from './responsibilities/responsibilities.module';
 import { MeetingSettingsModule } from './meeting-settings/meeting-settings.module';
+import { DutiesModule } from './duties/duties.module';
 
 @Module({
   imports: [
@@ -81,6 +82,7 @@ import { MeetingSettingsModule } from './meeting-settings/meeting-settings.modul
     WebPushModule,
     ResponsibilitiesModule,
     MeetingSettingsModule,
+    DutiesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
