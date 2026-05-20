@@ -24,6 +24,7 @@ import { ScheduledJobsModule } from './scheduled-jobs/scheduled-jobs.module';
 import { PushNotificationsModule } from './push-notifications/push-notifications.module';
 import { WebPushModule } from './web-push/web-push.module';
 import { ActivityFeedModule } from './activity-feed/activity-feed.module';
+import { ResponsibilitiesModule } from './responsibilities/responsibilities.module';
 
 @Module({
   imports: [
@@ -77,6 +78,7 @@ import { ActivityFeedModule } from './activity-feed/activity-feed.module';
     ScheduledJobsModule,
     PushNotificationsModule,
     WebPushModule,
+    ResponsibilitiesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
