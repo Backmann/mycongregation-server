@@ -5,7 +5,6 @@ import { Duty } from '../entities/duty.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
-import { EventType } from '../common/enums/event-type.enum';
 import {
   DutyType,
   SINGLE_SLOT_DUTIES_AFTER_MIC,
@@ -66,11 +65,11 @@ export class DutiesService {
       .getMany();
   }
 
-  /** Microphone-slot count effective for a date (default 2). */
-  private async micCount(
+  /** The meeting-settings version in force on a date (default today). */
+  private async effectiveSettings(
     congregationId: string,
     onDate: string,
-  ): Promise<number> {
+  ): Promise<MeetingSettings | null> {
     const rows = await this.meetingRepo.find({
       where: {
         congregationId,
@@ -79,7 +78,34 @@ export class DutiesService {
       order: { effectiveFrom: 'DESC' },
       take: 1,
     });
-    return rows[0]?.microphoneSlots ?? 2;
+    return rows[0] ?? null;
+  }
+
+  /** Microphone-slot count effective for a date (default 2). */
+  private async micCount(
+    congregationId: string,
+    onDate: string,
+  ): Promise<number> {
+    const settings = await this.effectiveSettings(congregationId, onDate);
+    return settings?.microphoneSlots ?? 2;
+  }
+
+  /**
+   * Update the microphone-slot count on the currently effective meeting-settings
+   * version (in place — the count reflects the hall, not a dated change). New
+   * microphone slots appear next time a week's duties are generated.
+   */
+  async setMicrophoneSlots(
+    congregationId: string,
+    microphoneSlots: number,
+  ): Promise<MeetingSettings> {
+    const today = new Date().toISOString().slice(0, 10);
+    const settings = await this.effectiveSettings(congregationId, today);
+    if (!settings) {
+      throw new NotFoundException('No meeting settings to update');
+    }
+    settings.microphoneSlots = microphoneSlots;
+    return this.meetingRepo.save(settings);
   }
 
   /**

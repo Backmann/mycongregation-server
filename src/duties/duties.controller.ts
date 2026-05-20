@@ -17,6 +17,7 @@ import { QueryDutiesDto } from './dto/query-duties.dto';
 import { GenerateWeekDutiesDto } from './dto/generate-week-duties.dto';
 import { AssignDutyDto } from './dto/assign-duty.dto';
 import { CreateCustomDutyDto } from './dto/create-custom-duty.dto';
+import { SetMicrophoneSlotsDto } from './dto/set-microphone-slots.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
@@ -54,6 +55,16 @@ export class DutiesController {
     @Body() dto: CreateCustomDutyDto,
   ) {
     return this.service.createCustom(congregationId, dto);
+  }
+
+  @Patch('microphone-slots')
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(ResponsibilityType.DUTIES_COORDINATOR)
+  setMicrophoneSlots(
+    @TenantId() congregationId: string,
+    @Body() dto: SetMicrophoneSlotsDto,
+  ) {
+    return this.service.setMicrophoneSlots(congregationId, dto.microphoneSlots);
   }
 
   @Patch(':id/assign')

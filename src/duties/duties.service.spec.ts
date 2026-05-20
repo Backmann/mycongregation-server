@@ -23,7 +23,7 @@ describe('DutiesService', () => {
   };
   let assignmentRepo: { count: jest.Mock };
   let publisherRepo: { findOne: jest.Mock };
-  let meetingRepo: { find: jest.Mock };
+  let meetingRepo: { find: jest.Mock; save: jest.Mock };
   let qb: Record<string, jest.Mock>;
 
   beforeEach(async () => {
@@ -51,7 +51,10 @@ describe('DutiesService', () => {
     };
     assignmentRepo = { count: jest.fn().mockResolvedValue(0) };
     publisherRepo = { findOne: jest.fn() };
-    meetingRepo = { find: jest.fn().mockResolvedValue([]) };
+    meetingRepo = {
+      find: jest.fn().mockResolvedValue([]),
+      save: jest.fn((x) => Promise.resolve(x)),
+    };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -149,6 +152,20 @@ describe('DutiesService', () => {
     });
     expect(res.duty.slotIndex).toBe(2);
     expect(res.duty.dutyType).toBe(DutyType.CUSTOM);
+  });
+
+  it('setMicrophoneSlots updates the effective meeting-settings version', async () => {
+    meetingRepo.find.mockResolvedValue([{ id: 'm1', microphoneSlots: 2 }]);
+    const res = await service.setMicrophoneSlots('c1', 4);
+    expect(res.microphoneSlots).toBe(4);
+    expect(meetingRepo.save).toHaveBeenCalled();
+  });
+
+  it('setMicrophoneSlots throws when there is no meeting settings', async () => {
+    meetingRepo.find.mockResolvedValue([]);
+    await expect(service.setMicrophoneSlots('c1', 4)).rejects.toThrow(
+      NotFoundException,
+    );
   });
 
   it('remove throws when the duty does not exist', async () => {
