@@ -12,6 +12,19 @@ import { QueryServiceGroupsDto } from './dto/query-service-groups.dto';
 import { PublishersService } from '../publishers/publishers.service';
 import { QueryPublishersDto } from '../publishers/dto/query-publishers.dto';
 
+type ResolvedPublisher = Awaited<ReturnType<PublishersService['findOne']>>;
+
+/**
+ * A service group enriched with its resolved overseer and assistant
+ * publisher records. The entity stores only publisher IDs (no FK relation,
+ * see service-group.entity.ts), so leaders are resolved in the service layer
+ * and attached here for API responses.
+ */
+export type ServiceGroupWithLeaders = ServiceGroup & {
+  overseer: ResolvedPublisher | null;
+  assistant: ResolvedPublisher | null;
+};
+
 @Injectable()
 export class ServiceGroupsService {
   constructor(
@@ -51,7 +64,14 @@ export class ServiceGroupsService {
     return { data, total, limit: query.limit ?? 50, offset: query.offset ?? 0 };
   }
 
-  async findOne(tenantId: string, id: string): Promise<ServiceGroup> {
+  /**
+   * Raw entity fetch with no leader resolution. Used internally by mutations
+   * that need a managed entity to mutate and save.
+   */
+  private async findEntity(
+    tenantId: string,
+    id: string,
+  ): Promise<ServiceGroup> {
     const group = await this.serviceGroupsRepo.findOne({
       where: { id, congregationId: tenantId },
       withDeleted: true,
@@ -62,10 +82,43 @@ export class ServiceGroupsService {
     return group;
   }
 
+  /**
+   * Resolves the overseer and assistant publisher records for a group and
+   * attaches them. Resolution is independent of group membership — an
+   * overseer or assistant need not be a member of the group they lead, which
+   * is why looking them up in the group's member list (the previous client
+   * behaviour) silently dropped non-member leaders. A leader whose publisher
+   * record is missing or removed resolves to null rather than throwing.
+   */
+  private async attachLeaders(
+    tenantId: string,
+    group: ServiceGroup,
+  ): Promise<ServiceGroupWithLeaders> {
+    const overseer = group.overseerPublisherId
+      ? await this.publishersService
+          .findOne(tenantId, group.overseerPublisherId)
+          .catch(() => null)
+      : null;
+    const assistant = group.assistantPublisherId
+      ? await this.publishersService
+          .findOne(tenantId, group.assistantPublisherId)
+          .catch(() => null)
+      : null;
+    return { ...group, overseer, assistant };
+  }
+
+  async findOne(
+    tenantId: string,
+    id: string,
+  ): Promise<ServiceGroupWithLeaders> {
+    const group = await this.findEntity(tenantId, id);
+    return this.attachLeaders(tenantId, group);
+  }
+
   async create(
     tenantId: string,
     dto: CreateServiceGroupDto,
-  ): Promise<ServiceGroup> {
+  ): Promise<ServiceGroupWithLeaders> {
     if (dto.overseerPublisherId) {
       await this.ensurePublisherInTenant(tenantId, dto.overseerPublisherId);
     }
@@ -76,15 +129,16 @@ export class ServiceGroupsService {
       ...dto,
       congregationId: tenantId,
     });
-    return this.serviceGroupsRepo.save(group);
+    const saved = await this.serviceGroupsRepo.save(group);
+    return this.attachLeaders(tenantId, saved);
   }
 
   async update(
     tenantId: string,
     id: string,
     dto: UpdateServiceGroupDto,
-  ): Promise<ServiceGroup> {
-    const group = await this.findOne(tenantId, id);
+  ): Promise<ServiceGroupWithLeaders> {
+    const group = await this.findEntity(tenantId, id);
     if (dto.overseerPublisherId) {
       await this.ensurePublisherInTenant(tenantId, dto.overseerPublisherId);
     }
@@ -92,19 +146,23 @@ export class ServiceGroupsService {
       await this.ensurePublisherInTenant(tenantId, dto.assistantPublisherId);
     }
     Object.assign(group, dto);
-    return this.serviceGroupsRepo.save(group);
+    const saved = await this.serviceGroupsRepo.save(group);
+    return this.attachLeaders(tenantId, saved);
   }
 
   async remove(tenantId: string, id: string): Promise<void> {
-    const group = await this.findOne(tenantId, id);
+    const group = await this.findEntity(tenantId, id);
     if (group.deletedAt) {
       throw new BadRequestException('Service group already removed');
     }
     await this.serviceGroupsRepo.softDelete(id);
   }
 
-  async restore(tenantId: string, id: string): Promise<ServiceGroup> {
-    const group = await this.findOne(tenantId, id);
+  async restore(
+    tenantId: string,
+    id: string,
+  ): Promise<ServiceGroupWithLeaders> {
+    const group = await this.findEntity(tenantId, id);
     if (!group.deletedAt) {
       throw new BadRequestException('Service group is not removed');
     }
@@ -117,7 +175,7 @@ export class ServiceGroupsService {
     id: string,
     query: QueryPublishersDto,
   ) {
-    await this.findOne(tenantId, id);
+    await this.findEntity(tenantId, id);
     return this.publishersService.findAll(tenantId, {
       ...query,
       serviceGroupId: id,
