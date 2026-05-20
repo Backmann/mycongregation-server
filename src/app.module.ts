@@ -28,9 +28,12 @@ import { ResponsibilitiesModule } from './responsibilities/responsibilities.modu
 import { MeetingSettingsModule } from './meeting-settings/meeting-settings.module';
 import { DutiesModule } from './duties/duties.module';
 
+import { PublisherActivityModule } from './publisher-activity/publisher-activity.module';
+
 @Module({
   imports: [
     ActivityFeedModule,
+    PublisherActivityModule,
     ConfigModule.forRoot({
       isGlobal: true,
       load: [configuration],
