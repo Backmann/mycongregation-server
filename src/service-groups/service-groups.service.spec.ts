@@ -5,6 +5,27 @@ import { ServiceGroupsService } from './service-groups.service';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { PublishersService } from '../publishers/publishers.service';
 
+// ServiceGroupsService imports PublishersService, which transitively imports
+// push-notifications.service -> expo-server-sdk. That package ships ESM that
+// ts-jest cannot parse, so it must be mocked before the import chain resolves.
+// Mirrors the mock in push-notifications.service.spec.ts.
+jest.mock('expo-server-sdk', () => {
+  class MockExpo {
+    static isExpoPushToken(t: string): boolean {
+      return typeof t === 'string' && /^ExponentPushToken\[/.test(t);
+    }
+    chunkPushNotifications(messages: any[]) {
+      return [messages];
+    }
+    sendPushNotificationsAsync = jest.fn().mockResolvedValue([]);
+    chunkPushNotificationReceiptIds(ids: string[]) {
+      return [ids];
+    }
+    getPushNotificationReceiptsAsync = jest.fn().mockResolvedValue({});
+  }
+  return { Expo: MockExpo };
+});
+
 describe('ServiceGroupsService', () => {
   let service: ServiceGroupsService;
   let serviceGroupsRepo: {
