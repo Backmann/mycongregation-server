@@ -283,7 +283,25 @@ function parseWeeklyFile(
       }
 
       if (tag === 'h3') {
-        if (/^Песн[яи]?\s*\d+\s*$/iu.test(text)) return;
+        if (/^Песн[яи]?\s*\d+\s*$/iu.test(text)) {
+          if (
+            currentSection === 'living_christians' &&
+            !parts.some((p) => p.partKey === 'mid_song')
+          ) {
+            parts.push({
+              rawTitle: text,
+              rawNumber: null,
+              rawSection: currentSection,
+              durationMin: null,
+              durationRawText: null,
+              notes: [],
+              partKey: 'mid_song',
+              partOrder: 9,
+              classifierConfidence: 'high',
+            });
+          }
+          return;
+        }
 
         const number = extractNumber(text);
         let { min: durationMin, raw: durationRawText } = extractDuration(text);
