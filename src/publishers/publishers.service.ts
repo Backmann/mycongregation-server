@@ -11,6 +11,7 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceReport } from '../entities/service-report.entity';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { UserRole } from '../common/enums/user-role.enum';
+import { Gender } from '../common/enums/gender.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { OverrideStatusDto } from './dto/override-status.dto';
@@ -382,10 +383,15 @@ export class PublishersService {
       dto.middleName ?? null,
       dto.lastName,
     );
+    const capabilities = {
+      ...(dto.gender === Gender.SISTER ? { hospitality: true } : {}),
+      ...(dto.capabilities ?? {}),
+    };
     const publisher = this.publishersRepo.create({
       ...dto,
       congregationId: tenantId,
       displayName,
+      capabilities,
     });
     return this.publishersRepo.save(publisher);
   }
