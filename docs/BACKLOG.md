@@ -21,7 +21,7 @@ brother (role-based editing — see "Role-based editing" below).
 ```
 РАСПИСАНИЕ (Schedule)
 ├── 1. Программа встреч            ✅ in production (MWB EPUB)
-├── 2. Обязанности (Duties)        🆕 Feature A
+├── 2. Обязанности (Duties)        ✅ shipped 2026-05-20
 ├── 3. График проповеднических     🆕 Feature B
 │        встреч (Field Service
 │        Meeting Schedule)
@@ -37,7 +37,17 @@ their area. Implemented via the `Responsibility` table (Roles Phase 2, #12).
 
 ---
 
-## Feature A — Обязанности (Meeting Duties)
+## Feature A — Обязанности (Meeting Duties)  ✅ SHIPPED 2026-05-20
+
+> **Status: in production.** Server: `Duty` entity + migration, `DutiesService`
+> (generate / assign / createCustom / remove), `DutiesController` gated by
+> `ResponsibilityGuard` + `@RequireResponsibility(DUTIES_COORDINATOR)` — the
+> **first live consumer of ResponsibilityGuard**. App: `DutiesSection` with a
+> capability-filtered `PublisherSelector` per slot, custom-duty add, soft
+> conflict warnings, read-only for non-coordinators. The microphone stepper was
+> built then removed — extra mics are added as custom duties; generation seeds
+> 2 capability-filtered microphone slots by default. **Deferred:** the swap
+> ("transfer to another") button (Q-DUTY-swap).
 
 Per-meeting assignment of practical duties.
 
@@ -190,6 +200,30 @@ notifications/reminders).
 
 ---
 
+## Parser — EN/DE workbook support (RU-only today)
+
+The MWB EPUB parser (`src/mwb-import/mwb-parser.ts`) recognises sections **only
+by Russian headings** (`detectSection` matches `ОТТАЧИВАЕМ`/`НАВЫКИ`,
+`ХРИСТИАНСКАЯ`). Importing an EN/DE workbook silently fails to detect sections
+→ parts misclassify and `mid_song` is not captured. Confirmed 2026-05-21 (an
+English `mwb_E_202605` import produced no living_christians section). For
+multi-language congregations, extend `detectSection` (and the song/prayer/CBS
+keyword tests) to recognise EN + DE headings. **Effort: ~0.5–1 day.** Until
+then, **import the Russian workbook only**.
+
+### Shipped alongside Feature A (for the record)
+- **publisher-activity module** (server `GET /publisher-activity` + app
+  `publisherActivityApi`): the duty/program pickers show what each publisher
+  already has *this meeting* + a tappable 4-week history, to avoid overloading
+  one person.
+- **Schedule JW-fidelity pass:** labels from imported titles, JW-style
+  numbering (non-numbered chairman/prayers/readers shown as a muted "·"),
+  prayer→song-only subtitle, CBS labels, meeting-header date/address fallback,
+  and the **mid-meeting song** (`mid_song`) as an unnumbered row in
+  "Христианская жизнь" (parser + app). Re-import preserves assignments.
+
+---
+
 ## Role-based editing (Responsibilities)
 
 Each area above is edited by a *different* designated brother. This is exactly
@@ -239,10 +273,14 @@ PREREQUISITES (do first)
 
 FOUNDATION
 └── #12 Roles Phase 2 (Responsibility)   [extend existing Profile roles UI]
+        │  ResponsibilityGuard is BUILT and LIVE (first consumer: Feature A
+        │  duties endpoints, type `duties_coordinator`). Remaining:
+        │  PublisherApprovals (L3), conditional UI (L4), apply the guard to
+        │  the other coordinators + Schedule endpoints.
         │  unblocks role-based editing for ALL areas below
         ▼
 NEW FEATURES (sequential for a solo dev)
-├── A. Обязанности (Duties)              ~2–3 days
+├── A. Обязанности (Duties)              ✅ DONE (2026-05-20)
 ├── B. Проповеднические встречи          ~1.5–2 days
 ├── C. Уборка (Cleaning)                 ~1–1.5 days   [reuses ServiceGroup]
 └── D. Тележки (Cart Witnessing)         ~3–4 days
@@ -281,13 +319,15 @@ the Publishers section first within Feature A.
 - Custom duties are one-week-only (ad-hoc). ✓
 - Duty eligibility = per-publisher capability flags in Publishers section. ✓
 - Sisters: same flags, OFF by default, admin can enable. ✓
+- Feature A shipped 2026-05-20 **without** the swap button (Q-DUTY-swap still
+  open, deferred to a focused design pass). ✓
 
 ---
 
 ## Estimated total new scope
 
 ```
-Feature A  Duties              ~2–3 days
+Feature A  Duties              ✅ DONE (2026-05-20)
 Feature B  Field Service       ~1.5–2 days
 Feature C  Cleaning            ~1–1.5 days
 Feature D  Cart Witnessing     ~3–4 days

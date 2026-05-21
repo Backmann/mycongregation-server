@@ -3,7 +3,7 @@
 **Project:** mycongregation — Congregation management for Jehovah's Witnesses
 **Live:** https://mycongregation.org · https://api.mycongregation.org/api
 **Repositories:** [server](https://github.com/Backmann/mycongregation-server) · [app](https://github.com/Backmann/mycongregation-app)
-**Last updated:** 2026-05-17
+**Last updated:** 2026-05-21
 **License:** AGPL v3
 
 > ⚠️ Unofficial, community-built tool. Not affiliated with or endorsed by any religious organization.
@@ -20,21 +20,23 @@
 - **Service Groups** — overseer + assistant + member roster
 - **Assignments** — midweek + weekend program parts, status (`draft` / `published` / `cancelled`), structural integrity guard (cannot delete parts, only unassign publisher)
 - **Public Talks** — catalog of 190 talks, bulk import, speaker-history aware picker
-- **Schedule Import** — MWB EPUB parser, idempotent, parses weeks/assignments with enriched per-part detail (Bible reading, Spiritual Gems, CBS chapters, Apply Yourself scenarios)
+- **Schedule Import** — MWB EPUB parser, idempotent, parses weeks/assignments with enriched per-part detail (Bible reading, Spiritual Gems, CBS chapters, Apply Yourself scenarios, mid-meeting song). **Russian headings only today** (EN/DE in backlog)
+- **Meeting Duties** — per-week practical duties (security, attendant, Zoom, microphones, audio, video, stage, ventilation + custom), capability-filtered assignment, soft conflict warnings, gated by `ResponsibilityGuard` (`duties_coordinator`) — first live use of the responsibility layer
+- **Publisher Activity** — `GET /publisher-activity`: per-publisher rollup of recent parts + duties (configurable weeks), surfaced in the duty/program pickers to avoid overloading one person
 - **Service Reports** — self + on-behalf submission, edit window enforced (1st-10th of next month), regular + pioneer forms
 - **Audit Log** — per-report edit history with field-level diffs
 - **Activity Feed** — cursor-paginated combined feed (status changes, report events, overrides)
 - **Push Notifications** — Dual-channel delivery: Expo Push (native iOS/Android) + Web Push (PWA browsers); ticket persistence + receipt-checking cron for Expo; HTTP-code-based stale-subscription cleanup for both channels; per-language localized message bodies (see [`push-notifications.md`](architecture/push-notifications.md))
 - **Scheduled Jobs** — NestJS `@Cron`: nightly status recompute (03:00 UTC), push receipt check (every 30 min), receipt cleanup (03:30 UTC daily). BullMQ powers the email-send queue.
 
-**Quality:** 254 tests across 15 suites · 7 migrations in production · test gate in CI
+**Quality:** 332 tests across 24 suites · 8 migrations in production · test gate in CI
 
 ### Frontend (Expo SDK 54 — Web + Android single codebase)
 
 - All backend modules surfaced in UI
 - **5 tabs:** Schedule · Publishers (+ nested Families) · Service Groups · Reports · Profile
 - **Schedule** — JW-authentic colored sub-sections (Treasures / Apply Yourself / Living as Christians) for midweek; locale-aware week navigator
-- **i18n** — Russian, English, German (~485 keys); first-launch language picker; runtime switching
+- **i18n** — Russian, English, German (616 keys); first-launch language picker; runtime switching
 - **Authentication** — proactive JWT refresh prevents intermittent 401 UI flashes
 - **Web Push (PWA)** — Service Worker–based notifications for browser users, opt-in toggle in Profile with iOS Safari standalone-mode hint
 
@@ -59,7 +61,7 @@ Canonical references under `docs/architecture/`:
 | [`service-reports.md`](architecture/service-reports.md) | Service Reports data model + workflows + permissions | ✅ **Implemented** |
 | [`internationalization.md`](architecture/internationalization.md) | i18n strategy (UI / content / formatting) | ✅ **Implemented** (client + server) |
 | [`push-notifications.md`](architecture/push-notifications.md) | Push pipeline + receipt tracking + cleanup | ✅ **Implemented** |
-| [`roles-and-permissions.md`](architecture/roles-and-permissions.md) | RBAC + appointments | 🟡 Partially implemented |
+| [`roles-and-permissions.md`](architecture/roles-and-permissions.md) | RBAC + appointments | 🟡 Partial — `ResponsibilityGuard` live (first consumer: duties) |
 | [`data-protection.md`](architecture/data-protection.md) | Encryption at rest + defense-in-depth | ⏳ Design only |
 | [`video-conferencing.md`](architecture/video-conferencing.md) | Self-hosted LiveKit for in-app meetings | ⏳ Design only |
 
@@ -75,7 +77,9 @@ Canonical references under `docs/architecture/`:
 
 1. **App-side Jest test suite** — CI workflow now runs lint as a gate (shipped 2026-05-18); next layer is adding Jest setup + critical-path tests so the lint gate expands into a real test gate. *Estimate: ~half day.*
 2. **Data protection L1+L2** — encryption at rest for sensitive fields (addresses, phones, pastoral notes) per `data-protection.md`. AES-256-GCM column transformers + per-tenant key wrapping. *Estimate: ~1-2 days.*
-3. **Roles & permissions full implementation** — sub-roles (secretary, coordinator-of-elders, etc.), capability-scoped queries per `roles-and-permissions.md`. *Estimate: ~2-3 days.*
+3. **Roles & permissions full implementation** — sub-roles (secretary, coordinator-of-elders, etc.), capability-scoped queries per `roles-and-permissions.md`. `ResponsibilityGuard` is already live (Feature A); remaining: PublisherApprovals (L3), conditional UI (L4), apply the guard to the other coordinators + Schedule. *Estimate: ~2-3 days.*
+4. **EN/DE EPUB parser** — `detectSection` + keyword tests are Russian-only; extend to English/German headings so non-RU congregations can import. *Estimate: ~0.5-1 day.*
+5. **Schedule expansion (Features B/C/D)** — Field Service Meeting, Cleaning rotation, Cart Witnessing; specs in `docs/BACKLOG.md`, each gated by its own coordinator responsibility. *Estimate: ~6-8 days total.*
 
 ### 🔵 Long-term (next 3-12 months)
 
@@ -105,6 +109,11 @@ Rough chronological log of completed milestones.
 | 2026-05-17 | M | Web Push for PWA: `web_push_subscriptions` table, subscribe/unsubscribe endpoints, dual-channel send in `sendStatusChange` (Expo + Web Push in one call), Service Worker, `lib/web-push.ts` client API, Profile toggle, iOS Safari standalone hint, 14 dedicated tests |
 | 2026-05-18 | M | Phase M end-to-end **production-verified** — nightly StatusRecompute cron fires `sendStatusChange` → WNS + FCM both accept push (`last_used_at` updates on both subscriptions) |
 | 2026-05-18 | hardening | App-side CI workflow (lint gate + auto-deploy mirroring server pattern); `lib/api.ts` now throws in production when `EXPO_PUBLIC_API_URL` is unset (was silently falling back to localhost — bit us during today's deploy); DTO `@Transform` on 4 date fields (birthDate / baptismDate / ministryStartDate / pioneerSince) fixes `must be a valid ISO 8601 date string` when fields are empty strings or null |
+| 2026-05-19 | capabilities | Capability matrix rework: `field_service` (`fs_*`) + `duties` (`duty_*`) keys, `hospitality` section (sisters default true, 60 backfilled), cleaning moved to a role; CapabilitiesEditor "select all"; publisher list `limit: 200` |
+| 2026-05-20 | Feature A | **Обязанности (Duties)** shipped: `Duty` entity + migration, `DutiesService` + `DutiesController` gated by `ResponsibilityGuard`/`duties_coordinator` (first live consumer); app `DutiesSection` (capability-filtered picker, custom duties, soft conflict warnings, read-only for non-coordinators) |
+| 2026-05-20 | publisher-activity | New `publisher-activity` module (`GET /publisher-activity`) + app `publisherActivityApi`; "this meeting" + 4-week history shown inside the duty/program pickers |
+| 2026-05-20 | schedule fidelity | JW-style numbering (muted "·" for chairman/prayers/readers), labels from imported titles, prayer→song-only subtitle, CBS labels, meeting-header date/address fallback when no settings version is effective yet |
+| 2026-05-21 | mid_song | Parser captures the mid-meeting song (`mid_song`, standalone `<h3>` inside Living-as-Christians) instead of skipping it; app renders it unnumbered. Re-import preserves assignments (creates missing + refreshes empty templates only). **Surfaced: parser is RU-headings-only → EN/DE backlog item** |
 
 ---
 
