@@ -27,6 +27,7 @@ import { ActivityFeedModule } from './activity-feed/activity-feed.module';
 import { ResponsibilitiesModule } from './responsibilities/responsibilities.module';
 import { MeetingSettingsModule } from './meeting-settings/meeting-settings.module';
 import { DutiesModule } from './duties/duties.module';
+import { FieldServiceMeetingsModule } from './field-service-meetings/field-service-meetings.module';
 
 import { PublisherActivityModule } from './publisher-activity/publisher-activity.module';
 
@@ -86,6 +87,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     ResponsibilitiesModule,
     MeetingSettingsModule,
     DutiesModule,
+    FieldServiceMeetingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
