@@ -29,6 +29,7 @@ import { MeetingSettingsModule } from './meeting-settings/meeting-settings.modul
 import { DutiesModule } from './duties/duties.module';
 import { FieldServiceMeetingsModule } from './field-service-meetings/field-service-meetings.module';
 import { CleaningModule } from './cleaning/cleaning.module';
+import { CartShiftsModule } from './cart-shifts/cart-shifts.module';
 
 import { PublisherActivityModule } from './publisher-activity/publisher-activity.module';
 
@@ -90,6 +91,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     DutiesModule,
     FieldServiceMeetingsModule,
     CleaningModule,
+    CartShiftsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
