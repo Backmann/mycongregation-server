@@ -23,20 +23,22 @@
 - **Schedule Import** — MWB EPUB parser, idempotent, parses weeks/assignments with enriched per-part detail (Bible reading, Spiritual Gems, CBS chapters, Apply Yourself scenarios, mid-meeting song). **Russian headings only today** (EN/DE in backlog)
 - **Meeting Duties** — per-week practical duties (security, attendant, Zoom, microphones, audio, video, stage, ventilation + custom), capability-filtered assignment, soft conflict warnings, gated by `ResponsibilityGuard` (`duties_coordinator`) — first live use of the responsibility layer
 - **Publisher Activity** — `GET /publisher-activity`: per-publisher rollup of recent parts + duties (configurable weeks), surfaced in the duty/program pickers to avoid overloading one person
+- **Field Service Meetings** — per-week, flexible field-ministry meeting entries (day, time, address, conductor, topic, source link); gated by `service_overseer`
+- **Cleaning** — per-week Kingdom Hall cleaning: after-meeting + weekly group slots (service groups, overseer shown) + a general-cleaning marker; gated by `cleaning_coordinator`
 - **Service Reports** — self + on-behalf submission, edit window enforced (1st-10th of next month), regular + pioneer forms
 - **Audit Log** — per-report edit history with field-level diffs
 - **Activity Feed** — cursor-paginated combined feed (status changes, report events, overrides)
 - **Push Notifications** — Dual-channel delivery: Expo Push (native iOS/Android) + Web Push (PWA browsers); ticket persistence + receipt-checking cron for Expo; HTTP-code-based stale-subscription cleanup for both channels; per-language localized message bodies (see [`push-notifications.md`](architecture/push-notifications.md))
 - **Scheduled Jobs** — NestJS `@Cron`: nightly status recompute (03:00 UTC), push receipt check (every 30 min), receipt cleanup (03:30 UTC daily). BullMQ powers the email-send queue.
 
-**Quality:** 332 tests across 24 suites · 8 migrations in production · test gate in CI
+**Quality:** 346 tests across 26 suites · 10 migrations in production · test gate in CI
 
 ### Frontend (Expo SDK 54 — Web + Android single codebase)
 
 - All backend modules surfaced in UI
 - **5 tabs:** Schedule · Publishers (+ nested Families) · Service Groups · Reports · Profile
 - **Schedule** — JW-authentic colored sub-sections (Treasures / Apply Yourself / Living as Christians) for midweek; locale-aware week navigator
-- **i18n** — Russian, English, German (616 keys); first-launch language picker; runtime switching
+- **i18n** — Russian, English, German (656 keys); first-launch language picker; runtime switching
 - **Authentication** — proactive JWT refresh prevents intermittent 401 UI flashes
 - **Web Push (PWA)** — Service Worker–based notifications for browser users, opt-in toggle in Profile with iOS Safari standalone-mode hint
 
@@ -114,6 +116,9 @@ Rough chronological log of completed milestones.
 | 2026-05-20 | publisher-activity | New `publisher-activity` module (`GET /publisher-activity`) + app `publisherActivityApi`; "this meeting" + 4-week history shown inside the duty/program pickers |
 | 2026-05-20 | schedule fidelity | JW-style numbering (muted "·" for chairman/prayers/readers), labels from imported titles, prayer→song-only subtitle, CBS labels, meeting-header date/address fallback when no settings version is effective yet |
 | 2026-05-21 | mid_song | Parser captures the mid-meeting song (`mid_song`, standalone `<h3>` inside Living-as-Christians) instead of skipping it; app renders it unnumbered. Re-import preserves assignments (creates missing + refreshes empty templates only). **Surfaced: parser is RU-headings-only → EN/DE backlog item** |
+| 2026-05-21 | ADM | Gentle 2-admin recommendation: info banner + soft confirmation when assigning a 3rd+ admin (no server enforcement) |
+| 2026-05-21 | Feature B | **Field Service Meetings** shipped: `FieldServiceMeeting` entity + migration + CRUD gated by `service_overseer`; app section with flexible per-week entries (day/time/address/conductor/topic/link) |
+| 2026-05-21 | Feature C | **Cleaning** shipped: `CleaningAssignment` (after_meeting / thorough / general slots) gated by `cleaning_coordinator`; app section assigns service groups (overseer shown), general-cleaning marker. Schedule screen now stacks program · duties · field-service · cleaning |
 
 ---
 

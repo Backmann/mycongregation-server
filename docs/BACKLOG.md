@@ -22,10 +22,10 @@ brother (role-based editing — see "Role-based editing" below).
 РАСПИСАНИЕ (Schedule)
 ├── 1. Программа встреч            ✅ in production (MWB EPUB)
 ├── 2. Обязанности (Duties)        ✅ shipped 2026-05-20
-├── 3. График проповеднических     🆕 Feature B
+├── 3. График проповеднических     ✅ shipped 2026-05-21
 │        встреч (Field Service
 │        Meeting Schedule)
-└── 4. Уборка (Cleaning)           🆕 Feature C
+└── 4. Уборка (Cleaning)           ✅ shipped 2026-05-21
 
 (separate bottom section)
 └── 5. Тележки (Cart Witnessing)   🆕 Feature D
@@ -105,7 +105,12 @@ conflict-warning UX, notifications).
 
 ---
 
-## Feature B — График проповеднических встреч (Field Service Meeting Schedule)
+## Feature B — График проповеднических встреч (Field Service Meeting Schedule)  ✅ SHIPPED 2026-05-21
+
+> **Status: in production** (server `834c9bf`, app `5301781`). Per-week,
+> schedule-free entries: day, time, address, optional conductor (any publisher),
+> topic, source link. Gated by `service_overseer`. Module
+> `src/field-service-meetings/`; app `components/FieldServiceSection.tsx`.
 
 Schedule of gatherings for field ministry. **Separate from cart witnessing.**
 
@@ -134,7 +139,15 @@ handling, optional notifications).
 
 ---
 
-## Feature C — Уборка зала Царства (Kingdom Hall Cleaning Schedule)
+## Feature C — Уборка зала Царства (Kingdom Hall Cleaning Schedule)  ✅ SHIPPED 2026-05-21
+
+> **Status: in production** (server `daee388`, app `7a95b31`/`7ed5daf`). Three
+> per-week slots: after-meeting (one group, both meetings), weekly ("Еженедельная
+> уборка"), and a general-cleaning marker (whole congregation). Each group slot
+> picks a service group (with an empty option); the group's overseer name is
+> shown alongside. Gated by `cleaning_coordinator`. Module `src/cleaning/`;
+> app `components/CleaningSection.tsx`. The round-robin "next in turn" hint is
+> computed server-side but currently unused in the UI.
 
 Weekly cleaning rotation assigned to existing Service Groups.
 
@@ -281,8 +294,8 @@ FOUNDATION
         ▼
 NEW FEATURES (sequential for a solo dev)
 ├── A. Обязанности (Duties)              ✅ DONE (2026-05-20)
-├── B. Проповеднические встречи          ~1.5–2 days
-├── C. Уборка (Cleaning)                 ~1–1.5 days   [reuses ServiceGroup]
+├── B. Проповеднические встречи          ✅ DONE (2026-05-21)
+├── C. Уборка (Cleaning)                 ✅ DONE (2026-05-21)
 └── D. Тележки (Cart Witnessing)         ~3–4 days
 
 QUICK WIN (anytime)
@@ -321,6 +334,10 @@ the Publishers section first within Feature A.
 - Sisters: same flags, OFF by default, admin can enable. ✓
 - Feature A shipped 2026-05-20 **without** the swap button (Q-DUTY-swap still
   open, deferred to a focused design pass). ✓
+- Cleaning (C) shipped 2026-05-21: 3 slots (after-meeting / weekly / general
+  marker), manual group choice with empty option, overseer shown; rotation is
+  a server hint only (Q-CLEAN-3 → manual). Notifications deferred (Q-CLEAN-4).
+  Field Service (B) shipped 2026-05-21 as fully flexible per-week entries. ✓
 
 ---
 
@@ -328,8 +345,8 @@ the Publishers section first within Feature A.
 
 ```
 Feature A  Duties              ✅ DONE (2026-05-20)
-Feature B  Field Service       ~1.5–2 days
-Feature C  Cleaning            ~1–1.5 days
+Feature B  Field Service       ✅ DONE (2026-05-21)
+Feature C  Cleaning            ✅ DONE (2026-05-21)
 Feature D  Cart Witnessing     ~3–4 days
 #12        Roles Phase 2       ~3 days (extend existing)
 Bug        Group assistants    ~15–30 min
