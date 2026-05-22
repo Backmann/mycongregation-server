@@ -28,6 +28,7 @@ import { ResponsibilitiesModule } from './responsibilities/responsibilities.modu
 import { MeetingSettingsModule } from './meeting-settings/meeting-settings.module';
 import { DutiesModule } from './duties/duties.module';
 import { FieldServiceMeetingsModule } from './field-service-meetings/field-service-meetings.module';
+import { CleaningModule } from './cleaning/cleaning.module';
 
 import { PublisherActivityModule } from './publisher-activity/publisher-activity.module';
 
@@ -88,6 +89,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     MeetingSettingsModule,
     DutiesModule,
     FieldServiceMeetingsModule,
+    CleaningModule,
   ],
   controllers: [AppController],
   providers: [AppService],
