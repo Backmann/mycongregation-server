@@ -28,7 +28,7 @@ brother (role-based editing — see "Role-based editing" below).
 └── 4. Уборка (Cleaning)           ✅ shipped 2026-05-21
 
 (separate bottom section)
-└── 5. Тележки (Cart Witnessing)   🆕 Feature D
+└── 5. Тележки (Cart Witnessing)   ✅ shipped 2026-05-22
 ```
 
 Role-based editing: weekday-schedule, weekend-schedule, duties, field-service,
