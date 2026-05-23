@@ -9,6 +9,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, IsNull, MoreThanOrEqual, Repository } from 'typeorm';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceReport } from '../entities/service-report.entity';
+import { Assignment } from '../entities/assignment.entity';
+import { Duty } from '../entities/duty.entity';
+import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { Gender } from '../common/enums/gender.enum';
@@ -464,6 +467,34 @@ export class PublishersService {
     await this.publishersRepo.save(publisher);
     await this.publishersRepo.softDelete(id);
     return this.findOne(tenantId, id);
+  }
+
+  /**
+   * Permanently delete a publisher row (hard delete). Refuses if the publisher
+   * has any history (service reports, program assignments, duties or
+   * field-service conductor roles) so that history is never silently broken;
+   * such publishers must be marked departed via remove() instead. Intended for
+   * clean-up of mistaken / duplicate records only. Admin-gated in the controller.
+   */
+  async purge(tenantId: string, id: string): Promise<{ deleted: true }> {
+    await this.findOne(tenantId, id);
+    const mgr = this.publishersRepo.manager;
+    const [reports, asPub, asAsst, duties, fsm] = await Promise.all([
+      this.reportsRepo.count({ where: { publisherId: id } }),
+      mgr.getRepository(Assignment).count({ where: { publisherId: id } }),
+      mgr
+        .getRepository(Assignment)
+        .count({ where: { assistantPublisherId: id } }),
+      mgr.getRepository(Duty).count({ where: { publisherId: id } }),
+      mgr
+        .getRepository(FieldServiceMeeting)
+        .count({ where: { conductorPublisherId: id } }),
+    ]);
+    if (reports + asPub + asAsst + duties + fsm > 0) {
+      throw new BadRequestException('publisher_has_history');
+    }
+    await this.publishersRepo.delete({ id, congregationId: tenantId });
+    return { deleted: true };
   }
 
   async restore(tenantId: string, id: string): Promise<Publisher> {

@@ -96,4 +96,10 @@ export class PublishersController {
   ) {
     return this.publishersService.restore(tenantId, id);
   }
+
+  @Roles(UserRole.ADMIN)
+  @Delete(':id')
+  purge(@TenantId() tenantId: string, @Param('id', ParseUUIDPipe) id: string) {
+    return this.publishersService.purge(tenantId, id);
+  }
 }
