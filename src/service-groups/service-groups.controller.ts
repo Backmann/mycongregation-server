@@ -15,6 +15,7 @@ import {
 import { ServiceGroupsService } from './service-groups.service';
 import { CreateServiceGroupDto } from './dto/create-service-group.dto';
 import { UpdateServiceGroupDto } from './dto/update-service-group.dto';
+import { AddGroupMembersDto } from './dto/add-group-members.dto';
 import { QueryServiceGroupsDto } from './dto/query-service-groups.dto';
 import { QueryPublishersDto } from '../publishers/dto/query-publishers.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
@@ -47,6 +48,31 @@ export class ServiceGroupsController {
     @Query() query: QueryPublishersDto,
   ) {
     return this.serviceGroupsService.findPublishers(tenantId, id, query);
+  }
+
+  @Roles(UserRole.ADMIN, UserRole.ELDER, UserRole.MINISTERIAL_SERVANT)
+  @Post(':id/publishers')
+  addPublishers(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AddGroupMembersDto,
+  ) {
+    return this.serviceGroupsService.addPublishers(
+      tenantId,
+      id,
+      dto.publisherIds,
+    );
+  }
+
+  @Roles(UserRole.ADMIN, UserRole.ELDER, UserRole.MINISTERIAL_SERVANT)
+  @Delete(':id/publishers/:publisherId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removePublisher(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('publisherId', ParseUUIDPipe) publisherId: string,
+  ) {
+    return this.serviceGroupsService.removePublisher(tenantId, id, publisherId);
   }
 
   @Roles(UserRole.ADMIN, UserRole.ELDER, UserRole.MINISTERIAL_SERVANT)

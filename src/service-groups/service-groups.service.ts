@@ -130,6 +130,7 @@ export class ServiceGroupsService {
       congregationId: tenantId,
     });
     const saved = await this.serviceGroupsRepo.save(group);
+    await this.addLeadersToGroup(tenantId, saved);
     return this.attachLeaders(tenantId, saved);
   }
 
@@ -147,6 +148,7 @@ export class ServiceGroupsService {
     }
     Object.assign(group, dto);
     const saved = await this.serviceGroupsRepo.save(group);
+    await this.addLeadersToGroup(tenantId, saved);
     return this.attachLeaders(tenantId, saved);
   }
 
@@ -180,6 +182,46 @@ export class ServiceGroupsService {
       ...query,
       serviceGroupId: id,
     });
+  }
+
+  /** Add (or move) publishers into this group. Tenant- and existence-checked. */
+  async addPublishers(
+    tenantId: string,
+    id: string,
+    publisherIds: string[],
+  ): Promise<void> {
+    await this.findEntity(tenantId, id);
+    for (const pid of publisherIds) {
+      await this.ensurePublisherInTenant(tenantId, pid);
+    }
+    await this.publishersService.setServiceGroupBulk(
+      tenantId,
+      publisherIds,
+      id,
+    );
+  }
+
+  /** Remove one publisher from this group (no-op if they are in another). */
+  async removePublisher(
+    tenantId: string,
+    id: string,
+    publisherId: string,
+  ): Promise<void> {
+    await this.findEntity(tenantId, id);
+    await this.publishersService.removeFromGroup(tenantId, publisherId, id);
+  }
+
+  /** A group's overseer and assistant are members of the group they lead. */
+  private async addLeadersToGroup(
+    tenantId: string,
+    group: ServiceGroup,
+  ): Promise<void> {
+    const ids = [group.overseerPublisherId, group.assistantPublisherId].filter(
+      (x): x is string => !!x,
+    );
+    if (ids.length > 0) {
+      await this.publishersService.setServiceGroupBulk(tenantId, ids, group.id);
+    }
   }
 
   private async ensurePublisherInTenant(

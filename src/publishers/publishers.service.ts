@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, IsNull, MoreThanOrEqual, Repository } from 'typeorm';
+import { Brackets, In, IsNull, MoreThanOrEqual, Repository } from 'typeorm';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceReport } from '../entities/service-report.entity';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
@@ -417,6 +417,34 @@ export class PublishersService {
     }
 
     return this.publishersRepo.save(publisher);
+  }
+
+  /**
+   * Bulk-assign publishers to a service group (membership). One group per
+   * publisher, so this moves them out of any previous group. Tenant-scoped.
+   */
+  async setServiceGroupBulk(
+    tenantId: string,
+    publisherIds: string[],
+    serviceGroupId: string,
+  ): Promise<void> {
+    if (publisherIds.length === 0) return;
+    await this.publishersRepo.update(
+      { id: In(publisherIds), congregationId: tenantId },
+      { serviceGroupId },
+    );
+  }
+
+  /** Remove a publisher from a group, but only if currently in that group. */
+  async removeFromGroup(
+    tenantId: string,
+    publisherId: string,
+    serviceGroupId: string,
+  ): Promise<void> {
+    await this.publishersRepo.update(
+      { id: publisherId, congregationId: tenantId, serviceGroupId },
+      { serviceGroupId: null },
+    );
   }
 
   async remove(

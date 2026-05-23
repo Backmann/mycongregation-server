@@ -36,7 +36,12 @@ describe('ServiceGroupsService', () => {
     softDelete: jest.Mock;
     restore: jest.Mock;
   };
-  let publishersService: { findOne: jest.Mock; findAll: jest.Mock };
+  let publishersService: {
+    findOne: jest.Mock;
+    findAll: jest.Mock;
+    setServiceGroupBulk: jest.Mock;
+    removeFromGroup: jest.Mock;
+  };
 
   beforeEach(async () => {
     serviceGroupsRepo = {
@@ -50,6 +55,8 @@ describe('ServiceGroupsService', () => {
     publishersService = {
       findOne: jest.fn(),
       findAll: jest.fn(),
+      setServiceGroupBulk: jest.fn(),
+      removeFromGroup: jest.fn(),
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -141,6 +148,71 @@ describe('ServiceGroupsService', () => {
         NotFoundException,
       );
       expect(publishersService.findOne).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('membership', () => {
+    const group = {
+      id: 'g1',
+      congregationId: 't1',
+      name: 'G',
+      overseerPublisherId: null,
+      assistantPublisherId: null,
+      deletedAt: null,
+    };
+
+    it('addPublishers validates tenant and bulk-sets the group', async () => {
+      serviceGroupsRepo.findOne.mockResolvedValue(group);
+      publishersService.findOne.mockResolvedValue({ id: 'p' });
+      await service.addPublishers('t1', 'g1', ['p1', 'p2']);
+      expect(publishersService.findOne).toHaveBeenCalledWith('t1', 'p1');
+      expect(publishersService.findOne).toHaveBeenCalledWith('t1', 'p2');
+      expect(publishersService.setServiceGroupBulk).toHaveBeenCalledWith(
+        't1',
+        ['p1', 'p2'],
+        'g1',
+      );
+    });
+
+    it('addPublishers throws NotFound for a missing group', async () => {
+      serviceGroupsRepo.findOne.mockResolvedValue(null);
+      await expect(service.addPublishers('t1', 'gX', ['p1'])).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(publishersService.setServiceGroupBulk).not.toHaveBeenCalled();
+    });
+
+    it('removePublisher clears membership only for this group', async () => {
+      serviceGroupsRepo.findOne.mockResolvedValue(group);
+      await service.removePublisher('t1', 'g1', 'p1');
+      expect(publishersService.removeFromGroup).toHaveBeenCalledWith(
+        't1',
+        'p1',
+        'g1',
+      );
+    });
+
+    it('create auto-adds the overseer and assistant as members', async () => {
+      publishersService.findOne.mockResolvedValue({ id: 'x' });
+      serviceGroupsRepo.create.mockReturnValue({
+        overseerPublisherId: 'p-over',
+        assistantPublisherId: 'p-asst',
+      });
+      serviceGroupsRepo.save.mockResolvedValue({
+        id: 'g9',
+        overseerPublisherId: 'p-over',
+        assistantPublisherId: 'p-asst',
+      });
+      await service.create('t1', {
+        name: 'G',
+        overseerPublisherId: 'p-over',
+        assistantPublisherId: 'p-asst',
+      } as never);
+      expect(publishersService.setServiceGroupBulk).toHaveBeenCalledWith(
+        't1',
+        ['p-over', 'p-asst'],
+        'g9',
+      );
     });
   });
 });
