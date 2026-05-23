@@ -458,7 +458,7 @@ export class PublishersService {
     }
     publisher.removalReason = dto.reason;
     publisher.removedNote = dto.note ?? null;
-    publisher.removedAt = new Date();
+    publisher.removedAt = dto.date ? new Date(dto.date) : new Date();
     publisher.restoredAt = null;
     publisher.isActive = false;
     await this.publishersRepo.save(publisher);
