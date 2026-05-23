@@ -3,7 +3,7 @@
 **Project:** mycongregation — Congregation management for Jehovah's Witnesses
 **Live:** https://mycongregation.org · https://api.mycongregation.org/api
 **Repositories:** [server](https://github.com/Backmann/mycongregation-server) · [app](https://github.com/Backmann/mycongregation-app)
-**Last updated:** 2026-05-21
+**Last updated:** 2026-05-23
 **License:** AGPL v3
 
 > ⚠️ Unofficial, community-built tool. Not affiliated with or endorsed by any religious organization.
@@ -17,7 +17,7 @@
 - **Authentication** — JWT (15m access / 30d refresh), bcrypt-12 password hashing, role-based guards (`admin` / `elder` / `ministerial_servant` / `publisher`), proactive client-side token refresh
 - **Publishers** — full CRUD, soft-delete + restoration, capabilities matrix per appointment, status engine (`active` / `irregular` / `inactive`) with monthly cron recompute
 - **Families** — household management with member relations, family-head flag
-- **Service Groups** — overseer + assistant + member roster
+- **Service Groups** — overseer + assistant + managed member roster (add/move/remove members from the group screen; leaders auto-added as members and counted)
 - **Assignments** — midweek + weekend program parts, status (`draft` / `published` / `cancelled`), structural integrity guard (cannot delete parts, only unassign publisher)
 - **Public Talks** — catalog of 190 talks, bulk import, speaker-history aware picker
 - **Schedule Import** — MWB EPUB parser, idempotent, parses weeks/assignments with enriched per-part detail (Bible reading, Spiritual Gems, CBS chapters, Apply Yourself scenarios, mid-meeting song). **Russian headings only today** (EN/DE in backlog)
@@ -25,20 +25,21 @@
 - **Publisher Activity** — `GET /publisher-activity`: per-publisher rollup of recent parts + duties (configurable weeks), surfaced in the duty/program pickers to avoid overloading one person
 - **Field Service Meetings** — per-week, flexible field-ministry meeting entries (day, time, address, conductor, topic, source link); gated by `service_overseer`
 - **Cleaning** — per-week Kingdom Hall cleaning: after-meeting + weekly group slots (service groups, overseer shown) + a general-cleaning marker; gated by `cleaning_coordinator`
+- **Cart Witnessing** — date-based public-witnessing cart shifts (2-4 publishers, hard cap 4) in a dedicated "Carts" tab; gated by `public_witnessing` with a per-publisher capability filtering the picker
 - **Service Reports** — self + on-behalf submission, edit window enforced (1st-10th of next month), regular + pioneer forms
 - **Audit Log** — per-report edit history with field-level diffs
 - **Activity Feed** — cursor-paginated combined feed (status changes, report events, overrides)
 - **Push Notifications** — Dual-channel delivery: Expo Push (native iOS/Android) + Web Push (PWA browsers); ticket persistence + receipt-checking cron for Expo; HTTP-code-based stale-subscription cleanup for both channels; per-language localized message bodies (see [`push-notifications.md`](architecture/push-notifications.md))
 - **Scheduled Jobs** — NestJS `@Cron`: nightly status recompute (03:00 UTC), push receipt check (every 30 min), receipt cleanup (03:30 UTC daily). BullMQ powers the email-send queue.
 
-**Quality:** 346 tests across 26 suites · 10 migrations in production · test gate in CI
+**Quality:** 359 tests across 27 suites · 12 migrations in production · test gate in CI
 
 ### Frontend (Expo SDK 54 — Web + Android single codebase)
 
 - All backend modules surfaced in UI
 - **5 tabs:** Schedule · Publishers (+ nested Families) · Service Groups · Reports · Profile
 - **Schedule** — JW-authentic colored sub-sections (Treasures / Apply Yourself / Living as Christians) for midweek; locale-aware week navigator
-- **i18n** — Russian, English, German (656 keys); first-launch language picker; runtime switching
+- **i18n** — Russian, English, German (701 keys); first-launch language picker; runtime switching
 - **Authentication** — proactive JWT refresh prevents intermittent 401 UI flashes
 - **Web Push (PWA)** — Service Worker–based notifications for browser users, opt-in toggle in Profile with iOS Safari standalone-mode hint
 
@@ -119,6 +120,10 @@ Rough chronological log of completed milestones.
 | 2026-05-21 | ADM | Gentle 2-admin recommendation: info banner + soft confirmation when assigning a 3rd+ admin (no server enforcement) |
 | 2026-05-21 | Feature B | **Field Service Meetings** shipped: `FieldServiceMeeting` entity + migration + CRUD gated by `service_overseer`; app section with flexible per-week entries (day/time/address/conductor/topic/link) |
 | 2026-05-21 | Feature C | **Cleaning** shipped: `CleaningAssignment` (after_meeting / thorough / general slots) gated by `cleaning_coordinator`; app section assigns service groups (overseer shown), general-cleaning marker. Schedule screen now stacks program · duties · field-service · cleaning |
+| 2026-05-22 | Feature D | **Cart Witnessing** shipped: `CartShift` + `CartShiftParticipant` (max 4, migration 1786) gated by `public_witnessing`; new "Carts" tab, date-grouped shifts, participant chips, new public_witnessing capability. **All Schedule features (A/B/C/D) complete** |
+| 2026-05-23 | group roles | Group leader labels renamed to "Ответственный за группу" / "Помощник группы" |
+| 2026-05-23 | group membership | Add/move/remove members from the group screen; overseer + assistant auto-added as members (migration 1787 backfill), counted in the total; `addPublishers`/`removePublisher` endpoints (ADMIN/ELDER/MS) |
+| 2026-05-23 | publishers list | Each publisher shows its service group (amber "Без группы"); client-side filter sheet (group/role/pioneer/gender/status) |
 
 ---
 

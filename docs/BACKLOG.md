@@ -177,7 +177,14 @@ optional rotation helper, notifications).
 
 ---
 
-## Feature D — Служение с тележками (Cart Witnessing Schedule)
+## Feature D — Служение с тележками (Cart Witnessing Schedule)  ✅ SHIPPED 2026-05-22
+
+> **Status: in production** (server `86fc091`, app `ff6f293`). Date-based cart
+> shifts (date, start/end time, location) staffed by 2-4 publishers, in a new
+> bottom tab "Тележки". Coordinator-assigns (self-sign-up deferred). Hard cap 4;
+> under-2 flagged incomplete. Gated by `public_witnessing`; a new per-publisher
+> capability "public_witnessing" filters the picker. Server `src/cart-shifts/`;
+> app `app/(app)/cart/`.
 
 Separate bottom-of-app section. Public-witnessing cart shifts.
 
@@ -296,7 +303,7 @@ NEW FEATURES (sequential for a solo dev)
 ├── A. Обязанности (Duties)              ✅ DONE (2026-05-20)
 ├── B. Проповеднические встречи          ✅ DONE (2026-05-21)
 ├── C. Уборка (Cleaning)                 ✅ DONE (2026-05-21)
-└── D. Тележки (Cart Witnessing)         ~3–4 days
+└── D. Тележки (Cart Witnessing)         ✅ DONE (2026-05-22)
 
 QUICK WIN (anytime)
 └── Service Group assistant display bug  ~15–30 min
@@ -338,6 +345,16 @@ the Publishers section first within Feature A.
   marker), manual group choice with empty option, overseer shown; rotation is
   a server hint only (Q-CLEAN-3 → manual). Notifications deferred (Q-CLEAN-4).
   Field Service (B) shipped 2026-05-21 as fully flexible per-week entries. ✓
+- Cart Witnessing (D) shipped 2026-05-22: date-based shifts, 2-4 publishers
+  (hard max 4, min 2 = warning), coordinator-assigns; new public_witnessing
+  capability gates the picker. **All four Schedule features (A/B/C/D) are now in
+  production.** ✓
+- Group membership shipped 2026-05-23: one group per publisher; add/move/remove
+  from the group screen; overseer + assistant are members and counted (backfill
+  migration 1787). Publishers list shows each person's group + a client-side
+  filter (group/role/pioneer/gender/status). ✓
+- Follow-ups: show a publisher's group in the program (Phase 2, next); native
+  date/time pickers for cart shifts; cart self-sign-up + user↔publisher link. ✓
 
 ---
 
@@ -347,7 +364,7 @@ the Publishers section first within Feature A.
 Feature A  Duties              ✅ DONE (2026-05-20)
 Feature B  Field Service       ✅ DONE (2026-05-21)
 Feature C  Cleaning            ✅ DONE (2026-05-21)
-Feature D  Cart Witnessing     ~3–4 days
+Feature D  Cart Witnessing     ✅ DONE (2026-05-22)
 #12        Roles Phase 2       ~3 days (extend existing)
 Bug        Group assistants    ~15–30 min
 ────────────────────────────────────────
