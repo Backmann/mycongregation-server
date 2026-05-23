@@ -353,8 +353,15 @@ the Publishers section first within Feature A.
   from the group screen; overseer + assistant are members and counted (backfill
   migration 1787). Publishers list shows each person's group + a client-side
   filter (group/role/pioneer/gender/status). ✓
-- Follow-ups: show a publisher's group in the program (Phase 2, next); native
-  date/time pickers for cart shifts; cart self-sign-up + user↔publisher link. ✓
+- Publisher lifecycle shipped 2026-05-23: "mark as departed" (reason + date +
+  destination note), departed drop from the count and assignment pickers and
+  sink to the end of the list with a reason badge, plus a "congregation standing"
+  filter and an admin-only permanent delete guarded by a history check. No
+  Restore — a departure is not undone. Apply-Yourself parts now resolve their
+  required ministry skill from the part title, not the position. ✓
+- Follow-ups: Phase 2 (group shown in the program) done; native date/time pickers
+  for cart shifts; cart self-sign-up + user↔publisher link; an admin-only "undo
+  departure" to correct mis-marked records. ✓
 
 ---
 

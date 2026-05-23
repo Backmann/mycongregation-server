@@ -15,7 +15,7 @@
 ### Backend (NestJS 11 + PostgreSQL 16 + TypeORM)
 
 - **Authentication** — JWT (15m access / 30d refresh), bcrypt-12 password hashing, role-based guards (`admin` / `elder` / `ministerial_servant` / `publisher`), proactive client-side token refresh
-- **Publishers** — full CRUD, soft-delete + restoration, capabilities matrix per appointment, status engine (`active` / `irregular` / `inactive`) with monthly cron recompute
+- **Publishers** — full CRUD; departure tracking (moved / died / removed, with an event date + destination note) that drops them from the active count and assignment pickers and sorts them to the end of the list with a reason badge; admin-only permanent delete guarded by a history check; capabilities matrix per appointment; status engine (`active` / `irregular` / `inactive`) with monthly cron recompute
 - **Families** — household management with member relations, family-head flag
 - **Service Groups** — overseer + assistant + managed member roster (add/move/remove members from the group screen; leaders auto-added as members and counted)
 - **Assignments** — midweek + weekend program parts, status (`draft` / `published` / `cancelled`), structural integrity guard (cannot delete parts, only unassign publisher)
@@ -39,7 +39,7 @@
 - All backend modules surfaced in UI
 - **5 tabs:** Schedule · Publishers (+ nested Families) · Service Groups · Reports · Profile
 - **Schedule** — JW-authentic colored sub-sections (Treasures / Apply Yourself / Living as Christians) for midweek; locale-aware week navigator
-- **i18n** — Russian, English, German (701 keys); first-launch language picker; runtime switching
+- **i18n** — Russian, English, German (721 keys); first-launch language picker; runtime switching
 - **Authentication** — proactive JWT refresh prevents intermittent 401 UI flashes
 - **Web Push (PWA)** — Service Worker–based notifications for browser users, opt-in toggle in Profile with iOS Safari standalone-mode hint
 
@@ -124,6 +124,10 @@ Rough chronological log of completed milestones.
 | 2026-05-23 | group roles | Group leader labels renamed to "Ответственный за группу" / "Помощник группы" |
 | 2026-05-23 | group membership | Add/move/remove members from the group screen; overseer + assistant auto-added as members (migration 1787 backfill), counted in the total; `addPublishers`/`removePublisher` endpoints (ADMIN/ELDER/MS) |
 | 2026-05-23 | publishers list | Each publisher shows its service group (amber "Без группы"); client-side filter sheet (group/role/pioneer/gender/status) |
+| 2026-05-23 | program groups | Phase 2: each assigned publisher's service group shown under their name in the program |
+| 2026-05-23 | departure tracking | "Mark as departed" (reason + date + destination); departed sink to the end of the list with a reason badge, a "congregation standing" filter, excluded from the count; Restore removed |
+| 2026-05-23 | permanent delete | Admin-only `DELETE /publishers/:id`, blocked when the publisher has history (reports / assignments / duties / field-service) |
+| 2026-05-23 | apply-yourself skill | Picker derives the ministry skill (and required capability) from the part title instead of its position; picker shows the capability name, not the raw key |
 
 ---
 
