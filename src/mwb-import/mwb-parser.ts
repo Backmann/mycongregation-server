@@ -389,6 +389,25 @@ function parseWeeklyFile(
     });
   }
 
+  // Opening song (order 2): the meeting opens with a song, then the prayer.
+  // Shift everything after the chairman down by one and insert the song row.
+  // The opening song is chosen by the congregation (set via the song picker),
+  // so it starts empty.
+  for (const p of parts) {
+    if (p.partOrder >= 2) p.partOrder += 1;
+  }
+  parts.push({
+    rawTitle: null,
+    rawNumber: null,
+    rawSection: 'synthetic',
+    durationMin: null,
+    durationRawText: null,
+    notes: [],
+    partKey: 'midweek_opening_song',
+    partOrder: 2,
+    classifierConfidence: 'synthetic',
+    synthetic: true,
+  });
   parts.sort((a, b) => a.partOrder - b.partOrder);
 
   return {
