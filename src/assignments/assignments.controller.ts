@@ -18,9 +18,7 @@ import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { QueryAssignmentDto } from './dto/query-assignment.dto';
 import { BulkCreateAssignmentDto } from './dto/bulk-create-assignment.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
-import { Roles } from '../common/decorators/roles.decorator';
-import { RolesGuard } from '../common/guards/roles.guard';
-import { UserRole } from '../common/enums/user-role.enum';
+import { AssignmentSectionGuard } from '../common/guards/assignment-section.guard';
 
 @Controller('assignments')
 export class AssignmentsController {
@@ -40,15 +38,13 @@ export class AssignmentsController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(AssignmentSectionGuard)
   create(@TenantId() congregationId: string, @Body() dto: CreateAssignmentDto) {
     return this.service.create(congregationId, dto);
   }
 
   @Post('bulk')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(AssignmentSectionGuard)
   bulkCreate(
     @TenantId() congregationId: string,
     @Body() dto: BulkCreateAssignmentDto,
@@ -57,8 +53,7 @@ export class AssignmentsController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(AssignmentSectionGuard)
   update(
     @TenantId() congregationId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -68,8 +63,7 @@ export class AssignmentsController {
   }
 
   @Delete(':id')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(AssignmentSectionGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(
     @TenantId() congregationId: string,
@@ -79,8 +73,7 @@ export class AssignmentsController {
   }
 
   @Post(':id/restore')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(AssignmentSectionGuard)
   restore(
     @TenantId() congregationId: string,
     @Param('id', ParseUUIDPipe) id: string,
