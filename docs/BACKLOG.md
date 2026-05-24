@@ -359,9 +359,15 @@ the Publishers section first within Feature A.
   filter and an admin-only permanent delete guarded by a history check. No
   Restore — a departure is not undone. Apply-Yourself parts now resolve their
   required ministry skill from the part title, not the position. ✓
-- Follow-ups: Phase 2 (group shown in the program) done; native date/time pickers
-  for cart shifts; cart self-sign-up + user↔publisher link; an admin-only "undo
-  departure" to correct mis-marked records. ✓
+- Section-scoped program editing shipped 2026-05-24: schedule writes go through
+  AssignmentSectionGuard (admin OR the section's responsibility — midweek =
+  life_ministry_overseer, weekend = body_coordinator; cleaning / av_duty /
+  public_witnessing mapped too). Plain elders no longer edit the whole program;
+  the app reflects it (read-only form, banner, gated buttons). Access stays
+  closed — only an admin provisions logins, and bootstrap is one-time + locked. ✓
+- Follow-ups: native date/time pickers for cart shifts; cart self-sign-up +
+  user↔publisher link; an admin-only "undo departure"; an email invite flow
+  (SMTP + invite tokens) as a nicer alternative to admin-set passwords. ✓
 
 ---
 

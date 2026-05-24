@@ -3,7 +3,7 @@
 **Project:** mycongregation — Congregation management for Jehovah's Witnesses
 **Live:** https://mycongregation.org · https://api.mycongregation.org/api
 **Repositories:** [server](https://github.com/Backmann/mycongregation-server) · [app](https://github.com/Backmann/mycongregation-app)
-**Last updated:** 2026-05-23
+**Last updated:** 2026-05-24
 **License:** AGPL v3
 
 > ⚠️ Unofficial, community-built tool. Not affiliated with or endorsed by any religious organization.
@@ -22,6 +22,7 @@
 - **Public Talks** — catalog of 190 talks, bulk import, speaker-history aware picker
 - **Schedule Import** — MWB EPUB parser, idempotent, parses weeks/assignments with enriched per-part detail (Bible reading, Spiritual Gems, CBS chapters, Apply Yourself scenarios, mid-meeting song). **Russian headings only today** (EN/DE in backlog)
 - **Meeting Duties** — per-week practical duties (security, attendant, Zoom, microphones, audio, video, stage, ventilation + custom), capability-filtered assignment, soft conflict warnings, gated by `ResponsibilityGuard` (`duties_coordinator`) — first live use of the responsibility layer
+- **Section-scoped program editing** — midweek/weekend schedule writes go through `AssignmentSectionGuard`: admins edit everything, otherwise the holder of the section's responsibility (`life_ministry_overseer` → midweek, `body_coordinator` → weekend) edits only that section; the app mirrors it (read-only form + hidden actions for other sections)
 - **Publisher Activity** — `GET /publisher-activity`: per-publisher rollup of recent parts + duties (configurable weeks), surfaced in the duty/program pickers to avoid overloading one person
 - **Field Service Meetings** — per-week, flexible field-ministry meeting entries (day, time, address, conductor, topic, source link); gated by `service_overseer`
 - **Cleaning** — per-week Kingdom Hall cleaning: after-meeting + weekly group slots (service groups, overseer shown) + a general-cleaning marker; gated by `cleaning_coordinator`
@@ -32,14 +33,14 @@
 - **Push Notifications** — Dual-channel delivery: Expo Push (native iOS/Android) + Web Push (PWA browsers); ticket persistence + receipt-checking cron for Expo; HTTP-code-based stale-subscription cleanup for both channels; per-language localized message bodies (see [`push-notifications.md`](architecture/push-notifications.md))
 - **Scheduled Jobs** — NestJS `@Cron`: nightly status recompute (03:00 UTC), push receipt check (every 30 min), receipt cleanup (03:30 UTC daily). BullMQ powers the email-send queue.
 
-**Quality:** 359 tests across 27 suites · 12 migrations in production · test gate in CI
+**Quality:** 367 tests across 28 suites · 12 migrations in production · test gate in CI
 
 ### Frontend (Expo SDK 54 — Web + Android single codebase)
 
 - All backend modules surfaced in UI
 - **5 tabs:** Schedule · Publishers (+ nested Families) · Service Groups · Reports · Profile
 - **Schedule** — JW-authentic colored sub-sections (Treasures / Apply Yourself / Living as Christians) for midweek; locale-aware week navigator
-- **i18n** — Russian, English, German (721 keys); first-launch language picker; runtime switching
+- **i18n** — Russian, English, German (723 keys); first-launch language picker; runtime switching
 - **Authentication** — proactive JWT refresh prevents intermittent 401 UI flashes
 - **Web Push (PWA)** — Service Worker–based notifications for browser users, opt-in toggle in Profile with iOS Safari standalone-mode hint
 
@@ -64,7 +65,7 @@ Canonical references under `docs/architecture/`:
 | [`service-reports.md`](architecture/service-reports.md) | Service Reports data model + workflows + permissions | ✅ **Implemented** |
 | [`internationalization.md`](architecture/internationalization.md) | i18n strategy (UI / content / formatting) | ✅ **Implemented** (client + server) |
 | [`push-notifications.md`](architecture/push-notifications.md) | Push pipeline + receipt tracking + cleanup | ✅ **Implemented** |
-| [`roles-and-permissions.md`](architecture/roles-and-permissions.md) | RBAC + appointments | 🟡 Partial — `ResponsibilityGuard` live (first consumer: duties) |
+| [`roles-and-permissions.md`](architecture/roles-and-permissions.md) | RBAC + appointments | 🟡 Partial — `ResponsibilityGuard` (duties) + `AssignmentSectionGuard` section-scopes the program |
 | [`data-protection.md`](architecture/data-protection.md) | Encryption at rest + defense-in-depth | ⏳ Design only |
 | [`video-conferencing.md`](architecture/video-conferencing.md) | Self-hosted LiveKit for in-app meetings | ⏳ Design only |
 
@@ -80,7 +81,7 @@ Canonical references under `docs/architecture/`:
 
 1. **App-side Jest test suite** — CI workflow now runs lint as a gate (shipped 2026-05-18); next layer is adding Jest setup + critical-path tests so the lint gate expands into a real test gate. *Estimate: ~half day.*
 2. **Data protection L1+L2** — encryption at rest for sensitive fields (addresses, phones, pastoral notes) per `data-protection.md`. AES-256-GCM column transformers + per-tenant key wrapping. *Estimate: ~1-2 days.*
-3. **Roles & permissions full implementation** — sub-roles (secretary, coordinator-of-elders, etc.), capability-scoped queries per `roles-and-permissions.md`. `ResponsibilityGuard` is already live (Feature A); remaining: PublisherApprovals (L3), conditional UI (L4), apply the guard to the other coordinators + Schedule. *Estimate: ~2-3 days.*
+3. **Roles & permissions full implementation** — sub-roles (secretary, coordinator-of-elders, etc.), capability-scoped queries per `roles-and-permissions.md`. `ResponsibilityGuard` is already live (Feature A); remaining: PublisherApprovals (L3), conditional UI (L4), apply the guard to the remaining coordinators (Schedule done — section-scoped). *Estimate: ~2-3 days.*
 4. **EN/DE EPUB parser** — `detectSection` + keyword tests are Russian-only; extend to English/German headings so non-RU congregations can import. *Estimate: ~0.5-1 day.*
 5. **Schedule expansion (Features B/C/D)** — Field Service Meeting, Cleaning rotation, Cart Witnessing; specs in `docs/BACKLOG.md`, each gated by its own coordinator responsibility. *Estimate: ~6-8 days total.*
 
@@ -128,6 +129,8 @@ Rough chronological log of completed milestones.
 | 2026-05-23 | departure tracking | "Mark as departed" (reason + date + destination); departed sink to the end of the list with a reason badge, a "congregation standing" filter, excluded from the count; Restore removed |
 | 2026-05-23 | permanent delete | Admin-only `DELETE /publishers/:id`, blocked when the publisher has history (reports / assignments / duties / field-service) |
 | 2026-05-23 | apply-yourself skill | Picker derives the ministry skill (and required capability) from the part title instead of its position; picker shows the capability name, not the raw key |
+| 2026-05-24 | section-scoped program | `AssignmentSectionGuard`: admins edit all; otherwise the section's responsibility holder edits only their section (midweek → `life_ministry_overseer`, weekend → `body_coordinator`); +8 guard tests (367 total) |
+| 2026-05-24 | schedule permission UX | App mirrors it — `AssignmentForm` read-only mode (banner + hidden actions) for sections you can't edit; "create week" buttons gated by the section flag |
 
 ---
 
