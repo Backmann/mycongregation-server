@@ -172,8 +172,16 @@ function parseStudyArticle(
       synthetic: true,
     },
     {
-      partKey: 'weekend_opening_prayer',
+      // Opening song (chosen by the congregation; not in the article). Sung
+      // after the chairman's opening comments, before the opening prayer.
+      partKey: 'weekend_opening_song',
       partOrder: 2,
+      partTitle: null,
+      durationMin: null,
+    },
+    {
+      partKey: 'weekend_opening_prayer',
+      partOrder: 3,
       // The opening song is chosen by the congregation and is NOT in the WT
       // article; only the prayer is fixed here. The pre-study song and the
       // concluding song (both from the article) live on their own rows.
@@ -182,7 +190,7 @@ function parseStudyArticle(
     },
     {
       partKey: 'public_talk_speaker',
-      partOrder: 3,
+      partOrder: 4,
       partTitle: null,
       durationMin: 30,
       synthetic: true,
@@ -190,25 +198,25 @@ function parseStudyArticle(
     {
       // Song sung right before the Watchtower study (the article's song).
       partKey: 'weekend_song',
-      partOrder: 4,
+      partOrder: 5,
       partTitle: openingSong !== null ? `Песня ${openingSong}` : null,
       durationMin: null,
     },
     {
       partKey: 'watchtower_conductor',
-      partOrder: 5,
+      partOrder: 6,
       partTitle: articleTitle,
       durationMin: 60,
     },
     {
       partKey: 'watchtower_reader',
-      partOrder: 6,
+      partOrder: 7,
       partTitle: null,
       durationMin: 60,
     },
     {
       partKey: 'weekend_closing_prayer',
-      partOrder: 7,
+      partOrder: 8,
       partTitle: closingSong !== null ? `Песня ${closingSong} и молитва` : null,
       durationMin: 1,
     },
