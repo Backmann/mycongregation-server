@@ -17,6 +17,7 @@ import { MwbImportModule } from './mwb-import/mwb-import.module';
 import { WtImportModule } from './wt-import/wt-import.module';
 import { ScheduleImportModule } from './schedule-import/schedule-import.module';
 import { PublicTalksModule } from './public-talks/public-talks.module';
+import { SongsModule } from './songs/songs.module';
 import { ServiceReportsModule } from './service-reports/service-reports.module';
 import { CryptoModule } from './crypto/crypto.module';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -81,6 +82,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     WtImportModule,
     ScheduleImportModule,
     PublicTalksModule,
+    SongsModule,
     ServiceReportsModule,
     ScheduleModule.forRoot(),
     ScheduledJobsModule,
