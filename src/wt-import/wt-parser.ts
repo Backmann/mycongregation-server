@@ -174,7 +174,10 @@ function parseStudyArticle(
     {
       partKey: 'weekend_opening_prayer',
       partOrder: 2,
-      partTitle: openingSong !== null ? `Песня ${openingSong} и молитва` : null,
+      // The opening song is chosen by the congregation and is NOT in the WT
+      // article; only the prayer is fixed here. The pre-study song and the
+      // concluding song (both from the article) live on their own rows.
+      partTitle: null,
       durationMin: 1,
     },
     {
@@ -185,20 +188,27 @@ function parseStudyArticle(
       synthetic: true,
     },
     {
-      partKey: 'watchtower_conductor',
+      // Song sung right before the Watchtower study (the article's song).
+      partKey: 'weekend_song',
       partOrder: 4,
+      partTitle: openingSong !== null ? `Песня ${openingSong}` : null,
+      durationMin: null,
+    },
+    {
+      partKey: 'watchtower_conductor',
+      partOrder: 5,
       partTitle: articleTitle,
       durationMin: 60,
     },
     {
       partKey: 'watchtower_reader',
-      partOrder: 5,
+      partOrder: 6,
       partTitle: null,
       durationMin: 60,
     },
     {
       partKey: 'weekend_closing_prayer',
-      partOrder: 6,
+      partOrder: 7,
       partTitle: closingSong !== null ? `Песня ${closingSong} и молитва` : null,
       durationMin: 1,
     },
