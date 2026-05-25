@@ -182,6 +182,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
   let reportsRepo: jest.Mocked<Repository<ServiceReport>>;
   let auditLogService: { logUpdate: jest.Mock; findForEntity: jest.Mock };
   let pushNotificationsService: { sendStatusChange: jest.Mock };
+  let usersService: { syncRoleFromAppointment: jest.Mock };
 
   beforeEach(() => {
     publishersRepo = {
@@ -199,11 +200,15 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
     pushNotificationsService = {
       sendStatusChange: jest.fn().mockResolvedValue(undefined),
     };
+    usersService = {
+      syncRoleFromAppointment: jest.fn().mockResolvedValue(undefined),
+    };
     service = new PublishersService(
       publishersRepo,
       reportsRepo,
       auditLogService as any,
       pushNotificationsService as any,
+      usersService as any,
     );
   });
 
