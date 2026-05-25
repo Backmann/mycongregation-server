@@ -22,6 +22,8 @@ import { UserRole } from '../common/enums/user-role.enum';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { OverrideStatusDto } from './dto/override-status.dto';
+import { GrantAccessDto } from './dto/grant-access.dto';
+import { UpdateAccessDto } from './dto/update-access.dto';
 
 @Controller('publishers')
 @UseGuards(RolesGuard)
@@ -62,6 +64,37 @@ export class PublishersController {
     return this.publishersService.findOne(tenantId, id);
   }
 
+  @Roles(UserRole.ADMIN)
+  @Get(':id/access')
+  getAccess(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.publishersService.getAccess(tenantId, id);
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post(':id/access')
+  grantAccess(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: GrantAccessDto,
+  ) {
+    return this.publishersService.grantAccess(tenantId, id, dto, user);
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Patch(':id/access')
+  updateAccess(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateAccessDto,
+  ) {
+    return this.publishersService.updateAccess(tenantId, id, dto, user);
+  }
+
   @Roles(UserRole.ADMIN, UserRole.ELDER, UserRole.MINISTERIAL_SERVANT)
   @Post()
   create(@TenantId() tenantId: string, @Body() dto: CreatePublisherDto) {
@@ -72,10 +105,11 @@ export class PublishersController {
   @Patch(':id')
   update(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdatePublisherDto,
   ) {
-    return this.publishersService.update(tenantId, id, dto);
+    return this.publishersService.update(tenantId, id, dto, user?.id);
   }
 
   @Roles(UserRole.ADMIN, UserRole.ELDER)

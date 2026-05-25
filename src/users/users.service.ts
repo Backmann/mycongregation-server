@@ -339,6 +339,34 @@ export class UsersService {
     });
   }
 
+  /**
+   * Keep a linked publisher's login role in sync with their appointment.
+   * Never touches admins (admin is an explicit, sticky elevation) and is a
+   * no-op when the role already matches. No self-guard: this is a derived
+   * change, not an interactive role edit.
+   */
+  async syncRoleFromAppointment(
+    targetId: string,
+    newRole: UserRole,
+    congregationId: string,
+    actorUserId?: string,
+  ): Promise<void> {
+    const user = await this.findByIdInCongregation(targetId, congregationId);
+    if (user.role === UserRole.ADMIN || user.role === newRole) {
+      return;
+    }
+    await this.usersRepo.update(targetId, { role: newRole });
+    await this.auditLog.logUpdate({
+      tenantId: congregationId,
+      entityType: 'User',
+      entityId: targetId,
+      actorUserId: actorUserId ?? targetId,
+      before: { role: user.role },
+      after: { role: newRole },
+      fields: ['role'],
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Internal helpers
   // ---------------------------------------------------------------------------

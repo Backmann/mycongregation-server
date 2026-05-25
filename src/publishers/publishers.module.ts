@@ -6,12 +6,14 @@ import { PublishersService } from './publishers.service';
 import { PublishersController } from './publishers.controller';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Publisher, ServiceReport]),
     AuditLogModule,
     PushNotificationsModule,
+    UsersModule,
   ],
   controllers: [PublishersController],
   providers: [PublishersService],

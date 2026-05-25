@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -19,6 +20,10 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { OverrideStatusDto } from './dto/override-status.dto';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
+import { UsersService } from '../users/users.service';
+import { GrantAccessDto } from './dto/grant-access.dto';
+import { UpdateAccessDto } from './dto/update-access.dto';
 
 /**
  * Pure status-computation helper, exported for unit testing.
@@ -72,6 +77,31 @@ import { RemovePublisherDto } from './dto/remove-publisher.dto';
 
 export type RecomputeResult = 'skipped_override' | 'unchanged' | 'updated';
 
+/**
+ * Map a publisher's spiritual appointment to the login role granted with it.
+ * Admin is never derived — it is an explicit, separate elevation.
+ */
+export function deriveRoleFromAppointment(
+  appointment: PublisherAppointment,
+): UserRole {
+  switch (appointment) {
+    case PublisherAppointment.ELDER:
+      return UserRole.ELDER;
+    case PublisherAppointment.MINISTERIAL_SERVANT:
+      return UserRole.MINISTERIAL_SERVANT;
+    default:
+      return UserRole.PUBLISHER;
+  }
+}
+
+export interface AccessSummary {
+  hasAccess: boolean;
+  email: string | null;
+  role: UserRole | null;
+  isActive: boolean | null;
+  lastLoginAt: Date | null;
+}
+
 @Injectable()
 export class PublishersService {
   private readonly logger = new Logger(PublishersService.name);
@@ -83,6 +113,7 @@ export class PublishersService {
     private readonly reportsRepo: Repository<ServiceReport>,
     private readonly auditLogService: AuditLogService,
     private readonly pushNotificationsService: PushNotificationsService,
+    private readonly usersService: UsersService,
   ) {}
 
   /**
@@ -380,6 +411,103 @@ export class PublishersService {
     return publisher;
   }
 
+  // ---------------------------------------------------------------------------
+  // App access — link a person (Publisher) to a login (User).
+  // ---------------------------------------------------------------------------
+
+  async getAccess(tenantId: string, id: string): Promise<AccessSummary> {
+    const publisher = await this.findOne(tenantId, id);
+    if (!publisher.userId) {
+      return {
+        hasAccess: false,
+        email: null,
+        role: null,
+        isActive: null,
+        lastLoginAt: null,
+      };
+    }
+    const user = await this.usersService.findByIdInCongregation(
+      publisher.userId,
+      tenantId,
+    );
+    return {
+      hasAccess: true,
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive,
+      lastLoginAt: user.lastLoginAt,
+    };
+  }
+
+  async grantAccess(
+    tenantId: string,
+    id: string,
+    dto: GrantAccessDto,
+    actor: AuthenticatedUser,
+  ): Promise<AccessSummary> {
+    const publisher = await this.findOne(tenantId, id);
+    if (publisher.userId) {
+      throw new ConflictException('This person already has app access');
+    }
+    const email = (dto.email ?? publisher.email ?? '').trim();
+    if (!email) {
+      throw new BadRequestException(
+        'An email address is required to grant access',
+      );
+    }
+    const role = dto.isAdmin
+      ? UserRole.ADMIN
+      : deriveRoleFromAppointment(publisher.appointment);
+    const created = await this.usersService.createUserByAdmin(
+      { email, password: dto.password, role },
+      tenantId,
+      actor.id,
+    );
+    publisher.userId = created.id;
+    await this.publishersRepo.save(publisher);
+    return this.getAccess(tenantId, id);
+  }
+
+  async updateAccess(
+    tenantId: string,
+    id: string,
+    dto: UpdateAccessDto,
+    actor: AuthenticatedUser,
+  ): Promise<AccessSummary> {
+    const publisher = await this.findOne(tenantId, id);
+    if (!publisher.userId) {
+      throw new NotFoundException('This person has no app access');
+    }
+    if (dto.password !== undefined) {
+      await this.usersService.resetPasswordByAdmin(
+        publisher.userId,
+        dto.password,
+        tenantId,
+        actor.id,
+      );
+    }
+    if (dto.isActive !== undefined) {
+      await this.usersService.setActiveByAdmin(
+        publisher.userId,
+        dto.isActive,
+        tenantId,
+        actor.id,
+      );
+    }
+    if (dto.isAdmin !== undefined) {
+      const role = dto.isAdmin
+        ? UserRole.ADMIN
+        : deriveRoleFromAppointment(publisher.appointment);
+      await this.usersService.updateRoleByAdmin(
+        publisher.userId,
+        role,
+        tenantId,
+        actor.id,
+      );
+    }
+    return this.getAccess(tenantId, id);
+  }
+
   async create(tenantId: string, dto: CreatePublisherDto): Promise<Publisher> {
     const displayName = this.buildDisplayName(
       dto.firstName,
@@ -403,6 +531,7 @@ export class PublishersService {
     tenantId: string,
     id: string,
     dto: UpdatePublisherDto,
+    actorUserId?: string,
   ): Promise<Publisher> {
     const publisher = await this.findOne(tenantId, id);
     Object.assign(publisher, dto);
@@ -416,6 +545,16 @@ export class PublishersService {
         publisher.firstName,
         publisher.middleName,
         publisher.lastName,
+      );
+    }
+
+    // Keep a linked login's role in sync with the person's appointment.
+    if (dto.appointment !== undefined && publisher.userId) {
+      await this.usersService.syncRoleFromAppointment(
+        publisher.userId,
+        deriveRoleFromAppointment(publisher.appointment),
+        tenantId,
+        actorUserId,
       );
     }
 
