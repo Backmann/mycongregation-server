@@ -20,7 +20,7 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { OverrideStatusDto } from './dto/override-status.dto';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
-import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
+import { deriveRoleFromAppointment } from './derive-role';
 import { UsersService } from '../users/users.service';
 import { GrantAccessDto } from './dto/grant-access.dto';
 import { UpdateAccessDto } from './dto/update-access.dto';
@@ -76,23 +76,6 @@ import { QueryPublishersDto } from './dto/query-publishers.dto';
 import { RemovePublisherDto } from './dto/remove-publisher.dto';
 
 export type RecomputeResult = 'skipped_override' | 'unchanged' | 'updated';
-
-/**
- * Map a publisher's spiritual appointment to the login role granted with it.
- * Admin is never derived — it is an explicit, separate elevation.
- */
-export function deriveRoleFromAppointment(
-  appointment: PublisherAppointment,
-): UserRole {
-  switch (appointment) {
-    case PublisherAppointment.ELDER:
-      return UserRole.ELDER;
-    case PublisherAppointment.MINISTERIAL_SERVANT:
-      return UserRole.MINISTERIAL_SERVANT;
-    default:
-      return UserRole.PUBLISHER;
-  }
-}
 
 export interface AccessSummary {
   hasAccess: boolean;

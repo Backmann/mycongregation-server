@@ -1,4 +1,4 @@
-import { deriveRoleFromAppointment } from './publishers.service';
+import { deriveRoleFromAppointment } from './derive-role';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 
