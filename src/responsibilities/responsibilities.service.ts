@@ -41,13 +41,11 @@ export class ResponsibilitiesService {
     }
 
     const existing = await this.responsibilitiesRepo.findOne({
-      where: { congregationId: tenantId, type: dto.type },
+      where: { congregationId: tenantId, type: dto.type, userId: dto.userId },
     });
     if (existing) {
-      existing.userId = dto.userId;
-      existing.assignedBy = assignedBy;
-      existing.assignedAt = new Date();
-      return this.responsibilitiesRepo.save(existing);
+      // Already assigned to this person — assignment is idempotent.
+      return existing;
     }
 
     const created = this.responsibilitiesRepo.create({
@@ -59,10 +57,14 @@ export class ResponsibilitiesService {
     return this.responsibilitiesRepo.save(created);
   }
 
-  /** Removes a responsibility assignment from the congregation. */
-  async revoke(tenantId: string, type: ResponsibilityType): Promise<void> {
+  /** Removes one person's responsibility assignment. */
+  async revoke(
+    tenantId: string,
+    type: ResponsibilityType,
+    userId: string,
+  ): Promise<void> {
     const existing = await this.responsibilitiesRepo.findOne({
-      where: { congregationId: tenantId, type },
+      where: { congregationId: tenantId, type, userId },
     });
     if (!existing) {
       throw new NotFoundException('Responsibility is not assigned');

@@ -12,15 +12,20 @@ import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 
 /**
  * Layer 2 of the permission model: a department/coordinator assignment.
- * At most one holder per (congregation, type) — reassigning replaces the
- * previous holder. See docs/architecture/roles-and-permissions.md.
+ * Many-to-many: a person may hold several types, and several people may hold
+ * the same type. UNIQUE(congregation, type, user) prevents duplicate pairs.
+ * See docs/architecture/roles-and-permissions.md.
  *
  * userId / assignedBy are stored as plain uuid columns (no entity relation)
  * mirroring service-group.entity.ts, to avoid circular entity imports; FK
  * integrity is enforced at the database level by the migration.
  */
 @Entity('responsibilities')
-@Unique('uq_responsibilities_cong_type', ['congregationId', 'type'])
+@Unique('uq_responsibilities_cong_type_user', [
+  'congregationId',
+  'type',
+  'userId',
+])
 export class Responsibility {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

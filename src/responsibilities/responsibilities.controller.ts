@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   ParseEnumPipe,
+  ParseUUIDPipe,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -43,13 +44,14 @@ export class ResponsibilitiesController {
   }
 
   @Roles(UserRole.ADMIN)
-  @Delete(':type')
+  @Delete(':type/:userId')
   @HttpCode(HttpStatus.NO_CONTENT)
   revoke(
     @TenantId() tenantId: string,
     @Param('type', new ParseEnumPipe(ResponsibilityType))
     type: ResponsibilityType,
+    @Param('userId', ParseUUIDPipe) userId: string,
   ) {
-    return this.responsibilitiesService.revoke(tenantId, type);
+    return this.responsibilitiesService.revoke(tenantId, type, userId);
   }
 }
