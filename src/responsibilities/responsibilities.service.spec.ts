@@ -65,8 +65,8 @@ describe('ResponsibilitiesService', () => {
       expect(result).toMatchObject({ id: 'r1', userId: 'u1' });
     });
 
-    it('reassigns (replaces the holder) when the type is already held', async () => {
-      usersRepo.findOne.mockResolvedValue({ id: 'u2', congregationId: 't1' });
+    it('is idempotent when the same person already holds the type', async () => {
+      usersRepo.findOne.mockResolvedValue({ id: 'u1', congregationId: 't1' });
       const existing = {
         id: 'r-existing',
         congregationId: 't1',
@@ -76,6 +76,22 @@ describe('ResponsibilitiesService', () => {
         assignedAt: new Date('2026-01-01'),
       };
       responsibilitiesRepo.findOne.mockResolvedValue(existing);
+
+      const result = await service.assign(
+        't1',
+        { type: ResponsibilityType.SECRETARY, userId: 'u1' },
+        'admin1',
+      );
+
+      expect(responsibilitiesRepo.create).not.toHaveBeenCalled();
+      expect(responsibilitiesRepo.save).not.toHaveBeenCalled();
+      expect(result).toBe(existing);
+    });
+
+    it('adds a second holder for an already-held type', async () => {
+      usersRepo.findOne.mockResolvedValue({ id: 'u2', congregationId: 't1' });
+      responsibilitiesRepo.findOne.mockResolvedValue(null);
+      responsibilitiesRepo.create.mockReturnValue({ id: 'r2', userId: 'u2' });
       responsibilitiesRepo.save.mockImplementation((x: unknown) =>
         Promise.resolve(x),
       );
@@ -86,9 +102,13 @@ describe('ResponsibilitiesService', () => {
         'admin1',
       );
 
-      expect(responsibilitiesRepo.create).not.toHaveBeenCalled();
-      expect(result.userId).toBe('u2');
-      expect(result.assignedBy).toBe('admin1');
+      expect(responsibilitiesRepo.create).toHaveBeenCalledWith({
+        congregationId: 't1',
+        type: ResponsibilityType.SECRETARY,
+        userId: 'u2',
+        assignedBy: 'admin1',
+      });
+      expect(result).toMatchObject({ userId: 'u2' });
     });
 
     it('rejects assignment to a user outside the congregation', async () => {
@@ -113,7 +133,7 @@ describe('ResponsibilitiesService', () => {
       };
       responsibilitiesRepo.findOne.mockResolvedValue(existing);
 
-      await service.revoke('t1', ResponsibilityType.CLEANING_COORDINATOR);
+      await service.revoke('t1', ResponsibilityType.CLEANING_COORDINATOR, 'u1');
 
       expect(responsibilitiesRepo.remove).toHaveBeenCalledWith(existing);
     });
@@ -122,7 +142,7 @@ describe('ResponsibilitiesService', () => {
       responsibilitiesRepo.findOne.mockResolvedValue(null);
 
       await expect(
-        service.revoke('t1', ResponsibilityType.CLEANING_COORDINATOR),
+        service.revoke('t1', ResponsibilityType.CLEANING_COORDINATOR, 'u1'),
       ).rejects.toThrow(NotFoundException);
       expect(responsibilitiesRepo.remove).not.toHaveBeenCalled();
     });
