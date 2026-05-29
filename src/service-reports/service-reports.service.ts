@@ -55,6 +55,41 @@ export interface PublisherHistoryResponse {
 }
 
 /**
+ * One pioneer-type line of the secretary's monthly summary.
+ *
+ * - `count`     — number of reports counted for this category in the month.
+ *   For ordinary publishers (`PioneerType.NONE`) this counts only those who
+ *   marked that they shared in the ministry (`servedThisMonth === true`).
+ *   For every pioneer type it counts each submitted report.
+ * - `hours`     — sum of reported hours; `null` for ordinary publishers, who
+ *   no longer report hours.
+ * - `bibleStudies` — sum of Bible studies across the counted reports.
+ */
+export interface ServiceReportSummaryCategory {
+  pioneerType: PioneerType;
+  count: number;
+  hours: number | null;
+  bibleStudies: number;
+}
+
+/**
+ * Aggregated field-service figures for one month, for the secretary/admin.
+ *
+ * `categories` is always five fixed lines in reporting order (publishers,
+ * auxiliary, regular, special, missionary). `totalActivePublishers` counts
+ * everyone whose service status is active or irregular (i.e. not lapsed for
+ * six months) — independent of whether they reported this month.
+ * `totalInactivePublishers` is a separate count of those whose status is
+ * inactive; it is never folded into the active total.
+ */
+export interface ServiceReportSummary {
+  reportMonth: string;
+  categories: ServiceReportSummaryCategory[];
+  totalActivePublishers: number;
+  totalInactivePublishers: number;
+}
+
+/**
  * Caller's report permissions, resolved once per request.
  *
  * - alwaysEdit  — admin or the secretary: may edit/submit any report in any
@@ -568,6 +603,105 @@ export class ServiceReportsService {
         isPioneer: publisher.pioneerType !== PioneerType.NONE,
       },
       timeline,
+    };
+  }
+
+  /**
+   * Monthly field-service summary for the secretary and administrators.
+   *
+   * Returns five fixed category lines (publishers, auxiliary, regular,
+   * special, missionary) with counts/hours/studies for the given month, plus
+   * the congregation's total active-or-irregular publisher count. Restricted
+   * to admins and the holder of the SECRETARY responsibility.
+   */
+  async getSummary(
+    tenantId: string,
+    user: AuthenticatedUser,
+    reportMonthInput: string,
+  ): Promise<ServiceReportSummary> {
+    const reportMonth = this.normalizeReportMonth(reportMonthInput);
+    const ctx = await this.buildPermissionContext(tenantId, user);
+
+    // alwaysEdit is exactly "admin or secretary" — the summary's audience.
+    if (!ctx.alwaysEdit) {
+      throw new ForbiddenException(
+        'Only administrators and the secretary may view the service summary.',
+      );
+    }
+
+    const publishers = await this.publishersRepo.find({
+      where: { congregationId: tenantId },
+    });
+    const typeByPubId = new Map<string, PioneerType>(
+      publishers.map((p) => [p.id, p.pioneerType]),
+    );
+
+    const reports = await this.reportsRepo.find({
+      where: { congregationId: tenantId, reportMonth },
+    });
+
+    const order: PioneerType[] = [
+      PioneerType.NONE,
+      PioneerType.AUXILIARY_UNTIL_CANCELLED,
+      PioneerType.REGULAR,
+      PioneerType.SPECIAL,
+      PioneerType.MISSIONARY,
+    ];
+    const acc = new Map<
+      PioneerType,
+      { count: number; hours: number; bibleStudies: number }
+    >(order.map((t) => [t, { count: 0, hours: 0, bibleStudies: 0 }]));
+
+    for (const report of reports) {
+      const type = typeByPubId.get(report.publisherId);
+      if (type === undefined) continue;
+      const bucket = acc.get(type);
+      if (!bucket) continue;
+
+      if (type === PioneerType.NONE) {
+        // Ordinary publishers: count only those who shared in the ministry.
+        if (report.servedThisMonth === true) {
+          bucket.count += 1;
+          bucket.bibleStudies += report.bibleStudies ?? 0;
+        }
+      } else {
+        bucket.count += 1;
+        bucket.hours += report.hoursReported ?? 0;
+        bucket.bibleStudies += report.bibleStudies ?? 0;
+      }
+    }
+
+    const categories: ServiceReportSummaryCategory[] = order.map((type) => {
+      const bucket = acc.get(type)!;
+      return {
+        pioneerType: type,
+        count: bucket.count,
+        hours: type === PioneerType.NONE ? null : bucket.hours,
+        bibleStudies: bucket.bibleStudies,
+      };
+    });
+
+    const totalActivePublishers = await this.publishersRepo.count({
+      where: {
+        congregationId: tenantId,
+        status: In([PublisherStatus.ACTIVE, PublisherStatus.IRREGULAR]),
+      },
+    });
+
+    // Inactive publishers are counted on their own line and are never added
+    // into the active total.
+    const totalInactivePublishers = await this.publishersRepo.count({
+      where: {
+        congregationId: tenantId,
+        status: PublisherStatus.INACTIVE,
+      },
+    });
+
+    return {
+      reportMonth,
+      categories,
+      totalActivePublishers,
+      totalInactivePublishers,
     };
   }
 

@@ -76,6 +76,29 @@ export class ServiceReportsController {
     );
   }
 
+  @Get('summary')
+  getSummary(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('reportMonth') reportMonthRaw?: string,
+  ) {
+    if (!reportMonthRaw) {
+      throw new BadRequestException(
+        'reportMonth query parameter is required (YYYY-MM)',
+      );
+    }
+    if (!/^\d{4}-\d{2}(-\d{2})?$/.test(reportMonthRaw)) {
+      throw new BadRequestException(
+        'reportMonth must be in YYYY-MM or YYYY-MM-DD format',
+      );
+    }
+    return this.serviceReportsService.getSummary(
+      tenantId,
+      user,
+      reportMonthRaw,
+    );
+  }
+
   @Get(':id/audit-log')
   async getAuditLog(
     @TenantId() tenantId: string,

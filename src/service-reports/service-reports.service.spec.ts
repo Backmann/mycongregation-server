@@ -109,6 +109,7 @@ describe('ServiceReportsService', () => {
     publishersRepo = {
       findOne: jest.fn(),
       find: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
     } as unknown as jest.Mocked<Repository<Publisher>>;
 
     serviceGroupsRepo = {
@@ -1188,6 +1189,173 @@ describe('ServiceReportsService', () => {
       expect(result.publishers[0].report).not.toBeNull();
       expect(result.publishers[0].report!.canEdit).toBe(true);
       expect(result.publishers[0].report!.lastEditedByName).toBeNull();
+    });
+  });
+
+  // =========================================================
+  // getSummary — secretary/admin monthly figures
+  // =========================================================
+  describe('getSummary', () => {
+    it('forbids a plain publisher', async () => {
+      responsibilitiesRepo.count.mockResolvedValue(0);
+      publishersRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.getSummary(
+          'cong-1',
+          makeUser({ id: 'user-self', role: UserRole.PUBLISHER }),
+          '2026-04',
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('forbids an elder (view-only, not a summary recipient)', async () => {
+      responsibilitiesRepo.count.mockResolvedValue(0);
+      publishersRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.getSummary(
+          'cong-1',
+          makeUser({ id: 'elder-id', role: UserRole.ELDER }),
+          '2026-04',
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('aggregates the five categories and the active total for an admin', async () => {
+      publishersRepo.findOne.mockResolvedValue(null);
+      publishersRepo.find.mockResolvedValue([
+        makePublisher({ id: 'p-pub-a', pioneerType: PioneerType.NONE }),
+        makePublisher({ id: 'p-pub-b', pioneerType: PioneerType.NONE }),
+        makePublisher({ id: 'p-pub-c', pioneerType: PioneerType.NONE }),
+        makePublisher({
+          id: 'p-aux',
+          pioneerType: PioneerType.AUXILIARY_UNTIL_CANCELLED,
+        }),
+        makePublisher({ id: 'p-reg', pioneerType: PioneerType.REGULAR }),
+        makePublisher({ id: 'p-spec', pioneerType: PioneerType.SPECIAL }),
+        makePublisher({ id: 'p-miss', pioneerType: PioneerType.MISSIONARY }),
+      ]);
+      reportsRepo.find.mockResolvedValue([
+        // two publishers shared, one explicitly did not — only the two count
+        makeReport({
+          publisherId: 'p-pub-a',
+          servedThisMonth: true,
+          hoursReported: null,
+          bibleStudies: 2,
+        }),
+        makeReport({
+          publisherId: 'p-pub-b',
+          servedThisMonth: true,
+          hoursReported: null,
+          bibleStudies: 1,
+        }),
+        makeReport({
+          publisherId: 'p-pub-c',
+          servedThisMonth: false,
+          hoursReported: null,
+          bibleStudies: 5,
+        }),
+        makeReport({
+          publisherId: 'p-aux',
+          servedThisMonth: null,
+          hoursReported: 30,
+          bibleStudies: 1,
+        }),
+        makeReport({
+          publisherId: 'p-reg',
+          servedThisMonth: null,
+          hoursReported: 50,
+          bibleStudies: 3,
+        }),
+        makeReport({
+          publisherId: 'p-spec',
+          servedThisMonth: null,
+          hoursReported: 100,
+          bibleStudies: 4,
+        }),
+        makeReport({
+          publisherId: 'p-miss',
+          servedThisMonth: null,
+          hoursReported: 120,
+          bibleStudies: 6,
+        }),
+      ]);
+      // active+irregular query passes an In([...]) operator; the inactive
+      // query passes the bare 'inactive' string — distinguish on that.
+      publishersRepo.count.mockImplementation(async (opts: any) =>
+        typeof opts?.where?.status === 'string' ? 5 : 42,
+      );
+
+      const result = await service.getSummary(
+        'cong-1',
+        makeUser({ id: 'admin-id', role: UserRole.ADMIN }),
+        '2026-04',
+      );
+
+      expect(result.reportMonth).toBe('2026-04-01');
+      expect(result.totalActivePublishers).toBe(42);
+      expect(result.totalInactivePublishers).toBe(5);
+      expect(result.categories.map((c) => c.pioneerType)).toEqual([
+        PioneerType.NONE,
+        PioneerType.AUXILIARY_UNTIL_CANCELLED,
+        PioneerType.REGULAR,
+        PioneerType.SPECIAL,
+        PioneerType.MISSIONARY,
+      ]);
+
+      const byType = Object.fromEntries(
+        result.categories.map((c) => [c.pioneerType, c]),
+      );
+      // publishers: only the two who shared; studies summed over them; no hours
+      expect(byType[PioneerType.NONE].count).toBe(2);
+      expect(byType[PioneerType.NONE].hours).toBeNull();
+      expect(byType[PioneerType.NONE].bibleStudies).toBe(3);
+      // pioneers: each report counts, hours + studies summed
+      expect(byType[PioneerType.AUXILIARY_UNTIL_CANCELLED]).toMatchObject({
+        count: 1,
+        hours: 30,
+        bibleStudies: 1,
+      });
+      expect(byType[PioneerType.REGULAR]).toMatchObject({
+        count: 1,
+        hours: 50,
+        bibleStudies: 3,
+      });
+      expect(byType[PioneerType.SPECIAL]).toMatchObject({
+        count: 1,
+        hours: 100,
+        bibleStudies: 4,
+      });
+      expect(byType[PioneerType.MISSIONARY]).toMatchObject({
+        count: 1,
+        hours: 120,
+        bibleStudies: 6,
+      });
+    });
+
+    it('allows the secretary and returns zeroed categories when no reports', async () => {
+      responsibilitiesRepo.count.mockResolvedValue(1);
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ id: 'pub-sec', userId: 'sec-id' }),
+      );
+      publishersRepo.find.mockResolvedValue([]);
+      reportsRepo.find.mockResolvedValue([]);
+      publishersRepo.count.mockImplementation(async (opts: any) =>
+        typeof opts?.where?.status === 'string' ? 2 : 7,
+      );
+
+      const result = await service.getSummary(
+        'cong-1',
+        makeUser({ id: 'sec-id', role: UserRole.PUBLISHER }),
+        '2026-04',
+      );
+
+      expect(result.totalActivePublishers).toBe(7);
+      expect(result.totalInactivePublishers).toBe(2);
+      expect(result.categories).toHaveLength(5);
+      expect(result.categories.every((c) => c.count === 0)).toBe(true);
+      expect(result.categories[0].bibleStudies).toBe(0);
     });
   });
 });
