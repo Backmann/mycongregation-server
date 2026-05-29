@@ -27,6 +27,7 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
+import { Responsibility } from '../entities/responsibility.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -92,6 +93,7 @@ describe('ServiceReportsService', () => {
   let reportsRepo: jest.Mocked<Repository<ServiceReport>>;
   let publishersRepo: jest.Mocked<Repository<Publisher>>;
   let serviceGroupsRepo: jest.Mocked<Repository<ServiceGroup>>;
+  let responsibilitiesRepo: jest.Mocked<Repository<Responsibility>>;
   let auditLogService: { logUpdate: jest.Mock; findForEntity: jest.Mock };
   let publishersService: { recomputeStatus: jest.Mock };
 
@@ -110,9 +112,13 @@ describe('ServiceReportsService', () => {
     } as unknown as jest.Mocked<Repository<Publisher>>;
 
     serviceGroupsRepo = {
-      find: jest.fn(),
+      find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn(),
     } as unknown as jest.Mocked<Repository<ServiceGroup>>;
+
+    responsibilitiesRepo = {
+      count: jest.fn().mockResolvedValue(0),
+    } as unknown as jest.Mocked<Repository<Responsibility>>;
 
     auditLogService = {
       logUpdate: jest.fn(),
@@ -123,6 +129,7 @@ describe('ServiceReportsService', () => {
       reportsRepo,
       publishersRepo,
       serviceGroupsRepo,
+      responsibilitiesRepo,
       auditLogService as any,
       publishersService as any,
     );
@@ -145,15 +152,17 @@ describe('ServiceReportsService', () => {
       expect(callWindow('2026-04-01')).toBe(true);
     });
 
-    it('returns true on May 10 23:59 UTC for April report (last second of window)', () => {
+    it('returns true late on the 10th Berlin time (last day of window)', () => {
+      // 2026-05-10 23:59:59 Europe/Berlin (CEST, UTC+2) === 21:59:59 UTC.
       jest
         .spyOn(Date, 'now')
-        .mockReturnValue(Date.UTC(2026, 4, 10, 23, 59, 59));
+        .mockReturnValue(Date.UTC(2026, 4, 10, 21, 59, 59));
       expect(callWindow('2026-04-01')).toBe(true);
     });
 
-    it('returns false the instant the window closes (May 11 00:00 UTC for April)', () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 11, 0, 0, 0));
+    it('returns false at 00:00 on the 11th Berlin time (window closed)', () => {
+      // 2026-05-11 00:00 Europe/Berlin (CEST, UTC+2) === 2026-05-10 22:00 UTC.
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 10, 22, 0, 0));
       expect(callWindow('2026-04-01')).toBe(false);
     });
 
@@ -178,55 +187,70 @@ describe('ServiceReportsService', () => {
   });
 
   // =========================================================
-  // canEditReport (private)
+  // canEditWithCtx (private)
   // =========================================================
 
-  describe('canEditReport', () => {
-    const callCan = (report: ServiceReport, user: AuthenticatedUser): boolean =>
-      (service as any).canEditReport(report, user);
+  describe('canEditWithCtx', () => {
+    const callCan = (
+      report: ServiceReport,
+      ctx: any,
+      groupId: string | null = null,
+    ): boolean => (service as any).canEditWithCtx(report, ctx, groupId);
+
+    const ctxFor = (over: Record<string, any> = {}) => ({
+      userId: 'u1',
+      alwaysEdit: false,
+      alwaysView: false,
+      myPublisherId: 'pub-u1',
+      overseenGroupIds: [] as string[],
+      ...over,
+    });
 
     beforeEach(() => {
       // Inside window for April reports.
       jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
     });
 
-    it('PUBLISHER editing own report within window → true', () => {
-      const user = makeUser({ id: 'u1', role: UserRole.PUBLISHER });
+    it('owner editing own report within window → true', () => {
       const report = makeReport({ submittedById: 'u1' });
-      expect(callCan(report, user)).toBe(true);
+      expect(callCan(report, ctxFor())).toBe(true);
     });
 
-    it('PUBLISHER editing own report AFTER window closes → false', () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 12));
-      const user = makeUser({ id: 'u1', role: UserRole.PUBLISHER });
+    it('owner editing own report AFTER window closes → false', () => {
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 30));
       const report = makeReport({ submittedById: 'u1' });
-      expect(callCan(report, user)).toBe(false);
+      expect(callCan(report, ctxFor())).toBe(false);
     });
 
-    it("PUBLISHER editing another user's report → false (even within window)", () => {
-      const user = makeUser({ id: 'u1', role: UserRole.PUBLISHER });
+    it("non-privileged editing another's report → false", () => {
       const report = makeReport({ submittedById: 'u2' });
-      expect(callCan(report, user)).toBe(false);
+      expect(callCan(report, ctxFor())).toBe(false);
     });
 
-    it("MINISTERIAL_SERVANT editing another user's report → false", () => {
-      const user = makeUser({ id: 'ms', role: UserRole.MINISTERIAL_SERVANT });
+    it('elder (alwaysView but not alwaysEdit) editing another → false', () => {
       const report = makeReport({ submittedById: 'u2' });
-      expect(callCan(report, user)).toBe(false);
+      expect(callCan(report, ctxFor({ alwaysView: true }))).toBe(false);
     });
 
-    it("ELDER editing another user's report → true even after window", () => {
+    it('admin/secretary (alwaysEdit) → true even after window', () => {
       jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 30));
-      const user = makeUser({ id: 'elder', role: UserRole.ELDER });
       const report = makeReport({ submittedById: 'u2' });
-      expect(callCan(report, user)).toBe(true);
+      expect(callCan(report, ctxFor({ alwaysEdit: true }))).toBe(true);
     });
 
-    it("ADMIN editing another user's report → true even after window", () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 30));
-      const user = makeUser({ id: 'admin', role: UserRole.ADMIN });
+    it("group overseer editing a member's report within window → true", () => {
       const report = makeReport({ submittedById: 'u2' });
-      expect(callCan(report, user)).toBe(true);
+      expect(callCan(report, ctxFor({ overseenGroupIds: ['g1'] }), 'g1')).toBe(
+        true,
+      );
+    });
+
+    it('group overseer AFTER window → false', () => {
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 30));
+      const report = makeReport({ submittedById: 'u2' });
+      expect(callCan(report, ctxFor({ overseenGroupIds: ['g1'] }), 'g1')).toBe(
+        false,
+      );
     });
   });
 
@@ -417,7 +441,7 @@ describe('ServiceReportsService', () => {
       });
     });
 
-    describe('on-behalf submission (admin/elder)', () => {
+    describe('on-behalf submission (admin/secretary/overseer)', () => {
       it('accepts on-behalf when caller is ADMIN', async () => {
         publishersRepo.findOne.mockImplementation(async (opts: any) => {
           if (opts.where.userId === 'admin-id') {
@@ -455,10 +479,39 @@ describe('ServiceReportsService', () => {
         );
       });
 
-      it('accepts on-behalf when caller is ELDER', async () => {
+      it('forbids on-behalf from a plain elder (not secretary/overseer)', async () => {
         publishersRepo.findOne.mockImplementation(async (opts: any) => {
           if (opts.where.userId === 'elder-id') {
             return makePublisher({ id: 'pub-elder', userId: 'elder-id' });
+          }
+          if (opts.where.id === 'pub-target') {
+            return makePublisher({
+              id: 'pub-target',
+              pioneerType: PioneerType.NONE,
+            });
+          }
+          return null;
+        });
+
+        await expect(
+          service.submitOwnReport(
+            'cong-1',
+            makeUser({ id: 'elder-id', role: UserRole.ELDER }),
+            {
+              reportMonth: '2026-04',
+              publisherId: 'pub-target',
+              servedThisMonth: false,
+              bibleStudies: 0,
+            },
+          ),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+      });
+
+      it('accepts on-behalf when caller holds the secretary responsibility', async () => {
+        responsibilitiesRepo.count.mockResolvedValue(1);
+        publishersRepo.findOne.mockImplementation(async (opts: any) => {
+          if (opts.where.userId === 'sec-id') {
+            return makePublisher({ id: 'pub-sec', userId: 'sec-id' });
           }
           if (opts.where.id === 'pub-target') {
             return makePublisher({
@@ -472,7 +525,7 @@ describe('ServiceReportsService', () => {
 
         await service.submitOwnReport(
           'cong-1',
-          makeUser({ id: 'elder-id', role: UserRole.ELDER }),
+          makeUser({ id: 'sec-id', role: UserRole.ELDER }),
           {
             reportMonth: '2026-04',
             publisherId: 'pub-target',
@@ -489,13 +542,59 @@ describe('ServiceReportsService', () => {
         );
       });
 
-      it('forbids non-admin/elder from submitting on behalf of others', async () => {
+      it('accepts on-behalf when caller oversees the target group', async () => {
+        publishersRepo.findOne.mockImplementation(async (opts: any) => {
+          if (opts.where.userId === 'ov-id') {
+            return makePublisher({ id: 'pub-ov', userId: 'ov-id' });
+          }
+          if (opts.where.id === 'pub-target') {
+            return makePublisher({
+              id: 'pub-target',
+              serviceGroupId: 'g1',
+              pioneerType: PioneerType.NONE,
+            });
+          }
+          return null;
+        });
+        serviceGroupsRepo.find.mockResolvedValue([
+          { id: 'g1', name: 'Group 1' } as ServiceGroup,
+        ]);
+        reportsRepo.save.mockImplementation(async (r: any) => r);
+
+        await service.submitOwnReport(
+          'cong-1',
+          makeUser({ id: 'ov-id', role: UserRole.PUBLISHER }),
+          {
+            reportMonth: '2026-04',
+            publisherId: 'pub-target',
+            servedThisMonth: false,
+            bibleStudies: 0,
+          },
+        );
+
+        expect(reportsRepo.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            publisherId: 'pub-target',
+            submittedOnBehalfOf: true,
+          }),
+        );
+      });
+
+      it('forbids on-behalf from a non-privileged publisher', async () => {
         publishersRepo.findOne.mockImplementation(async (opts: any) => {
           if (opts.where.userId === 'user-self') {
             return makePublisher({ id: 'pub-self', userId: 'user-self' });
           }
+          if (opts.where.id === 'pub-someone-else') {
+            return makePublisher({
+              id: 'pub-someone-else',
+              serviceGroupId: 'g9',
+              pioneerType: PioneerType.NONE,
+            });
+          }
           return null;
         });
+        serviceGroupsRepo.find.mockResolvedValue([]);
 
         await expect(
           service.submitOwnReport(
