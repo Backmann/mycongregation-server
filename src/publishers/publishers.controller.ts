@@ -24,6 +24,7 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { OverrideStatusDto } from './dto/override-status.dto';
 import { GrantAccessDto } from './dto/grant-access.dto';
 import { UpdateAccessDto } from './dto/update-access.dto';
+import { redactPrivateFields } from './publisher-privacy';
 
 @Controller('publishers')
 @UseGuards(RolesGuard)
@@ -51,11 +52,32 @@ export class PublishersController {
     return this.publishersService.clearOverride(tenantId, user, id);
   }
 
+  /**
+   * Directory list. Any authenticated member may list publishers so the
+   * scheduling/group pickers work, but only admins and elders receive the
+   * private fields (contacts, notes, personal dates, removal details). For
+   * everyone else the rows are redacted to a name-and-scheduling roster and
+   * removed publishers are excluded entirely.
+   */
   @Get()
-  findAll(@TenantId() tenantId: string, @Query() query: QueryPublishersDto) {
-    return this.publishersService.findAll(tenantId, query);
+  async findAll(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: QueryPublishersDto,
+  ) {
+    const privileged =
+      user.role === UserRole.ADMIN || user.role === UserRole.ELDER;
+    if (!privileged) {
+      query.includeRemoved = false;
+    }
+    const result = await this.publishersService.findAll(tenantId, query);
+    if (privileged) {
+      return result;
+    }
+    return { ...result, data: result.data.map(redactPrivateFields) };
   }
 
+  @Roles(UserRole.ADMIN, UserRole.ELDER)
   @Get(':id')
   findOne(
     @TenantId() tenantId: string,
