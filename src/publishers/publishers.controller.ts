@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   ParseUUIDPipe,
@@ -54,10 +55,10 @@ export class PublishersController {
 
   /**
    * Directory list. Any authenticated member may list publishers so the
-   * scheduling/group pickers work, but only admins and elders receive the
-   * private fields (contacts, notes, personal dates, removal details). For
-   * everyone else the rows are redacted to a name-and-scheduling roster and
-   * removed publishers are excluded entirely.
+   * scheduling/group pickers work, but only those who may see private data
+   * (admins, elders, or members granted access) receive the private fields.
+   * For everyone else the rows are redacted to a name-and-scheduling roster
+   * and removed publishers are excluded entirely.
    */
   @Get()
   async findAll(
@@ -65,8 +66,10 @@ export class PublishersController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: QueryPublishersDto,
   ) {
-    const privileged =
-      user.role === UserRole.ADMIN || user.role === UserRole.ELDER;
+    const privileged = await this.publishersService.resolvePrivateAccess(
+      tenantId,
+      user,
+    );
     if (!privileged) {
       query.includeRemoved = false;
     }
@@ -77,12 +80,22 @@ export class PublishersController {
     return { ...result, data: result.data.map(redactPrivateFields) };
   }
 
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
   @Get(':id')
-  findOne(
+  async findOne(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
+    const privileged = await this.publishersService.resolvePrivateAccess(
+      tenantId,
+      user,
+    );
+    if (!privileged) {
+      throw new ForbiddenException(
+        'Publisher cards are visible to admins, elders, and members granted ' +
+          'access to private data.',
+      );
+    }
     return this.publishersService.findOne(tenantId, id);
   }
 

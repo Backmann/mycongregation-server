@@ -83,6 +83,7 @@ export interface AccessSummary {
   role: UserRole | null;
   isActive: boolean | null;
   lastLoginAt: Date | null;
+  canViewPrivateData: boolean | null;
 }
 
 @Injectable()
@@ -398,6 +399,25 @@ export class PublishersService {
   // App access — link a person (Publisher) to a login (User).
   // ---------------------------------------------------------------------------
 
+  /**
+   * Whether the caller may see publishers' private data: admins and
+   * elders always may; any other role only if granted via
+   * canViewPrivateData.
+   */
+  async resolvePrivateAccess(
+    tenantId: string,
+    user: AuthenticatedUser,
+  ): Promise<boolean> {
+    if (user.role === UserRole.ADMIN || user.role === UserRole.ELDER) {
+      return true;
+    }
+    const account = await this.usersService.findByIdInCongregation(
+      user.id,
+      tenantId,
+    );
+    return account.canViewPrivateData === true;
+  }
+
   async getAccess(tenantId: string, id: string): Promise<AccessSummary> {
     const publisher = await this.findOne(tenantId, id);
     if (!publisher.userId) {
@@ -407,6 +427,7 @@ export class PublishersService {
         role: null,
         isActive: null,
         lastLoginAt: null,
+        canViewPrivateData: null,
       };
     }
     const user = await this.usersService.findByIdInCongregation(
@@ -419,6 +440,7 @@ export class PublishersService {
       role: user.role,
       isActive: user.isActive,
       lastLoginAt: user.lastLoginAt,
+      canViewPrivateData: user.canViewPrivateData,
     };
   }
 
@@ -484,6 +506,14 @@ export class PublishersService {
       await this.usersService.updateRoleByAdmin(
         publisher.userId,
         role,
+        tenantId,
+        actor.id,
+      );
+    }
+    if (dto.canViewPrivateData !== undefined) {
+      await this.usersService.setPrivateAccessByAdmin(
+        publisher.userId,
+        dto.canViewPrivateData,
         tenantId,
         actor.id,
       );

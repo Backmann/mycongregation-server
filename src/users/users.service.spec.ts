@@ -396,6 +396,43 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
   // resetPasswordByAdmin
   // ---------------------------------------------------------------------------
 
+  describe('setPrivateAccessByAdmin', () => {
+    it('grants private-data access and audits the change', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        userFixture({
+          id: 'u-1',
+          role: UserRole.MINISTERIAL_SERVANT,
+          canViewPrivateData: false,
+        }),
+      );
+      const result = await service.setPrivateAccessByAdmin(
+        'u-1',
+        true,
+        CONG,
+        ADMIN_ID,
+      );
+      expect(repo.update).toHaveBeenCalledWith('u-1', {
+        canViewPrivateData: true,
+      });
+      expect(audit.logUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          before: { canViewPrivateData: false },
+          after: { canViewPrivateData: true },
+          fields: ['canViewPrivateData'],
+        }),
+      );
+      expect(result.id).toBe('u-1');
+    });
+
+    it('is a no-op when the flag is unchanged', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        userFixture({ id: 'u-1', canViewPrivateData: true }),
+      );
+      await service.setPrivateAccessByAdmin('u-1', true, CONG, ADMIN_ID);
+      expect(repo.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe('resetPasswordByAdmin', () => {
     it('hashes the new password, updates, audits with redacted fields', async () => {
       (repo.findOne as jest.Mock).mockResolvedValue(userFixture({ id: 'u-1' }));

@@ -257,6 +257,29 @@ export class UsersService {
     return toPublicUser({ ...user, isActive });
   }
 
+  async setPrivateAccessByAdmin(
+    targetId: string,
+    canViewPrivateData: boolean,
+    congregationId: string,
+    actorUserId: string,
+  ): Promise<PublicUser> {
+    const user = await this.findByIdInCongregation(targetId, congregationId);
+    if (user.canViewPrivateData === canViewPrivateData) {
+      return toPublicUser(user);
+    }
+    await this.usersRepo.update(targetId, { canViewPrivateData });
+    await this.auditLog.logUpdate({
+      tenantId: congregationId,
+      entityType: 'User',
+      entityId: targetId,
+      actorUserId,
+      before: { canViewPrivateData: !canViewPrivateData },
+      after: { canViewPrivateData },
+      fields: ['canViewPrivateData'],
+    });
+    return toPublicUser({ ...user, canViewPrivateData });
+  }
+
   async resetPasswordByAdmin(
     targetId: string,
     newPassword: string,
