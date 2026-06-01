@@ -21,6 +21,20 @@ import {
 } from '../auth/decorators/current-user.decorator';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 
+const MONTH_RE = /^\d{4}-\d{2}(-\d{2})?$/;
+
+function requireMonth(value: string | undefined): string {
+  if (!value) {
+    throw new BadRequestException('reportMonth is required (YYYY-MM)');
+  }
+  if (!MONTH_RE.test(value)) {
+    throw new BadRequestException(
+      'reportMonth must be in YYYY-MM or YYYY-MM-DD format',
+    );
+  }
+  return value;
+}
+
 @Controller('service-reports')
 export class ServiceReportsController {
   constructor(
@@ -35,6 +49,32 @@ export class ServiceReportsController {
     @Body() dto: SubmitReportDto,
   ) {
     return this.serviceReportsService.submitOwnReport(tenantId, user, dto);
+  }
+
+  @Post('close')
+  closeMonth(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body('reportMonth') reportMonth?: string,
+  ) {
+    return this.serviceReportsService.closeMonth(
+      tenantId,
+      user,
+      requireMonth(reportMonth),
+    );
+  }
+
+  @Post('reopen')
+  reopenMonth(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body('reportMonth') reportMonth?: string,
+  ) {
+    return this.serviceReportsService.reopenMonth(
+      tenantId,
+      user,
+      requireMonth(reportMonth),
+    );
   }
 
   @Get('my')
@@ -59,20 +99,10 @@ export class ServiceReportsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('reportMonth') reportMonthRaw?: string,
   ) {
-    if (!reportMonthRaw) {
-      throw new BadRequestException(
-        'reportMonth query parameter is required (YYYY-MM)',
-      );
-    }
-    if (!/^\d{4}-\d{2}(-\d{2})?$/.test(reportMonthRaw)) {
-      throw new BadRequestException(
-        'reportMonth must be in YYYY-MM or YYYY-MM-DD format',
-      );
-    }
     return this.serviceReportsService.findGroupReports(
       tenantId,
       user,
-      reportMonthRaw,
+      requireMonth(reportMonthRaw),
     );
   }
 
@@ -82,20 +112,23 @@ export class ServiceReportsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('reportMonth') reportMonthRaw?: string,
   ) {
-    if (!reportMonthRaw) {
-      throw new BadRequestException(
-        'reportMonth query parameter is required (YYYY-MM)',
-      );
-    }
-    if (!/^\d{4}-\d{2}(-\d{2})?$/.test(reportMonthRaw)) {
-      throw new BadRequestException(
-        'reportMonth must be in YYYY-MM or YYYY-MM-DD format',
-      );
-    }
     return this.serviceReportsService.getSummary(
       tenantId,
       user,
-      reportMonthRaw,
+      requireMonth(reportMonthRaw),
+    );
+  }
+
+  @Get('closure')
+  getClosure(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('reportMonth') reportMonthRaw?: string,
+  ) {
+    return this.serviceReportsService.getClosureStatus(
+      tenantId,
+      user,
+      requireMonth(reportMonthRaw),
     );
   }
 

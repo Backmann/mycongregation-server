@@ -4,6 +4,7 @@ import { ServiceReport } from '../entities/service-report.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Responsibility } from '../entities/responsibility.entity';
+import { ReportMonthClosure } from '../entities/report-month-closure.entity';
 import { ServiceReportsController } from './service-reports.controller';
 import { ServiceReportsService } from './service-reports.service';
 import { AuditLogModule } from '../audit-log/audit-log.module';
@@ -15,6 +16,7 @@ import { PublishersModule } from '../publishers/publishers.module';
       Publisher,
       ServiceGroup,
       Responsibility,
+      ReportMonthClosure,
     ]),
     AuditLogModule,
     PublishersModule,

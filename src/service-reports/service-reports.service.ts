@@ -11,6 +11,7 @@ import { ServiceReport } from '../entities/service-report.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Responsibility } from '../entities/responsibility.entity';
+import { ReportMonthClosure } from '../entities/report-month-closure.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { PublishersService } from '../publishers/publishers.service';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
@@ -24,6 +25,7 @@ import { UpdateReportDto } from './dto/update-report.dto';
 export interface GroupReportsResponse {
   reportMonth: string;
   scopeLabel: string;
+  closed: boolean;
   publishers: GroupReportRow[];
 }
 
@@ -87,6 +89,22 @@ export interface ServiceReportSummary {
   categories: ServiceReportSummaryCategory[];
   totalActivePublishers: number;
   totalInactivePublishers: number;
+  closed: boolean;
+}
+
+/**
+ * Closure state for a single reporting month.
+ *
+ * A month is "closed" once the secretary (or an admin) confirms it: edits are
+ * then frozen for everyone except admins and the secretary, who may always
+ * re-enter any month. `canManage` tells the client whether the caller may
+ * toggle the closure.
+ */
+export interface ClosureStatus {
+  reportMonth: string;
+  closed: boolean;
+  closedAt: string | null;
+  canManage: boolean;
 }
 
 /**
@@ -119,6 +137,8 @@ export class ServiceReportsService {
     private readonly serviceGroupsRepo: Repository<ServiceGroup>,
     @InjectRepository(Responsibility)
     private readonly responsibilitiesRepo: Repository<Responsibility>,
+    @InjectRepository(ReportMonthClosure)
+    private readonly closuresRepo: Repository<ReportMonthClosure>,
     private readonly auditLogService: AuditLogService,
     private readonly publishersService: PublishersService,
   ) {}
@@ -267,7 +287,18 @@ export class ServiceReportsService {
 
     const reports = await qb.getMany();
     const groupId = publisher.serviceGroupId ?? null;
-    reports.forEach((r) => this.setCanEdit(r, ctx, groupId));
+    const closedMonths = await this.closedMonthsSet(
+      tenantId,
+      reports.map((r) => r.reportMonth),
+    );
+    reports.forEach((r) =>
+      this.setCanEdit(
+        r,
+        ctx,
+        groupId,
+        closedMonths.has(r.reportMonth.slice(0, 10)),
+      ),
+    );
     await this.enrichEditorNames(reports);
     return reports as (ServiceReport & {
       canEdit: boolean;
@@ -307,7 +338,12 @@ export class ServiceReportsService {
       throw new ForbiddenException('You may only view your own reports.');
     }
 
-    this.setCanEdit(report, ctx, groupId);
+    this.setCanEdit(
+      report,
+      ctx,
+      groupId,
+      await this.isMonthClosed(tenantId, report.reportMonth),
+    );
     await this.enrichEditorNames([report]);
     return report as ServiceReport & {
       canEdit: boolean;
@@ -351,7 +387,14 @@ export class ServiceReportsService {
     });
     const groupId = publisher?.serviceGroupId ?? null;
 
-    if (!this.canEditWithCtx(report, ctx, groupId)) {
+    const isClosed = await this.isMonthClosed(tenantId, report.reportMonth);
+    if (!this.canEditWithCtx(report, ctx, groupId, isClosed)) {
+      if (isClosed && !ctx.alwaysEdit) {
+        throw new ForbiddenException(
+          'This month has been closed by the secretary. Only the secretary ' +
+            'or an admin can make further changes.',
+        );
+      }
       const isOwnReport = report.submittedById === user.id;
       if (isOwnReport) {
         throw new ForbiddenException(
@@ -414,7 +457,7 @@ export class ServiceReportsService {
     });
     // Recompute target publisher's status (no-op if manually overridden).
     await this.publishersService.recomputeStatus(tenantId, report.publisherId);
-    this.setCanEdit(saved, ctx, groupId);
+    this.setCanEdit(saved, ctx, groupId, isClosed);
     await this.enrichEditorNames([saved]);
     return saved as ServiceReport & {
       canEdit: boolean;
@@ -494,8 +537,14 @@ export class ServiceReportsService {
             },
           });
 
+    const isClosed = await this.isMonthClosed(tenantId, normalizedMonth);
     reports.forEach((r) =>
-      this.setCanEdit(r, ctx, groupByPubId.get(r.publisherId) ?? null),
+      this.setCanEdit(
+        r,
+        ctx,
+        groupByPubId.get(r.publisherId) ?? null,
+        isClosed,
+      ),
     );
     await this.enrichEditorNames(reports);
 
@@ -504,6 +553,7 @@ export class ServiceReportsService {
     return {
       reportMonth: normalizedMonth,
       scopeLabel,
+      closed: isClosed,
       publishers: publisherScope.map((p) => ({
         publisherId: p.id,
         displayName: p.displayName,
@@ -573,8 +623,17 @@ export class ServiceReportsService {
       lastEditedByName: string | null;
     };
 
+    const closedMonths = await this.closedMonthsSet(
+      tenantId,
+      reports.map((r) => r.reportMonth),
+    );
     for (const r of reports) {
-      this.setCanEdit(r, ctx, groupId);
+      this.setCanEdit(
+        r,
+        ctx,
+        groupId,
+        closedMonths.has(r.reportMonth.slice(0, 10)),
+      );
     }
 
     const timeline: PublisherHistoryEntry[] = [];
@@ -697,12 +756,80 @@ export class ServiceReportsService {
       },
     });
 
+    const closed = await this.isMonthClosed(tenantId, reportMonth);
+
     return {
       reportMonth,
       categories,
       totalActivePublishers,
       totalInactivePublishers,
+      closed,
     };
+  }
+
+  /**
+   * Closure status for a month. Readable by any authenticated user (so the
+   * UI can show a "closed" badge); `canManage` reflects whether the caller
+   * may toggle it (admins and the secretary).
+   */
+  async getClosureStatus(
+    tenantId: string,
+    user: AuthenticatedUser,
+    reportMonthInput: string,
+  ): Promise<ClosureStatus> {
+    const reportMonth = this.normalizeReportMonth(reportMonthInput);
+    const ctx = await this.buildPermissionContext(tenantId, user);
+    return this.buildClosureStatus(tenantId, reportMonth, ctx.alwaysEdit);
+  }
+
+  /**
+   * Confirm/close a reporting month. Idempotent — closing an already-closed
+   * month is a no-op. Only admins and the secretary may close.
+   */
+  async closeMonth(
+    tenantId: string,
+    user: AuthenticatedUser,
+    reportMonthInput: string,
+  ): Promise<ClosureStatus> {
+    const reportMonth = this.normalizeReportMonth(reportMonthInput);
+    const ctx = await this.buildPermissionContext(tenantId, user);
+    if (!ctx.alwaysEdit) {
+      throw new ForbiddenException(
+        'Only administrators and the secretary may close a month.',
+      );
+    }
+    const existing = await this.closuresRepo.findOne({
+      where: { congregationId: tenantId, reportMonth },
+    });
+    if (!existing) {
+      const row = this.closuresRepo.create({
+        congregationId: tenantId,
+        reportMonth,
+        closedById: user.id,
+      });
+      await this.closuresRepo.save(row);
+    }
+    return this.buildClosureStatus(tenantId, reportMonth, ctx.alwaysEdit);
+  }
+
+  /**
+   * Re-open a previously closed month. Idempotent. Only admins and the
+   * secretary may reopen — letting them correct after a premature close.
+   */
+  async reopenMonth(
+    tenantId: string,
+    user: AuthenticatedUser,
+    reportMonthInput: string,
+  ): Promise<ClosureStatus> {
+    const reportMonth = this.normalizeReportMonth(reportMonthInput);
+    const ctx = await this.buildPermissionContext(tenantId, user);
+    if (!ctx.alwaysEdit) {
+      throw new ForbiddenException(
+        'Only administrators and the secretary may reopen a month.',
+      );
+    }
+    await this.closuresRepo.delete({ congregationId: tenantId, reportMonth });
+    return this.buildClosureStatus(tenantId, reportMonth, ctx.alwaysEdit);
   }
 
   /**
@@ -773,8 +900,11 @@ export class ServiceReportsService {
     report: ServiceReport,
     ctx: ReportPermissionContext,
     publisherGroupId: string | null,
+    isClosed: boolean,
   ): boolean {
     if (ctx.alwaysEdit) return true;
+    // A closed month is frozen for everyone except admins/secretary above.
+    if (isClosed) return false;
     if (!this.isInSelfEditWindow(report.reportMonth)) return false;
     if (report.submittedById === ctx.userId) return true;
     if (
@@ -791,9 +921,54 @@ export class ServiceReportsService {
     report: ServiceReport,
     ctx: ReportPermissionContext,
     publisherGroupId: string | null,
+    isClosed: boolean,
   ): void {
     (report as ServiceReport & { canEdit: boolean }).canEdit =
-      this.canEditWithCtx(report, ctx, publisherGroupId);
+      this.canEditWithCtx(report, ctx, publisherGroupId, isClosed);
+  }
+
+  /** Whether a single reporting month is closed for this congregation. */
+  private async isMonthClosed(
+    tenantId: string,
+    reportMonth: string,
+  ): Promise<boolean> {
+    const count = await this.closuresRepo.count({
+      where: { congregationId: tenantId, reportMonth },
+    });
+    return count > 0;
+  }
+
+  /**
+   * Closed months among a set, as a Set of normalized `YYYY-MM-01` strings.
+   * Used by the multi-month list views to avoid a per-report query.
+   */
+  private async closedMonthsSet(
+    tenantId: string,
+    reportMonths: string[],
+  ): Promise<Set<string>> {
+    const distinct = [...new Set(reportMonths.map((m) => m.slice(0, 10)))];
+    if (distinct.length === 0) return new Set();
+    const rows = await this.closuresRepo.find({
+      where: { congregationId: tenantId, reportMonth: In(distinct) },
+    });
+    return new Set(rows.map((r) => String(r.reportMonth).slice(0, 10)));
+  }
+
+  /** Assemble a ClosureStatus for the given month. */
+  private async buildClosureStatus(
+    tenantId: string,
+    reportMonth: string,
+    canManage: boolean,
+  ): Promise<ClosureStatus> {
+    const row = await this.closuresRepo.findOne({
+      where: { congregationId: tenantId, reportMonth },
+    });
+    return {
+      reportMonth,
+      closed: !!row,
+      closedAt: row ? row.closedAt.toISOString() : null,
+      canManage,
+    };
   }
 
   /**

@@ -28,6 +28,7 @@ import { ServiceReport } from '../entities/service-report.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Responsibility } from '../entities/responsibility.entity';
+import { ReportMonthClosure } from '../entities/report-month-closure.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -94,6 +95,7 @@ describe('ServiceReportsService', () => {
   let publishersRepo: jest.Mocked<Repository<Publisher>>;
   let serviceGroupsRepo: jest.Mocked<Repository<ServiceGroup>>;
   let responsibilitiesRepo: jest.Mocked<Repository<Responsibility>>;
+  let closuresRepo: jest.Mocked<Repository<ReportMonthClosure>>;
   let auditLogService: { logUpdate: jest.Mock; findForEntity: jest.Mock };
   let publishersService: { recomputeStatus: jest.Mock };
 
@@ -121,6 +123,15 @@ describe('ServiceReportsService', () => {
       count: jest.fn().mockResolvedValue(0),
     } as unknown as jest.Mocked<Repository<Responsibility>>;
 
+    closuresRepo = {
+      count: jest.fn().mockResolvedValue(0),
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((data: Partial<ReportMonthClosure>) => data),
+      save: jest.fn(async (r: any) => r),
+      delete: jest.fn().mockResolvedValue({ affected: 1 }),
+    } as unknown as jest.Mocked<Repository<ReportMonthClosure>>;
+
     auditLogService = {
       logUpdate: jest.fn(),
       findForEntity: jest.fn(),
@@ -131,6 +142,7 @@ describe('ServiceReportsService', () => {
       publishersRepo,
       serviceGroupsRepo,
       responsibilitiesRepo,
+      closuresRepo,
       auditLogService as any,
       publishersService as any,
     );
@@ -196,7 +208,9 @@ describe('ServiceReportsService', () => {
       report: ServiceReport,
       ctx: any,
       groupId: string | null = null,
-    ): boolean => (service as any).canEditWithCtx(report, ctx, groupId);
+      isClosed = false,
+    ): boolean =>
+      (service as any).canEditWithCtx(report, ctx, groupId, isClosed);
 
     const ctxFor = (over: Record<string, any> = {}) => ({
       userId: 'u1',
@@ -251,6 +265,25 @@ describe('ServiceReportsService', () => {
       const report = makeReport({ submittedById: 'u2' });
       expect(callCan(report, ctxFor({ overseenGroupIds: ['g1'] }), 'g1')).toBe(
         false,
+      );
+    });
+
+    it('owner within window but month CLOSED → false', () => {
+      const report = makeReport({ submittedById: 'u1' });
+      expect(callCan(report, ctxFor(), null, true)).toBe(false);
+    });
+
+    it('overseer within window but month CLOSED → false', () => {
+      const report = makeReport({ submittedById: 'u2' });
+      expect(
+        callCan(report, ctxFor({ overseenGroupIds: ['g1'] }), 'g1', true),
+      ).toBe(false);
+    });
+
+    it('admin/secretary (alwaysEdit) → true even when month CLOSED', () => {
+      const report = makeReport({ submittedById: 'u2' });
+      expect(callCan(report, ctxFor({ alwaysEdit: true }), null, true)).toBe(
+        true,
       );
     });
   });
@@ -1356,6 +1389,146 @@ describe('ServiceReportsService', () => {
       expect(result.categories).toHaveLength(5);
       expect(result.categories.every((c) => c.count === 0)).toBe(true);
       expect(result.categories[0].bibleStudies).toBe(0);
+    });
+  });
+
+  // =========================================================
+  // Month closure — close / reopen / status + freeze
+  // =========================================================
+  describe('month closure', () => {
+    it('getClosureStatus reports open with canManage for an admin', async () => {
+      publishersRepo.findOne.mockResolvedValue(null);
+      closuresRepo.findOne.mockResolvedValue(null);
+
+      const result = await service.getClosureStatus(
+        'cong-1',
+        makeUser({ id: 'admin-id', role: UserRole.ADMIN }),
+        '2026-04',
+      );
+
+      expect(result).toMatchObject({
+        reportMonth: '2026-04-01',
+        closed: false,
+        closedAt: null,
+        canManage: true,
+      });
+    });
+
+    it('getClosureStatus: canManage is false for a plain publisher', async () => {
+      responsibilitiesRepo.count.mockResolvedValue(0);
+      publishersRepo.findOne.mockResolvedValue(null);
+      closuresRepo.findOne.mockResolvedValue(null);
+
+      const result = await service.getClosureStatus(
+        'cong-1',
+        makeUser({ id: 'user-self', role: UserRole.PUBLISHER }),
+        '2026-04',
+      );
+
+      expect(result.canManage).toBe(false);
+    });
+
+    it('closeMonth forbids a plain publisher', async () => {
+      responsibilitiesRepo.count.mockResolvedValue(0);
+      publishersRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.closeMonth(
+          'cong-1',
+          makeUser({ id: 'user-self', role: UserRole.PUBLISHER }),
+          '2026-04',
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(closuresRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('closeMonth inserts a closure and returns closed=true for the secretary', async () => {
+      responsibilitiesRepo.count.mockResolvedValue(1);
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ id: 'pub-sec', userId: 'sec-id' }),
+      );
+      closuresRepo.findOne
+        .mockResolvedValueOnce(null) // existing? no
+        .mockResolvedValueOnce({
+          reportMonth: '2026-04-01',
+          closedAt: new Date('2026-05-12T09:00:00Z'),
+        } as ReportMonthClosure); // buildClosureStatus re-read
+
+      const result = await service.closeMonth(
+        'cong-1',
+        makeUser({ id: 'sec-id', role: UserRole.PUBLISHER }),
+        '2026-04',
+      );
+
+      expect(closuresRepo.save).toHaveBeenCalled();
+      expect(result.closed).toBe(true);
+      expect(result.canManage).toBe(true);
+    });
+
+    it('closeMonth is idempotent — no second insert when already closed', async () => {
+      publishersRepo.findOne.mockResolvedValue(null);
+      closuresRepo.findOne.mockResolvedValue({
+        reportMonth: '2026-04-01',
+        closedAt: new Date(),
+      } as ReportMonthClosure);
+
+      await service.closeMonth(
+        'cong-1',
+        makeUser({ id: 'admin-id', role: UserRole.ADMIN }),
+        '2026-04',
+      );
+
+      expect(closuresRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('reopenMonth deletes the closure for an admin', async () => {
+      publishersRepo.findOne.mockResolvedValue(null);
+      closuresRepo.findOne.mockResolvedValue(null);
+
+      const result = await service.reopenMonth(
+        'cong-1',
+        makeUser({ id: 'admin-id', role: UserRole.ADMIN }),
+        '2026-04',
+      );
+
+      expect(closuresRepo.delete).toHaveBeenCalledWith({
+        congregationId: 'cong-1',
+        reportMonth: '2026-04-01',
+      });
+      expect(result.closed).toBe(false);
+    });
+
+    it('updateReport is frozen when the month is closed (owner, in window)', async () => {
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      reportsRepo.findOne.mockResolvedValue(
+        makeReport({
+          id: 'rep-1',
+          publisherId: 'pub-self',
+          submittedById: 'user-self',
+          reportMonth: '2026-04-01',
+        }),
+      );
+      responsibilitiesRepo.count.mockResolvedValue(0);
+      publishersRepo.findOne.mockImplementation(async (opts: any) => {
+        if (opts.where.userId === 'user-self') {
+          return makePublisher({ id: 'pub-self', userId: 'user-self' });
+        }
+        if (opts.where.id === 'pub-self') {
+          return makePublisher({ id: 'pub-self', userId: 'user-self' });
+        }
+        return null;
+      });
+      closuresRepo.count.mockResolvedValue(1); // month closed
+
+      await expect(
+        service.updateReport(
+          'cong-1',
+          makeUser({ id: 'user-self', role: UserRole.PUBLISHER }),
+          'rep-1',
+          { bibleStudies: 3 },
+        ),
+      ).rejects.toThrow(/closed/i);
+      expect(reportsRepo.save).not.toHaveBeenCalled();
     });
   });
 });
