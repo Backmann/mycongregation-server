@@ -26,12 +26,10 @@ export const PRIVATE_PUBLISHER_FIELDS = [
  * shape the roster for callers who may see names (for scheduling, groups) but
  * not personal data.
  */
-export function redactPrivateFields<T extends Record<string, unknown>>(
-  publisher: T,
-): T {
-  const copy = { ...publisher };
+export function redactPrivateFields<T extends object>(publisher: T): T {
+  const copy = { ...publisher } as Record<string, unknown>;
   for (const field of PRIVATE_PUBLISHER_FIELDS) {
-    delete (copy as Record<string, unknown>)[field];
+    delete copy[field];
   }
-  return copy;
+  return copy as T;
 }
