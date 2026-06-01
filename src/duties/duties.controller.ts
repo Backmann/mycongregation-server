@@ -25,8 +25,8 @@ import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 
 /**
  * Meeting duties. Reading is open to any authenticated member; editing requires
- * the duties_coordinator responsibility (admins always pass, per the
- * permission matrix).
+ * the duties_coordinator OR body_coordinator responsibility (the body
+ * coordinator / совет старейшин edits duties too; admins always pass).
  */
 @Controller('duties')
 export class DutiesController {
@@ -39,7 +39,10 @@ export class DutiesController {
 
   @Post('generate')
   @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(ResponsibilityType.DUTIES_COORDINATOR)
+  @RequireResponsibility(
+    ResponsibilityType.DUTIES_COORDINATOR,
+    ResponsibilityType.BODY_COORDINATOR,
+  )
   generate(
     @TenantId() congregationId: string,
     @Body() dto: GenerateWeekDutiesDto,
@@ -49,7 +52,10 @@ export class DutiesController {
 
   @Post('custom')
   @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(ResponsibilityType.DUTIES_COORDINATOR)
+  @RequireResponsibility(
+    ResponsibilityType.DUTIES_COORDINATOR,
+    ResponsibilityType.BODY_COORDINATOR,
+  )
   createCustom(
     @TenantId() congregationId: string,
     @Body() dto: CreateCustomDutyDto,
@@ -59,7 +65,10 @@ export class DutiesController {
 
   @Patch('microphone-slots')
   @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(ResponsibilityType.DUTIES_COORDINATOR)
+  @RequireResponsibility(
+    ResponsibilityType.DUTIES_COORDINATOR,
+    ResponsibilityType.BODY_COORDINATOR,
+  )
   setMicrophoneSlots(
     @TenantId() congregationId: string,
     @Body() dto: SetMicrophoneSlotsDto,
@@ -69,7 +78,10 @@ export class DutiesController {
 
   @Patch(':id/assign')
   @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(ResponsibilityType.DUTIES_COORDINATOR)
+  @RequireResponsibility(
+    ResponsibilityType.DUTIES_COORDINATOR,
+    ResponsibilityType.BODY_COORDINATOR,
+  )
   assign(
     @TenantId() congregationId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -80,7 +92,10 @@ export class DutiesController {
 
   @Delete(':id')
   @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(ResponsibilityType.DUTIES_COORDINATOR)
+  @RequireResponsibility(
+    ResponsibilityType.DUTIES_COORDINATOR,
+    ResponsibilityType.BODY_COORDINATOR,
+  )
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(
     @TenantId() congregationId: string,

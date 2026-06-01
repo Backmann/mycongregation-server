@@ -129,4 +129,40 @@ describe('AssignmentSectionGuard', () => {
     });
     await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
   });
+
+  it('allows the duties coordinator to edit the av_duty section', async () => {
+    responsibilitiesRepo.find.mockResolvedValue([
+      { type: ResponsibilityType.DUTIES_COORDINATOR },
+    ]);
+    const ctx = makeContext({
+      user: PUBLISHER,
+      params: {},
+      body: { eventType: EventType.AV_DUTY },
+    });
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+  });
+
+  it('also allows the body coordinator to edit the av_duty section', async () => {
+    responsibilitiesRepo.find.mockResolvedValue([
+      { type: ResponsibilityType.BODY_COORDINATOR },
+    ]);
+    const ctx = makeContext({
+      user: PUBLISHER,
+      params: {},
+      body: { eventType: EventType.AV_DUTY },
+    });
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+  });
+
+  it('rejects an unrelated holder on the av_duty section', async () => {
+    responsibilitiesRepo.find.mockResolvedValue([
+      { type: ResponsibilityType.CLEANING_COORDINATOR },
+    ]);
+    const ctx = makeContext({
+      user: PUBLISHER,
+      params: {},
+      body: { eventType: EventType.AV_DUTY },
+    });
+    await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
+  });
 });
