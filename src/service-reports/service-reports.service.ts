@@ -36,6 +36,7 @@ export interface GroupReportRow {
   report:
     | (ServiceReport & { canEdit: boolean; lastEditedByName: string | null })
     | null;
+  canManage: boolean;
 }
 
 export interface PublisherHistoryEntry {
@@ -565,6 +566,10 @@ export class ServiceReportsService {
                 lastEditedByName: string | null;
               })
             | undefined) ?? null,
+        canManage:
+          (ctx.alwaysEdit ||
+            ctx.overseenGroupIds.includes(groupByPubId.get(p.id) ?? '')) &&
+          (!isClosed || ctx.alwaysEdit),
       })),
     };
   }
