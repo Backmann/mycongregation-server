@@ -26,13 +26,17 @@ import { OverrideStatusDto } from './dto/override-status.dto';
 import { GrantAccessDto } from './dto/grant-access.dto';
 import { UpdateAccessDto } from './dto/update-access.dto';
 import { redactPrivateFields } from './publisher-privacy';
+import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
+import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
+import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 
 @Controller('publishers')
 @UseGuards(RolesGuard)
 export class PublishersController {
   constructor(private readonly publishersService: PublishersService) {}
 
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(ResponsibilityType.SECRETARY)
   @Patch(':id/status')
   overrideStatus(
     @TenantId() tenantId: string,
@@ -43,7 +47,8 @@ export class PublishersController {
     return this.publishersService.overrideStatus(tenantId, user, id, dto);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(ResponsibilityType.SECRETARY)
   @Delete(':id/status-override')
   clearOverride(
     @TenantId() tenantId: string,
