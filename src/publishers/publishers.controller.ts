@@ -135,13 +135,15 @@ export class PublishersController {
     return this.publishersService.updateAccess(tenantId, id, dto, user);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.ELDER, UserRole.MINISTERIAL_SERVANT)
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(ResponsibilityType.SECRETARY)
   @Post()
   create(@TenantId() tenantId: string, @Body() dto: CreatePublisherDto) {
     return this.publishersService.create(tenantId, dto);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.ELDER, UserRole.MINISTERIAL_SERVANT)
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(ResponsibilityType.SECRETARY)
   @Patch(':id')
   update(
     @TenantId() tenantId: string,
@@ -152,7 +154,8 @@ export class PublishersController {
     return this.publishersService.update(tenantId, id, dto, user?.id);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(ResponsibilityType.SECRETARY)
   @Post(':id/remove')
   remove(
     @TenantId() tenantId: string,
@@ -162,7 +165,8 @@ export class PublishersController {
     return this.publishersService.remove(tenantId, id, dto);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(ResponsibilityType.SECRETARY)
   @Post(':id/restore')
   restore(
     @TenantId() tenantId: string,
