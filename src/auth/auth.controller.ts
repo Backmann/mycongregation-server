@@ -46,8 +46,12 @@ export class AuthController {
   }
 
   @Get('me')
-  me(@CurrentUser() user: AuthenticatedUser) {
-    return user;
+  async me(@CurrentUser() user: AuthenticatedUser) {
+    const account = await this.usersService.findByIdInCongregation(
+      user.id,
+      user.congregationId,
+    );
+    return { ...user, canViewPrivateData: account.canViewPrivateData };
   }
 
   @Patch('me')

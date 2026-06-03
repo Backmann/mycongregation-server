@@ -168,6 +168,7 @@ export class AuthService {
         email: user.email,
         role: user.role,
         congregationId: user.congregationId,
+        canViewPrivateData: user.canViewPrivateData,
       },
     };
   }
