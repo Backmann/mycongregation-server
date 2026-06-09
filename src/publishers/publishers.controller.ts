@@ -101,7 +101,12 @@ export class PublishersController {
           'access to private data.',
       );
     }
-    return this.publishersService.findOne(tenantId, id);
+    const publisher = await this.publishersService.findOne(tenantId, id);
+    const lastEditedByName = await this.publishersService.resolveEditorName(
+      tenantId,
+      publisher.lastEditedById,
+    );
+    return { ...publisher, lastEditedByName };
   }
 
   @Roles(UserRole.ADMIN)

@@ -39,6 +39,11 @@ export class Publisher {
   @Column({ type: 'uuid', nullable: true, unique: true })
   userId!: string | null;
 
+  // Login (user id) that last edited this card; surfaced as
+  // lastEditedByName on GET :id so edits can be signed on the card.
+  @Column({ type: 'uuid', nullable: true })
+  lastEditedById!: string | null;
+
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'user_id' })
   user!: User | null;
