@@ -24,6 +24,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ScheduledJobsModule } from './scheduled-jobs/scheduled-jobs.module';
 import { ReportRemindersModule } from './report-reminders/report-reminders.module';
 import { SpecialEventsModule } from './special-events/special-events.module';
+import { AbsencesModule } from './absences/absences.module';
 import { PushNotificationsModule } from './push-notifications/push-notifications.module';
 import { WebPushModule } from './web-push/web-push.module';
 import { ActivityFeedModule } from './activity-feed/activity-feed.module';
@@ -90,6 +91,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     ScheduledJobsModule,
     ReportRemindersModule,
     SpecialEventsModule,
+    AbsencesModule,
     PushNotificationsModule,
     WebPushModule,
     ResponsibilitiesModule,
