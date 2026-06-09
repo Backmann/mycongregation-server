@@ -50,7 +50,7 @@ export class ServiceGroupsController {
     return this.serviceGroupsService.findPublishers(tenantId, id, query);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.ELDER, UserRole.MINISTERIAL_SERVANT)
+  @Roles(UserRole.ADMIN)
   @Post(':id/publishers')
   addPublishers(
     @TenantId() tenantId: string,
@@ -64,7 +64,7 @@ export class ServiceGroupsController {
     );
   }
 
-  @Roles(UserRole.ADMIN, UserRole.ELDER, UserRole.MINISTERIAL_SERVANT)
+  @Roles(UserRole.ADMIN)
   @Delete(':id/publishers/:publisherId')
   @HttpCode(HttpStatus.NO_CONTENT)
   removePublisher(
@@ -75,13 +75,13 @@ export class ServiceGroupsController {
     return this.serviceGroupsService.removePublisher(tenantId, id, publisherId);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.ELDER, UserRole.MINISTERIAL_SERVANT)
+  @Roles(UserRole.ADMIN)
   @Post()
   create(@TenantId() tenantId: string, @Body() dto: CreateServiceGroupDto) {
     return this.serviceGroupsService.create(tenantId, dto);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.ELDER, UserRole.MINISTERIAL_SERVANT)
+  @Roles(UserRole.ADMIN)
   @Patch(':id')
   update(
     @TenantId() tenantId: string,
@@ -91,14 +91,14 @@ export class ServiceGroupsController {
     return this.serviceGroupsService.update(tenantId, id, dto);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @Roles(UserRole.ADMIN)
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@TenantId() tenantId: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.serviceGroupsService.remove(tenantId, id);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @Roles(UserRole.ADMIN)
   @Post(':id/restore')
   restore(
     @TenantId() tenantId: string,
