@@ -238,6 +238,80 @@ export class PushNotificationsService {
   }
 
   /**
+   * Generic push to a set of users: sends the given title/body to all of
+   * their Expo tokens and web-push subscriptions in the tenant. Used by
+   * report reminders. Best-effort; single language (text pre-built).
+   */
+  async sendToUsers(
+    tenantId: string,
+    userIds: string[],
+    title: string,
+    body: string,
+    data: Record<string, any>,
+  ): Promise<void> {
+    const uniq = [...new Set(userIds.filter(Boolean))];
+    if (uniq.length === 0) return;
+
+    const tokens = await this.pushTokenRepo.find({
+      where: { congregationId: tenantId, userId: In(uniq) },
+    });
+    const allWebSubs = await this.webPushService.getSubscriptionsByTenant(
+      tenantId,
+      undefined,
+    );
+    const webSubs = allWebSubs.filter((s) => uniq.includes(s.userId));
+    if (tokens.length === 0 && webSubs.length === 0) {
+      this.logger.log(`sendToUsers: no recipients in tenant=${tenantId}`);
+      return;
+    }
+
+    if (tokens.length > 0) {
+      const userIdByToken = new Map(tokens.map((t) => [t.token, t.userId]));
+      const now = new Date();
+      const results = await this.sendBatch(
+        tokens.map((t) => t.token),
+        title,
+        body,
+        data,
+      );
+      const receipts: PendingReceipt[] = [];
+      for (const r of results) {
+        if (!r.ticketId) continue;
+        const userId = userIdByToken.get(r.token);
+        if (!userId) continue;
+        receipts.push({
+          ticketId: r.ticketId,
+          token: r.token,
+          userId,
+          congregationId: tenantId,
+          status: 'pending',
+          errorCode: null,
+          sentAt: now,
+        });
+      }
+      if (receipts.length > 0) {
+        await this.pushReceiptRepo.save(receipts);
+      }
+      const immediateErrors = results.filter((r) => r.errorCode);
+      if (immediateErrors.length > 0) {
+        this.logger.warn(
+          `sendToUsers: ${immediateErrors.length} immediate errors: ` +
+            immediateErrors.map((e) => e.errorCode).join(', '),
+        );
+      }
+    }
+
+    if (webSubs.length > 0) {
+      const payload = { title, body, data };
+      await Promise.all(
+        webSubs.map((sub) =>
+          this.webPushService.sendToSubscription(sub, payload),
+        ),
+      );
+    }
+  }
+
+  /**
    * Low-level batch send. Returns one result per input token (same order),
    * so the caller can persist tickets (status='pending') for later receipt
    * checking and log immediate errors.

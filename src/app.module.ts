@@ -22,6 +22,7 @@ import { ServiceReportsModule } from './service-reports/service-reports.module';
 import { CryptoModule } from './crypto/crypto.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ScheduledJobsModule } from './scheduled-jobs/scheduled-jobs.module';
+import { ReportRemindersModule } from './report-reminders/report-reminders.module';
 import { PushNotificationsModule } from './push-notifications/push-notifications.module';
 import { WebPushModule } from './web-push/web-push.module';
 import { ActivityFeedModule } from './activity-feed/activity-feed.module';
@@ -86,6 +87,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     ServiceReportsModule,
     ScheduleModule.forRoot(),
     ScheduledJobsModule,
+    ReportRemindersModule,
     PushNotificationsModule,
     WebPushModule,
     ResponsibilitiesModule,
