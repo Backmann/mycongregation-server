@@ -571,7 +571,28 @@ export class PublishersService {
       );
     }
 
+    publisher.lastEditedById = actorUserId ?? publisher.lastEditedById;
     return this.publishersRepo.save(publisher);
+  }
+
+  /**
+   * Resolves the display name (or email) of the login that last edited a
+   * publisher card. Used to sign edits on the card; null if unknown.
+   */
+  async resolveEditorName(
+    tenantId: string,
+    userId: string | null,
+  ): Promise<string | null> {
+    if (!userId) return null;
+    const editor = await this.publishersRepo.findOne({
+      where: { congregationId: tenantId, userId },
+      withDeleted: true,
+    });
+    if (editor) return editor.displayName;
+    const user = await this.usersService
+      .findByIdInCongregation(userId, tenantId)
+      .catch(() => null);
+    return user?.email ?? null;
   }
 
   /**
