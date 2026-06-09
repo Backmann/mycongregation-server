@@ -15,7 +15,8 @@ import { Congregation } from './congregation.entity';
  * Congregation-wide special events shown in the upcoming-events feed:
  * circuit assemblies, regional conventions, the Memorial, circuit overseer
  * and branch representative visits, etc. `type` is a free key (extensible
- * without a migration); `title` is the display name.
+ * without a migration); `title` is the display name. `date` is the start;
+ * `endDate` is set for multi-day events (e.g. conventions, week-long visits).
  */
 @Entity('special_events')
 export class SpecialEvent {
@@ -39,6 +40,9 @@ export class SpecialEvent {
   @Column({ type: 'date' })
   @Index()
   date!: string;
+
+  @Column({ type: 'date', nullable: true })
+  endDate!: string | null;
 
   @Column({ type: 'varchar', length: 50, nullable: true })
   time!: string | null;

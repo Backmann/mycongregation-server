@@ -14,9 +14,11 @@ export class SpecialEventsService {
   ) {}
 
   /**
-   * Lists events for the tenant. By default returns only upcoming events
-   * (date >= today in Europe/Berlin), ordered by date then time. Pass
-   * `all=true` to include past events, `includeRemoved=true` for soft-deleted.
+   * Lists events for the tenant. By default returns only events that have not
+   * finished yet (COALESCE(end_date, date) >= today in Europe/Berlin), so a
+   * multi-day event stays visible until its last day. Ordered by start date
+   * then time. Pass `all=true` to include past events, `includeRemoved=true`
+   * for soft-deleted.
    */
   async findAll(
     tenantId: string,
@@ -34,7 +36,7 @@ export class SpecialEventsService {
       const today = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'Europe/Berlin',
       }).format(new Date());
-      qb.andWhere('e.date >= :today', { today });
+      qb.andWhere('COALESCE(e.end_date, e.date) >= :today', { today });
     }
 
     qb.orderBy('e.date', 'ASC').addOrderBy('e.time', 'ASC');

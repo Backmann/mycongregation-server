@@ -22,6 +22,10 @@ export class UpdateSpecialEventDto {
   date?: string;
 
   @IsOptional()
+  @IsDateString()
+  endDate?: string;
+
+  @IsOptional()
   @IsString()
   @Length(1, 50)
   time?: string;
