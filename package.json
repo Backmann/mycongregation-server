@@ -1,7 +1,7 @@
 {
   "name": "server",
   "version": "0.0.1",
-  "description": "",
+  "description": "Helper for organizing meetings and managing members in small organizations and groups.",
   "author": "Lionel Backmann (Hovorukha)",
   "private": true,
   "license": "UNLICENSED",

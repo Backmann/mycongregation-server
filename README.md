@@ -3,30 +3,28 @@
 [![Deploy](https://github.com/Backmann/mycongregation-server/actions/workflows/deploy.yml/badge.svg)](https://github.com/Backmann/mycongregation-server/actions/workflows/deploy.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
-NestJS REST API for [mycongregation](https://github.com/Backmann/mycongregation-app) — congregation management for Jehovah's Witnesses congregations.
+NestJS REST API for [mycongregation](https://github.com/Backmann/mycongregation-app) — a helper for organizing meetings and managing members in small organizations and groups.
 
 Production API: **https://api.mycongregation.org/api**
 
-> ⚠️ This is an unofficial, community-built tool. Not affiliated with or endorsed by any religious organization.
+> ⚠️ Independent, community-built tool. Not affiliated with or endorsed by any organization.
 
 ## Features
 
 - 🔐 JWT authentication (access + refresh, bcrypt-12 password hashing)
-- 👥 Publishers CRUD with soft-delete and restoration
-- 👨‍👩‍👧 Families and service groups with relational linking
-- 📋 Assignments for midweek and weekend meetings
-- 🎤 Public talks catalog with bulk import (190+ talks)
-- 📅 EPUB-based weekly meeting schedule import
+- 👥 Member records with soft-delete and restoration
+- 👨‍👩‍👧 Families and groups with relational linking
+- 📋 Assignments for scheduled meetings
+- 🎤 Talks catalog
 - 🏢 Multi-tenancy ready (`congregationId` scoping on all entities)
 - ✅ Manual TypeORM migrations (no auto-sync in production)
 
 ## Tech stack
 
-- [NestJS](https://nestjs.com/) 10 + TypeScript (strict)
+- [NestJS](https://nestjs.com/) + TypeScript (strict)
 - PostgreSQL 16 + TypeORM
 - Joi validation schemas
 - Docker Compose for local + production
-- BullMQ planned for async work
 
 ## Development
 
@@ -53,7 +51,7 @@ npm run test:e2e   # integration
 
 ## Production
 
-Deployed via Docker Compose on a Hetzner CX22 VPS, behind nginx + Cloudflare Origin Certificate. Shares the host with [30sec.org](https://30sec.org).
+Deployed via Docker Compose on a Hetzner CX22 VPS, behind nginx + Cloudflare Origin Certificate.
 
 ```bash
 docker compose up -d
@@ -66,8 +64,6 @@ Routes mapped under `/api` prefix. Key endpoints:
 
 - `POST /api/auth/login` — JWT auth
 - `GET /api/publishers` — list with filters
-- `POST /api/public-talks/bulk-import` — bulk text import
-- `POST /api/schedule-import/upload` — EPUB upload (multipart)
 - `GET /api/assignments` — meeting parts by date range
 
 ## License
