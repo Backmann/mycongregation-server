@@ -23,6 +23,16 @@ export interface PublisherActivity {
   items: ActivityItem[];
 }
 
+export interface PartSuggestion {
+  publisherId: string;
+  /** Last week (strictly before the target week) they led one of the parts. */
+  lastPrimaryAt: string | null;
+  /** Last week they assisted on one of the parts. */
+  lastAssistantAt: string | null;
+  /** Most recent distinct assistants when they led (newest first, max 3). */
+  recentAssistants: { publisherId: string; weekStartDate: string }[];
+}
+
 @Injectable()
 export class PublisherActivityService {
   constructor(
@@ -89,5 +99,84 @@ export class PublisherActivityService {
       publisherId,
       items,
     }));
+  }
+
+  /**
+   * Per-publisher history for a set of equivalent part keys, used to rank
+   * assignment suggestions. Looks back `weeks` weeks (default 26) strictly
+   * before the target week, so "last did this part" reflects genuinely
+   * prior occurrences. Part-key equivalence (e.g. the apply-yourself
+   * family) is decided by the client, which passes the full key list.
+   */
+  async getSuggestions(
+    congregationId: string,
+    weekStart: string,
+    partKeys: string[],
+    weeks = 26,
+  ): Promise<PartSuggestion[]> {
+    if (partKeys.length === 0) return [];
+    const start = new Date(`${weekStart}T00:00:00Z`);
+    start.setUTCDate(start.getUTCDate() - weeks * 7);
+    const from = start.toISOString().slice(0, 10);
+
+    const rows = await this.assignmentRepo.find({
+      where: { congregationId, weekStartDate: Between(from, weekStart) },
+    });
+
+    const keys = new Set(partKeys);
+    const map = new Map<string, PartSuggestion>();
+    const entry = (publisherId: string): PartSuggestion => {
+      let e = map.get(publisherId);
+      if (!e) {
+        e = {
+          publisherId,
+          lastPrimaryAt: null,
+          lastAssistantAt: null,
+          recentAssistants: [],
+        };
+        map.set(publisherId, e);
+      }
+      return e;
+    };
+
+    for (const a of rows) {
+      if (!keys.has(a.partKey)) continue;
+      if (String(a.status) === 'cancelled') continue;
+      if (a.weekStartDate >= weekStart) continue;
+      if (a.publisherId) {
+        const e = entry(a.publisherId);
+        if (!e.lastPrimaryAt || a.weekStartDate > e.lastPrimaryAt) {
+          e.lastPrimaryAt = a.weekStartDate;
+        }
+        if (a.assistantPublisherId) {
+          e.recentAssistants.push({
+            publisherId: a.assistantPublisherId,
+            weekStartDate: a.weekStartDate,
+          });
+        }
+      }
+      if (a.assistantPublisherId) {
+        const e = entry(a.assistantPublisherId);
+        if (!e.lastAssistantAt || a.weekStartDate > e.lastAssistantAt) {
+          e.lastAssistantAt = a.weekStartDate;
+        }
+      }
+    }
+
+    for (const e of map.values()) {
+      e.recentAssistants.sort((x, y) =>
+        y.weekStartDate.localeCompare(x.weekStartDate),
+      );
+      const seen = new Set<string>();
+      e.recentAssistants = e.recentAssistants
+        .filter((r) => {
+          if (seen.has(r.publisherId)) return false;
+          seen.add(r.publisherId);
+          return true;
+        })
+        .slice(0, 3);
+    }
+
+    return Array.from(map.values());
   }
 }

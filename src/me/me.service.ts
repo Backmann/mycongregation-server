@@ -30,6 +30,16 @@ export interface MyAssignmentItem {
   asAssistant?: boolean;
 }
 
+export interface MyPublisherResponse {
+  publisher: {
+    id: string;
+    displayName: string;
+    firstName: string;
+    lastName: string;
+    pioneerType: string | null;
+  } | null;
+}
+
 export interface MyAssignmentsResponse {
   publisherId: string | null;
   items: MyAssignmentItem[];
@@ -80,6 +90,30 @@ export class MeService {
     @InjectRepository(FieldServiceMeeting)
     private readonly fieldRepo: Repository<FieldServiceMeeting>,
   ) {}
+
+  /**
+   * Light identity of the publisher linked to the signed-in user.
+   * Deliberately returns only non-sensitive fields; private/encrypted
+   * publisher data stays behind the publishers module guards.
+   */
+  async myPublisher(
+    tenantId: string,
+    userId: string,
+  ): Promise<MyPublisherResponse> {
+    const me = await this.publishersRepo.findOne({
+      where: { congregationId: tenantId, userId },
+    });
+    if (!me) return { publisher: null };
+    return {
+      publisher: {
+        id: me.id,
+        displayName: me.displayName,
+        firstName: me.firstName,
+        lastName: me.lastName,
+        pioneerType: me.pioneerType ?? null,
+      },
+    };
+  }
 
   async myAssignments(
     tenantId: string,

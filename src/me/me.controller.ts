@@ -20,4 +20,12 @@ export class MeController {
   ) {
     return this.service.myAssignments(tenantId, user.id);
   }
+
+  @Get('publisher')
+  myPublisher(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.myPublisher(tenantId, user.id);
+  }
 }
