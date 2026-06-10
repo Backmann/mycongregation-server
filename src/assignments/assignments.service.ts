@@ -5,6 +5,10 @@ import { Assignment } from '../entities/assignment.entity';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { QueryAssignmentDto } from './dto/query-assignment.dto';
+import { Responsibility } from '../entities/responsibility.entity';
+import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
+import { UserRole } from '../common/enums/user-role.enum';
+import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -18,12 +22,37 @@ export class AssignmentsService {
   constructor(
     @InjectRepository(Assignment)
     private readonly repo: Repository<Assignment>,
+    @InjectRepository(Responsibility)
+    private readonly responsibilitiesRepo: Repository<Responsibility>,
   ) {}
+
+  /**
+   * Schedule editors (admin, or holders of a schedule responsibility) may
+   * see drafts and removed rows; everyone else only sees the published
+   * programme. No user context (internal module-to-module call) is trusted.
+   */
+  private async canSeeDrafts(user?: AuthenticatedUser): Promise<boolean> {
+    if (!user) return true;
+    if (user.role === UserRole.ADMIN) return true;
+    const held = await this.responsibilitiesRepo.count({
+      where: {
+        congregationId: user.congregationId,
+        userId: user.id,
+        type: In([
+          'life_ministry_overseer',
+          'body_coordinator',
+        ] as ResponsibilityType[]),
+      },
+    });
+    return held > 0;
+  }
 
   async list(
     congregationId: string,
     query: QueryAssignmentDto,
+    user?: AuthenticatedUser,
   ): Promise<PaginatedResult<Assignment>> {
+    const editor = await this.canSeeDrafts(user);
     const limit = query.limit ?? 100;
     const offset = query.offset ?? 0;
 
@@ -42,7 +71,10 @@ export class AssignmentsService {
     if (query.eventType) {
       qb.andWhere('a.eventType = :eventType', { eventType: query.eventType });
     }
-    if (query.status) {
+    if (!editor) {
+      // Non-editors only ever see the published programme.
+      qb.andWhere("a.status = 'published'");
+    } else if (query.status) {
       qb.andWhere('a.status = :status', { status: query.status });
     }
     if (query.publisherId) {
@@ -55,7 +87,7 @@ export class AssignmentsService {
       qb.andWhere('a.partKey = :partKey', { partKey: query.partKey });
     }
 
-    if (query.includeRemoved) {
+    if (editor && query.includeRemoved) {
       qb.withDeleted();
     }
 
@@ -70,12 +102,23 @@ export class AssignmentsService {
     return { data, total, limit, offset };
   }
 
-  async getById(congregationId: string, id: string): Promise<Assignment> {
+  async getById(
+    congregationId: string,
+    id: string,
+    user?: AuthenticatedUser,
+  ): Promise<Assignment> {
     const assignment = await this.repo.findOne({
       where: { id, congregationId },
       withDeleted: true,
     });
     if (!assignment) {
+      throw new NotFoundException(`Assignment ${id} not found`);
+    }
+    if (
+      (String(assignment.status) !== 'published' || assignment.deletedAt) &&
+      !(await this.canSeeDrafts(user))
+    ) {
+      // Hide non-published / removed rows from non-editors as if absent.
       throw new NotFoundException(`Assignment ${id} not found`);
     }
     return assignment;

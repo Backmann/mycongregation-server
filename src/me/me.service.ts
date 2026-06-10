@@ -140,7 +140,7 @@ export class MeService {
         ws: weekFloor,
         we: horizon,
       })
-      .andWhere("a.status != 'cancelled'")
+      .andWhere("a.status = 'published'")
       .andWhere('(a.publisher_id = :pid OR a.assistant_publisher_id = :pid)', {
         pid,
       })

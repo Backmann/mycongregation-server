@@ -18,6 +18,8 @@ import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { QueryAssignmentDto } from './dto/query-assignment.dto';
 import { BulkCreateAssignmentDto } from './dto/bulk-create-assignment.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { AssignmentSectionGuard } from '../common/guards/assignment-section.guard';
 
 @Controller('assignments')
@@ -25,16 +27,21 @@ export class AssignmentsController {
   constructor(private readonly service: AssignmentsService) {}
 
   @Get()
-  list(@TenantId() congregationId: string, @Query() query: QueryAssignmentDto) {
-    return this.service.list(congregationId, query);
+  list(
+    @TenantId() congregationId: string,
+    @Query() query: QueryAssignmentDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.list(congregationId, query, user);
   }
 
   @Get(':id')
   getById(
     @TenantId() congregationId: string,
     @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.getById(congregationId, id);
+    return this.service.getById(congregationId, id, user);
   }
 
   @Post()
