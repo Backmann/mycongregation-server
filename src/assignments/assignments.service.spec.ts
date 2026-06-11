@@ -4,6 +4,14 @@ import { NotFoundException } from '@nestjs/common';
 import { AssignmentsService } from './assignments.service';
 import { Assignment } from '../entities/assignment.entity';
 import { Responsibility } from '../entities/responsibility.entity';
+import { PushNotificationsService } from '../push-notifications/push-notifications.service';
+
+// expo-server-sdk (pulled in transitively by the real push service) is
+// ESM-only and breaks under Jest. Mock the module: the DI token stays the
+// same class identity via the Jest module registry.
+jest.mock('../push-notifications/push-notifications.service', () => ({
+  PushNotificationsService: class PushNotificationsServiceMock {},
+}));
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
 function makeQb() {
@@ -42,6 +50,7 @@ describe('AssignmentsService draft visibility', () => {
   let service: AssignmentsService;
   let repo: { createQueryBuilder: jest.Mock; findOne: jest.Mock };
   let responsibilitiesRepo: { count: jest.Mock };
+  let pushMock: { sendSchedulePublished: jest.Mock };
   let qb: ReturnType<typeof makeQb>;
 
   beforeEach(async () => {
@@ -51,6 +60,7 @@ describe('AssignmentsService draft visibility', () => {
       findOne: jest.fn(),
     };
     responsibilitiesRepo = { count: jest.fn().mockResolvedValue(0) };
+    pushMock = { sendSchedulePublished: jest.fn() };
     const moduleRef = await Test.createTestingModule({
       providers: [
         AssignmentsService,
@@ -59,6 +69,7 @@ describe('AssignmentsService draft visibility', () => {
           provide: getRepositoryToken(Responsibility),
           useValue: responsibilitiesRepo,
         },
+        { provide: PushNotificationsService, useValue: pushMock },
       ],
     }).compile();
     service = moduleRef.get(AssignmentsService);
@@ -150,6 +161,11 @@ describe('AssignmentsService draft visibility', () => {
     expect(qb.set).toHaveBeenCalledWith({ status: 'published' });
     expect(qb.andWhere).toHaveBeenCalledWith("status = 'draft'");
     expect(qb.andWhere).toHaveBeenCalledWith('deletedAt IS NULL');
+    expect(pushMock.sendSchedulePublished).toHaveBeenCalledWith(
+      'c1',
+      'midweek',
+      '2026-06-08',
+    );
   });
 
   it('reports zero when the meeting has no drafts', async () => {
@@ -160,5 +176,17 @@ describe('AssignmentsService draft visibility', () => {
       'weekend' as never,
     );
     expect(res).toEqual({ published: 0 });
+    expect(pushMock.sendSchedulePublished).not.toHaveBeenCalled();
+  });
+
+  it('does not push for non-meeting sections', async () => {
+    qb.execute.mockResolvedValue({ affected: 2 });
+    const res = await service.publishMeeting(
+      'c1',
+      '2026-06-08',
+      'cleaning' as never,
+    );
+    expect(res).toEqual({ published: 2 });
+    expect(pushMock.sendSchedulePublished).not.toHaveBeenCalled();
   });
 });

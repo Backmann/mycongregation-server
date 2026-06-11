@@ -11,6 +11,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 import { EventType } from '../common/enums/event-type.enum';
+import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -26,6 +27,7 @@ export class AssignmentsService {
     private readonly repo: Repository<Assignment>,
     @InjectRepository(Responsibility)
     private readonly responsibilitiesRepo: Repository<Responsibility>,
+    private readonly pushNotifications: PushNotificationsService,
   ) {}
 
   /**
@@ -212,6 +214,16 @@ export class AssignmentsService {
       .andWhere("status = 'draft'")
       .andWhere('deletedAt IS NULL')
       .execute();
-    return { published: result.affected ?? 0 };
+    const published = result.affected ?? 0;
+    const kind = String(eventType);
+    if (published > 0 && (kind === 'midweek' || kind === 'weekend')) {
+      // Fire-and-forget: the congregation learns the programme is out.
+      void this.pushNotifications.sendSchedulePublished(
+        congregationId,
+        kind,
+        weekStartDate,
+      );
+    }
+    return { published };
   }
 }
