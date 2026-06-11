@@ -9,6 +9,8 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { AssignmentStatus } from '../common/enums/assignment-status.enum';
+import { EventType } from '../common/enums/event-type.enum';
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -188,5 +190,28 @@ export class AssignmentsService {
       congregationId,
     });
     return this.getById(congregationId, id);
+  }
+
+  /**
+   * Bulk-publish one meeting: every draft assignment of the given week +
+   * section becomes published. Soft-deleted rows are left untouched, as
+   * are already-published and cancelled rows (idempotent by design).
+   */
+  async publishMeeting(
+    congregationId: string,
+    weekStartDate: string,
+    eventType: EventType,
+  ): Promise<{ published: number }> {
+    const result = await this.repo
+      .createQueryBuilder()
+      .update(Assignment)
+      .set({ status: 'published' as AssignmentStatus })
+      .where('congregationId = :congregationId', { congregationId })
+      .andWhere('weekStartDate = :weekStartDate', { weekStartDate })
+      .andWhere('eventType = :eventType', { eventType })
+      .andWhere("status = 'draft'")
+      .andWhere('deletedAt IS NULL')
+      .execute();
+    return { published: result.affected ?? 0 };
   }
 }

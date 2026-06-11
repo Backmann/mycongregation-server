@@ -16,10 +16,13 @@ function makeQb() {
     'skip',
     'take',
     'withDeleted',
+    'update',
+    'set',
   ]) {
     qb[m] = jest.fn().mockReturnThis();
   }
   qb.getManyAndCount = jest.fn().mockResolvedValue([[], 0]);
+  qb.execute = jest.fn().mockResolvedValue({ affected: 0 });
   return qb;
 }
 
@@ -134,5 +137,28 @@ describe('AssignmentsService draft visibility', () => {
     });
     const res = await service.getById('c1', 'a3', member);
     expect(res.id).toBe('a3');
+  });
+
+  it('publishes every draft of one meeting and reports the count', async () => {
+    qb.execute.mockResolvedValue({ affected: 3 });
+    const res = await service.publishMeeting(
+      'c1',
+      '2026-06-08',
+      'midweek' as never,
+    );
+    expect(res).toEqual({ published: 3 });
+    expect(qb.set).toHaveBeenCalledWith({ status: 'published' });
+    expect(qb.andWhere).toHaveBeenCalledWith("status = 'draft'");
+    expect(qb.andWhere).toHaveBeenCalledWith('deletedAt IS NULL');
+  });
+
+  it('reports zero when the meeting has no drafts', async () => {
+    qb.execute.mockResolvedValue({ affected: 0 });
+    const res = await service.publishMeeting(
+      'c1',
+      '2026-06-08',
+      'weekend' as never,
+    );
+    expect(res).toEqual({ published: 0 });
   });
 });

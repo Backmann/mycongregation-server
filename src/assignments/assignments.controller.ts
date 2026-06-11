@@ -17,6 +17,7 @@ import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { QueryAssignmentDto } from './dto/query-assignment.dto';
 import { BulkCreateAssignmentDto } from './dto/bulk-create-assignment.dto';
+import { PublishAssignmentsDto } from './dto/publish-assignments.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -57,6 +58,19 @@ export class AssignmentsController {
     @Body() dto: BulkCreateAssignmentDto,
   ) {
     return this.service.bulkCreate(congregationId, dto.assignments);
+  }
+
+  @Post('publish')
+  @UseGuards(AssignmentSectionGuard)
+  publish(
+    @TenantId() congregationId: string,
+    @Body() dto: PublishAssignmentsDto,
+  ) {
+    return this.service.publishMeeting(
+      congregationId,
+      dto.weekStartDate,
+      dto.eventType,
+    );
   }
 
   @Patch(':id')
