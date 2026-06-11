@@ -25,6 +25,7 @@ import { ScheduledJobsModule } from './scheduled-jobs/scheduled-jobs.module';
 import { ReportRemindersModule } from './report-reminders/report-reminders.module';
 import { SpecialEventsModule } from './special-events/special-events.module';
 import { AbsencesModule } from './absences/absences.module';
+import { HallsModule } from './halls/halls.module';
 import { MeModule } from './me/me.module';
 import { PushNotificationsModule } from './push-notifications/push-notifications.module';
 import { WebPushModule } from './web-push/web-push.module';
@@ -93,6 +94,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     ReportRemindersModule,
     SpecialEventsModule,
     AbsencesModule,
+    HallsModule,
     MeModule,
     PushNotificationsModule,
     WebPushModule,
