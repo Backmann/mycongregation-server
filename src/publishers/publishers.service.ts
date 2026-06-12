@@ -483,6 +483,13 @@ export class PublishersService {
     if (!publisher.userId) {
       throw new NotFoundException('This person has no app access');
     }
+    if (dto.email !== undefined) {
+      await this.usersService.changeEmailByAdmin(
+        publisher.userId,
+        dto.email,
+        tenantId,
+      );
+    }
     if (dto.password !== undefined) {
       await this.usersService.resetPasswordByAdmin(
         publisher.userId,

@@ -280,6 +280,41 @@ export class UsersService {
     return toPublicUser({ ...user, canViewPrivateData });
   }
 
+  /**
+   * Change a user's login email (admin action) — e.g. to fix a typo made
+   * when access was granted. Normalized to lowercase; must not collide
+   * with any other account.
+   */
+  async changeEmailByAdmin(
+    id: string,
+    rawEmail: string,
+    congregationId: string,
+  ): Promise<void> {
+    const user = await this.findByIdInCongregation(id, congregationId);
+    const email = rawEmail.trim().toLowerCase();
+    if (user.email === email) {
+      return;
+    }
+    const existing = await this.usersRepo.findOne({ where: { email } });
+    if (existing) {
+      throw new ConflictException('A user with this email already exists');
+    }
+    user.email = email;
+    try {
+      await this.usersRepo.save(user);
+    } catch (err) {
+      // Race-condition fallback, same as createUserByAdmin.
+      if (
+        err instanceof QueryFailedError &&
+        (err as QueryFailedError & { code?: string }).code ===
+          PG_UNIQUE_VIOLATION
+      ) {
+        throw new ConflictException('A user with this email already exists');
+      }
+      throw err;
+    }
+  }
+
   async resetPasswordByAdmin(
     targetId: string,
     newPassword: string,
