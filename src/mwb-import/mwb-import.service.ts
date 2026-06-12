@@ -11,6 +11,7 @@ import {
   ParsedPart,
 } from './mwb-parser';
 import { ImportResultDto, WeekImportSummary } from './dto/import-result.dto';
+import { ApplyParsedDto } from './dto/apply-parsed.dto';
 
 /**
  * Returns true if an existing assignment is empty (no publisher and no
@@ -74,6 +75,63 @@ export class MwbImportService {
       `Imported ${parsed.epubFile}: ${result.weeksImported} weeks, ` +
         `${result.partsCreated} created, ${result.partsUpdated} updated, ` +
         `${result.partsSkipped} skipped, ${result.unclassifiedParts} unclassified`,
+    );
+
+    return result;
+  }
+
+  /**
+   * Applies a workbook that was parsed on the CLIENT (browser). The EPUB
+   * file itself never reaches the server — the payload contains only
+   * derived schedule metadata. Reuses the same idempotent per-week
+   * upsert as the upload flow.
+   */
+  async applyParsed(
+    congregationId: string,
+    dto: ApplyParsedDto,
+  ): Promise<ImportResultDto> {
+    const result: ImportResultDto = {
+      epubFile: dto.epubFile ?? 'client-parsed.epub',
+      year: dto.year ?? new Date().getFullYear(),
+      weeksImported: 0,
+      partsCreated: 0,
+      partsUpdated: 0,
+      partsSkipped: 0,
+      unclassifiedParts: 0,
+      weeks: [],
+      errors: [],
+      warnings: [],
+    };
+
+    for (const week of dto.weeks) {
+      const parts: ParsedPart[] = week.parts.map((p) => ({
+        rawTitle: p.partTitle ?? null,
+        rawNumber: null,
+        rawSection: 'client',
+        durationMin: p.partDurationMin ?? null,
+        durationRawText: null,
+        notes: [],
+        partKey: p.partKey,
+        partOrder: p.partOrder,
+        classifierConfidence: 'high' as const,
+        synthetic: p.partTitle == null,
+      }));
+      const summary = await this.importWeek(
+        congregationId,
+        week.weekStartDate,
+        week.weekEndDate,
+        week.biblePassage ?? '',
+        parts,
+        result,
+      );
+      result.weeks.push(summary);
+      result.weeksImported++;
+    }
+
+    this.logger.log(
+      `Applied client-parsed ${result.epubFile}: ${result.weeksImported} weeks, ` +
+        `${result.partsCreated} created, ${result.partsUpdated} updated, ` +
+        `${result.partsSkipped} skipped`,
     );
 
     return result;
