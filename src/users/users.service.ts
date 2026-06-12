@@ -315,6 +315,44 @@ export class UsersService {
     }
   }
 
+  // ---- Password reset (forgot password) ----
+
+  findByEmail(email: string): Promise<User | null> {
+    return this.usersRepo.findOne({ where: { email } });
+  }
+
+  async setPasswordResetToken(
+    id: string,
+    tokenHash: string,
+    expiresAt: Date,
+  ): Promise<void> {
+    await this.usersRepo.update(
+      { id },
+      { resetTokenHash: tokenHash, resetTokenExpiresAt: expiresAt },
+    );
+  }
+
+  /** Active user with a matching, unexpired reset token — or null. */
+  findByValidResetToken(tokenHash: string): Promise<User | null> {
+    return this.usersRepo
+      .createQueryBuilder('user')
+      .where('user.resetTokenHash = :tokenHash', { tokenHash })
+      .andWhere('user.resetTokenExpiresAt > :now', { now: new Date() })
+      .andWhere('user.isActive = :active', { active: true })
+      .getOne();
+  }
+
+  async completePasswordReset(id: string, passwordHash: string): Promise<void> {
+    await this.usersRepo.update(
+      { id },
+      {
+        passwordHash,
+        resetTokenHash: null,
+        resetTokenExpiresAt: null,
+      },
+    );
+  }
+
   async resetPasswordByAdmin(
     targetId: string,
     newPassword: string,

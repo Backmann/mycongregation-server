@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -9,6 +10,8 @@ import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import { createHash, randomBytes } from 'crypto';
+import { MailService } from '../mail/mail.service';
 import { User } from '../entities/user.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -33,6 +36,7 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
+    private readonly mailService: MailService,
   ) {}
 
   /**
@@ -86,6 +90,70 @@ export class AuthService {
     }
     await this.usersService.touchLastLogin(user.id);
     return this.issueTokens(user);
+  }
+
+  // ---- Password reset (forgot password) ----
+
+  /** Sliding-window in-memory limiter; key -> recent request times. */
+  private readonly resetRequests = new Map<string, number[]>();
+
+  private allowReset(key: string, limit: number, windowMs: number): boolean {
+    const now = Date.now();
+    const recent = (this.resetRequests.get(key) ?? []).filter(
+      (t) => now - t < windowMs,
+    );
+    if (recent.length >= limit) {
+      this.resetRequests.set(key, recent);
+      return false;
+    }
+    recent.push(now);
+    this.resetRequests.set(key, recent);
+    return true;
+  }
+
+  /**
+   * Always resolves to the same generic OK — never reveals whether the
+   * email exists. Over-limit and unknown-email requests are dropped
+   * silently for the same reason.
+   */
+  async forgotPassword(rawEmail: string, ip: string): Promise<{ ok: true }> {
+    const email = rawEmail.trim().toLowerCase();
+    const HOUR = 60 * 60 * 1000;
+    if (
+      !this.allowReset(`fp:ip:${ip}`, 10, HOUR) ||
+      !this.allowReset(`fp:email:${email}`, 3, HOUR)
+    ) {
+      return { ok: true };
+    }
+    const user = await this.usersService.findByEmail(email);
+    if (!user || !user.isActive) {
+      return { ok: true };
+    }
+    const token = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const expiresAt = new Date(Date.now() + HOUR);
+    await this.usersService.setPasswordResetToken(
+      user.id,
+      tokenHash,
+      expiresAt,
+    );
+    const base =
+      this.config.get<string>('PUBLIC_APP_URL') ?? 'https://mycongregation.org';
+    const link = `${base}/reset-password?token=${token}`;
+    await this.mailService.sendPasswordReset(user.email, user.uiLanguage, link);
+    return { ok: true };
+  }
+
+  async resetPassword(token: string, password: string): Promise<{ ok: true }> {
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const user = await this.usersService.findByValidResetToken(tokenHash);
+    if (!user) {
+      throw new BadRequestException('Invalid or expired reset link');
+    }
+    const rounds = this.config.get<number>('bcrypt.rounds') ?? 12;
+    const passwordHash = await bcrypt.hash(password, rounds);
+    await this.usersService.completePasswordReset(user.id, passwordHash);
+    return { ok: true };
   }
 
   async updateMe(userId: string, dto: UpdateMeDto): Promise<AuthenticatedUser> {

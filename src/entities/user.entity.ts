@@ -53,6 +53,13 @@ export class User {
   uiLanguage!: string;
   @Column({ type: 'timestamptz', nullable: true })
   lastLoginAt!: Date | null;
+
+  /** sha256 of the active password-reset token (never the token itself). */
+  @Column({ type: 'varchar', length: 64, nullable: true, select: false })
+  resetTokenHash!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  resetTokenExpiresAt!: Date | null;
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
   @UpdateDateColumn({ type: 'timestamptz' })
