@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
+  HttpStatus,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -79,7 +81,35 @@ export class AuthService {
     return this.issueTokens(result.user);
   }
 
-  async login(dto: LoginDto) {
+  /** Sliding-window in-memory limiter for login; key -> recent times. */
+  private readonly loginAttempts = new Map<string, number[]>();
+  private allowLogin(key: string, limit: number, windowMs: number): boolean {
+    const now = Date.now();
+    const recent = (this.loginAttempts.get(key) ?? []).filter(
+      (t) => now - t < windowMs,
+    );
+    if (recent.length >= limit) {
+      this.loginAttempts.set(key, recent);
+      return false;
+    }
+    recent.push(now);
+    this.loginAttempts.set(key, recent);
+    return true;
+  }
+
+  async login(dto: LoginDto, ip = 'unknown') {
+    const FIFTEEN_MIN = 15 * 60 * 1000;
+    const email = dto.email.toLowerCase().trim();
+    // 6 attempts / 15 min, by email and by IP.
+    if (
+      !this.allowLogin(`login:email:${email}`, 6, FIFTEEN_MIN) ||
+      !this.allowLogin(`login:ip:${ip}`, 6, FIFTEEN_MIN)
+    ) {
+      throw new HttpException(
+        'Too many login attempts. Please try again later.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
     const user = await this.usersService.findByEmailWithPassword(dto.email);
     if (!user || !user.isActive) {
       throw new UnauthorizedException('Invalid credentials');
@@ -88,6 +118,8 @@ export class AuthService {
     if (!ok) {
       throw new UnauthorizedException('Invalid credentials');
     }
+    // Successful login clears the email counter.
+    this.loginAttempts.delete(`login:email:${email}`);
     await this.usersService.touchLastLogin(user.id);
     return this.issueTokens(user);
   }

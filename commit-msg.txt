@@ -1,7 +1,8 @@
-feat: support silent publish (notify flag)
+feat: rate-limit login attempts (6 / 15 min)
 
-publishMeeting always sent a push when a meeting went live. Added an
-optional notify flag (default true, so existing callers are unchanged):
-the push to the congregation now fires only when notify !== false,
-enabling a silent publish. Threaded through PublishAssignmentsDto and
-the controller.
+Login had no throttling, so passwords could be brute-forced. Added an
+in-memory sliding-window limiter (same mechanism as the password-reset
+limiter): 6 attempts per 15 minutes, keyed by both email and IP. Over
+the limit returns 429 Too Many Requests; a successful login clears the
+email counter. The controller forwards req.ip exactly like
+forgot-password does.
