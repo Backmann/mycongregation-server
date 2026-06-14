@@ -1,4 +1,4 @@
-import { IsEnum, IsISO8601 } from 'class-validator';
+import { IsBoolean, IsEnum, IsISO8601, IsOptional } from 'class-validator';
 import { EventType } from '../../common/enums/event-type.enum';
 
 /**
@@ -12,4 +12,12 @@ export class PublishAssignmentsDto {
 
   @IsEnum(EventType)
   eventType!: EventType;
+
+  /**
+   * Whether to notify the congregation (push). Defaults to true to
+   * preserve existing behaviour; pass false for a silent publish.
+   */
+  @IsOptional()
+  @IsBoolean()
+  notify?: boolean;
 }

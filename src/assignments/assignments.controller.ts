@@ -70,6 +70,7 @@ export class AssignmentsController {
       congregationId,
       dto.weekStartDate,
       dto.eventType,
+      dto.notify,
     );
   }
 

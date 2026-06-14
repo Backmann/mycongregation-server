@@ -203,6 +203,7 @@ export class AssignmentsService {
     congregationId: string,
     weekStartDate: string,
     eventType: EventType,
+    notify = true,
   ): Promise<{ published: number }> {
     const result = await this.repo
       .createQueryBuilder()
@@ -216,7 +217,7 @@ export class AssignmentsService {
       .execute();
     const published = result.affected ?? 0;
     const kind = String(eventType);
-    if (published > 0 && (kind === 'midweek' || kind === 'weekend')) {
+    if (notify && published > 0 && (kind === 'midweek' || kind === 'weekend')) {
       // Fire-and-forget: the congregation learns the programme is out.
       void this.pushNotifications.sendSchedulePublished(
         congregationId,

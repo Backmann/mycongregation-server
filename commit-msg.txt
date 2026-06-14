@@ -1,7 +1,7 @@
-feat: accept client-parsed workbook via apply endpoint
+feat: support silent publish (notify flag)
 
-Add POST /schedule-import/apply that takes derived schedule metadata
-(part keys, titles, durations) parsed in the admin's browser and reuses
-the same idempotent per-week upsert as the upload flow. The publication
-file no longer needs to reach the server. The upload route is kept as a
-fallback for one release.
+publishMeeting always sent a push when a meeting went live. Added an
+optional notify flag (default true, so existing callers are unchanged):
+the push to the congregation now fires only when notify !== false,
+enabling a silent publish. Threaded through PublishAssignmentsDto and
+the controller.
