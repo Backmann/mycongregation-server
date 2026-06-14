@@ -463,13 +463,30 @@ export class PublishersService {
     const role = dto.isAdmin
       ? UserRole.ADMIN
       : deriveRoleFromAppointment(publisher.appointment);
+
+    if (!dto.sendInvite && !dto.password) {
+      throw new BadRequestException(
+        'Provide a password or enable the email invitation',
+      );
+    }
+
     const created = await this.usersService.createUserByAdmin(
-      { email, password: dto.password, role },
+      {
+        email,
+        password: dto.sendInvite ? undefined : dto.password,
+        role,
+      },
       tenantId,
       actor.id,
     );
     publisher.userId = created.id;
     await this.publishersRepo.save(publisher);
+
+    if (dto.sendInvite) {
+      // sendInvitation: issue a 72h token and email the link.
+      await this.usersService.sendInvitation(created.id, email);
+    }
+
     return this.getAccess(tenantId, id);
   }
 

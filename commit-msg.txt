@@ -1,8 +1,15 @@
-feat: rate-limit login attempts (6 / 15 min)
+feat: invite publishers by email to set their own password
 
-Login had no throttling, so passwords could be brute-forced. Added an
-in-memory sliding-window limiter (same mechanism as the password-reset
-limiter): 6 attempts per 15 minutes, keyed by both email and IP. Over
-the limit returns 429 Too Many Requests; a successful login clears the
-email counter. The controller forwards req.ip exactly like
-forgot-password does.
+Granting app access can now send an email invitation instead of an
+admin-set password. The account is created without a password
+(password_hash nullable, migration 1799), a 72h token is issued and an
+invitation email links to the existing /reset-password screen where the
+person sets their own password. No password is ever shared out-of-band.
+
+- entity: password_hash nullable
+- CreateUserDto.password / GrantAccessDto.password optional
+- GrantAccessDto.sendInvite flag
+- createUserByAdmin: null hash when no password
+- usersService.sendInvitation: 72h token + email (MailService is @Global)
+- mailService.sendInvite: ru/en/de invitation email
+- login rejects accounts without a password (pending invitations)

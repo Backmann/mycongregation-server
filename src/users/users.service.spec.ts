@@ -13,6 +13,7 @@ import { UsersService } from './users.service';
 import { User } from '../entities/user.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { MailService } from '../mail/mail.service';
 
 type MockRepo<T extends object = any> = Partial<
   Record<keyof Repository<T>, jest.Mock>
@@ -73,6 +74,13 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
       providers: [
         UsersService,
         { provide: getRepositoryToken(User), useValue: repo },
+        {
+          provide: MailService,
+          useValue: {
+            sendInvite: jest.fn().mockResolvedValue(undefined),
+            sendPasswordReset: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         { provide: AuditLogService, useValue: audit },
         {
           provide: ConfigService,

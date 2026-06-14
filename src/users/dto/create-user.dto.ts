@@ -22,9 +22,10 @@ export class CreateUserDto {
    * out-of-band; the user can change it via the (future) self-service
    * password change endpoint. Min length matches the bootstrap convention.
    */
+  @IsOptional()
   @IsString()
   @MinLength(8)
-  password!: string;
+  password?: string;
 
   @IsEnum(UserRole)
   role!: UserRole;

@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
+import { MailService } from '../mail/mail.service';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { User } from '../entities/user.entity';
@@ -25,6 +26,13 @@ describe('UsersService.changeEmailByAdmin', () => {
       providers: [
         UsersService,
         { provide: getRepositoryToken(User), useValue: repo },
+        {
+          provide: MailService,
+          useValue: {
+            sendInvite: jest.fn().mockResolvedValue(undefined),
+            sendPasswordReset: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         {
           provide: AuditLogService,

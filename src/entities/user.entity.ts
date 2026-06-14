@@ -23,8 +23,8 @@ export class User {
   congregation!: Congregation;
   @Column({ type: 'varchar', length: 255, unique: true })
   email!: string;
-  @Column({ type: 'varchar', length: 255, select: false })
-  passwordHash!: string;
+  @Column({ type: 'varchar', length: 255, select: false, nullable: true })
+  passwordHash!: string | null;
   @Column({
     type: 'enum',
     enum: UserRole,

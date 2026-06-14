@@ -8,6 +8,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
+import { createHash, randomBytes } from 'crypto';
+import { MailService } from '../mail/mail.service';
 import * as bcrypt from 'bcrypt';
 import { User } from '../entities/user.entity';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -51,6 +53,7 @@ export class UsersService {
     @InjectRepository(User) private readonly usersRepo: Repository<User>,
     private readonly auditLog: AuditLogService,
     private readonly config: ConfigService,
+    private readonly mailService: MailService,
   ) {}
 
   count(): Promise<number> {
@@ -130,7 +133,9 @@ export class UsersService {
       throw new ConflictException('A user with this email already exists');
     }
 
-    const passwordHash = await this.hashPassword(dto.password);
+    const passwordHash = dto.password
+      ? await this.hashPassword(dto.password)
+      : null;
 
     const user = this.usersRepo.create({
       congregationId,
@@ -416,6 +421,14 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
+    if (!user.passwordHash) {
+      // Invited account that has not set a password yet — direct them
+      // to set a password via the invitation link instead.
+      throw new BadRequestException(
+        'Set a password via the invitation link first',
+      );
+    }
+
     const ok = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!ok) {
       throw new BadRequestException('Current password is incorrect');
@@ -473,6 +486,24 @@ export class UsersService {
     return this.usersRepo.count({
       where: { congregationId, role: UserRole.ADMIN, isActive: true },
     });
+  }
+
+  /**
+   * Issue a 72h invitation token for an account and email the link, so
+   * the invited person sets their own password via /reset-password.
+   */
+  async sendInvitation(userId: string, email: string): Promise<void> {
+    const THREE_DAYS = 72 * 60 * 60 * 1000;
+    const token = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const expiresAt = new Date(Date.now() + THREE_DAYS);
+    await this.setPasswordResetToken(userId, tokenHash, expiresAt);
+    const user = await this.findById(userId);
+    const lang = user?.uiLanguage ?? 'ru';
+    const base =
+      this.config.get<string>('PUBLIC_APP_URL') ?? 'https://mycongregation.org';
+    const link = `${base}/reset-password?token=${token}`;
+    await this.mailService.sendInvite(email, lang, link);
   }
 
   private hashPassword(password: string): Promise<string> {

@@ -111,7 +111,7 @@ export class AuthService {
       );
     }
     const user = await this.usersService.findByEmailWithPassword(dto.email);
-    if (!user || !user.isActive) {
+    if (!user || !user.isActive || !user.passwordHash) {
       throw new UnauthorizedException('Invalid credentials');
     }
     const ok = await bcrypt.compare(dto.password, user.passwordHash);

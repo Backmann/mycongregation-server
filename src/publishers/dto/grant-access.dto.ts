@@ -16,11 +16,18 @@ export class GrantAccessDto {
   @IsEmail()
   email?: string;
 
+  @IsOptional()
   @MinLength(8)
   @MaxLength(128)
-  password!: string;
+  password?: string;
 
   @IsOptional()
   @IsBoolean()
   isAdmin?: boolean;
+
+  /** When true, create the account without a password and email an
+   * invitation link to set one (instead of an admin-set password). */
+  @IsOptional()
+  @IsBoolean()
+  sendInvite?: boolean;
 }
