@@ -1,5 +1,16 @@
-feat: expose partOrder on task items
+feat: let any publisher manage their own absence
 
-Adds partOrder to the My Tasks payload so the client can sort the parts
-of a single day in program order (chairman first, closing prayer last)
-instead of arrival order.
+Absences drive scheduling: anyone building assignment/duty/cleaning
+schedules needs to see who is away. Previously only managers
+(body_coordinator / life_ministry_overseer / secretary, plus admin)
+could create or edit absences, so ordinary publishers couldn't record
+their own time away.
+
+Authorization moves from a blanket responsibility guard on the
+controller into the service: managers may write any publisher's absence;
+everyone else may write only their own (the publisher linked to their
+user). Ownership for update/delete/restore is checked against the STORED
+publisher_id, not the request body, and a non-manager cannot reassign an
+absence to another publisher. Reading stays open so absence warnings keep
+surfacing in every editor. Adds a service spec covering the matrix
+(own allowed, others forbidden, manager/admin allowed).

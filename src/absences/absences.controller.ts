@@ -10,22 +10,21 @@ import {
   Patch,
   Post,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import { AbsencesService } from './absences.service';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { CreateAbsenceDto } from './dto/create-absence.dto';
 import { UpdateAbsenceDto } from './dto/update-absence.dto';
 import { QueryAbsencesDto } from './dto/query-absences.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
-import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
-import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
-import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 
 /**
  * Advisory publisher absences. Reading is open to any authenticated member so
- * absence warnings can surface in every assignment editor; creating and
- * editing requires the body_coordinator, life_ministry_overseer or secretary
- * responsibility (admins always pass).
+ * absence warnings can surface in every assignment editor. Writing is
+ * authorized in the service: managers (admin / body_coordinator /
+ * life_ministry_overseer / secretary) may write any absence; anyone else
+ * may write only their own.
  */
 @Controller('absences')
 export class AbsencesController {
@@ -45,54 +44,40 @@ export class AbsencesController {
   }
 
   @Post()
-  @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(
-    ResponsibilityType.BODY_COORDINATOR,
-    ResponsibilityType.LIFE_MINISTRY_OVERSEER,
-    ResponsibilityType.SECRETARY,
-  )
-  create(@TenantId() tenantId: string, @Body() dto: CreateAbsenceDto) {
-    return this.service.create(tenantId, dto);
+  create(
+    @TenantId() tenantId: string,
+    @Body() dto: CreateAbsenceDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.create(tenantId, dto, user);
   }
 
   @Patch(':id')
-  @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(
-    ResponsibilityType.BODY_COORDINATOR,
-    ResponsibilityType.LIFE_MINISTRY_OVERSEER,
-    ResponsibilityType.SECRETARY,
-  )
   update(
     @TenantId() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateAbsenceDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.update(tenantId, id, dto);
+    return this.service.update(tenantId, id, dto, user);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(
-    ResponsibilityType.BODY_COORDINATOR,
-    ResponsibilityType.LIFE_MINISTRY_OVERSEER,
-    ResponsibilityType.SECRETARY,
-  )
-  remove(@TenantId() tenantId: string, @Param('id', ParseUUIDPipe) id: string) {
-    return this.service.remove(tenantId, id);
+  remove(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.remove(tenantId, id, user);
   }
 
   @Post(':id/restore')
-  @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(
-    ResponsibilityType.BODY_COORDINATOR,
-    ResponsibilityType.LIFE_MINISTRY_OVERSEER,
-    ResponsibilityType.SECRETARY,
-  )
   restore(
     @TenantId() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.restore(tenantId, id);
+    return this.service.restore(tenantId, id, user);
   }
 }
