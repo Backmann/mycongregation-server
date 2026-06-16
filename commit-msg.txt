@@ -1,9 +1,5 @@
-fix: route weekend parts to the weekend meeting on apply
+feat: expose partKey on task items
 
-applyParsed hard-coded EventType.MIDWEEK for every part, so Watchtower
-weekend parts (weekend_*, watchtower_*, public_talk*) parsed on the
-client would have landed on the midweek meeting. importWeek now derives
-the meeting from the week's part keys: weekend keys mean a weekend
-programme, otherwise midweek. MWB weeks are unaffected (their keys are
-midweek), so the existing import flow and tests are unchanged; Watchtower
-weeks now upsert onto the weekend meeting correctly.
+Adds partKey to the My Tasks payload (MyAssignmentItem) for meeting
+items, so the client can tailor how a part is displayed (e.g. show only
+the topic for the opening Treasures talk, matching the schedule screen).

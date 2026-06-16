@@ -26,6 +26,8 @@ export interface MyAssignmentItem {
   time?: string;
   endTime?: string;
   label: string;
+  /** Part key for meeting items (lets the client tailor display). */
+  partKey?: string;
   location?: string;
   asAssistant?: boolean;
 }
@@ -153,6 +155,7 @@ export class MeService {
         weekStartDate: a.weekStartDate,
         eventType: a.eventType,
         label: a.partTitle || a.partKey,
+        partKey: a.partKey,
         asAssistant: a.assistantPublisherId === pid,
       });
     }
