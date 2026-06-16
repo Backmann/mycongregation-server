@@ -4,6 +4,18 @@ import { Repository } from 'typeorm';
 import { Assignment } from '../entities/assignment.entity';
 import { EventType } from '../common/enums/event-type.enum';
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
+
+/**
+ * Weekend programme part keys. Watchtower study parts and the public
+ * talk belong to the weekend meeting; everything else is midweek.
+ */
+function isWeekendPartKey(partKey: string): boolean {
+  return (
+    partKey.startsWith('weekend_') ||
+    partKey.startsWith('watchtower_') ||
+    partKey.startsWith('public_talk')
+  );
+}
 import {
   extractPartTitle,
   extractYearFromFilename,
@@ -154,12 +166,17 @@ export class MwbImportService {
       skipped: 0,
     };
 
+    // Determine the meeting from the parts: weekend part keys (Watchtower,
+    // public talk) mean this is a weekend programme; otherwise midweek.
+    const weekEventType = parts.some((p) => isWeekendPartKey(p.partKey))
+      ? EventType.WEEKEND
+      : EventType.MIDWEEK;
     // Load existing assignments for this week (active + soft-deleted)
     const existing = await this.assignmentsRepo.find({
       where: {
         congregationId,
         weekStartDate,
-        eventType: EventType.MIDWEEK,
+        eventType: weekEventType,
       },
       withDeleted: false,
     });
@@ -184,7 +201,7 @@ export class MwbImportService {
         const newAssignment = this.assignmentsRepo.create({
           congregationId,
           weekStartDate,
-          eventType: EventType.MIDWEEK,
+          eventType: weekEventType,
           partKey: part.partKey,
           partOrder: part.partOrder,
           partTitle,
