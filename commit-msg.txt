@@ -1,5 +1,5 @@
-feat: expose partKey on task items
+feat: expose partOrder on task items
 
-Adds partKey to the My Tasks payload (MyAssignmentItem) for meeting
-items, so the client can tailor how a part is displayed (e.g. show only
-the topic for the opening Treasures talk, matching the schedule screen).
+Adds partOrder to the My Tasks payload so the client can sort the parts
+of a single day in program order (chairman first, closing prayer last)
+instead of arrival order.

@@ -28,6 +28,8 @@ export interface MyAssignmentItem {
   label: string;
   /** Part key for meeting items (lets the client tailor display). */
   partKey?: string;
+  /** Program order of the part within the meeting (for sorting). */
+  partOrder?: number;
   location?: string;
   asAssistant?: boolean;
 }
@@ -156,6 +158,7 @@ export class MeService {
         eventType: a.eventType,
         label: a.partTitle || a.partKey,
         partKey: a.partKey,
+        partOrder: a.partOrder,
         asAssistant: a.assistantPublisherId === pid,
       });
     }
