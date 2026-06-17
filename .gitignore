@@ -47,3 +47,9 @@ docker-compose.override.yml
 *.pem
 .cache/
 .eslintcache
+
+# Service scratch files + stray root migrations dir (real migrations live in src/migrations)
+patch-*.cjs
+run-*.cjs
+commit-msg.txt
+/migrations/
