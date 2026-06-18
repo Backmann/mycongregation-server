@@ -38,10 +38,6 @@ export class QueryPublishersDto {
 
   @IsOptional()
   @IsUUID()
-  familyId?: string;
-
-  @IsOptional()
-  @IsUUID()
   serviceGroupId?: string;
 
   @IsOptional()

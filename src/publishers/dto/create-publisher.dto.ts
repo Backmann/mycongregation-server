@@ -61,10 +61,6 @@ export class CreatePublisherDto {
 
   @IsOptional()
   @IsUUID()
-  familyId?: string;
-
-  @IsOptional()
-  @IsUUID()
   serviceGroupId?: string;
 
   // ---- Status flags ----
@@ -75,10 +71,6 @@ export class CreatePublisherDto {
   @IsOptional()
   @IsBoolean()
   isRegular?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  isFamilyHead?: boolean;
 
   // ---- Special needs ----
   @IsOptional()

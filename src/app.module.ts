@@ -10,7 +10,6 @@ import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { PublishersModule } from './publishers/publishers.module';
-import { FamiliesModule } from './families/families.module';
 import { ServiceGroupsModule } from './service-groups/service-groups.module';
 import { AssignmentsModule } from './assignments/assignments.module';
 import { MwbImportModule } from './mwb-import/mwb-import.module';
@@ -81,7 +80,6 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     UsersModule,
     AuthModule,
     PublishersModule,
-    FamiliesModule,
     ServiceGroupsModule,
     AssignmentsModule,
     MwbImportModule,

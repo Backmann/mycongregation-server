@@ -327,11 +327,6 @@ export class PublishersService {
       qb.withDeleted();
     }
 
-    if (query.familyId) {
-      qb.andWhere('publisher.family_id = :familyId', {
-        familyId: query.familyId,
-      });
-    }
     if (query.serviceGroupId) {
       qb.andWhere('publisher.service_group_id = :sgId', {
         sgId: query.serviceGroupId,

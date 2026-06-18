@@ -2,7 +2,6 @@ import { getMetadataArgsStorage, ValueTransformer } from 'typeorm';
 import { encryptedTransformer } from './encrypted.transformer';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceReport } from '../entities/service-report.entity';
-import { Family } from '../entities/family.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { AuditLog } from '../entities/audit-log.entity';
 
@@ -21,11 +20,10 @@ import { AuditLog } from '../entities/audit-log.entity';
  * Tier 1 list per docs/architecture/data-protection.md:
  *   Publisher.{address, mobilePhone, email, notes, spiritualNotes, removedNote}
  *   ServiceReport.notes
- *   Family.notes
  *   ServiceGroup.notes
  *   AuditLog.{beforeJson, afterJson}  ← audit trail of encrypted entities
  *
- * Total: 11 columns across 5 entities.
+ * Total: 10 columns across 4 entities.
  */
 
 interface ExpectedField {
@@ -50,9 +48,6 @@ const TIER_1_FIELDS: ExpectedField[] = [
 
   // ServiceReport — 1
   { name: 'ServiceReport.notes', entity: ServiceReport, property: 'notes' },
-
-  // Family — 1
-  { name: 'Family.notes', entity: Family, property: 'notes' },
 
   // ServiceGroup — 1
   { name: 'ServiceGroup.notes', entity: ServiceGroup, property: 'notes' },

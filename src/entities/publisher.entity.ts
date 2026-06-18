@@ -13,7 +13,6 @@ import { encryptedTransformer } from '../crypto/encrypted.transformer';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { Congregation } from './congregation.entity';
 import { User } from './user.entity';
-import { Family } from './family.entity';
 import { ServiceGroup } from './service-group.entity';
 import { Gender } from '../common/enums/gender.enum';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
@@ -48,15 +47,7 @@ export class Publisher {
   @JoinColumn({ name: 'user_id' })
   user!: User | null;
 
-  // ---- Family / Service group ----
-  @Column({ type: 'uuid', nullable: true })
-  @Index()
-  familyId!: string | null;
-
-  @ManyToOne(() => Family, { onDelete: 'SET NULL', nullable: true })
-  @JoinColumn({ name: 'family_id' })
-  family!: Family | null;
-
+  // ---- Service group ----
   @Column({ type: 'uuid', nullable: true })
   @Index()
   serviceGroupId!: string | null;
@@ -100,9 +91,6 @@ export class Publisher {
 
   @Column({ type: 'boolean', default: true })
   isRegular!: boolean;
-
-  @Column({ type: 'boolean', default: false })
-  isFamilyHead!: boolean;
 
   // ---- Special needs (NW Scheduler "Другое") ----
   @Column({ type: 'boolean', default: false })
