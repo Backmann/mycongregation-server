@@ -11,6 +11,6 @@ export class QueryActivityDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(12)
+  @Max(26)
   weeks?: number;
 }
