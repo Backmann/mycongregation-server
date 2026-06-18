@@ -69,6 +69,7 @@ jobs:
 
           echo "=== Extracting source ==="
           cd /root/mycongregation/server
+          rm -rf src
           tar -xzf /tmp/server-src.tar.gz
 
           echo "=== Rebuilding Docker image ==="
