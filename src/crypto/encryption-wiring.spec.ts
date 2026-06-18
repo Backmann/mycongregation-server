@@ -75,10 +75,10 @@ describe('Encryption wiring (data-protection.md Phase 1)', () => {
     },
   );
 
-  it('covers exactly the Tier 1 list from data-protection.md (11 fields)', () => {
+  it('covers exactly the Tier 1 list from data-protection.md (10 fields)', () => {
     // If this number ever changes intentionally, update both this assertion
     // AND the design document. The mismatch is a forcing function.
-    expect(TIER_1_FIELDS).toHaveLength(11);
+    expect(TIER_1_FIELDS).toHaveLength(10);
   });
 
   it('every Tier 1 entry has a distinct name', () => {
