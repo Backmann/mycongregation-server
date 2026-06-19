@@ -48,9 +48,16 @@ const admin = {
 
 describe('AssignmentsService draft visibility', () => {
   let service: AssignmentsService;
-  let repo: { createQueryBuilder: jest.Mock; findOne: jest.Mock };
+  let repo: {
+    createQueryBuilder: jest.Mock;
+    findOne: jest.Mock;
+    find: jest.Mock;
+  };
   let responsibilitiesRepo: { count: jest.Mock };
-  let pushMock: { sendSchedulePublished: jest.Mock };
+  let pushMock: {
+    sendSchedulePublished: jest.Mock;
+    sendScheduleChanged: jest.Mock;
+  };
   let qb: ReturnType<typeof makeQb>;
 
   beforeEach(async () => {
@@ -58,9 +65,13 @@ describe('AssignmentsService draft visibility', () => {
     repo = {
       createQueryBuilder: jest.fn(() => qb),
       findOne: jest.fn(),
+      find: jest.fn(),
     };
     responsibilitiesRepo = { count: jest.fn().mockResolvedValue(0) };
-    pushMock = { sendSchedulePublished: jest.fn() };
+    pushMock = {
+      sendSchedulePublished: jest.fn(),
+      sendScheduleChanged: jest.fn(),
+    };
     const moduleRef = await Test.createTestingModule({
       providers: [
         AssignmentsService,
@@ -188,5 +199,37 @@ describe('AssignmentsService draft visibility', () => {
     );
     expect(res).toEqual({ published: 2 });
     expect(pushMock.sendSchedulePublished).not.toHaveBeenCalled();
+  });
+
+  it('notifies about changes, clears flags and lists changed part titles', async () => {
+    repo.find.mockResolvedValue([
+      { id: 'a1', partTitle: 'Начало разговора', partOrder: 4 },
+      { id: 'a2', partTitle: null, partOrder: 7 },
+    ]);
+    qb.execute.mockResolvedValue({ affected: 2 });
+    const res = await service.notifyChanges(
+      'c1',
+      '2026-06-08',
+      'weekend' as never,
+    );
+    expect(res).toEqual({ notified: 2 });
+    expect(qb.set).toHaveBeenCalledWith({ changedSincePublish: false });
+    expect(pushMock.sendScheduleChanged).toHaveBeenCalledWith(
+      'c1',
+      'weekend',
+      '2026-06-08',
+      'Начало разговора',
+    );
+  });
+
+  it('does nothing when no assignments are flagged as changed', async () => {
+    repo.find.mockResolvedValue([]);
+    const res = await service.notifyChanges(
+      'c1',
+      '2026-06-08',
+      'midweek' as never,
+    );
+    expect(res).toEqual({ notified: 0 });
+    expect(pushMock.sendScheduleChanged).not.toHaveBeenCalled();
   });
 });

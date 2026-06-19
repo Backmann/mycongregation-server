@@ -160,7 +160,20 @@ export class AssignmentsService {
         `Assignment ${id} is removed; restore it before updating`,
       );
     }
+    // If a published assignment's assignee / partner / invited speaker changes,
+    // flag it so the scheduler can notify the congregation of the change.
+    const changed =
+      existing.status === AssignmentStatus.PUBLISHED &&
+      ((dto.publisherId !== undefined &&
+        dto.publisherId !== existing.publisherId) ||
+        (dto.assistantPublisherId !== undefined &&
+          dto.assistantPublisherId !== existing.assistantPublisherId) ||
+        (dto.speakerName !== undefined &&
+          dto.speakerName !== existing.speakerName) ||
+        (dto.speakerCongregation !== undefined &&
+          dto.speakerCongregation !== existing.speakerCongregation));
     Object.assign(existing, dto);
+    if (changed) existing.changedSincePublish = true;
     return this.repo.save(existing);
   }
 
@@ -216,6 +229,18 @@ export class AssignmentsService {
       .andWhere('deletedAt IS NULL')
       .execute();
     const published = result.affected ?? 0;
+    // Publishing re-broadcasts the programme, so any pending "changed since
+    // publish" flags on this meeting are now covered — clear them.
+    await this.repo
+      .createQueryBuilder()
+      .update(Assignment)
+      .set({ changedSincePublish: false })
+      .where('congregationId = :congregationId', { congregationId })
+      .andWhere('weekStartDate = :weekStartDate', { weekStartDate })
+      .andWhere('eventType = :eventType', { eventType })
+      .andWhere('changedSincePublish = true')
+      .andWhere('deletedAt IS NULL')
+      .execute();
     const kind = String(eventType);
     if (notify && published > 0 && (kind === 'midweek' || kind === 'weekend')) {
       // Fire-and-forget: the congregation learns the programme is out.
@@ -226,5 +251,55 @@ export class AssignmentsService {
       );
     }
     return { published };
+  }
+
+  /**
+   * Notify the congregation that an already-published meeting was edited.
+   * Sends one push naming the changed part titles (when present), then clears
+   * the per-assignment "changed since publish" flags for that meeting.
+   */
+  async notifyChanges(
+    congregationId: string,
+    weekStartDate: string,
+    eventType: EventType,
+  ): Promise<{ notified: number }> {
+    const changedRows = await this.repo.find({
+      where: {
+        congregationId,
+        weekStartDate,
+        eventType,
+        changedSincePublish: true,
+      },
+      order: { partOrder: 'ASC' },
+    });
+    if (changedRows.length === 0) {
+      return { notified: 0 };
+    }
+    const partTitles = changedRows
+      .map((a) => a.partTitle?.trim())
+      .filter((t): t is string => !!t);
+    const parts = partTitles.join(', ');
+
+    await this.repo
+      .createQueryBuilder()
+      .update(Assignment)
+      .set({ changedSincePublish: false })
+      .where('congregationId = :congregationId', { congregationId })
+      .andWhere('weekStartDate = :weekStartDate', { weekStartDate })
+      .andWhere('eventType = :eventType', { eventType })
+      .andWhere('changedSincePublish = true')
+      .andWhere('deletedAt IS NULL')
+      .execute();
+
+    const kind = String(eventType);
+    if (kind === 'midweek' || kind === 'weekend') {
+      void this.pushNotifications.sendScheduleChanged(
+        congregationId,
+        kind,
+        weekStartDate,
+        parts,
+      );
+    }
+    return { notified: changedRows.length };
   }
 }

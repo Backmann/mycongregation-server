@@ -74,6 +74,19 @@ export class AssignmentsController {
     );
   }
 
+  @Post('notify-changes')
+  @UseGuards(AssignmentSectionGuard)
+  notifyChanges(
+    @TenantId() congregationId: string,
+    @Body() dto: PublishAssignmentsDto,
+  ) {
+    return this.service.notifyChanges(
+      congregationId,
+      dto.weekStartDate,
+      dto.eventType,
+    );
+  }
+
   @Patch(':id')
   @UseGuards(AssignmentSectionGuard)
   update(

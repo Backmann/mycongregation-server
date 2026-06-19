@@ -123,6 +123,14 @@ export class Assignment {
   @Column({ type: 'text', nullable: true })
   notes!: string | null;
 
+  @Column({
+    type: 'boolean',
+    default: false,
+    comment:
+      'Set when a published assignment is edited (assignee/partner/speaker); cleared on notify-changes or re-publish',
+  })
+  changedSincePublish!: boolean;
+
   // ---- Standard ----
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

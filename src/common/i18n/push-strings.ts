@@ -36,6 +36,11 @@ type SchedulePublishedTemplate = {
   body: (params: { meeting: string; range: string }) => string;
 };
 
+type ScheduleChangedTemplate = {
+  title: string;
+  body: (params: { meeting: string; range: string; parts: string }) => string;
+};
+
 /** Localized meeting names used inside schedulePublished bodies. */
 export const MEETING_NAMES: Record<
   'midweek' | 'weekend',
@@ -58,6 +63,7 @@ export const PUSH_STRINGS: Record<
   {
     statusChange: PushTemplate;
     schedulePublished: SchedulePublishedTemplate;
+    scheduleChanged: ScheduleChangedTemplate;
   }
 > = {
   en: {
@@ -71,6 +77,13 @@ export const PUSH_STRINGS: Record<
       body: ({ meeting, range }) =>
         `The ${meeting} programme is published (${range})`,
     },
+    scheduleChanged: {
+      title: 'Programme changed',
+      body: ({ meeting, range, parts }) =>
+        parts
+          ? `Changes to the ${meeting} programme (${range}): ${parts}`
+          : `The ${meeting} programme changed (${range}). Please check assignments.`,
+    },
   },
   ru: {
     statusChange: {
@@ -83,6 +96,13 @@ export const PUSH_STRINGS: Record<
       body: ({ meeting, range }) =>
         `Опубликована программа: ${meeting}, ${range}`,
     },
+    scheduleChanged: {
+      title: 'Программа изменена',
+      body: ({ meeting, range, parts }) =>
+        parts
+          ? `Изменена программа: ${meeting}, ${range}. Изменено: ${parts}`
+          : `Изменена программа: ${meeting}, ${range}. Проверьте назначения.`,
+    },
   },
   de: {
     statusChange: {
@@ -94,6 +114,13 @@ export const PUSH_STRINGS: Record<
       title: 'Programm aktualisiert',
       body: ({ meeting, range }) =>
         `Das Programm wurde veröffentlicht: ${meeting}, ${range}`,
+    },
+    scheduleChanged: {
+      title: 'Programm geändert',
+      body: ({ meeting, range, parts }) =>
+        parts
+          ? `Änderungen am Programm: ${meeting}, ${range}. Geändert: ${parts}`
+          : `Das Programm wurde geändert: ${meeting}, ${range}. Bitte Zuteilungen prüfen.`,
     },
   },
 };

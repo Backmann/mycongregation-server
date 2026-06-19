@@ -371,6 +371,136 @@ export class PushNotificationsService {
     }
   }
 
+  /**
+   * Broadcast that an already-published programme was edited. Mirrors
+   * {@link sendSchedulePublished} but uses the "changed" strings and lists the
+   * affected part titles (when available) in the body.
+   */
+  async sendScheduleChanged(
+    tenantId: string,
+    eventType: 'midweek' | 'weekend',
+    weekStartDate: string,
+    parts: string,
+  ): Promise<void> {
+    try {
+      const tokens = await this.pushTokenRepo.find({
+        where: { congregationId: tenantId },
+      });
+      const webSubs =
+        await this.webPushService.getSubscriptionsByTenant(tenantId);
+      if (tokens.length === 0 && webSubs.length === 0) {
+        this.logger.log(
+          `No push recipients in tenant=${tenantId}; skipping schedule-changed send`,
+        );
+        return;
+      }
+
+      const userIds = [
+        ...new Set(
+          [
+            ...tokens.map((t) => t.userId),
+            ...webSubs.map((s) => s.userId),
+          ].filter(Boolean),
+        ),
+      ];
+      let langByUserId = new Map<string, SupportedLanguage>();
+      if (userIds.length > 0) {
+        const users = await this.userRepo.findBy({ id: In(userIds) });
+        langByUserId = new Map(
+          users.map((u) => [u.id, coerceLanguage(u.uiLanguage)]),
+        );
+      }
+
+      const data = {
+        type: 'schedule_changed',
+        eventType,
+        weekStartDate,
+      };
+
+      const tokensByLang = new Map<SupportedLanguage, string[]>();
+      for (const t of tokens) {
+        const lang = langByUserId.get(t.userId) ?? DEFAULT_LANGUAGE;
+        if (!tokensByLang.has(lang)) tokensByLang.set(lang, []);
+        tokensByLang.get(lang)!.push(t.token);
+      }
+      const userIdByToken = new Map<string, string>();
+      for (const t of tokens) {
+        userIdByToken.set(t.token, t.userId);
+      }
+      const now = new Date();
+
+      for (const [lang, langTokens] of tokensByLang) {
+        const strings = PUSH_STRINGS[lang].scheduleChanged;
+        const results = await this.sendBatch(
+          langTokens,
+          strings.title,
+          strings.body({
+            meeting: MEETING_NAMES[eventType][lang],
+            range: this.formatWeekRange(weekStartDate, lang),
+            parts,
+          }),
+          data,
+        );
+
+        const receipts: PendingReceipt[] = [];
+        for (const r of results) {
+          if (!r.ticketId) continue;
+          const userId = userIdByToken.get(r.token);
+          if (!userId) continue;
+          receipts.push({
+            ticketId: r.ticketId,
+            token: r.token,
+            userId,
+            congregationId: tenantId,
+            status: 'pending',
+            errorCode: null,
+            sentAt: now,
+          });
+        }
+        if (receipts.length > 0) {
+          await this.pushReceiptRepo.save(receipts);
+        }
+
+        const immediateErrors = results.filter((r) => r.errorCode);
+        if (immediateErrors.length > 0) {
+          this.logger.warn(
+            `Schedule-changed push had ${immediateErrors.length} immediate errors: ${immediateErrors.map((e) => e.errorCode).join(', ')}`,
+          );
+        }
+      }
+
+      if (webSubs.length > 0) {
+        const subsByLang = new Map<SupportedLanguage, WebPushSubscription[]>();
+        for (const sub of webSubs) {
+          const lang = langByUserId.get(sub.userId) ?? DEFAULT_LANGUAGE;
+          if (!subsByLang.has(lang)) subsByLang.set(lang, []);
+          subsByLang.get(lang)!.push(sub);
+        }
+        for (const [lang, langSubs] of subsByLang) {
+          const strings = PUSH_STRINGS[lang].scheduleChanged;
+          const payload = {
+            title: strings.title,
+            body: strings.body({
+              meeting: MEETING_NAMES[eventType][lang],
+              range: this.formatWeekRange(weekStartDate, lang),
+              parts,
+            }),
+            data,
+          };
+          await Promise.all(
+            langSubs.map((sub) =>
+              this.webPushService.sendToSubscription(sub, payload),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      this.logger.warn(
+        `sendScheduleChanged failed for tenant=${tenantId}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
   /** "8 June – 14 June" in the recipient language; falls back to ISO. */
   private formatWeekRange(
     weekStartDate: string,
