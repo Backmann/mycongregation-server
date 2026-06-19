@@ -54,6 +54,14 @@ export class User {
   @Column({ type: 'timestamptz', nullable: true })
   lastLoginAt!: Date | null;
 
+  /**
+   * Last time the user made an authenticated request (throttled write).
+   * Drives presence ("online") and "last active" on the admin user list.
+   * Distinct from lastLoginAt, which only records sign-in events.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  lastSeenAt!: Date | null;
+
   /** sha256 of the active password-reset token (never the token itself). */
   @Column({ type: 'varchar', length: 64, nullable: true, select: false })
   resetTokenHash!: string | null;

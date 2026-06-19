@@ -9,6 +9,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
+import { PresenceModule } from './presence/presence.module';
 import { PublishersModule } from './publishers/publishers.module';
 import { ServiceGroupsModule } from './service-groups/service-groups.module';
 import { AssignmentsModule } from './assignments/assignments.module';
@@ -81,6 +82,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     CryptoModule,
     UsersModule,
     AuthModule,
+    PresenceModule,
     PublishersModule,
     ServiceGroupsModule,
     AssignmentsModule,

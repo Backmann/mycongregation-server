@@ -16,6 +16,7 @@ import { Publisher } from '../entities/publisher.entity';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { PresenceService } from '../presence/presence.service';
 import { CreateUserDto } from './dto/create-user.dto';
 
 /**
@@ -29,6 +30,10 @@ export interface PublicUser {
   isActive: boolean;
   uiLanguage: string;
   lastLoginAt: Date | null;
+  /** Last authenticated activity (drives presence). Null = never active. */
+  lastSeenAt: Date | null;
+  /** True when lastSeenAt is within the online window at response time. */
+  online: boolean;
   createdAt: Date;
   updatedAt: Date;
   /** Appointment of the linked publisher (null when no publisher is linked). */
@@ -38,6 +43,7 @@ export interface PublicUser {
 function toPublicUser(
   u: User,
   appointment: PublisherAppointment | null = null,
+  now: number = Date.now(),
 ): PublicUser {
   return {
     id: u.id,
@@ -46,6 +52,8 @@ function toPublicUser(
     isActive: u.isActive,
     uiLanguage: u.uiLanguage,
     lastLoginAt: u.lastLoginAt,
+    lastSeenAt: u.lastSeenAt,
+    online: PresenceService.isOnline(u.lastSeenAt, now),
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
     appointment,
@@ -119,7 +127,8 @@ export class UsersService {
     for (const p of pubs) {
       if (p.userId) apptByUser.set(p.userId, p.appointment);
     }
-    return rows.map((u) => toPublicUser(u, apptByUser.get(u.id) ?? null));
+    const now = Date.now();
+    return rows.map((u) => toPublicUser(u, apptByUser.get(u.id) ?? null, now));
   }
 
   /**
