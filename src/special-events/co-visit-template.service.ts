@@ -27,6 +27,14 @@ const WT_READER_KEY = 'watchtower_reader';
 const PUBLIC_TALK_KEY = 'public_talk_speaker';
 const CBS_CONDUCTOR_KEY = 'cbs_conductor';
 
+// Closing song lives inside the closing-prayer title (e.g. "Песня 60 и
+// молитва"). For a visit the overseer picks it himself, so we surface a
+// separate, selectable song row and clear the song off the prayer.
+const MIDWEEK_CLOSING_PRAYER_KEY = 'midweek_closing_prayer';
+const WEEKEND_CLOSING_PRAYER_KEY = 'weekend_closing_prayer';
+const MIDWEEK_SONG_KEY = 'mid_song';
+const WEEKEND_SONG_KEY = 'weekend_song';
+
 /**
  * One undoable change made by the template. Stored on the event so deleting it
  * restores the meeting exactly: cancelled parts get their prior status back,
@@ -37,7 +45,7 @@ type RevertOp =
   | {
       op: 'field';
       id: string;
-      field: 'partDurationMin' | 'speakerName';
+      field: 'partDurationMin' | 'speakerName' | 'partTitle';
       prev: number | string | null;
     }
   | { op: 'added'; id: string }
@@ -110,16 +118,43 @@ export class CoVisitTemplateService {
       };
       const setField = async (
         a: Assignment,
-        field: 'partDurationMin' | 'speakerName',
+        field: 'partDurationMin' | 'speakerName' | 'partTitle',
         value: number | string | null,
       ) => {
         ops.push({ op: 'field', id: a.id, field, prev: a[field] });
         if (field === 'partDurationMin') {
           a.partDurationMin = value as number | null;
-        } else {
+        } else if (field === 'speakerName') {
           a.speakerName = value as string | null;
+        } else {
+          a.partTitle = value as string | null;
         }
         await aRepo.save(a);
+      };
+      // Adds a selectable (empty) closing-song row before the closing prayer
+      // and clears the song off the prayer, so the overseer's chosen song can
+      // be picked from the list rather than read from the EPUB.
+      const addClosingSong = async (
+        eventType: EventType,
+        songKey: string,
+        prayer: Assignment,
+      ) => {
+        const songRow = aRepo.create({
+          congregationId: event.congregationId,
+          weekStartDate: week,
+          eventType,
+          partKey: songKey,
+          partOrder: prayer.partOrder - 1,
+          partTitle: null,
+          partDurationMin: null,
+          speakerName: null,
+          status: AssignmentStatus.DRAFT,
+        });
+        const savedSong = await aRepo.save(songRow);
+        ops.push({ op: 'added', id: savedSong.id });
+        if (prayer.partTitle) {
+          await setField(prayer, 'partTitle', null);
+        }
       };
 
       // ---- Midweek: CBS -> 30-min service talk by the CO ----
@@ -145,6 +180,15 @@ export class CoVisitTemplateService {
         });
         const saved = await aRepo.save(serviceTalk);
         ops.push({ op: 'added', id: saved.id });
+
+        const closingPrayer = byKey.get(MIDWEEK_CLOSING_PRAYER_KEY);
+        if (closingPrayer) {
+          await addClosingSong(
+            EventType.MIDWEEK,
+            MIDWEEK_SONG_KEY,
+            closingPrayer,
+          );
+        }
       }
 
       // ---- Weekend: CO public talk, 30-min WT study (no reader), concluding talk ----
@@ -188,6 +232,15 @@ export class CoVisitTemplateService {
         });
         const saved = await aRepo.save(concludingTalk);
         ops.push({ op: 'added', id: saved.id });
+
+        const closingPrayer = byKey.get(WEEKEND_CLOSING_PRAYER_KEY);
+        if (closingPrayer) {
+          await addClosingSong(
+            EventType.WEEKEND,
+            WEEKEND_SONG_KEY,
+            closingPrayer,
+          );
+        }
       }
 
       event.coRevertData = ops;
@@ -228,6 +281,8 @@ export class CoVisitTemplateService {
           a.status = op.prev;
         } else if (op.field === 'partDurationMin') {
           a.partDurationMin = op.prev as number | null;
+        } else if (op.field === 'partTitle') {
+          a.partTitle = op.prev as string | null;
         } else {
           a.speakerName = op.prev as string | null;
         }
