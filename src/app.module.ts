@@ -33,6 +33,7 @@ import { WebPushModule } from './web-push/web-push.module';
 import { ActivityFeedModule } from './activity-feed/activity-feed.module';
 import { ResponsibilitiesModule } from './responsibilities/responsibilities.module';
 import { MeetingSettingsModule } from './meeting-settings/meeting-settings.module';
+import { CircuitOverseerModule } from './circuit-overseer/circuit-overseer.module';
 import { DutiesModule } from './duties/duties.module';
 import { FieldServiceMeetingsModule } from './field-service-meetings/field-service-meetings.module';
 import { CleaningModule } from './cleaning/cleaning.module';
@@ -102,6 +103,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     WebPushModule,
     ResponsibilitiesModule,
     MeetingSettingsModule,
+    CircuitOverseerModule,
     DutiesModule,
     FieldServiceMeetingsModule,
     CleaningModule,

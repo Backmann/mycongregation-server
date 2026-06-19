@@ -59,6 +59,16 @@ export class SpecialEvent {
   @Column({ type: 'text', nullable: true })
   note!: string | null;
 
+  // ---- Circuit overseer visit only: name snapshot for the banner ----
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  coFirstName!: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  coLastName!: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  coWifeName!: string | null;
+
   @Column({ type: 'boolean', default: false })
   replacesMeeting!: boolean;
 

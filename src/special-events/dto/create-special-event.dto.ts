@@ -45,6 +45,21 @@ export class CreateSpecialEventDto {
   note?: string;
 
   @IsOptional()
+  @IsString()
+  @Length(1, 100)
+  coFirstName?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 100)
+  coLastName?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 100)
+  coWifeName?: string;
+
+  @IsOptional()
   @IsBoolean()
   replacesMeeting?: boolean;
 }
