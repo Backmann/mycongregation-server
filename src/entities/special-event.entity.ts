@@ -69,6 +69,14 @@ export class SpecialEvent {
   @Column({ type: 'varchar', length: 100, nullable: true })
   coWifeName!: string | null;
 
+  /**
+   * Undo plan for the circuit-overseer program template (set only on
+   * `circuit_overseer_visit` events). Deleting the event replays this to
+   * restore the meeting; null means no template is currently applied.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  coRevertData!: unknown[] | null;
+
   @Column({ type: 'boolean', default: false })
   replacesMeeting!: boolean;
 

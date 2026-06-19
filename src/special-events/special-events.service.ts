@@ -5,12 +5,14 @@ import { SpecialEvent } from '../entities/special-event.entity';
 import { CreateSpecialEventDto } from './dto/create-special-event.dto';
 import { UpdateSpecialEventDto } from './dto/update-special-event.dto';
 import { QuerySpecialEventsDto } from './dto/query-special-events.dto';
+import { CoVisitTemplateService } from './co-visit-template.service';
 
 @Injectable()
 export class SpecialEventsService {
   constructor(
     @InjectRepository(SpecialEvent)
     private readonly specialEventsRepo: Repository<SpecialEvent>,
+    private readonly coVisitTemplate: CoVisitTemplateService,
   ) {}
 
   /**
@@ -65,7 +67,8 @@ export class SpecialEventsService {
       ...dto,
       congregationId: tenantId,
     });
-    return this.specialEventsRepo.save(event);
+    const saved = await this.specialEventsRepo.save(event);
+    return this.coVisitTemplate.apply(saved);
   }
 
   async update(
@@ -79,12 +82,14 @@ export class SpecialEventsService {
   }
 
   async remove(tenantId: string, id: string): Promise<void> {
-    await this.findOne(tenantId, id);
+    const event = await this.findOne(tenantId, id);
+    await this.coVisitTemplate.revert(event);
     await this.specialEventsRepo.softDelete({ id, congregationId: tenantId });
   }
 
   async restore(tenantId: string, id: string): Promise<SpecialEvent> {
     await this.specialEventsRepo.restore({ id, congregationId: tenantId });
-    return this.findOne(tenantId, id);
+    const event = await this.findOne(tenantId, id);
+    return this.coVisitTemplate.apply(event);
   }
 }
