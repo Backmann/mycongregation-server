@@ -17,10 +17,11 @@ const SERVICE_TALK_DURATION_MIN = 30;
 const CONCLUDING_TALK_DURATION_MIN = 30;
 const WATCHTOWER_VISIT_DURATION_MIN = 30;
 
-// Midweek: the Congregation Bible Study is replaced by the service talk.
-const MIDWEEK_CANCEL_KEYS = ['cbs_conductor', 'cbs_reader'];
+// Midweek: the Congregation Bible Study is replaced by the service talk —
+// the study + its reader are hidden (soft-deleted), not shown cancelled.
+const MIDWEEK_HIDE_KEYS = ['cbs_conductor', 'cbs_reader'];
 // Weekend: the Watchtower study drops its reader; CO gives public + concluding talks.
-const WEEKEND_CANCEL_KEYS = ['watchtower_reader'];
+const WEEKEND_HIDE_KEYS = ['watchtower_reader'];
 const WT_CONDUCTOR_KEY = 'watchtower_conductor';
 const WT_READER_KEY = 'watchtower_reader';
 const PUBLIC_TALK_KEY = 'public_talk_speaker';
@@ -39,7 +40,8 @@ type RevertOp =
       field: 'partDurationMin' | 'speakerName';
       prev: number | string | null;
     }
-  | { op: 'added'; id: string };
+  | { op: 'added'; id: string }
+  | { op: 'deleted'; id: string };
 
 function fmtISO(d: Date): string {
   const y = d.getFullYear();
@@ -102,12 +104,11 @@ export class CoVisitTemplateService {
           },
         });
 
-      const cancel = (a: Assignment) => {
-        if (a.status === AssignmentStatus.CANCELLED) return;
-        ops.push({ op: 'status', id: a.id, prev: a.status });
-        a.status = AssignmentStatus.CANCELLED;
+      const hidePart = async (a: Assignment) => {
+        ops.push({ op: 'deleted', id: a.id });
+        await aRepo.softDelete(a.id);
       };
-      const setField = (
+      const setField = async (
         a: Assignment,
         field: 'partDurationMin' | 'speakerName',
         value: number | string | null,
@@ -118,18 +119,19 @@ export class CoVisitTemplateService {
         } else {
           a.speakerName = value as string | null;
         }
+        await aRepo.save(a);
       };
 
       // ---- Midweek: CBS -> 30-min service talk by the CO ----
       const midweek = await loadMeeting(EventType.MIDWEEK);
       if (midweek.length > 0) {
         const byKey = new Map(midweek.map((a) => [a.partKey, a]));
-        for (const key of MIDWEEK_CANCEL_KEYS) {
-          const a = byKey.get(key);
-          if (a) cancel(a);
-        }
         const cbs = byKey.get(CBS_CONDUCTOR_KEY);
         const maxOrder = Math.max(0, ...midweek.map((a) => a.partOrder));
+        for (const key of MIDWEEK_HIDE_KEYS) {
+          const a = byKey.get(key);
+          if (a) await hidePart(a);
+        }
         const serviceTalk = aRepo.create({
           congregationId: event.congregationId,
           weekStartDate: week,
@@ -143,29 +145,13 @@ export class CoVisitTemplateService {
         });
         const saved = await aRepo.save(serviceTalk);
         ops.push({ op: 'added', id: saved.id });
-        await aRepo.save(midweek.filter((a) => byKey.has(a.partKey)));
       }
 
       // ---- Weekend: CO public talk, 30-min WT study (no reader), concluding talk ----
       const weekend = await loadMeeting(EventType.WEEKEND);
       if (weekend.length > 0) {
         const byKey = new Map(weekend.map((a) => [a.partKey, a]));
-        for (const key of WEEKEND_CANCEL_KEYS) {
-          const a = byKey.get(key);
-          if (a) cancel(a);
-        }
         const wtConductor = byKey.get(WT_CONDUCTOR_KEY);
-        if (wtConductor) {
-          setField(
-            wtConductor,
-            'partDurationMin',
-            WATCHTOWER_VISIT_DURATION_MIN,
-          );
-        }
-        const publicTalk = byKey.get(PUBLIC_TALK_KEY);
-        if (publicTalk && speaker) {
-          setField(publicTalk, 'speakerName', speaker);
-        }
         const reader = byKey.get(WT_READER_KEY);
         const maxOrder = Math.max(0, ...weekend.map((a) => a.partOrder));
         const concludingOrder = reader
@@ -173,6 +159,22 @@ export class CoVisitTemplateService {
           : wtConductor
             ? wtConductor.partOrder + 1
             : maxOrder + 1;
+
+        for (const key of WEEKEND_HIDE_KEYS) {
+          const a = byKey.get(key);
+          if (a) await hidePart(a);
+        }
+        if (wtConductor) {
+          await setField(
+            wtConductor,
+            'partDurationMin',
+            WATCHTOWER_VISIT_DURATION_MIN,
+          );
+        }
+        const publicTalk = byKey.get(PUBLIC_TALK_KEY);
+        if (publicTalk && speaker) {
+          await setField(publicTalk, 'speakerName', speaker);
+        }
         const concludingTalk = aRepo.create({
           congregationId: event.congregationId,
           weekStartDate: week,
@@ -186,7 +188,6 @@ export class CoVisitTemplateService {
         });
         const saved = await aRepo.save(concludingTalk);
         ops.push({ op: 'added', id: saved.id });
-        await aRepo.save(weekend.filter((a) => byKey.has(a.partKey)));
       }
 
       event.coRevertData = ops;
@@ -211,10 +212,14 @@ export class CoVisitTemplateService {
       const aRepo = em.getRepository(Assignment);
       const eRepo = em.getRepository(SpecialEvent);
 
-      // Undo in reverse so additions are removed before status restores, etc.
+      // Undo in reverse so additions are removed before restores, etc.
       for (const op of [...ops].reverse()) {
         if (op.op === 'added') {
           await aRepo.delete({ id: op.id });
+          continue;
+        }
+        if (op.op === 'deleted') {
+          await aRepo.restore({ id: op.id });
           continue;
         }
         const a = await aRepo.findOne({ where: { id: op.id } });
