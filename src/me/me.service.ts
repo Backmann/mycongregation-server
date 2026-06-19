@@ -41,6 +41,7 @@ export interface MyPublisherResponse {
     firstName: string;
     lastName: string;
     pioneerType: string | null;
+    serviceGroupId: string | null;
   } | null;
 }
 
@@ -115,6 +116,7 @@ export class MeService {
         firstName: me.firstName,
         lastName: me.lastName,
         pioneerType: me.pioneerType ?? null,
+        serviceGroupId: me.serviceGroupId ?? null,
       },
     };
   }

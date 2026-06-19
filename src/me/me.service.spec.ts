@@ -45,6 +45,7 @@ describe('MeService.myPublisher', () => {
       firstName: 'Adele',
       lastName: 'Backmann',
       pioneerType: 'none',
+      serviceGroupId: 'g1',
       // Fields below must NOT leak into the response.
       email: 'private@example.org',
       notes: 'sensitive',
@@ -57,6 +58,7 @@ describe('MeService.myPublisher', () => {
         firstName: 'Adele',
         lastName: 'Backmann',
         pioneerType: 'none',
+        serviceGroupId: 'g1',
       },
     });
   });
