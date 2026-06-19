@@ -30,16 +30,21 @@ export class LocalNeedsController {
   constructor(private readonly service: LocalNeedsService) {}
 
   @Get()
-  list(@TenantId() tenantId: string, @Query() query: QueryLocalNeedsTopicsDto) {
-    return this.service.findAll(tenantId, query);
+  list(
+    @TenantId() tenantId: string,
+    @Query() query: QueryLocalNeedsTopicsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.findAll(tenantId, query, user);
   }
 
   @Get(':id')
   findOne(
     @TenantId() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.findOne(tenantId, id);
+    return this.service.findOne(tenantId, id, user);
   }
 
   @Post()

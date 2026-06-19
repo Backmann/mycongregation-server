@@ -23,15 +23,18 @@ export class LocalNeedsService {
     private readonly responsibilitiesRepo: Repository<Responsibility>,
   ) {}
 
-  /** Responsibilities that may manage the local-needs backlog. */
+  /**
+   * Responsibilities that may manage the local-needs backlog. Per the body of
+   * elders: only the Life & Ministry overseer (midweek) edits; admins always
+   * pass.
+   */
   private static readonly MANAGER_RESPONSIBILITIES = [
-    ResponsibilityType.BODY_COORDINATOR,
     ResponsibilityType.LIFE_MINISTRY_OVERSEER,
-    ResponsibilityType.SECRETARY,
   ];
 
-  private async assertCanManage(user: AuthenticatedUser): Promise<void> {
-    if (user.role === UserRole.ADMIN) return;
+  /** True when the user may edit the backlog (admin or Life & Ministry overseer). */
+  private async isManager(user: AuthenticatedUser): Promise<boolean> {
+    if (user.role === UserRole.ADMIN) return true;
     const held = await this.responsibilitiesRepo.count({
       where: {
         congregationId: user.congregationId,
@@ -39,9 +42,20 @@ export class LocalNeedsService {
         type: In(LocalNeedsService.MANAGER_RESPONSIBILITIES),
       },
     });
-    if (held === 0) {
+    return held > 0;
+  }
+
+  private async assertCanManage(user: AuthenticatedUser): Promise<void> {
+    if (!(await this.isManager(user))) {
       throw new ForbiddenException('Not allowed to manage local needs');
     }
+  }
+
+  /** Reading is limited to elders (admins and managers always pass). */
+  private async assertCanView(user: AuthenticatedUser): Promise<void> {
+    if (user.role === UserRole.ADMIN || user.role === UserRole.ELDER) return;
+    if (await this.isManager(user)) return;
+    throw new ForbiddenException('Local needs are visible to elders only');
   }
 
   private baseQuery(tenantId: string) {
@@ -57,7 +71,9 @@ export class LocalNeedsService {
   async findAll(
     tenantId: string,
     query: QueryLocalNeedsTopicsDto,
+    user: AuthenticatedUser,
   ): Promise<LocalNeedsTopic[]> {
+    await this.assertCanView(user);
     const qb = this.baseQuery(tenantId);
 
     if (query.onlyPlanned === 'true') {
@@ -75,7 +91,12 @@ export class LocalNeedsService {
       .getMany();
   }
 
-  async findOne(tenantId: string, id: string): Promise<LocalNeedsTopic> {
+  async findOne(
+    tenantId: string,
+    id: string,
+    user: AuthenticatedUser,
+  ): Promise<LocalNeedsTopic> {
+    await this.assertCanView(user);
     const found = await this.baseQuery(tenantId)
       .andWhere('t.id = :id', { id })
       .withDeleted()
@@ -146,6 +167,6 @@ export class LocalNeedsService {
       throw new NotFoundException('Local needs topic not found');
     }
     await this.repo.restore(id);
-    return this.findOne(tenantId, id);
+    return this.findOne(tenantId, id, user);
   }
 }
