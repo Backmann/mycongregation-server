@@ -12,6 +12,8 @@ import { createHash, randomBytes } from 'crypto';
 import { MailService } from '../mail/mail.service';
 import * as bcrypt from 'bcrypt';
 import { User } from '../entities/user.entity';
+import { Publisher } from '../entities/publisher.entity';
+import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -29,9 +31,14 @@ export interface PublicUser {
   lastLoginAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  /** Appointment of the linked publisher (null when no publisher is linked). */
+  appointment: PublisherAppointment | null;
 }
 
-function toPublicUser(u: User): PublicUser {
+function toPublicUser(
+  u: User,
+  appointment: PublisherAppointment | null = null,
+): PublicUser {
   return {
     id: u.id,
     email: u.email,
@@ -41,6 +48,7 @@ function toPublicUser(u: User): PublicUser {
     lastLoginAt: u.lastLoginAt,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
+    appointment,
   };
 }
 
@@ -51,6 +59,8 @@ const PG_UNIQUE_VIOLATION = '23505';
 export class UsersService {
   constructor(
     @InjectRepository(User) private readonly usersRepo: Repository<User>,
+    @InjectRepository(Publisher)
+    private readonly publishersRepo: Repository<Publisher>,
     private readonly auditLog: AuditLogService,
     private readonly config: ConfigService,
     private readonly mailService: MailService,
@@ -98,7 +108,18 @@ export class UsersService {
       where: { congregationId },
       order: { createdAt: 'ASC' },
     });
-    return rows.map(toPublicUser);
+    // Select only non-encrypted columns so publisher names aren't decrypted.
+    const pubs = await this.publishersRepo
+      .createQueryBuilder('p')
+      .select(['p.userId', 'p.appointment'])
+      .where('p.congregation_id = :cid', { cid: congregationId })
+      .andWhere('p.user_id IS NOT NULL')
+      .getMany();
+    const apptByUser = new Map<string, PublisherAppointment>();
+    for (const p of pubs) {
+      if (p.userId) apptByUser.set(p.userId, p.appointment);
+    }
+    return rows.map((u) => toPublicUser(u, apptByUser.get(u.id) ?? null));
   }
 
   /**

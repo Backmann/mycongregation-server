@@ -5,6 +5,7 @@ import { MailService } from '../mail/mail.service';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { User } from '../entities/user.entity';
+import { Publisher } from '../entities/publisher.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
 
 describe('UsersService.changeEmailByAdmin', () => {
@@ -26,6 +27,10 @@ describe('UsersService.changeEmailByAdmin', () => {
       providers: [
         UsersService,
         { provide: getRepositoryToken(User), useValue: repo },
+        {
+          provide: getRepositoryToken(Publisher),
+          useValue: { createQueryBuilder: jest.fn() },
+        },
         {
           provide: MailService,
           useValue: {

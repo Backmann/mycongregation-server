@@ -11,6 +11,7 @@ import {
 import * as bcrypt from 'bcrypt';
 import { UsersService } from './users.service';
 import { User } from '../entities/user.entity';
+import { Publisher } from '../entities/publisher.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { MailService } from '../mail/mail.service';
@@ -33,6 +34,15 @@ const makeUsersRepo = (): MockRepo<User> => ({
   save: jest.fn().mockImplementation(async (x) => x),
   update: jest.fn().mockResolvedValue({ affected: 1 }),
   createQueryBuilder: jest.fn(),
+});
+
+const makePublishersRepo = (): MockRepo<Publisher> => ({
+  createQueryBuilder: jest.fn(() => ({
+    select: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    getMany: jest.fn().mockResolvedValue([]),
+  })) as unknown as jest.Mock,
 });
 
 const makeAuditLog = (): jest.Mocked<Partial<AuditLogService>> => ({
@@ -74,6 +84,10 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
       providers: [
         UsersService,
         { provide: getRepositoryToken(User), useValue: repo },
+        {
+          provide: getRepositoryToken(Publisher),
+          useValue: makePublishersRepo(),
+        },
         {
           provide: MailService,
           useValue: {
