@@ -3,5 +3,6 @@ export enum PublisherAppointment {
   MINISTERIAL_SERVANT = 'ministerial_servant',
   PUBLISHER = 'publisher',
   UNBAPTIZED_PUBLISHER = 'unbaptized_publisher',
+  STUDENT = 'student',
   NONE = 'none',
 }
