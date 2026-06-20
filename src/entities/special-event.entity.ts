@@ -70,6 +70,14 @@ export class SpecialEvent {
   coWifeName!: string | null;
 
   /**
+   * Circuit-overseer visit only: ISO weekday (1=Mon..7=Sun) the midweek
+   * meeting is held on during the visit, which often differs from the normal
+   * schedule (commonly Tuesday). Null falls back to Tuesday in the UI.
+   */
+  @Column({ type: 'smallint', nullable: true })
+  coMidweekDow!: number | null;
+
+  /**
    * Undo plan for the circuit-overseer program template (set only on
    * `circuit_overseer_visit` events). Deleting the event replays this to
    * restore the meeting; null means no template is currently applied.
