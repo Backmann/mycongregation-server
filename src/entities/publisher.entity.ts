@@ -157,6 +157,10 @@ export class Publisher {
   @Column({ type: 'jsonb', default: {} })
   capabilities!: Record<string, boolean>;
 
+  // ---- Public talk repertoire (outline numbers this brother gives) ----
+  @Column({ type: 'int', array: true, default: () => "'{}'" })
+  publicTalkNumbers!: number[];
+
   // ---- Removal lifecycle ----
   @Column({ type: 'enum', enum: RemovalReason, nullable: true })
   removalReason!: RemovalReason | null;

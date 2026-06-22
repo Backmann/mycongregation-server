@@ -1,15 +1,20 @@
 import { Transform } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsDateString,
   IsEmail,
   IsEnum,
+  IsInt,
   IsObject,
   IsOptional,
   IsString,
   IsUUID,
   Length,
+  Max,
   MaxLength,
+  Min,
 } from 'class-validator';
 import { Gender } from '../../common/enums/gender.enum';
 import { PublisherAppointment } from '../../common/enums/publisher-appointment.enum';
@@ -155,4 +160,13 @@ export class CreatePublisherDto {
   @IsOptional()
   @IsObject()
   capabilities?: Record<string, boolean>;
+
+  /** Public talk outline numbers this brother gives (outgoing speaker). */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(300)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  @Max(300, { each: true })
+  publicTalkNumbers?: number[];
 }
