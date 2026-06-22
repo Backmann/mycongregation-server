@@ -1,0 +1,272 @@
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { In, Repository } from 'typeorm';
+import { TalkExchange } from '../entities/talk-exchange.entity';
+import { Assignment } from '../entities/assignment.entity';
+import { Absence } from '../entities/absence.entity';
+import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
+import { ExternalCongregation } from '../entities/external-congregation.entity';
+import { PublicTalk } from '../entities/public-talk.entity';
+import { Responsibility } from '../entities/responsibility.entity';
+import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
+import { UserRole } from '../common/enums/user-role.enum';
+import { AssignmentStatus } from '../common/enums/assignment-status.enum';
+import { TalkExchangeDirection } from '../common/enums/talk-exchange.enum';
+import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { CreateTalkExchangeDto } from './dto/create-talk-exchange.dto';
+import { UpdateTalkExchangeDto } from './dto/update-talk-exchange.dto';
+
+const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
+
+/** Monday (YYYY-MM-DD) of the ISO week containing the given date. */
+function mondayOf(dateStr: string): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  const dow = d.getUTCDay(); // 0=Sun..6=Sat
+  const isoDow = dow === 0 ? 7 : dow; // 1=Mon..7=Sun
+  d.setUTCDate(d.getUTCDate() - (isoDow - 1));
+  return d.toISOString().slice(0, 10);
+}
+
+function speakerFullName(s: {
+  firstName: string;
+  lastName: string | null;
+}): string {
+  return [s.firstName, s.lastName].filter(Boolean).join(' ');
+}
+
+export type TalkExchangeResult = TalkExchange & { programConflict?: boolean };
+
+@Injectable()
+export class TalkExchangeService {
+  constructor(
+    @InjectRepository(TalkExchange)
+    private readonly repo: Repository<TalkExchange>,
+    @InjectRepository(Assignment)
+    private readonly assignmentRepo: Repository<Assignment>,
+    @InjectRepository(Absence)
+    private readonly absenceRepo: Repository<Absence>,
+    @InjectRepository(VisitingSpeaker)
+    private readonly speakerRepo: Repository<VisitingSpeaker>,
+    @InjectRepository(ExternalCongregation)
+    private readonly congregationRepo: Repository<ExternalCongregation>,
+    @InjectRepository(PublicTalk)
+    private readonly publicTalkRepo: Repository<PublicTalk>,
+    @InjectRepository(Responsibility)
+    private readonly responsibilitiesRepo: Repository<Responsibility>,
+  ) {}
+
+  private static readonly MANAGER_RESPONSIBILITIES = [
+    ResponsibilityType.PUBLIC_TALK_COORDINATOR,
+  ];
+
+  private async assertCanWrite(user: AuthenticatedUser): Promise<void> {
+    if (user.role === UserRole.ADMIN) return;
+    const held = await this.responsibilitiesRepo.count({
+      where: {
+        congregationId: user.congregationId,
+        userId: user.id,
+        type: In(TalkExchangeService.MANAGER_RESPONSIBILITIES),
+      },
+    });
+    if (held === 0) {
+      throw new ForbiddenException(
+        'Only the public talk coordinator may edit the talk exchange',
+      );
+    }
+  }
+
+  findAll(tenantId: string): Promise<TalkExchange[]> {
+    return this.repo.find({
+      where: { congregationId: tenantId },
+      order: { date: 'DESC' },
+    });
+  }
+
+  async findOne(tenantId: string, id: string): Promise<TalkExchange> {
+    const row = await this.repo.findOne({
+      where: { id, congregationId: tenantId },
+    });
+    if (!row) throw new NotFoundException('Talk exchange entry not found');
+    return row;
+  }
+
+  async create(
+    tenantId: string,
+    dto: CreateTalkExchangeDto,
+    user: AuthenticatedUser,
+  ): Promise<TalkExchangeResult> {
+    await this.assertCanWrite(user);
+    const { overwriteProgram, ...fields } = dto;
+    const row = this.repo.create({ ...fields, congregationId: tenantId });
+    const saved = await this.repo.save(row);
+    return this.applySideEffects(tenantId, saved, overwriteProgram);
+  }
+
+  async update(
+    tenantId: string,
+    id: string,
+    dto: UpdateTalkExchangeDto,
+    user: AuthenticatedUser,
+  ): Promise<TalkExchangeResult> {
+    await this.assertCanWrite(user);
+    const { overwriteProgram, ...fields } = dto;
+    const row = await this.findOne(tenantId, id);
+    Object.assign(row, fields);
+    const saved = await this.repo.save(row);
+    return this.applySideEffects(tenantId, saved, overwriteProgram);
+  }
+
+  async remove(
+    tenantId: string,
+    id: string,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    await this.assertCanWrite(user);
+    const row = await this.findOne(tenantId, id);
+    // Remove the auto-created outgoing absence; leave the program slot as-is
+    // (deleting a record should not silently wipe a published assignment).
+    if (row.linkedAbsenceId) {
+      await this.absenceRepo.softDelete(row.linkedAbsenceId);
+    }
+    await this.repo.softDelete(row.id);
+  }
+
+  // ---- Side effects -------------------------------------------------------
+
+  private async applySideEffects(
+    tenantId: string,
+    entry: TalkExchange,
+    overwriteProgram?: boolean,
+  ): Promise<TalkExchangeResult> {
+    if (entry.direction === TalkExchangeDirection.INCOMING) {
+      return this.applyIncomingToProgram(
+        tenantId,
+        entry,
+        overwriteProgram ?? false,
+      );
+    }
+    if (entry.direction === TalkExchangeDirection.OUTGOING) {
+      await this.syncOutgoingAbsence(tenantId, entry);
+    }
+    return entry;
+  }
+
+  /**
+   * Fill the weekend public-talk slot for the entry's week with the visiting
+   * speaker + talk. If the slot is already filled with something else and
+   * overwrite is false, leave it and flag a conflict for the app to confirm.
+   */
+  private async applyIncomingToProgram(
+    tenantId: string,
+    entry: TalkExchange,
+    overwrite: boolean,
+  ): Promise<TalkExchangeResult> {
+    if (!entry.visitingSpeakerId || !entry.publicTalkId) return entry;
+
+    const speaker = await this.speakerRepo.findOne({
+      where: { id: entry.visitingSpeakerId, congregationId: tenantId },
+      relations: { externalCongregation: true },
+    });
+    if (!speaker) return entry;
+
+    const weekStartDate = mondayOf(entry.date);
+    const slot = await this.assignmentRepo.findOne({
+      where: {
+        congregationId: tenantId,
+        weekStartDate,
+        partKey: PUBLIC_TALK_PART_KEY,
+      },
+    });
+    if (!slot) return entry; // no weekend programme for that week yet
+
+    const name = speakerFullName(speaker);
+    const congName = speaker.externalCongregation?.name ?? null;
+    const alreadyThis =
+      slot.publicTalkId === entry.publicTalkId && slot.speakerName === name;
+    const occupied = !!(slot.publicTalkId || slot.speakerName?.trim());
+
+    if (occupied && !overwrite && !alreadyThis) {
+      const result = entry as TalkExchangeResult;
+      result.programConflict = true;
+      return result;
+    }
+
+    slot.speakerName = name;
+    slot.speakerCongregation = congName;
+    slot.publicTalkId = entry.publicTalkId;
+    if (slot.status === AssignmentStatus.PUBLISHED) {
+      slot.changedSincePublish = true;
+    }
+    await this.assignmentRepo.save(slot);
+    return entry;
+  }
+
+  /**
+   * Keep an absence in sync for an outgoing brother (he is away that day).
+   * Creates on first sync, updates on change, removes if the brother is
+   * cleared.
+   */
+  private async syncOutgoingAbsence(
+    tenantId: string,
+    entry: TalkExchange,
+  ): Promise<void> {
+    if (!entry.publisherId) {
+      if (entry.linkedAbsenceId) {
+        await this.absenceRepo.softDelete(entry.linkedAbsenceId);
+        entry.linkedAbsenceId = null;
+        await this.repo.save(entry);
+      }
+      return;
+    }
+
+    const note = await this.buildOutgoingNote(tenantId, entry);
+
+    if (entry.linkedAbsenceId) {
+      const abs = await this.absenceRepo.findOne({
+        where: { id: entry.linkedAbsenceId, congregationId: tenantId },
+      });
+      if (abs) {
+        abs.publisherId = entry.publisherId;
+        abs.startDate = entry.date;
+        abs.endDate = null;
+        abs.note = note;
+        await this.absenceRepo.save(abs);
+        return;
+      }
+    }
+
+    const abs = this.absenceRepo.create({
+      congregationId: tenantId,
+      publisherId: entry.publisherId,
+      startDate: entry.date,
+      note: note ?? undefined,
+    });
+    const savedAbs = await this.absenceRepo.save(abs);
+    entry.linkedAbsenceId = savedAbs.id;
+    await this.repo.save(entry);
+  }
+
+  private async buildOutgoingNote(
+    tenantId: string,
+    entry: TalkExchange,
+  ): Promise<string | null> {
+    const parts: string[] = [];
+    if (entry.publicTalkId) {
+      const talk = await this.publicTalkRepo.findOne({
+        where: { id: entry.publicTalkId },
+      });
+      if (talk) parts.push(`№${talk.number}`);
+    }
+    if (entry.hostCongregationId) {
+      const cong = await this.congregationRepo.findOne({
+        where: { id: entry.hostCongregationId, congregationId: tenantId },
+      });
+      if (cong) parts.push(cong.name);
+    }
+    return parts.length ? parts.join(' · ') : null;
+  }
+}

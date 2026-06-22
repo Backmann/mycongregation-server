@@ -28,6 +28,7 @@ import { AbsencesModule } from './absences/absences.module';
 import { LocalNeedsModule } from './local-needs/local-needs.module';
 import { ExternalCongregationsModule } from './external-congregations/external-congregations.module';
 import { VisitingSpeakersModule } from './visiting-speakers/visiting-speakers.module';
+import { TalkExchangeModule } from './talk-exchange/talk-exchange.module';
 import { HallsModule } from './halls/halls.module';
 import { MailModule } from './mail/mail.module';
 import { MeModule } from './me/me.module';
@@ -102,6 +103,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     LocalNeedsModule,
     ExternalCongregationsModule,
     VisitingSpeakersModule,
+    TalkExchangeModule,
     HallsModule,
     MailModule,
     MeModule,
