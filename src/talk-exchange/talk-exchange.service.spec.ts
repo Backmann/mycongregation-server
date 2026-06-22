@@ -126,6 +126,36 @@ describe('TalkExchangeService', () => {
     expect(result.programConflict).toBeUndefined();
   });
 
+  it('auto-fills the slot from free-text speaker when not in the directory', async () => {
+    assignmentRepo.findOne.mockResolvedValue({
+      id: 'asg-1',
+      publicTalkId: null,
+      speakerName: null,
+      status: 'draft',
+    });
+
+    await service.create(
+      TENANT,
+      {
+        direction: TalkExchangeDirection.INCOMING,
+        date: '2026-06-21',
+        speakerName: 'Guest Brother',
+        speakerCongregation: 'Some Town',
+        publicTalkId: 'talk-1',
+      },
+      user(),
+    );
+
+    expect(speakerRepo.findOne).not.toHaveBeenCalled();
+    expect(assignmentRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        speakerName: 'Guest Brother',
+        speakerCongregation: 'Some Town',
+        publicTalkId: 'talk-1',
+      }),
+    );
+  });
+
   it('flags a conflict instead of overwriting an occupied slot', async () => {
     speakerRepo.findOne.mockResolvedValue({
       id: 'spk-1',

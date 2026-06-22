@@ -33,6 +33,16 @@ export class CreateTalkExchangeDto {
   visitingSpeakerId?: string | null;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  speakerName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  speakerCongregation?: string;
+
+  @IsOptional()
   @IsUUID()
   hospitalityPublisherId?: string | null;
 

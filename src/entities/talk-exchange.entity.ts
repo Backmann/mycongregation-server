@@ -77,6 +77,14 @@ export class TalkExchange {
   @JoinColumn({ name: 'visiting_speaker_id' })
   visitingSpeaker!: VisitingSpeaker | null;
 
+  /** Free-text speaker name when the visiting speaker is not in the directory. */
+  @Column({ type: 'text', nullable: true })
+  speakerName!: string | null;
+
+  /** Free-text congregation name when not in the directory. */
+  @Column({ type: 'text', nullable: true })
+  speakerCongregation!: string | null;
+
   /** Who hosts/receives the visiting speaker. */
   @Column({ type: 'uuid', nullable: true })
   hospitalityPublisherId!: string | null;

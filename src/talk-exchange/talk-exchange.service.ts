@@ -165,13 +165,25 @@ export class TalkExchangeService {
     entry: TalkExchange,
     overwrite: boolean,
   ): Promise<TalkExchangeResult> {
-    if (!entry.visitingSpeakerId || !entry.publicTalkId) return entry;
+    if (!entry.publicTalkId) return entry;
 
-    const speaker = await this.speakerRepo.findOne({
-      where: { id: entry.visitingSpeakerId, congregationId: tenantId },
-      relations: { externalCongregation: true },
-    });
-    if (!speaker) return entry;
+    let name: string | null = null;
+    let congName: string | null = null;
+    if (entry.visitingSpeakerId) {
+      const speaker = await this.speakerRepo.findOne({
+        where: { id: entry.visitingSpeakerId, congregationId: tenantId },
+        relations: { externalCongregation: true },
+      });
+      if (speaker) {
+        name = speakerFullName(speaker);
+        congName = speaker.externalCongregation?.name ?? null;
+      }
+    }
+    if (!name && entry.speakerName?.trim()) {
+      name = entry.speakerName.trim();
+      congName = entry.speakerCongregation?.trim() || null;
+    }
+    if (!name) return entry; // nothing to fill the slot with
 
     const weekStartDate = mondayOf(entry.date);
     const slot = await this.assignmentRepo.findOne({
@@ -183,8 +195,6 @@ export class TalkExchangeService {
     });
     if (!slot) return entry; // no weekend programme for that week yet
 
-    const name = speakerFullName(speaker);
-    const congName = speaker.externalCongregation?.name ?? null;
     const alreadyThis =
       slot.publicTalkId === entry.publicTalkId && slot.speakerName === name;
     const occupied = !!(slot.publicTalkId || slot.speakerName?.trim());
