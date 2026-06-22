@@ -7,13 +7,17 @@ import { Duty } from '../entities/duty.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
 import { CartShiftParticipant } from '../entities/cart-shift-participant.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
+import { TalkExchange } from '../entities/talk-exchange.entity';
+import { ExternalCongregation } from '../entities/external-congregation.entity';
+import { PublicTalk } from '../entities/public-talk.entity';
 
 export type MyAssignmentKind =
   | 'meeting'
   | 'duty'
   | 'cleaning'
   | 'cart'
-  | 'field_service';
+  | 'field_service'
+  | 'outgoing_talk';
 
 export interface MyAssignmentItem {
   kind: MyAssignmentKind;
@@ -31,6 +35,10 @@ export interface MyAssignmentItem {
   /** Program order of the part within the meeting (for sorting). */
   partOrder?: number;
   location?: string;
+  /** Outgoing public talk: link to the host hall on a map. */
+  mapUrl?: string;
+  /** Outgoing public talk: host congregation name. */
+  congregationName?: string;
   asAssistant?: boolean;
 }
 
@@ -94,6 +102,12 @@ export class MeService {
     private readonly cartPartsRepo: Repository<CartShiftParticipant>,
     @InjectRepository(FieldServiceMeeting)
     private readonly fieldRepo: Repository<FieldServiceMeeting>,
+    @InjectRepository(TalkExchange)
+    private readonly talkExchangeRepo: Repository<TalkExchange>,
+    @InjectRepository(ExternalCongregation)
+    private readonly externalCongregationsRepo: Repository<ExternalCongregation>,
+    @InjectRepository(PublicTalk)
+    private readonly publicTalksRepo: Repository<PublicTalk>,
   ) {}
 
   /**
@@ -251,6 +265,36 @@ export class MeService {
         time: f.startTime,
         label: f.address,
         location: f.address,
+      });
+    }
+
+    // ---- Outgoing public talks (our brother speaks at another congregation) ----
+    const outgoing = await this.talkExchangeRepo
+      .createQueryBuilder('te')
+      .where('te.congregation_id = :tenantId', { tenantId })
+      .andWhere("te.direction = 'outgoing'")
+      .andWhere('te.publisher_id = :pid', { pid })
+      .andWhere('te.date BETWEEN :today AND :horizon', { today, horizon })
+      .orderBy('te.date', 'ASC')
+      .getMany();
+    for (const e of outgoing) {
+      const host = e.hostCongregationId
+        ? await this.externalCongregationsRepo.findOne({
+            where: { id: e.hostCongregationId, congregationId: tenantId },
+          })
+        : null;
+      const talk = e.publicTalkId
+        ? await this.publicTalksRepo.findOne({ where: { id: e.publicTalkId } })
+        : null;
+      items.push({
+        kind: 'outgoing_talk',
+        sortDate: e.date,
+        date: e.date,
+        time: host?.meetingTime ?? undefined,
+        label: talk ? `№${talk.number}. ${talk.title}` : (host?.name ?? ''),
+        location: host?.address ?? undefined,
+        mapUrl: host?.mapUrl ?? undefined,
+        congregationName: host?.name ?? undefined,
       });
     }
 

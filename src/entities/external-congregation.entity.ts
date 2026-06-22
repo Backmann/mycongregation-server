@@ -49,6 +49,22 @@ export class ExternalCongregation {
   @Column({ type: 'text', nullable: true })
   note!: string | null;
 
+  /** Kingdom Hall address of the host congregation (for our outgoing speakers). */
+  @Column({ type: 'text', nullable: true })
+  address!: string | null;
+
+  /** Weekend meeting day, ISO 1–7 (Mon–Sun). Other congregations meet on varying days. */
+  @Column({ type: 'int', nullable: true })
+  meetingDow!: number | null;
+
+  /** Weekend meeting time, 'HH:mm'. */
+  @Column({ type: 'varchar', length: 5, nullable: true })
+  meetingTime!: string | null;
+
+  /** Optional map link (e.g. Google Maps) to the hall. */
+  @Column({ type: 'text', nullable: true })
+  mapUrl!: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 

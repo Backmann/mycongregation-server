@@ -6,6 +6,9 @@ import { Duty } from '../entities/duty.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
 import { CartShiftParticipant } from '../entities/cart-shift-participant.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
+import { TalkExchange } from '../entities/talk-exchange.entity';
+import { ExternalCongregation } from '../entities/external-congregation.entity';
+import { PublicTalk } from '../entities/public-talk.entity';
 import { MeService } from './me.service';
 import { MeController } from './me.controller';
 
@@ -18,6 +21,9 @@ import { MeController } from './me.controller';
       CleaningAssignment,
       CartShiftParticipant,
       FieldServiceMeeting,
+      TalkExchange,
+      ExternalCongregation,
+      PublicTalk,
     ]),
   ],
   controllers: [MeController],
