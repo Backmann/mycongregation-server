@@ -26,6 +26,7 @@ import { ReportRemindersModule } from './report-reminders/report-reminders.modul
 import { SpecialEventsModule } from './special-events/special-events.module';
 import { AbsencesModule } from './absences/absences.module';
 import { LocalNeedsModule } from './local-needs/local-needs.module';
+import { ExternalCongregationsModule } from './external-congregations/external-congregations.module';
 import { HallsModule } from './halls/halls.module';
 import { MailModule } from './mail/mail.module';
 import { MeModule } from './me/me.module';
@@ -98,6 +99,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     SpecialEventsModule,
     AbsencesModule,
     LocalNeedsModule,
+    ExternalCongregationsModule,
     HallsModule,
     MailModule,
     MeModule,
