@@ -5,6 +5,7 @@ import { AssignmentsService } from './assignments.service';
 import { Assignment } from '../entities/assignment.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
+import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
 
 // expo-server-sdk (pulled in transitively by the real push service) is
 // ESM-only and breaks under Jest. Mock the module: the DI token stays the
@@ -81,6 +82,10 @@ describe('AssignmentsService draft visibility', () => {
           useValue: responsibilitiesRepo,
         },
         { provide: PushNotificationsService, useValue: pushMock },
+        {
+          provide: TalkExchangeService,
+          useValue: { syncProgramToJournal: jest.fn() },
+        },
       ],
     }).compile();
     service = moduleRef.get(AssignmentsService);

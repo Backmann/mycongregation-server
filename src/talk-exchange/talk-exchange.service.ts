@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { Between, In, Repository } from 'typeorm';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Absence } from '../entities/absence.entity';
@@ -12,6 +12,7 @@ import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { Responsibility } from '../entities/responsibility.entity';
+import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
@@ -28,6 +29,13 @@ function mondayOf(dateStr: string): string {
   const dow = d.getUTCDay(); // 0=Sun..6=Sat
   const isoDow = dow === 0 ? 7 : dow; // 1=Mon..7=Sun
   d.setUTCDate(d.getUTCDate() - (isoDow - 1));
+  return d.toISOString().slice(0, 10);
+}
+
+/** dateStr + n days, as YYYY-MM-DD (UTC). */
+function addDaysISO(dateStr: string, n: number): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
 
@@ -57,6 +65,8 @@ export class TalkExchangeService {
     private readonly publicTalkRepo: Repository<PublicTalk>,
     @InjectRepository(Responsibility)
     private readonly responsibilitiesRepo: Repository<Responsibility>,
+    @InjectRepository(MeetingSettings)
+    private readonly meetingSettingsRepo: Repository<MeetingSettings>,
   ) {}
 
   private static readonly MANAGER_RESPONSIBILITIES = [
@@ -127,12 +137,40 @@ export class TalkExchangeService {
   ): Promise<void> {
     await this.assertCanWrite(user);
     const row = await this.findOne(tenantId, id);
-    // Remove the auto-created outgoing absence; leave the program slot as-is
-    // (deleting a record should not silently wipe a published assignment).
+    // Remove the auto-created outgoing absence.
     if (row.linkedAbsenceId) {
       await this.absenceRepo.softDelete(row.linkedAbsenceId);
     }
+    // Incoming is kept in sync with the program's public-talk slot: removing the
+    // journal entry clears that slot (when it still reflects this visitor).
+    if (row.direction === TalkExchangeDirection.INCOMING) {
+      await this.clearProgramSlot(tenantId, row);
+    }
     await this.repo.softDelete(row.id);
+  }
+
+  /** Clear the weekend public-talk slot if it still reflects an invited speaker. */
+  private async clearProgramSlot(
+    tenantId: string,
+    entry: TalkExchange,
+  ): Promise<void> {
+    const slot = await this.assignmentRepo.findOne({
+      where: {
+        congregationId: tenantId,
+        weekStartDate: mondayOf(entry.date),
+        partKey: PUBLIC_TALK_PART_KEY,
+      },
+    });
+    if (!slot) return;
+    // A local-brother slot isn't ours to wipe; only clear an invited/empty slot.
+    if (slot.publisherId) return;
+    if (!slot.speakerName && !slot.publicTalkId) return;
+    slot.speakerName = null;
+    slot.speakerCongregation = null;
+    slot.publicTalkId = null;
+    if (slot.status === AssignmentStatus.PUBLISHED)
+      slot.changedSincePublish = true;
+    await this.assignmentRepo.save(slot);
   }
 
   // ---- Side effects -------------------------------------------------------
@@ -278,5 +316,88 @@ export class TalkExchangeService {
       if (cong) parts.push(cong.name);
     }
     return parts.length ? parts.join(' · ') : null;
+  }
+
+  // ---- Program -> Journal sync -------------------------------------------
+
+  /** The weekend meeting date for a week, per the meeting-settings version in force. */
+  private async weekendDateFor(
+    tenantId: string,
+    weekStartDate: string,
+  ): Promise<string> {
+    const version = await this.meetingSettingsRepo.findOne({
+      where: { congregationId: tenantId },
+      order: { effectiveFrom: 'DESC' },
+    });
+    const dow = version?.weekendDow ?? 7; // default Sunday
+    return addDaysISO(weekStartDate, dow - 1);
+  }
+
+  /**
+   * Keep the journal's incoming entry in sync with the program's weekend
+   * public-talk slot for a week. Only invited speakers (free-text speakerName,
+   * no local publisher) map to a "К нам" entry. Called after the schedule edits
+   * a public_talk_speaker assignment. Writes directly (no further side effects)
+   * and is idempotent, so it never loops with applyIncomingToProgram.
+   */
+  async syncProgramToJournal(
+    tenantId: string,
+    weekStartDate: string,
+  ): Promise<void> {
+    const slot = await this.assignmentRepo.findOne({
+      where: {
+        congregationId: tenantId,
+        weekStartDate,
+        partKey: PUBLIC_TALK_PART_KEY,
+      },
+    });
+
+    // Find the existing incoming journal entry for this week (if any).
+    const weekEnd = addDaysISO(weekStartDate, 6);
+    const existing = await this.repo.findOne({
+      where: {
+        congregationId: tenantId,
+        direction: TalkExchangeDirection.INCOMING,
+        date: Between(weekStartDate, weekEnd),
+      },
+    });
+
+    const invited = !!(slot && !slot.publisherId && slot.speakerName?.trim());
+
+    if (!invited) {
+      // Program has no invited speaker -> remove any journal incoming entry.
+      if (existing) await this.repo.softDelete(existing.id);
+      return;
+    }
+
+    const speakerName = slot!.speakerName!.trim();
+    const speakerCongregation = slot!.speakerCongregation?.trim() || null;
+    const publicTalkId = slot!.publicTalkId ?? null;
+
+    if (existing) {
+      const currentName =
+        existing.visitingSpeakerId == null ? existing.speakerName : null;
+      const same =
+        currentName === speakerName &&
+        existing.speakerCongregation === speakerCongregation &&
+        existing.publicTalkId === publicTalkId;
+      if (same) return; // idempotent: nothing changed
+      existing.visitingSpeakerId = null;
+      existing.speakerName = speakerName;
+      existing.speakerCongregation = speakerCongregation;
+      existing.publicTalkId = publicTalkId;
+      await this.repo.save(existing);
+      return;
+    }
+
+    const entry = this.repo.create({
+      congregationId: tenantId,
+      direction: TalkExchangeDirection.INCOMING,
+      date: await this.weekendDateFor(tenantId, weekStartDate),
+      speakerName,
+      speakerCongregation,
+      publicTalkId,
+    });
+    await this.repo.save(entry);
   }
 }

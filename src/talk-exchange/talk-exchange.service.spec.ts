@@ -9,6 +9,7 @@ import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { Responsibility } from '../entities/responsibility.entity';
+import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { TalkExchangeDirection } from '../common/enums/talk-exchange.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -74,6 +75,10 @@ describe('TalkExchangeService', () => {
         {
           provide: getRepositoryToken(Responsibility),
           useValue: responsibilityRepo,
+        },
+        {
+          provide: getRepositoryToken(MeetingSettings),
+          useValue: { findOne: jest.fn().mockResolvedValue({ weekendDow: 7 }) },
         },
       ],
     }).compile();
@@ -255,5 +260,41 @@ describe('TalkExchangeService', () => {
     await service.remove(TENANT, 'tx-1', user());
     expect(absenceRepo.softDelete).toHaveBeenCalledWith('abs-1');
     expect(repo.softDelete).toHaveBeenCalledWith('tx-1');
+  });
+
+  it('syncs an invited program speaker into a journal incoming entry', async () => {
+    assignmentRepo.findOne.mockResolvedValue({
+      id: 'asg',
+      publisherId: null,
+      speakerName: 'Guest X',
+      speakerCongregation: 'Town',
+      publicTalkId: 'talk-1',
+    });
+    repo.findOne.mockResolvedValue(null); // no existing journal entry
+
+    await service.syncProgramToJournal(TENANT, '2026-06-15');
+
+    expect(repo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        direction: TalkExchangeDirection.INCOMING,
+        speakerName: 'Guest X',
+        speakerCongregation: 'Town',
+        publicTalkId: 'talk-1',
+      }),
+    );
+  });
+
+  it('removes the journal entry when the program slot is no longer invited', async () => {
+    assignmentRepo.findOne.mockResolvedValue({
+      id: 'asg',
+      publisherId: 'pub-1', // local brother
+      speakerName: null,
+      publicTalkId: null,
+    });
+    repo.findOne.mockResolvedValue({ id: 'tx-9' });
+
+    await service.syncProgramToJournal(TENANT, '2026-06-15');
+
+    expect(repo.softDelete).toHaveBeenCalledWith('tx-9');
   });
 });

@@ -12,6 +12,9 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 import { EventType } from '../common/enums/event-type.enum';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
+import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
+
+const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -28,6 +31,7 @@ export class AssignmentsService {
     @InjectRepository(Responsibility)
     private readonly responsibilitiesRepo: Repository<Responsibility>,
     private readonly pushNotifications: PushNotificationsService,
+    private readonly talkExchange: TalkExchangeService,
   ) {}
 
   /**
@@ -174,7 +178,15 @@ export class AssignmentsService {
           dto.speakerCongregation !== existing.speakerCongregation));
     Object.assign(existing, dto);
     if (changed) existing.changedSincePublish = true;
-    return this.repo.save(existing);
+    const saved = await this.repo.save(existing);
+    // Keep the "К нам" journal in sync with the weekend public-talk slot.
+    if (saved.partKey === PUBLIC_TALK_PART_KEY) {
+      await this.talkExchange.syncProgramToJournal(
+        congregationId,
+        saved.weekStartDate,
+      );
+    }
+    return saved;
   }
 
   async remove(congregationId: string, id: string): Promise<void> {

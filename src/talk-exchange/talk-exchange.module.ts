@@ -7,6 +7,7 @@ import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { Responsibility } from '../entities/responsibility.entity';
+import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { TalkExchangeService } from './talk-exchange.service';
 import { TalkExchangeController } from './talk-exchange.controller';
 
@@ -20,6 +21,7 @@ import { TalkExchangeController } from './talk-exchange.controller';
       ExternalCongregation,
       PublicTalk,
       Responsibility,
+      MeetingSettings,
     ]),
   ],
   controllers: [TalkExchangeController],
