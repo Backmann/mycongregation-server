@@ -206,23 +206,26 @@ export class TalkExchangeService {
   ): Promise<TalkExchangeResult> {
     if (!entry.publicTalkId) return entry;
 
+    const localPublisherId = entry.publisherId ?? null;
     let name: string | null = null;
     let congName: string | null = null;
-    if (entry.visitingSpeakerId) {
-      const speaker = await this.speakerRepo.findOne({
-        where: { id: entry.visitingSpeakerId, congregationId: tenantId },
-        relations: { externalCongregation: true },
-      });
-      if (speaker) {
-        name = speakerFullName(speaker);
-        congName = speaker.externalCongregation?.name ?? null;
+    if (!localPublisherId) {
+      if (entry.visitingSpeakerId) {
+        const speaker = await this.speakerRepo.findOne({
+          where: { id: entry.visitingSpeakerId, congregationId: tenantId },
+          relations: { externalCongregation: true },
+        });
+        if (speaker) {
+          name = speakerFullName(speaker);
+          congName = speaker.externalCongregation?.name ?? null;
+        }
       }
+      if (!name && entry.speakerName?.trim()) {
+        name = entry.speakerName.trim();
+        congName = entry.speakerCongregation?.trim() || null;
+      }
+      if (!name) return entry; // nothing to fill the slot with
     }
-    if (!name && entry.speakerName?.trim()) {
-      name = entry.speakerName.trim();
-      congName = entry.speakerCongregation?.trim() || null;
-    }
-    if (!name) return entry; // nothing to fill the slot with
 
     const weekStartDate = mondayOf(entry.date);
     const slot = await this.assignmentRepo.findOne({
@@ -234,9 +237,15 @@ export class TalkExchangeService {
     });
     if (!slot) return entry; // no weekend programme for that week yet
 
-    const alreadyThis =
-      slot.publicTalkId === entry.publicTalkId && slot.speakerName === name;
-    const occupied = !!(slot.publicTalkId || slot.speakerName?.trim());
+    const alreadyThis = localPublisherId
+      ? slot.publisherId === localPublisherId &&
+        slot.publicTalkId === entry.publicTalkId
+      : slot.publicTalkId === entry.publicTalkId && slot.speakerName === name;
+    const occupied = !!(
+      slot.publisherId ||
+      slot.publicTalkId ||
+      slot.speakerName?.trim()
+    );
 
     if (occupied && !overwrite && !alreadyThis) {
       const result = entry as TalkExchangeResult;
@@ -244,8 +253,15 @@ export class TalkExchangeService {
       return result;
     }
 
-    slot.speakerName = name;
-    slot.speakerCongregation = congName;
+    if (localPublisherId) {
+      slot.publisherId = localPublisherId;
+      slot.speakerName = null;
+      slot.speakerCongregation = null;
+    } else {
+      slot.publisherId = null;
+      slot.speakerName = name;
+      slot.speakerCongregation = congName;
+    }
     slot.publicTalkId = entry.publicTalkId;
     const talk = await this.publicTalkRepo.findOne({
       where: { id: entry.publicTalkId },
@@ -255,6 +271,7 @@ export class TalkExchangeService {
       slot.changedSincePublish = true;
     }
     await this.assignmentRepo.save(slot);
+    return entry;
     return entry;
   }
 
@@ -367,26 +384,62 @@ export class TalkExchangeService {
       },
     });
 
-    const invited = !!(slot && !slot.publisherId && slot.speakerName?.trim());
+    const hasLocal = !!(slot && slot.publisherId);
+    const hasInvited = !!(
+      slot &&
+      !slot.publisherId &&
+      slot.speakerName?.trim()
+    );
 
-    if (!invited) {
-      // Program has no invited speaker -> remove any journal incoming entry.
+    if (!hasLocal && !hasInvited) {
+      // Program has no weekend speaker -> remove any journal incoming entry.
       if (existing) await this.repo.softDelete(existing.id);
+      return;
+    }
+
+    const publicTalkId = slot!.publicTalkId ?? null;
+
+    if (hasLocal) {
+      const publisherId = slot!.publisherId!;
+      if (existing) {
+        const same =
+          existing.publisherId === publisherId &&
+          existing.visitingSpeakerId == null &&
+          existing.speakerName == null &&
+          existing.publicTalkId === publicTalkId;
+        if (same) return;
+        existing.publisherId = publisherId;
+        existing.visitingSpeakerId = null;
+        existing.speakerName = null;
+        existing.speakerCongregation = null;
+        existing.publicTalkId = publicTalkId;
+        await this.repo.save(existing);
+        return;
+      }
+      const entry = this.repo.create({
+        congregationId: tenantId,
+        direction: TalkExchangeDirection.INCOMING,
+        date: await this.weekendDateFor(tenantId, weekStartDate),
+        publisherId,
+        publicTalkId,
+      });
+      await this.repo.save(entry);
       return;
     }
 
     const speakerName = slot!.speakerName!.trim();
     const speakerCongregation = slot!.speakerCongregation?.trim() || null;
-    const publicTalkId = slot!.publicTalkId ?? null;
 
     if (existing) {
       const currentName =
         existing.visitingSpeakerId == null ? existing.speakerName : null;
       const same =
+        existing.publisherId == null &&
         currentName === speakerName &&
         existing.speakerCongregation === speakerCongregation &&
         existing.publicTalkId === publicTalkId;
       if (same) return; // idempotent: nothing changed
+      existing.publisherId = null;
       existing.visitingSpeakerId = null;
       existing.speakerName = speakerName;
       existing.speakerCongregation = speakerCongregation;

@@ -284,10 +284,32 @@ describe('TalkExchangeService', () => {
     );
   });
 
-  it('removes the journal entry when the program slot is no longer invited', async () => {
+  it('keeps the journal entry as a local brother when the slot has a publisher', async () => {
     assignmentRepo.findOne.mockResolvedValue({
       id: 'asg',
       publisherId: 'pub-1', // local brother
+      speakerName: null,
+      publicTalkId: 'talk-1',
+    });
+    repo.findOne.mockResolvedValue({ id: 'tx-9' });
+
+    await service.syncProgramToJournal(TENANT, '2026-06-15');
+
+    expect(repo.softDelete).not.toHaveBeenCalled();
+    expect(repo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'tx-9',
+        publisherId: 'pub-1',
+        speakerName: null,
+        publicTalkId: 'talk-1',
+      }),
+    );
+  });
+
+  it('removes the journal entry when the program slot has no speaker', async () => {
+    assignmentRepo.findOne.mockResolvedValue({
+      id: 'asg',
+      publisherId: null,
       speakerName: null,
       publicTalkId: null,
     });
