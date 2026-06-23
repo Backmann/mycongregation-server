@@ -168,6 +168,7 @@ export class TalkExchangeService {
     slot.speakerName = null;
     slot.speakerCongregation = null;
     slot.publicTalkId = null;
+    slot.partTitle = null;
     if (slot.status === AssignmentStatus.PUBLISHED)
       slot.changedSincePublish = true;
     await this.assignmentRepo.save(slot);
@@ -246,6 +247,10 @@ export class TalkExchangeService {
     slot.speakerName = name;
     slot.speakerCongregation = congName;
     slot.publicTalkId = entry.publicTalkId;
+    const talk = await this.publicTalkRepo.findOne({
+      where: { id: entry.publicTalkId },
+    });
+    slot.partTitle = talk ? `№${talk.number}. ${talk.title}` : slot.partTitle;
     if (slot.status === AssignmentStatus.PUBLISHED) {
       slot.changedSincePublish = true;
     }
