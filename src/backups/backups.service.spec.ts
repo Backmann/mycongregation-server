@@ -1,5 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
-import { mkdtempSync, writeFileSync, rmSync } from 'fs';
+import { mkdtempSync, writeFileSync, rmSync, utimesSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { BackupsService } from './backups.service';
@@ -18,6 +18,18 @@ describe('BackupsService', () => {
     writeFileSync(join(dir, '30sec_20260626_030001.sql.gz.gpg'), 'X'); // other app
     writeFileSync(join(dir, 'mycongregation_plain.sql.gz'), 'Y'); // not encrypted
     writeFileSync(join(dir, 'random.txt'), 'Z');
+    // Explicit mtimes so newest-first ordering is deterministic (writes can
+    // otherwise land in the same millisecond and sort unpredictably on CI).
+    utimesSync(
+      join(dir, 'mycongregation_20260625_030001.sql.gz.gpg'),
+      1000,
+      1000,
+    );
+    utimesSync(
+      join(dir, 'mycongregation_20260626_030001.sql.gz.gpg'),
+      2000,
+      2000,
+    );
     svc = new BackupsService();
   });
 
