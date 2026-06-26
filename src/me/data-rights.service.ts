@@ -2,7 +2,6 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -138,7 +137,7 @@ export class DataRightsService {
 
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) {
-      throw new UnauthorizedException('Invalid password.');
+      throw new BadRequestException('Invalid password.');
     }
 
     if (user.role === UserRole.ADMIN) {

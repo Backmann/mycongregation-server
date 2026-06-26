@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { DataRightsService } from './data-rights.service';
 import { Publisher } from '../entities/publisher.entity';
 import { User } from '../entities/user.entity';
@@ -62,7 +58,7 @@ describe('DataRightsService.eraseMyAccount', () => {
     bcrypt.compare.mockResolvedValue(false);
     const svc = new DataRightsService(ds as never);
     await expect(svc.eraseMyAccount('c1', 'u1', 'bad')).rejects.toBeInstanceOf(
-      UnauthorizedException,
+      BadRequestException,
     );
     expect(ds.transaction).not.toHaveBeenCalled();
   });
