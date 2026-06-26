@@ -22,6 +22,7 @@ describe('ScheduledJobsService', () => {
   let service: ScheduledJobsService;
   let publishersService: { recomputeAllStatuses: jest.Mock };
   let pushNotificationsService: jest.Mocked<PushNotificationsService>;
+  let auditLogService: { cleanupOldAuditLogs: jest.Mock };
 
   beforeEach(() => {
     publishersService = {
@@ -40,9 +41,13 @@ describe('ScheduledJobsService', () => {
         .mockResolvedValue({ checked: 0, ok: 0, errors: 0, tokensDeleted: 0 }),
       cleanupOldReceipts: jest.fn().mockResolvedValue(0),
     } as unknown as jest.Mocked<PushNotificationsService>;
+    auditLogService = {
+      cleanupOldAuditLogs: jest.fn().mockResolvedValue(0),
+    };
     service = new ScheduledJobsService(
       publishersService as any,
       pushNotificationsService,
+      auditLogService as any,
     );
   });
 
@@ -56,5 +61,16 @@ describe('ScheduledJobsService', () => {
     await expect(
       service.handleNightlyStatusRecompute(),
     ).resolves.toBeUndefined();
+  });
+
+  it('handleAuditLogCleanup delegates to cleanupOldAuditLogs', async () => {
+    auditLogService.cleanupOldAuditLogs.mockResolvedValue(3);
+    await service.handleAuditLogCleanup();
+    expect(auditLogService.cleanupOldAuditLogs).toHaveBeenCalledTimes(1);
+  });
+
+  it('handleAuditLogCleanup swallows errors so the cron host stays alive', async () => {
+    auditLogService.cleanupOldAuditLogs.mockRejectedValue(new Error('boom'));
+    await expect(service.handleAuditLogCleanup()).resolves.toBeUndefined();
   });
 });

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PublishersService } from '../publishers/publishers.service';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -10,6 +11,7 @@ export class ScheduledJobsService {
   constructor(
     private readonly publishersService: PublishersService,
     private readonly pushNotificationsService: PushNotificationsService,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   /**
@@ -95,6 +97,32 @@ export class ScheduledJobsService {
     } catch (err: any) {
       this.logger.error(
         '[PushReceiptsCleanup] daily cleanup failed',
+        err?.stack ?? err?.message ?? String(err),
+      );
+    }
+  }
+
+  /**
+   * Cron — daily cleanup of audit_logs older than 12 months, enforcing the
+   * retention period stated in the privacy policy (storage limitation,
+   * GDPR Art. 5(1)(e)). Runs at 03:45 UTC, after the other nightly jobs.
+   */
+  @Cron('45 3 * * *', {
+    name: 'audit-log-cleanup',
+    timeZone: 'UTC',
+  })
+  async handleAuditLogCleanup(): Promise<void> {
+    this.logger.log('[AuditLogCleanup] starting daily cleanup...');
+    const start = Date.now();
+    try {
+      const deleted = await this.auditLogService.cleanupOldAuditLogs();
+      const tookMs = Date.now() - start;
+      this.logger.log(
+        `[AuditLogCleanup] done — deleted=${deleted} tookMs=${tookMs}`,
+      );
+    } catch (err: any) {
+      this.logger.error(
+        '[AuditLogCleanup] daily cleanup failed',
         err?.stack ?? err?.message ?? String(err),
       );
     }

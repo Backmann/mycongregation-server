@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, LessThan, Repository } from 'typeorm';
 import { AuditLog } from '../entities/audit-log.entity';
 import { Publisher } from '../entities/publisher.entity';
 
@@ -166,5 +166,16 @@ export class AuditLogService {
       after: r.afterJson ? JSON.parse(r.afterJson) : null,
       createdAt: r.createdAt.toISOString(),
     }));
+  }
+
+  /**
+   * Delete audit-log entries older than the retention window (default 12
+   * months ≈ 365 days). Enforces the storage-limitation period stated in the
+   * privacy policy (GDPR Art. 5(1)(e)). Returns the number of rows removed.
+   */
+  async cleanupOldAuditLogs(retentionDays = 365): Promise<number> {
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+    const result = await this.auditRepo.delete({ createdAt: LessThan(cutoff) });
+    return result.affected ?? 0;
   }
 }

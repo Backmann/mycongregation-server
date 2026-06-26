@@ -13,6 +13,7 @@ const makeRepo = <T extends object = any>(): MockRepo<T> => ({
   find: jest.fn(),
   save: jest.fn(),
   create: jest.fn().mockImplementation((x) => x),
+  delete: jest.fn(),
 });
 
 describe('AuditLogService', () => {
@@ -33,6 +34,23 @@ describe('AuditLogService', () => {
     }).compile();
 
     service = module.get<AuditLogService>(AuditLogService);
+  });
+
+  describe('cleanupOldAuditLogs', () => {
+    it('deletes rows older than the retention window and returns the count', async () => {
+      auditRepo.delete!.mockResolvedValue({ affected: 7 });
+      const deleted = await service.cleanupOldAuditLogs(365);
+      expect(deleted).toBe(7);
+      expect(auditRepo.delete).toHaveBeenCalledTimes(1);
+      const arg = (auditRepo.delete as jest.Mock).mock.calls[0][0];
+      expect(arg).toHaveProperty('createdAt');
+    });
+
+    it('returns 0 when the driver reports no affected count', async () => {
+      auditRepo.delete!.mockResolvedValue({});
+      const deleted = await service.cleanupOldAuditLogs();
+      expect(deleted).toBe(0);
+    });
   });
 
   describe('logUpdate', () => {
