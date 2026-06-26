@@ -92,22 +92,6 @@ export class Publisher {
   @Column({ type: 'boolean', default: true })
   isRegular!: boolean;
 
-  // ---- Special needs (NW Scheduler "Другое") ----
-  @Column({ type: 'boolean', default: false })
-  isElderlyOrInfirm!: boolean;
-
-  @Column({ type: 'boolean', default: false })
-  isChild!: boolean;
-
-  @Column({ type: 'boolean', default: false })
-  isDeaf!: boolean;
-
-  @Column({ type: 'boolean', default: false })
-  isBlind!: boolean;
-
-  @Column({ type: 'boolean', default: false })
-  isPrisoner!: boolean;
-
   // ---- Spirituality ----
   @Column({
     type: 'enum',

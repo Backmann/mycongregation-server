@@ -77,27 +77,6 @@ export class CreatePublisherDto {
   @IsBoolean()
   isRegular?: boolean;
 
-  // ---- Special needs ----
-  @IsOptional()
-  @IsBoolean()
-  isElderlyOrInfirm?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  isChild?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  isDeaf?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  isBlind?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  isPrisoner?: boolean;
-
   // ---- Spirituality ----
   @IsOptional()
   @IsEnum(PublisherAppointment)
