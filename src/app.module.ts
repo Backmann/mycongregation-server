@@ -44,6 +44,7 @@ import { FieldServiceMeetingsModule } from './field-service-meetings/field-servi
 import { CleaningModule } from './cleaning/cleaning.module';
 import { CartShiftsModule } from './cart-shifts/cart-shifts.module';
 import { CartLocationsModule } from './cart-locations/cart-locations.module';
+import { CartWeeksModule } from './cart-weeks/cart-weeks.module';
 
 import { PublisherActivityModule } from './publisher-activity/publisher-activity.module';
 
@@ -120,6 +121,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     CleaningModule,
     CartShiftsModule,
     CartLocationsModule,
+    CartWeeksModule,
   ],
   controllers: [AppController],
   providers: [AppService],
