@@ -108,30 +108,6 @@ export class CreatePublisherDto {
   pioneerSince?: string;
 
   @IsOptional()
-  @IsBoolean()
-  isAnointed?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  hasKingdomHallKey?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  printedWatchtower?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  printedWorkbook?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  sendsReportDirectly?: boolean;
-
-  @IsOptional()
-  @IsString()
-  spiritualNotes?: string;
-
-  @IsOptional()
   @IsString()
   notes?: string;
 

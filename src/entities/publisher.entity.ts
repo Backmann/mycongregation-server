@@ -116,24 +116,6 @@ export class Publisher {
   @Column({ type: 'date', nullable: true })
   pioneerSince!: string | null;
 
-  @Column({ type: 'boolean', default: false })
-  isAnointed!: boolean;
-
-  @Column({ type: 'boolean', default: false })
-  hasKingdomHallKey!: boolean;
-
-  @Column({ type: 'boolean', default: false })
-  printedWatchtower!: boolean;
-
-  @Column({ type: 'boolean', default: false })
-  printedWorkbook!: boolean;
-
-  @Column({ type: 'boolean', default: false })
-  sendsReportDirectly!: boolean;
-
-  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
-  spiritualNotes!: string | null;
-
   @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   notes!: string | null;
 

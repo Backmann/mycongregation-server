@@ -18,12 +18,12 @@ import { AuditLog } from '../entities/audit-log.entity';
  * connection, no NestJS bootstrap, no CryptoService initialization required.
  *
  * Tier 1 list per docs/architecture/data-protection.md:
- *   Publisher.{address, mobilePhone, email, notes, spiritualNotes, removedNote}
+ *   Publisher.{address, mobilePhone, email, notes, removedNote}
  *   ServiceReport.notes
  *   ServiceGroup.notes
  *   AuditLog.{beforeJson, afterJson}  ← audit trail of encrypted entities
  *
- * Total: 10 columns across 4 entities.
+ * Total: 9 columns across 4 entities.
  */
 
 interface ExpectedField {
@@ -34,15 +34,10 @@ interface ExpectedField {
 }
 
 const TIER_1_FIELDS: ExpectedField[] = [
-  // Publisher — 6 sensitive fields
+  // Publisher — 5 sensitive fields
   { name: 'Publisher.mobilePhone', entity: Publisher, property: 'mobilePhone' },
   { name: 'Publisher.email', entity: Publisher, property: 'email' },
   { name: 'Publisher.address', entity: Publisher, property: 'address' },
-  {
-    name: 'Publisher.spiritualNotes',
-    entity: Publisher,
-    property: 'spiritualNotes',
-  },
   { name: 'Publisher.notes', entity: Publisher, property: 'notes' },
   { name: 'Publisher.removedNote', entity: Publisher, property: 'removedNote' },
 
@@ -75,10 +70,10 @@ describe('Encryption wiring (data-protection.md Phase 1)', () => {
     },
   );
 
-  it('covers exactly the Tier 1 list from data-protection.md (10 fields)', () => {
+  it('covers exactly the Tier 1 list from data-protection.md (9 fields)', () => {
     // If this number ever changes intentionally, update both this assertion
     // AND the design document. The mismatch is a forcing function.
-    expect(TIER_1_FIELDS).toHaveLength(10);
+    expect(TIER_1_FIELDS).toHaveLength(9);
   });
 
   it('every Tier 1 entry has a distinct name', () => {

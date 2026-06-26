@@ -17,7 +17,6 @@ describe('redactPrivateFields', () => {
     mobilePhone: '+49 111',
     email: 'i@x.org',
     address: 'Street 1',
-    spiritualNotes: 'secret',
     notes: 'note',
     removedNote: 'why',
     birthDate: '1990-01-01',

@@ -119,7 +119,6 @@ describe('DataRightsService.eraseMyAccount', () => {
       firstName: 'Иван',
       lastName: 'Иванов',
       mobilePhone: '+49',
-      spiritualNotes: 'secret',
       userId: 'u1',
     });
     bcrypt.compare.mockResolvedValue(true);
@@ -136,7 +135,6 @@ describe('DataRightsService.eraseMyAccount', () => {
     >;
     expect(savedPublisher.displayName).toBe('Удалённый возвещатель');
     expect(savedPublisher.mobilePhone).toBeNull();
-    expect(savedPublisher.spiritualNotes).toBeNull();
     expect(savedPublisher.userId).toBeNull();
     expect(savedPublisher.anonymizedAt).toBeInstanceOf(Date);
 

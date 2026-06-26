@@ -173,14 +173,8 @@ export class DataRightsService {
         publisher.pioneerSince = null;
         publisher.pioneerType = PioneerType.NONE;
         publisher.appointment = PublisherAppointment.PUBLISHER;
-        publisher.isAnointed = false;
-        publisher.hasKingdomHallKey = false;
-        publisher.printedWatchtower = false;
-        publisher.printedWorkbook = false;
-        publisher.sendsReportDirectly = false;
         publisher.capabilities = {};
         publisher.publicTalkNumbers = [];
-        publisher.spiritualNotes = null;
         publisher.notes = null;
         publisher.removedNote = null;
         publisher.isActive = false;

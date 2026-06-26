@@ -10,7 +10,6 @@ export const PRIVATE_PUBLISHER_FIELDS = [
   'mobilePhone',
   'email',
   'address',
-  'spiritualNotes',
   'notes',
   'removedNote',
   'birthDate',
