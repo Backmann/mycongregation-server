@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { BackupsModule } from './backups/backups.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
 import { join } from 'path';
@@ -83,6 +84,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
       }),
     }),
     CryptoModule,
+    BackupsModule,
     UsersModule,
     AuthModule,
     PresenceModule,
