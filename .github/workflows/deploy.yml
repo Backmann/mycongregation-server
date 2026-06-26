@@ -69,7 +69,9 @@ jobs:
 
           echo "=== Extracting source ==="
           cd /root/mycongregation/server
-          rm -rf src
+          # Remove everything except server-only files (Dockerfile/.dockerignore/.env)
+          # and .git, so files deleted from the repo don't linger here as stale leftovers.
+          find . -mindepth 1 -maxdepth 1 ! -name Dockerfile ! -name .dockerignore ! -name .env ! -name .git -exec rm -rf {} +
           tar -xzf /tmp/server-src.tar.gz
 
           echo "=== Rebuilding Docker image ==="
