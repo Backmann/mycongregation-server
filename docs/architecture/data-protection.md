@@ -122,6 +122,22 @@ All Tier 1 fields are encrypted with AES-256-GCM at the column level
 (Levels 1+2). They remain typed as `text` in PostgreSQL, holding a
 base64-encoded versioned ciphertext envelope.
 
+### Tier 1 — Public-talk coordinator contacts (encrypted)
+
+| Field | Why sensitive |
+|-------|---------------|
+| `visiting_speakers.phone` | Direct personal contact of an external speaker |
+| `visiting_speakers.note` | Free text about an external person |
+| `external_congregations.contact_name` | Name of an external contact person |
+| `external_congregations.contact_phone` | Direct personal contact |
+| `external_congregations.note` | Free text about an external congregation/contact |
+
+Same AES-256-GCM scheme as the Publisher Tier 1 fields. The visiting
+speakers' own names (`first_name`, `last_name`) stay plaintext (Tier 4 —
+list display and sort; `last_name` is indexed), matching how publisher
+names are handled. Institutional fields of a congregation (`name`,
+`address`, meeting day/time, map URL) remain plaintext.
+
 ### Tier 2 — Medium sensitivity, discrete values (deferred)
 
 | Field | Why sensitive |

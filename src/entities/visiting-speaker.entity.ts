@@ -11,6 +11,7 @@ import {
 } from 'typeorm';
 import { Congregation } from './congregation.entity';
 import { ExternalCongregation } from './external-congregation.entity';
+import { encryptedTransformer } from '../crypto/encrypted.transformer';
 
 /**
  * Directory of visiting (incoming) public speakers, maintained by the public
@@ -53,11 +54,11 @@ export class VisitingSpeaker {
   @JoinColumn({ name: 'external_congregation_id' })
   externalCongregation!: ExternalCongregation | null;
 
-  // ---- Contact + notes ----
-  @Column({ type: 'text', nullable: true })
+  // ---- Contact + notes (personal data — encrypted at rest) ----
+  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   phone!: string | null;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   note!: string | null;
 
   // ---- Repertoire: public talk outline numbers he gives ----

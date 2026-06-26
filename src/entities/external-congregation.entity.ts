@@ -10,6 +10,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { Congregation } from './congregation.entity';
+import { encryptedTransformer } from '../crypto/encrypted.transformer';
 
 /**
  * Directory of OTHER congregations (not the tenant's own), maintained by the
@@ -33,20 +34,20 @@ export class ExternalCongregation {
   @JoinColumn({ name: 'congregation_id' })
   congregation!: Congregation;
 
-  // ---- Fields (congregation material, not personal — not encrypted) ----
+  // ---- Fields (contact-person fields below are personal — encrypted at rest) ----
   @Column({ type: 'text' })
   name!: string;
 
   @Column({ type: 'text', nullable: true })
   city!: string | null;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   contactName!: string | null;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   contactPhone!: string | null;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   note!: string | null;
 
   /** Kingdom Hall address of the host congregation (for our outgoing speakers). */

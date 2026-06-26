@@ -4,6 +4,8 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceReport } from '../entities/service-report.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { AuditLog } from '../entities/audit-log.entity';
+import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
+import { ExternalCongregation } from '../entities/external-congregation.entity';
 
 /**
  * Regression-protection for data-protection.md Phase 1.
@@ -79,5 +81,45 @@ describe('Encryption wiring (data-protection.md Phase 1)', () => {
   it('every Tier 1 entry has a distinct name', () => {
     const names = TIER_1_FIELDS.map((f) => f.name);
     expect(new Set(names).size).toBe(names.length);
+  });
+});
+
+// Public-talk coordinator: contact info of EXTERNAL people (visiting speakers
+// and the contact persons of other congregations). Same scheme as Tier 1.
+const TIER_2_FIELDS: ExpectedField[] = [
+  { name: 'VisitingSpeaker.phone', entity: VisitingSpeaker, property: 'phone' },
+  { name: 'VisitingSpeaker.note', entity: VisitingSpeaker, property: 'note' },
+  {
+    name: 'ExternalCongregation.contactName',
+    entity: ExternalCongregation,
+    property: 'contactName',
+  },
+  {
+    name: 'ExternalCongregation.contactPhone',
+    entity: ExternalCongregation,
+    property: 'contactPhone',
+  },
+  {
+    name: 'ExternalCongregation.note',
+    entity: ExternalCongregation,
+    property: 'note',
+  },
+];
+
+describe('Encryption wiring — public-talk coordinator contacts', () => {
+  it.each(TIER_2_FIELDS)(
+    '$name uses encryptedTransformer',
+    ({ entity, property }) => {
+      const column = getMetadataArgsStorage().columns.find(
+        (c) => c.target === entity && c.propertyName === property,
+      );
+      expect(column).toBeDefined();
+      const t = column?.options.transformer as ValueTransformer | undefined;
+      expect(t).toBe(encryptedTransformer);
+    },
+  );
+
+  it('covers exactly the 5 coordinator contact fields', () => {
+    expect(TIER_2_FIELDS).toHaveLength(5);
   });
 });
