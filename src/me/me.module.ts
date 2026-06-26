@@ -11,6 +11,7 @@ import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { MeService } from './me.service';
 import { MeController } from './me.controller';
+import { DataRightsService } from './data-rights.service';
 
 @Module({
   imports: [
@@ -27,6 +28,6 @@ import { MeController } from './me.controller';
     ]),
   ],
   controllers: [MeController],
-  providers: [MeService],
+  providers: [MeService, DataRightsService],
 })
 export class MeModule {}

@@ -155,6 +155,9 @@ export class Publisher {
   @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   removedNote!: string | null;
 
+  @Column({ type: 'timestamptz', nullable: true })
+  anonymizedAt!: Date | null;
+
   // ---- Status (computed from reports; manual override is sticky) ----
   @Column({
     type: 'varchar',
