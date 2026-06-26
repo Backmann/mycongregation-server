@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Logger,
   Param,
   Res,
   StreamableFile,
@@ -11,25 +12,23 @@ import { BackupsService } from './backups.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UserRole } from '../common/enums/user-role.enum';
-import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
-import { AuditLogService } from '../audit-log/audit-log.service';
 
 /**
  * Admin-only access to the encrypted database backups. Listing the status is
  * harmless; downloading streams a GPG-encrypted file (unreadable without the
- * offline private key). Every download is recorded in the audit log because it
- * exports the full database (in encrypted form).
+ * offline private key). Each download is logged to the application log
+ * (captured by Better Stack) — a read event, so it is NOT written to the
+ * mutation audit table (whose entityId column is a uuid).
  */
 @Controller('admin/backups')
 @UseGuards(RolesGuard)
 @Roles(UserRole.ADMIN)
 export class BackupsController {
-  constructor(
-    private readonly backups: BackupsService,
-    private readonly audit: AuditLogService,
-  ) {}
+  private readonly logger = new Logger(BackupsController.name);
+
+  constructor(private readonly backups: BackupsService) {}
 
   @Get()
   status() {
@@ -40,17 +39,12 @@ export class BackupsController {
   async download(
     @Param('name') name: string,
     @Res({ passthrough: true }) res: Response,
-    @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<StreamableFile> {
     const { file, size } = await this.backups.openForDownload(name);
-    await this.audit.logCreate({
-      tenantId,
-      entityType: 'backup_download',
-      entityId: name,
-      actorUserId: user.id,
-      after: { file: name, sizeBytes: size },
-    });
+    this.logger.warn(
+      `[BackupDownload] user=${user.id} congregation=${user.congregationId} file=${name} bytes=${size}`,
+    );
     res.set({
       'Content-Type': 'application/octet-stream',
       'Content-Disposition': `attachment; filename="${name}"`,

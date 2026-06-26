@@ -1,10 +1,9 @@
 import { Module } from '@nestjs/common';
 import { BackupsController } from './backups.controller';
 import { BackupsService } from './backups.service';
-import { AuditLogModule } from '../audit-log/audit-log.module';
 
+// No AuditLogModule: downloads are read events, logged to the app log.
 @Module({
-  imports: [AuditLogModule],
   controllers: [BackupsController],
   providers: [BackupsService],
 })
