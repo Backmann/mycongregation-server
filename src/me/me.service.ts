@@ -9,6 +9,7 @@ import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
+import { CartAssignment } from '../entities/cart-assignment.entity';
 
 export type MyAssignmentKind =
   | 'meeting'
@@ -99,6 +100,8 @@ export class MeService {
     private readonly cleaningRepo: Repository<CleaningAssignment>,
     @InjectRepository(FieldServiceMeeting)
     private readonly fieldRepo: Repository<FieldServiceMeeting>,
+    @InjectRepository(CartAssignment)
+    private readonly cartAssignmentsRepo: Repository<CartAssignment>,
     @InjectRepository(TalkExchange)
     private readonly talkExchangeRepo: Repository<TalkExchange>,
     @InjectRepository(ExternalCongregation)
@@ -220,6 +223,30 @@ export class MeService {
     }
 
     // ---- Field service meetings (as conductor) ----
+    // ---- Public witnessing (cart) assignments ----
+    const cartAssignments = await this.cartAssignmentsRepo
+      .createQueryBuilder('a')
+      .innerJoinAndSelect('a.slot', 's')
+      .innerJoinAndSelect('s.week', 'w')
+      .leftJoinAndSelect('s.location', 'loc')
+      .where('a.publisher_id = :pid', { pid })
+      .andWhere('a.congregation_id = :tenantId', { tenantId })
+      .andWhere("w.status = 'published'")
+      .andWhere('s.date BETWEEN :today AND :horizon', { today, horizon })
+      .orderBy('s.date', 'ASC')
+      .getMany();
+    for (const a of cartAssignments) {
+      items.push({
+        kind: 'cart',
+        sortDate: a.slot.date,
+        date: a.slot.date,
+        time: a.slot.startTime,
+        endTime: a.slot.endTime,
+        label: a.slot.location?.name ?? '',
+        location: a.slot.location?.name ?? '',
+      });
+    }
+
     const fieldMeetings = await this.fieldRepo
       .createQueryBuilder('f')
       .where('f.congregation_id = :tenantId', { tenantId })

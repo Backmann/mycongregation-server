@@ -9,6 +9,7 @@ import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
+import { CartAssignment } from '../entities/cart-assignment.entity';
 
 describe('MeService.myPublisher', () => {
   let service: MeService;
@@ -28,6 +29,7 @@ describe('MeService.myPublisher', () => {
         { provide: getRepositoryToken(TalkExchange), useValue: stub },
         { provide: getRepositoryToken(ExternalCongregation), useValue: stub },
         { provide: getRepositoryToken(PublicTalk), useValue: stub },
+        { provide: getRepositoryToken(CartAssignment), useValue: stub },
       ],
     }).compile();
     service = moduleRef.get(MeService);
@@ -160,6 +162,10 @@ describe('MeService.myAssignments (outgoing talks)', () => {
           useValue: externalRepo,
         },
         { provide: getRepositoryToken(PublicTalk), useValue: publicTalksRepo },
+        {
+          provide: getRepositoryToken(CartAssignment),
+          useValue: emptyRepo(),
+        },
       ],
     }).compile();
     const service = moduleRef.get(MeService);

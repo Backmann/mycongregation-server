@@ -12,6 +12,8 @@ import { Absence } from '../entities/absence.entity';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
+import { CartRequest } from '../entities/cart-request.entity';
+import { CartAssignment } from '../entities/cart-assignment.entity';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { PushToken } from '../entities/push-token.entity';
@@ -49,7 +51,15 @@ export class DataRightsService {
       .findOne({ where: { congregationId: tenantId, userId } });
     const pubId = publisher?.id ?? null;
 
-    const [absences, serviceReports, assignments, duties, talkExchanges] = pubId
+    const [
+      absences,
+      serviceReports,
+      assignments,
+      duties,
+      talkExchanges,
+      cartRequests,
+      cartAssignments,
+    ] = pubId
       ? await Promise.all([
           ds.getRepository(Absence).find({ where: { publisherId: pubId } }),
           ds
@@ -60,8 +70,12 @@ export class DataRightsService {
           ds
             .getRepository(TalkExchange)
             .find({ where: { publisherId: pubId } }),
+          ds.getRepository(CartRequest).find({ where: { publisherId: pubId } }),
+          ds
+            .getRepository(CartAssignment)
+            .find({ where: { publisherId: pubId } }),
         ])
-      : [[], [], [], [], []];
+      : [[], [], [], [], [], [], []];
 
     const responsibilities = await ds
       .getRepository(Responsibility)
@@ -98,6 +112,8 @@ export class DataRightsService {
       assignments,
       duties,
       talkExchanges,
+      cartRequests,
+      cartAssignments,
       responsibilities,
       devices: { webPushSubscriptions, pushTokens },
     };
