@@ -154,9 +154,9 @@ export class CartWeeksService {
       dto.weekStartDate,
       dto.daysOfWeek,
       uniqueLocationIds,
-      week.startTime,
-      week.endTime,
-      week.stepMinutes,
+      dto.startTime,
+      dto.endTime,
+      dto.stepMinutes,
     );
     const existingSlots = await this.slotsRepo.find({
       where: { weekId: week.id },
