@@ -46,6 +46,16 @@ export class CartSlotsController {
     await this.service.withdrawFromSlot(congregationId, id, user);
   }
 
+  @Delete(':id/my-assignment')
+  @HttpCode(204)
+  async cancelMine(
+    @TenantId() congregationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.service.cancelMyAssignment(congregationId, id, user);
+  }
+
   @Post(':id/assignments')
   @UseGuards(ResponsibilityGuard)
   @RequireResponsibility(

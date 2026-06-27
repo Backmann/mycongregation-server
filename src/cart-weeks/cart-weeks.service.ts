@@ -583,8 +583,14 @@ export class CartWeeksService {
       relations: { week: true },
     });
     if (!slot) throw new NotFoundException('Slot not found');
-    if (!slot.week || slot.week.status !== 'collecting') {
-      throw new BadRequestException('Week is not collecting requests');
+    if (!slot.week || slot.week.status === 'draft') {
+      throw new BadRequestException('Week is not open for requests');
+    }
+    if (slot.week.status === 'published') {
+      const assigned = await this.assignmentsRepo.count({ where: { slotId } });
+      if (assigned >= CART_CAPACITY_MAX) {
+        throw new BadRequestException('Slot is full');
+      }
     }
     const existing = await this.requestsRepo.findOne({
       where: { slotId, publisherId: me.id },
@@ -615,5 +621,19 @@ export class CartWeeksService {
       publisherId: me.id,
       congregationId,
     });
+  }
+
+  async cancelMyAssignment(
+    congregationId: string,
+    slotId: string,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    const me = await this.myPublisher(congregationId, user.id);
+    if (!me) throw new ForbiddenException('No publisher profile');
+    const asg = await this.assignmentsRepo.findOne({
+      where: { slotId, publisherId: me.id, congregationId },
+    });
+    if (!asg) throw new NotFoundException('No assignment to cancel');
+    await this.assignmentsRepo.remove(asg);
   }
 }
