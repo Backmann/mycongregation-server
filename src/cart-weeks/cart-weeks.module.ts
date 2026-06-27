@@ -11,6 +11,7 @@ import { CartWeeksService } from './cart-weeks.service';
 import { CartWeeksController } from './cart-weeks.controller';
 import { CartSlotsController } from './cart-slots.controller';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
+import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
       Publisher,
       Responsibility,
     ]),
+    PushNotificationsModule,
   ],
   controllers: [CartWeeksController, CartSlotsController],
   providers: [CartWeeksService, ResponsibilityGuard],

@@ -3,6 +3,8 @@ import {
   computeSlotFlags,
   computePairings,
 } from './cart-weeks.service';
+
+jest.mock('expo-server-sdk', () => ({ Expo: class {} }));
 import { Gender } from '../common/enums/gender.enum';
 
 describe('generateCartSlots', () => {

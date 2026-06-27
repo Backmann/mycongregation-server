@@ -1,11 +1,13 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
+import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { CartWeek } from '../entities/cart-week.entity';
 import { CartSlot } from '../entities/cart-slot.entity';
 import { CartRequest } from '../entities/cart-request.entity';
@@ -179,6 +181,8 @@ export interface CartWeekView {
 
 @Injectable()
 export class CartWeeksService {
+  private readonly logger = new Logger(CartWeeksService.name);
+
   constructor(
     @InjectRepository(CartWeek)
     private readonly weeksRepo: Repository<CartWeek>,
@@ -194,6 +198,7 @@ export class CartWeeksService {
     private readonly publishersRepo: Repository<Publisher>,
     @InjectRepository(Responsibility)
     private readonly responsibilitiesRepo: Repository<Responsibility>,
+    private readonly push: PushNotificationsService,
   ) {}
 
   async buildWeek(
@@ -515,7 +520,35 @@ export class CartWeeksService {
       throw new BadRequestException('Week is not in the collecting state');
     }
     week.status = 'published';
-    return this.weeksRepo.save(week);
+    const saved = await this.weeksRepo.save(week);
+    const slots = await this.slotsRepo.find({
+      where: { weekId: id, congregationId },
+    });
+    const slotIds = slots.map((s) => s.id);
+    const asgs = slotIds.length
+      ? await this.assignmentsRepo.find({ where: { slotId: In(slotIds) } })
+      : [];
+    const pubIds = [
+      ...new Set(
+        asgs.map((a) => a.publisherId).filter((x): x is string => !!x),
+      ),
+    ];
+    const pubs = pubIds.length
+      ? await this.publishersRepo.find({
+          where: { id: In(pubIds), congregationId },
+        })
+      : [];
+    const userIds = [
+      ...new Set(pubs.map((p) => p.userId).filter((x): x is string => !!x)),
+    ];
+    await this.notify(
+      congregationId,
+      userIds,
+      'Служение',
+      'Расписание служения на неделю опубликовано.',
+      { type: 'cart_published', weekId: id },
+    );
+    return saved;
   }
 
   async recentPairings(
@@ -580,7 +613,7 @@ export class CartWeeksService {
     }
     const slot = await this.slotsRepo.findOne({
       where: { id: slotId, congregationId },
-      relations: { week: true },
+      relations: { week: true, location: true },
     });
     if (!slot) throw new NotFoundException('Slot not found');
     if (!slot.week || slot.week.status === 'draft') {
@@ -599,7 +632,7 @@ export class CartWeeksService {
       existing.withWhomNote = dto.withWhomNote ?? null;
       return this.requestsRepo.save(existing);
     }
-    return this.requestsRepo.save(
+    const created = await this.requestsRepo.save(
       this.requestsRepo.create({
         congregationId,
         slotId,
@@ -607,6 +640,19 @@ export class CartWeeksService {
         withWhomNote: dto.withWhomNote ?? null,
       }),
     );
+    if (slot.week.status === 'published') {
+      const who = `${me.lastName} ${me.firstName}`.trim();
+      const where = slot.location?.name ?? '';
+      const when = `${slot.date} ${slot.startTime}`;
+      await this.notify(
+        congregationId,
+        await this.managerUserIds(congregationId),
+        'Служение: новая заявка',
+        `Новая заявка (добор) — ${where}, ${when} (${who}).`,
+        { type: 'cart_dobor_request', slotId },
+      );
+    }
+    return created;
   }
 
   async withdrawFromSlot(
@@ -635,5 +681,47 @@ export class CartWeeksService {
     });
     if (!asg) throw new NotFoundException('No assignment to cancel');
     await this.assignmentsRepo.remove(asg);
+    const slot = await this.slotsRepo.findOne({
+      where: { id: slotId, congregationId },
+      relations: { location: true },
+    });
+    const who = `${me.lastName} ${me.firstName}`.trim();
+    const where = slot?.location?.name ?? '';
+    const when = slot ? `${slot.date} ${slot.startTime}` : '';
+    await this.notify(
+      congregationId,
+      await this.managerUserIds(congregationId),
+      'Служение: отмена',
+      `${who} отменил участие — ${where}, ${when}. Слот снова открыт.`,
+      { type: 'cart_cancel', slotId },
+    );
+  }
+
+  private async managerUserIds(congregationId: string): Promise<string[]> {
+    const rows = await this.responsibilitiesRepo.find({
+      where: {
+        congregationId,
+        type: In([
+          ResponsibilityType.PUBLIC_WITNESSING,
+          ResponsibilityType.SERVICE_OVERSEER,
+        ]),
+      },
+    });
+    return [...new Set(rows.map((r) => r.userId).filter(Boolean))];
+  }
+
+  private async notify(
+    congregationId: string,
+    userIds: string[],
+    title: string,
+    body: string,
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    if (userIds.length === 0) return;
+    try {
+      await this.push.sendToUsers(congregationId, userIds, title, body, data);
+    } catch (e) {
+      this.logger.warn(`cart push failed: ${String(e)}`);
+    }
   }
 }
