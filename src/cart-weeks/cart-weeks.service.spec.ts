@@ -1,4 +1,8 @@
-import { generateCartSlots, computeSlotFlags } from './cart-weeks.service';
+import {
+  generateCartSlots,
+  computeSlotFlags,
+  computePairings,
+} from './cart-weeks.service';
 import { Gender } from '../common/enums/gender.enum';
 
 describe('generateCartSlots', () => {
@@ -74,5 +78,36 @@ describe('computeSlotFlags', () => {
 
   it('does not flag a brother + external of unknown gender', () => {
     expect(computeSlotFlags([B, null]).brotherSister).toBe(false);
+  });
+});
+
+describe('computePairings', () => {
+  it('pairs publishers sharing a slot, tracking count and last date', () => {
+    const m = computePairings([
+      { slotId: 's1', publisherId: 'A', date: '2026-01-10' },
+      { slotId: 's1', publisherId: 'B', date: '2026-01-10' },
+      { slotId: 's2', publisherId: 'A', date: '2026-01-17' },
+      { slotId: 's2', publisherId: 'B', date: '2026-01-17' },
+    ]);
+    expect(m.get('A')!.get('B')).toEqual({ count: 2, lastDate: '2026-01-17' });
+    expect(m.get('B')!.get('A')!.count).toBe(2);
+  });
+
+  it('does not pair a lone person', () => {
+    const m = computePairings([
+      { slotId: 's1', publisherId: 'A', date: '2026-01-10' },
+    ]);
+    expect(m.get('A')).toBeUndefined();
+  });
+
+  it('records all pairs in a three-person slot', () => {
+    const m = computePairings([
+      { slotId: 's1', publisherId: 'A', date: '2026-02-01' },
+      { slotId: 's1', publisherId: 'B', date: '2026-02-01' },
+      { slotId: 's1', publisherId: 'C', date: '2026-02-01' },
+    ]);
+    expect(m.get('A')!.size).toBe(2);
+    expect(m.get('A')!.has('B')).toBe(true);
+    expect(m.get('A')!.has('C')).toBe(true);
   });
 });

@@ -92,6 +92,47 @@ export function computeSlotFlags(genders: (Gender | null)[]): {
   };
 }
 
+export interface PartnerHint {
+  partnerId: string;
+  name: string;
+  count: number;
+  lastDate: string;
+}
+
+export function computePairings(
+  rows: { slotId: string; publisherId: string; date: string }[],
+): Map<string, Map<string, { count: number; lastDate: string }>> {
+  const bySlot = new Map<string, { pub: string; date: string }[]>();
+  for (const r of rows) {
+    const arr = bySlot.get(r.slotId) ?? [];
+    arr.push({ pub: r.publisherId, date: r.date });
+    bySlot.set(r.slotId, arr);
+  }
+  const out = new Map<
+    string,
+    Map<string, { count: number; lastDate: string }>
+  >();
+  const link = (a: string, b: string, date: string) => {
+    const m =
+      out.get(a) ?? new Map<string, { count: number; lastDate: string }>();
+    const e = m.get(b) ?? { count: 0, lastDate: '' };
+    e.count += 1;
+    if (date > e.lastDate) e.lastDate = date;
+    m.set(b, e);
+    out.set(a, m);
+  };
+  for (const people of bySlot.values()) {
+    for (let i = 0; i < people.length; i++) {
+      for (let j = i + 1; j < people.length; j++) {
+        if (people[i].pub === people[j].pub) continue;
+        link(people[i].pub, people[j].pub, people[i].date);
+        link(people[j].pub, people[i].pub, people[j].date);
+      }
+    }
+  }
+  return out;
+}
+
 export interface CartAssignmentView {
   id: string;
   publisherId: string | null;
@@ -475,6 +516,55 @@ export class CartWeeksService {
     }
     week.status = 'published';
     return this.weeksRepo.save(week);
+  }
+
+  async recentPairings(
+    congregationId: string,
+    weeks = 8,
+  ): Promise<Record<string, PartnerHint[]>> {
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+    const back = new Date(now.getTime() - weeks * 7 * 86400000)
+      .toISOString()
+      .slice(0, 10);
+    const rows = await this.assignmentsRepo
+      .createQueryBuilder('a')
+      .innerJoin('cart_slots', 's', 's.id = a.slot_id')
+      .innerJoin('cart_weeks', 'w', 'w.id = s.week_id')
+      .select('a.slot_id', 'slotId')
+      .addSelect('a.publisher_id', 'publisherId')
+      .addSelect('s.date', 'date')
+      .where('a.congregation_id = :congregationId', { congregationId })
+      .andWhere('a.publisher_id IS NOT NULL')
+      .andWhere("w.status = 'published'")
+      .andWhere('s.date BETWEEN :back AND :today', { back, today })
+      .getRawMany<{ slotId: string; publisherId: string; date: string }>();
+    const map = computePairings(rows);
+    const ids = new Set<string>();
+    for (const [pub, partners] of map) {
+      ids.add(pub);
+      for (const partner of partners.keys()) ids.add(partner);
+    }
+    const pubs = ids.size
+      ? await this.publishersRepo.find({
+          where: { id: In([...ids]), congregationId },
+        })
+      : [];
+    const nameById = new Map(
+      pubs.map((p) => [p.id, `${p.lastName} ${p.firstName}`.trim()]),
+    );
+    const out: Record<string, PartnerHint[]> = {};
+    for (const [pub, partners] of map) {
+      out[pub] = [...partners.entries()]
+        .map(([partnerId, v]) => ({
+          partnerId,
+          name: nameById.get(partnerId) ?? '',
+          count: v.count,
+          lastDate: v.lastDate,
+        }))
+        .sort((x, y) => (x.lastDate < y.lastDate ? 1 : -1));
+    }
+    return out;
   }
 
   async applyToSlot(

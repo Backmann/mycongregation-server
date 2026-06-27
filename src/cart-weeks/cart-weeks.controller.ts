@@ -32,6 +32,19 @@ export class CartWeeksController {
     return this.service.getWeek(congregationId, weekStart, user);
   }
 
+  @Get('pairings')
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.PUBLIC_WITNESSING,
+    ResponsibilityType.SERVICE_OVERSEER,
+  )
+  pairings(@TenantId() congregationId: string, @Query('weeks') weeks?: string) {
+    return this.service.recentPairings(
+      congregationId,
+      weeks ? Number(weeks) : undefined,
+    );
+  }
+
   @Post()
   @UseGuards(ResponsibilityGuard)
   @RequireResponsibility(
