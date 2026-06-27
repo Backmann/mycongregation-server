@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CartWeek } from '../entities/cart-week.entity';
 import { CartSlot } from '../entities/cart-slot.entity';
 import { CartRequest } from '../entities/cart-request.entity';
+import { CartAssignment } from '../entities/cart-assignment.entity';
 import { CartLocation } from '../entities/cart-location.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Responsibility } from '../entities/responsibility.entity';
@@ -17,6 +18,7 @@ import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
       CartWeek,
       CartSlot,
       CartRequest,
+      CartAssignment,
       CartLocation,
       Publisher,
       Responsibility,

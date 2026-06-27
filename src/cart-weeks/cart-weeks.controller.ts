@@ -59,6 +59,19 @@ export class CartWeeksController {
     return this.service.openWeek(congregationId, id);
   }
 
+  @Post(':id/publish')
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.PUBLIC_WITNESSING,
+    ResponsibilityType.SERVICE_OVERSEER,
+  )
+  publish(
+    @TenantId() congregationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.publishWeek(congregationId, id);
+  }
+
   @Delete(':id')
   @HttpCode(204)
   @UseGuards(ResponsibilityGuard)

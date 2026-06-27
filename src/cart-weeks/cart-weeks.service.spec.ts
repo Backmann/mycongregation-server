@@ -1,4 +1,5 @@
-import { generateCartSlots } from './cart-weeks.service';
+import { generateCartSlots, computeSlotFlags } from './cart-weeks.service';
+import { Gender } from '../common/enums/gender.enum';
 
 describe('generateCartSlots', () => {
   const MON = '2026-06-29'; // a Monday
@@ -43,5 +44,35 @@ describe('generateCartSlots', () => {
     expect(
       generateCartSlots(MON, [6], ['loc-1'], '10:00', '11:00', 90),
     ).toEqual([]);
+  });
+});
+
+describe('computeSlotFlags', () => {
+  const B = Gender.BROTHER;
+  const S = Gender.SISTER;
+
+  it('flags a lone person as underMin', () => {
+    expect(computeSlotFlags([B]).underMin).toBe(true);
+    expect(computeSlotFlags([B, S]).underMin).toBe(false);
+    expect(computeSlotFlags([]).underMin).toBe(false);
+  });
+
+  it('flags a brother+sister pair with no third', () => {
+    expect(computeSlotFlags([B, S]).brotherSister).toBe(true);
+    expect(computeSlotFlags([S, B]).brotherSister).toBe(true);
+  });
+
+  it('does not flag when a third person is present', () => {
+    expect(computeSlotFlags([B, S, B]).brotherSister).toBe(false);
+    expect(computeSlotFlags([B, S, null]).brotherSister).toBe(false);
+  });
+
+  it('does not flag two brothers or two sisters', () => {
+    expect(computeSlotFlags([B, B]).brotherSister).toBe(false);
+    expect(computeSlotFlags([S, S]).brotherSister).toBe(false);
+  });
+
+  it('does not flag a brother + external of unknown gender', () => {
+    expect(computeSlotFlags([B, null]).brotherSister).toBe(false);
   });
 });
