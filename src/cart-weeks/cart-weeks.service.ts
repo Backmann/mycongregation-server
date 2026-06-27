@@ -2,7 +2,6 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
-  ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -129,37 +128,52 @@ export class CartWeeksService {
     if (locations.length !== uniqueLocationIds.length) {
       throw new BadRequestException('Unknown location');
     }
-    const existing = await this.weeksRepo.findOne({
+    // Additive: a pre-existing draft/collecting week is extended with the new
+    // days x locations rather than recreated. Window/step are week-level, so a
+    // pre-existing week keeps its own; only the first build sets them.
+    let week = await this.weeksRepo.findOne({
       where: { congregationId, weekStartDate: dto.weekStartDate },
     });
-    if (existing) {
-      throw new ConflictException('A week already exists for this date');
+    if (week && week.status === 'published') {
+      throw new BadRequestException('Week is already published');
     }
-    const week = await this.weeksRepo.save(
-      this.weeksRepo.create({
-        congregationId,
-        weekStartDate: dto.weekStartDate,
-        status: 'draft',
-        startTime: dto.startTime,
-        endTime: dto.endTime,
-        stepMinutes: dto.stepMinutes,
-        createdById: userId,
-      }),
-    );
+    if (!week) {
+      week = await this.weeksRepo.save(
+        this.weeksRepo.create({
+          congregationId,
+          weekStartDate: dto.weekStartDate,
+          status: 'draft',
+          startTime: dto.startTime,
+          endTime: dto.endTime,
+          stepMinutes: dto.stepMinutes,
+          createdById: userId,
+        }),
+      );
+    }
     const gen = generateCartSlots(
       dto.weekStartDate,
       dto.daysOfWeek,
       uniqueLocationIds,
-      dto.startTime,
-      dto.endTime,
-      dto.stepMinutes,
+      week.startTime,
+      week.endTime,
+      week.stepMinutes,
     );
-    if (gen.length > 0) {
+    const existingSlots = await this.slotsRepo.find({
+      where: { weekId: week.id },
+    });
+    const seen = new Set(
+      existingSlots.map((s) => `${s.date}|${s.locationId}|${s.startTime}`),
+    );
+    const toCreate = gen.filter(
+      (g) => !seen.has(`${g.date}|${g.locationId}|${g.startTime}`),
+    );
+    if (toCreate.length > 0) {
+      const weekId = week.id;
       await this.slotsRepo.save(
-        gen.map((g) =>
+        toCreate.map((g) =>
           this.slotsRepo.create({
             congregationId,
-            weekId: week.id,
+            weekId,
             date: g.date,
             startTime: g.startTime,
             endTime: g.endTime,
