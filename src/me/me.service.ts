@@ -5,7 +5,6 @@ import { Publisher } from '../entities/publisher.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
-import { CartShiftParticipant } from '../entities/cart-shift-participant.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { ExternalCongregation } from '../entities/external-congregation.entity';
@@ -98,8 +97,6 @@ export class MeService {
     private readonly dutiesRepo: Repository<Duty>,
     @InjectRepository(CleaningAssignment)
     private readonly cleaningRepo: Repository<CleaningAssignment>,
-    @InjectRepository(CartShiftParticipant)
-    private readonly cartPartsRepo: Repository<CartShiftParticipant>,
     @InjectRepository(FieldServiceMeeting)
     private readonly fieldRepo: Repository<FieldServiceMeeting>,
     @InjectRepository(TalkExchange)
@@ -220,27 +217,6 @@ export class MeService {
           label: c.slotType,
         });
       }
-    }
-
-    // ---- Cart shifts ----
-    const cartParts = await this.cartPartsRepo
-      .createQueryBuilder('p')
-      .innerJoinAndSelect('p.shift', 's')
-      .where('p.publisher_id = :pid', { pid })
-      .andWhere('s.congregation_id = :tenantId', { tenantId })
-      .andWhere('s.date BETWEEN :from AND :to', { from: today, to: horizon })
-      .orderBy('s.date', 'ASC')
-      .getMany();
-    for (const p of cartParts) {
-      items.push({
-        kind: 'cart',
-        sortDate: p.shift.date,
-        date: p.shift.date,
-        time: p.shift.startTime,
-        endTime: p.shift.endTime,
-        label: p.shift.location,
-        location: p.shift.location,
-      });
     }
 
     // ---- Field service meetings (as conductor) ----

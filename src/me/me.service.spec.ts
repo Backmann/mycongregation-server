@@ -5,7 +5,6 @@ import { Publisher } from '../entities/publisher.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
-import { CartShiftParticipant } from '../entities/cart-shift-participant.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { ExternalCongregation } from '../entities/external-congregation.entity';
@@ -25,7 +24,6 @@ describe('MeService.myPublisher', () => {
         { provide: getRepositoryToken(Assignment), useValue: stub },
         { provide: getRepositoryToken(Duty), useValue: stub },
         { provide: getRepositoryToken(CleaningAssignment), useValue: stub },
-        { provide: getRepositoryToken(CartShiftParticipant), useValue: stub },
         { provide: getRepositoryToken(FieldServiceMeeting), useValue: stub },
         { provide: getRepositoryToken(TalkExchange), useValue: stub },
         { provide: getRepositoryToken(ExternalCongregation), useValue: stub },
@@ -147,10 +145,6 @@ describe('MeService.myAssignments (outgoing talks)', () => {
         { provide: getRepositoryToken(Duty), useValue: emptyRepo() },
         {
           provide: getRepositoryToken(CleaningAssignment),
-          useValue: emptyRepo(),
-        },
-        {
-          provide: getRepositoryToken(CartShiftParticipant),
           useValue: emptyRepo(),
         },
         {
