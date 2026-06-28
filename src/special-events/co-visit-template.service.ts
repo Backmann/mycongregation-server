@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Assignment } from '../entities/assignment.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { EventType } from '../common/enums/event-type.enum';
@@ -250,6 +250,38 @@ export class CoVisitTemplateService {
       );
       return persisted;
     });
+  }
+
+  /**
+   * Re-points the visiting overseer's name on the talks he gives, after the
+   * event's names change (picker / edit form). Only the template-managed
+   * speaker parts are touched; the rest of the programme is left alone. No-op
+   * unless the template has already been applied to this visit.
+   */
+  async syncSpeaker(event: SpecialEvent): Promise<void> {
+    if (event.type !== CIRCUIT_OVERSEER_VISIT_TYPE) return;
+    const ops = (event.coRevertData as RevertOp[] | null) ?? [];
+    if (ops.length === 0) return;
+
+    const week = mondayOf(event.date);
+    const speaker = coDisplayName(event);
+    const parts = await this.assignmentRepo.find({
+      where: {
+        congregationId: event.congregationId,
+        weekStartDate: week,
+        partKey: In([
+          CO_SERVICE_TALK_KEY,
+          CO_CONCLUDING_TALK_KEY,
+          PUBLIC_TALK_KEY,
+        ]),
+      },
+    });
+    for (const a of parts) {
+      if (a.speakerName !== speaker) {
+        a.speakerName = speaker;
+        await this.assignmentRepo.save(a);
+      }
+    }
   }
 
   /**

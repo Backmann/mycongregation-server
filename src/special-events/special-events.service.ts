@@ -78,7 +78,9 @@ export class SpecialEventsService {
   ): Promise<SpecialEvent> {
     const event = await this.findOne(tenantId, id);
     Object.assign(event, dto);
-    return this.specialEventsRepo.save(event);
+    const saved = await this.specialEventsRepo.save(event);
+    await this.coVisitTemplate.syncSpeaker(saved);
+    return saved;
   }
 
   async remove(tenantId: string, id: string): Promise<void> {
