@@ -77,9 +77,10 @@ export class SpecialEventsService {
     dto: UpdateSpecialEventDto,
   ): Promise<SpecialEvent> {
     const event = await this.findOne(tenantId, id);
+    const prevName = this.coVisitTemplate.displayName(event);
     Object.assign(event, dto);
     const saved = await this.specialEventsRepo.save(event);
-    await this.coVisitTemplate.syncSpeaker(saved);
+    await this.coVisitTemplate.syncSpeaker(saved, prevName);
     return saved;
   }
 

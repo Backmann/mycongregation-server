@@ -1,6 +1,7 @@
 import {
   IsBoolean,
   IsDateString,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -61,6 +62,10 @@ export class CreateSpecialEventDto {
   @IsString()
   @Length(1, 100)
   coWifeName?: string;
+
+  @IsOptional()
+  @IsIn(['overseer', 'substitute'])
+  coRole?: string;
 
   @IsOptional()
   @IsString()

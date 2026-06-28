@@ -69,6 +69,10 @@ export class SpecialEvent {
   @Column({ type: 'varchar', length: 100, nullable: true })
   coWifeName!: string | null;
 
+  /** Circuit-overseer visit only: 'overseer' (regular) or 'substitute'. */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  coRole!: string | null;
+
   /** Circuit-overseer visit only: where the overseer stays (for the PDF). */
   @Column({ type: 'text', nullable: true })
   coAccommodationAddress!: string | null;

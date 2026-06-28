@@ -258,14 +258,25 @@ export class CoVisitTemplateService {
    * speaker parts are touched; the rest of the programme is left alone. No-op
    * unless the template has already been applied to this visit.
    */
-  async syncSpeaker(event: SpecialEvent): Promise<void> {
+  /** Public helper: the overseer's display name for an event (or null). */
+  displayName(event: SpecialEvent): string | null {
+    return coDisplayName(event);
+  }
+
+  async syncSpeaker(
+    event: SpecialEvent,
+    prevName: string | null,
+  ): Promise<void> {
     if (event.type !== CIRCUIT_OVERSEER_VISIT_TYPE) return;
     const ops = (event.coRevertData as RevertOp[] | null) ?? [];
     if (ops.length === 0) return;
 
+    const newName = coDisplayName(event);
     const week = mondayOf(event.date);
-    const speaker = coDisplayName(event);
-    const parts = await this.assignmentRepo.find({
+
+    // The talks the overseer always gives — forced to the current name so a
+    // visit that drifted (name changed without a re-sync) is repaired.
+    const managed = await this.assignmentRepo.find({
       where: {
         congregationId: event.congregationId,
         weekStartDate: week,
@@ -276,9 +287,25 @@ export class CoVisitTemplateService {
         ]),
       },
     });
-    for (const a of parts) {
-      if (a.speakerName !== speaker) {
-        a.speakerName = speaker;
+    // Plus anything else in the week still showing the previous overseer (e.g.
+    // a prayer the user marked CO-led), renamed to the new overseer.
+    const renamed =
+      prevName && prevName !== newName
+        ? await this.assignmentRepo.find({
+            where: {
+              congregationId: event.congregationId,
+              weekStartDate: week,
+              speakerName: prevName,
+            },
+          })
+        : [];
+
+    const seen = new Set<string>();
+    for (const a of [...managed, ...renamed]) {
+      if (seen.has(a.id)) continue;
+      seen.add(a.id);
+      if (a.speakerName !== newName) {
+        a.speakerName = newName;
         await this.assignmentRepo.save(a);
       }
     }
