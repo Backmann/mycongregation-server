@@ -41,6 +41,7 @@ import { MeetingSettingsModule } from './meeting-settings/meeting-settings.modul
 import { CircuitOverseerModule } from './circuit-overseer/circuit-overseer.module';
 import { DutiesModule } from './duties/duties.module';
 import { FieldServiceMeetingsModule } from './field-service-meetings/field-service-meetings.module';
+import { CoVisitItemsModule } from './co-visit-items/co-visit-items.module';
 import { CleaningModule } from './cleaning/cleaning.module';
 import { CartLocationsModule } from './cart-locations/cart-locations.module';
 import { CartWeeksModule } from './cart-weeks/cart-weeks.module';
@@ -117,6 +118,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     CircuitOverseerModule,
     DutiesModule,
     FieldServiceMeetingsModule,
+    CoVisitItemsModule,
     CleaningModule,
     CartLocationsModule,
     CartWeeksModule,
