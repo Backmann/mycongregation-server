@@ -22,6 +22,8 @@ import { UserRole } from '../common/enums/user-role.enum';
 import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
 /**
  * Circuit-overseer visit programme items. View: admin or elder. Edit: admin,
@@ -37,8 +39,9 @@ export class CoVisitItemsController {
   list(
     @TenantId() congregationId: string,
     @Query('specialEventId', ParseUUIDPipe) specialEventId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.list(congregationId, specialEventId);
+    return this.service.list(congregationId, specialEventId, user);
   }
 
   @Post()
@@ -50,8 +53,9 @@ export class CoVisitItemsController {
   create(
     @TenantId() congregationId: string,
     @Body() dto: CreateCoVisitItemDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.create(congregationId, dto);
+    return this.service.create(congregationId, dto, user);
   }
 
   @Patch(':id')
@@ -64,8 +68,9 @@ export class CoVisitItemsController {
     @TenantId() congregationId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateCoVisitItemDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.update(congregationId, id, dto);
+    return this.service.update(congregationId, id, dto, user);
   }
 
   @Delete(':id')

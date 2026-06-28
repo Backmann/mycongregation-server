@@ -28,6 +28,7 @@ describe('toCoVisitItemView', () => {
         assigneePublisherId: 'p1',
         assignee: { firstName: 'Alex', lastName: 'Weichel' } as never,
       }),
+      true,
     );
     expect(v.assigneeName).toBe('Weichel Alex');
     expect(v.assigneeText).toBeNull();
@@ -36,6 +37,7 @@ describe('toCoVisitItemView', () => {
   it('leaves assigneeName null and keeps free-text when no publisher', () => {
     const v = toCoVisitItemView(
       item({ assignee: null, assigneeText: 'Familie Müller' }),
+      true,
     );
     expect(v.assigneeName).toBeNull();
     expect(v.assigneeText).toBe('Familie Müller');
@@ -48,7 +50,26 @@ describe('toCoVisitItemView', () => {
         cartLocationId: 'l1',
         cartLocation: { name: 'Hauptbahnhof' } as never,
       }),
+      true,
     );
     expect(v.cartLocationName).toBe('Hauptbahnhof');
+  });
+
+  it('exposes phone/address only when canViewPrivate', () => {
+    const it = item({
+      assigneePublisherId: 'p1',
+      assignee: {
+        firstName: 'Alex',
+        lastName: 'Weichel',
+        mobilePhone: '0157 1234',
+        address: 'Musterstr. 1',
+      } as never,
+    });
+    const shown = toCoVisitItemView(it, true);
+    expect(shown.assigneePhone).toBe('0157 1234');
+    expect(shown.assigneeAddress).toBe('Musterstr. 1');
+    const hidden = toCoVisitItemView(it, false);
+    expect(hidden.assigneePhone).toBeNull();
+    expect(hidden.assigneeAddress).toBeNull();
   });
 });
