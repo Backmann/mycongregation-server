@@ -1,9 +1,12 @@
 import {
   IsBoolean,
   IsDateString,
+  IsInt,
   IsOptional,
   IsString,
   Length,
+  Max,
+  Min,
 } from 'class-validator';
 
 export class UpdateSpecialEventDto {
@@ -65,6 +68,12 @@ export class UpdateSpecialEventDto {
   @IsString()
   @Length(1, 2000)
   coAccommodationAddress?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(7)
+  coMidweekDow?: number;
 
   @IsOptional()
   @IsBoolean()
