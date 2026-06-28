@@ -1,28 +1,56 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { CircuitOverseerService } from './circuit-overseer.service';
-import { UpsertCircuitOverseerDto } from './dto/upsert-circuit-overseer.dto';
+import {
+  CreateCircuitOverseerDto,
+  UpdateCircuitOverseerDto,
+} from './dto/upsert-circuit-overseer.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UserRole } from '../common/enums/user-role.enum';
 
 /**
- * The congregation's current circuit overseer. Reading is open to any member
- * (the name surfaces on the visit banner); only an admin edits the default.
+ * Circuit overseers the congregation may host. Reading is open to any member
+ * (names surface on the visit banner); only an admin adds, edits, or removes.
  */
-@Controller('circuit-overseer')
+@Controller('circuit-overseers')
 @UseGuards(RolesGuard)
 export class CircuitOverseerController {
   constructor(private readonly service: CircuitOverseerService) {}
 
   @Get()
-  get(@TenantId() tenantId: string) {
-    return this.service.get(tenantId);
+  list(@TenantId() tenantId: string) {
+    return this.service.list(tenantId);
   }
 
   @Roles(UserRole.ADMIN)
   @Post()
-  upsert(@TenantId() tenantId: string, @Body() dto: UpsertCircuitOverseerDto) {
-    return this.service.upsert(tenantId, dto);
+  create(@TenantId() tenantId: string, @Body() dto: CreateCircuitOverseerDto) {
+    return this.service.create(tenantId, dto);
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Patch(':id')
+  update(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateCircuitOverseerDto,
+  ) {
+    return this.service.update(tenantId, id, dto);
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Delete(':id')
+  remove(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.service.remove(tenantId, id);
   }
 }
