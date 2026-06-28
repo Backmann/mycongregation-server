@@ -41,8 +41,11 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
-  list(@TenantId() congregationId: string) {
-    return this.usersService.findAllInCongregation(congregationId);
+  list(
+    @TenantId() congregationId: string,
+    @CurrentUser() current: AuthenticatedUser,
+  ) {
+    return this.usersService.findAllInCongregation(congregationId, current.id);
   }
 
   @Post()

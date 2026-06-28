@@ -42,8 +42,8 @@ describe('UsersController', () => {
   });
 
   it('GET /users → service.findAllInCongregation', async () => {
-    await controller.list(CONG);
-    expect(service.findAllInCongregation).toHaveBeenCalledWith(CONG);
+    await controller.list(CONG, ADMIN);
+    expect(service.findAllInCongregation).toHaveBeenCalledWith(CONG, ADMIN.id);
   });
 
   it('POST /users → service.createUserByAdmin with dto, tenant, admin id', async () => {

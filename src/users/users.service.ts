@@ -111,7 +111,10 @@ export class UsersService {
   // "you cannot lock the last admin out of the congregation".
   // ---------------------------------------------------------------------------
 
-  async findAllInCongregation(congregationId: string): Promise<PublicUser[]> {
+  async findAllInCongregation(
+    congregationId: string,
+    viewerUserId: string,
+  ): Promise<PublicUser[]> {
     const rows = await this.usersRepo.find({
       where: { congregationId },
       order: { createdAt: 'ASC' },
@@ -128,7 +131,16 @@ export class UsersService {
       if (p.userId) apptByUser.set(p.userId, p.appointment);
     }
     const now = Date.now();
-    return rows.map((u) => toPublicUser(u, apptByUser.get(u.id) ?? null, now));
+    return rows.map((u) => {
+      const pub = toPublicUser(u, apptByUser.get(u.id) ?? null, now);
+      // Presence is recorded for everyone but masked for users who hide it —
+      // except when they are viewing their own row.
+      if (u.hidePresence && u.id !== viewerUserId) {
+        pub.online = false;
+        pub.lastSeenAt = null;
+      }
+      return pub;
+    });
   }
 
   /**
@@ -218,6 +230,9 @@ export class UsersService {
     }
 
     const user = await this.findByIdInCongregation(targetId, congregationId);
+    if (user.isOwner) {
+      throw new ForbiddenException('The owner account is protected');
+    }
     const oldRole = user.role;
     if (oldRole === newRole) {
       return toPublicUser(user);
@@ -267,6 +282,9 @@ export class UsersService {
       return toPublicUser(user);
     }
 
+    if (!isActive && user.isOwner) {
+      throw new ForbiddenException('The owner account cannot be deactivated');
+    }
     if (!isActive && user.role === UserRole.ADMIN) {
       const adminCount =
         await this.countActiveAdminsInCongregation(congregationId);
@@ -326,6 +344,9 @@ export class UsersService {
     congregationId: string,
   ): Promise<void> {
     const user = await this.findByIdInCongregation(id, congregationId);
+    if (user.isOwner) {
+      throw new ForbiddenException('The owner account is protected');
+    }
     const email = rawEmail.trim().toLowerCase();
     if (user.email === email) {
       return;
@@ -395,7 +416,10 @@ export class UsersService {
     actorUserId: string,
   ): Promise<void> {
     // Verify target exists in the caller's congregation
-    await this.findByIdInCongregation(targetId, congregationId);
+    const user = await this.findByIdInCongregation(targetId, congregationId);
+    if (user.isOwner && actorUserId !== targetId) {
+      throw new ForbiddenException('The owner account is protected');
+    }
 
     const passwordHash = await this.hashPassword(newPassword);
     await this.usersRepo.update(targetId, { passwordHash });

@@ -133,6 +133,67 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
       // passwordHash must never leak through the PublicUser projection
       expect((result[0] as any).passwordHash).toBeUndefined();
     });
+
+    it('masks presence of hidden users for other viewers', async () => {
+      (repo.find as jest.Mock).mockResolvedValue([
+        userFixture({ id: 'u-1', hidePresence: true, lastSeenAt: new Date() }),
+        userFixture({ id: 'u-2', lastSeenAt: new Date() }),
+      ]);
+      const result = await service.findAllInCongregation(CONG, 'other');
+      const hidden = result.find((r) => r.id === 'u-1')!;
+      const visible = result.find((r) => r.id === 'u-2')!;
+      expect(hidden.online).toBe(false);
+      expect(hidden.lastSeenAt).toBeNull();
+      expect(visible.online).toBe(true);
+    });
+
+    it('shows hidden users their own presence', async () => {
+      (repo.find as jest.Mock).mockResolvedValue([
+        userFixture({ id: 'u-1', hidePresence: true, lastSeenAt: new Date() }),
+      ]);
+      const result = await service.findAllInCongregation(CONG, 'u-1');
+      expect(result[0].online).toBe(true);
+    });
+  });
+
+  describe('owner protection', () => {
+    it('forbids changing the owner role', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        userFixture({ id: 'u-1', isOwner: true, role: UserRole.ADMIN }),
+      );
+      await expect(
+        service.updateRoleByAdmin('u-1', UserRole.ELDER, CONG, ADMIN_ID),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repo.update).not.toHaveBeenCalled();
+    });
+
+    it('forbids deactivating the owner', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        userFixture({ id: 'u-1', isOwner: true, isActive: true }),
+      );
+      await expect(
+        service.setActiveByAdmin('u-1', false, CONG, ADMIN_ID),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repo.update).not.toHaveBeenCalled();
+    });
+
+    it('forbids another admin resetting the owner password', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        userFixture({ id: 'u-1', isOwner: true }),
+      );
+      await expect(
+        service.resetPasswordByAdmin('u-1', 'newpass123', CONG, ADMIN_ID),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repo.update).not.toHaveBeenCalled();
+    });
+
+    it('lets the owner reset their own password', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        userFixture({ id: 'u-1', isOwner: true }),
+      );
+      await service.resetPasswordByAdmin('u-1', 'newpass123', CONG, 'u-1');
+      expect(repo.update).toHaveBeenCalled();
+    });
   });
 
   // ---------------------------------------------------------------------------

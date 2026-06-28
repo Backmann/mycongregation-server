@@ -44,6 +44,22 @@ export class User {
     default: false,
   })
   canViewPrivateData!: boolean;
+
+  /**
+   * Platform owner / maintainer account. Set only via the database — never
+   * exposed in any API or UI. Protected from role change, deactivation, email
+   * change and password reset performed by other admins.
+   */
+  @Column({ type: 'boolean', name: 'is_owner', default: false })
+  isOwner!: boolean;
+
+  /**
+   * When true, this user's presence (online / last active) is hidden from
+   * other users in the admin list. Activity is still recorded; it is simply
+   * masked for everyone except the user themselves.
+   */
+  @Column({ type: 'boolean', name: 'hide_presence', default: false })
+  hidePresence!: boolean;
   @Column({
     type: 'varchar',
     length: 2,
