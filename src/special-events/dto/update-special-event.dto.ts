@@ -62,6 +62,11 @@ export class UpdateSpecialEventDto {
   coWifeName?: string;
 
   @IsOptional()
+  @IsString()
+  @Length(1, 2000)
+  coAccommodationAddress?: string;
+
+  @IsOptional()
   @IsBoolean()
   replacesMeeting?: boolean;
 }

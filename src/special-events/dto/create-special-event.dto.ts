@@ -63,6 +63,11 @@ export class CreateSpecialEventDto {
   coWifeName?: string;
 
   @IsOptional()
+  @IsString()
+  @Length(1, 2000)
+  coAccommodationAddress?: string;
+
+  @IsOptional()
   @IsInt()
   @Min(1)
   @Max(7)
