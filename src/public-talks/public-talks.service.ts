@@ -37,6 +37,8 @@ export interface PaginatedResult<T> {
 export interface PublicTalkWithHistory extends PublicTalk {
   lastGivenAt: string | null;
   lastGivenBy: string | null;
+  nextGivenAt: string | null;
+  nextGivenBy: string | null;
 }
 
 export interface BulkImportResult {
@@ -114,35 +116,44 @@ export class PublicTalksService {
       order: { weekStartDate: 'DESC' },
     });
 
-    // Only past weeks count as "given": the current/upcoming week's assignment
-    // is scheduled, not yet delivered, and could still be changed.
+    // "Given" splits at the current week: strictly-past weeks are deliveries that
+    // already happened (lastGiven*), the current/future weeks are still scheduled
+    // (nextGiven*). The histories come ordered DESC by weekStartDate, so the first
+    // past hit per talk is the most recent, and the last future hit is the nearest.
     const currentWeekStart = currentWeekMondayISO();
     const latestByTalk = new Map<string, Assignment>();
+    const nextByTalk = new Map<string, Assignment>();
     for (const a of histories) {
       if (a.status === AssignmentStatus.CANCELLED) continue;
       if (!a.publicTalkId) continue;
-      if (a.weekStartDate >= currentWeekStart) continue;
-      if (!latestByTalk.has(a.publicTalkId)) {
+      if (a.weekStartDate >= currentWeekStart) {
+        // Future/current: overwrite so the last (earliest, since DESC) wins.
+        nextByTalk.set(a.publicTalkId, a);
+      } else if (!latestByTalk.has(a.publicTalkId)) {
         latestByTalk.set(a.publicTalkId, a);
       }
     }
 
+    const speakerOf = (a: Assignment | undefined): string | null => {
+      if (!a) return null;
+      if (a.publisher) {
+        const p = a.publisher;
+        return (
+          [p.firstName, p.lastName].filter(Boolean).join(' ').trim() || null
+        );
+      }
+      return a.speakerName ?? null;
+    };
+
     const data: PublicTalkWithHistory[] = talks.map((t) => {
       const latest = latestByTalk.get(t.id);
-      let lastGivenBy: string | null = null;
-      if (latest) {
-        if (latest.publisher) {
-          const p = latest.publisher;
-          lastGivenBy =
-            [p.firstName, p.lastName].filter(Boolean).join(' ').trim() || null;
-        } else if (latest.speakerName) {
-          lastGivenBy = latest.speakerName;
-        }
-      }
+      const next = nextByTalk.get(t.id);
       return {
         ...t,
         lastGivenAt: latest?.weekStartDate ?? null,
-        lastGivenBy,
+        lastGivenBy: speakerOf(latest),
+        nextGivenAt: next?.weekStartDate ?? null,
+        nextGivenBy: speakerOf(next),
       };
     });
 

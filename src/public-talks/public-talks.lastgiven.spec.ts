@@ -46,9 +46,19 @@ describe('PublicTalksService lastGiven (past weeks only)', () => {
     ]);
     const res = await svc.list('cong-1', {});
     const t = res.data[0] as any;
-    console.log('lastGivenAt:', t.lastGivenAt, 'by:', t.lastGivenBy);
+    console.log(
+      'last:',
+      t.lastGivenAt,
+      t.lastGivenBy,
+      '| next:',
+      t.nextGivenAt,
+      t.nextGivenBy,
+    );
     expect(t.lastGivenAt).toBe(iso(-60));
     expect(t.lastGivenBy).toBe('Past Speaker');
+    // the upcoming assignment is surfaced separately, not as "last given"
+    expect(t.nextGivenAt).toBe(iso(7));
+    expect(t.nextGivenBy).toBe('Alexander Jakobi');
   });
 
   it('null when the only assignment is the upcoming one', async () => {
@@ -63,8 +73,15 @@ describe('PublicTalksService lastGiven (past weeks only)', () => {
     ]);
     const res = await svc.list('cong-1', {});
     const t = res.data[0] as any;
-    console.log('lastGivenAt(none):', t.lastGivenAt);
+    console.log(
+      'only upcoming -> last:',
+      t.lastGivenAt,
+      'next:',
+      t.nextGivenAt,
+    );
     expect(t.lastGivenAt).toBeNull();
     expect(t.lastGivenBy).toBeNull();
+    expect(t.nextGivenAt).toBe(iso(7));
+    expect(t.nextGivenBy).toBe('Alexander Jakobi');
   });
 });
