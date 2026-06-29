@@ -13,6 +13,7 @@ export interface CoVisitItemView {
   id: string;
   kind: string;
   forWife: boolean;
+  withWife: boolean;
   itemDate: string;
   startTime: string | null;
   placeKind: string | null;
@@ -42,6 +43,7 @@ export function toCoVisitItemView(
     id: item.id,
     kind: item.kind,
     forWife: item.forWife,
+    withWife: item.withWife,
     itemDate: item.itemDate,
     startTime: item.startTime,
     placeKind: item.placeKind,
@@ -123,6 +125,7 @@ export class CoVisitItemsService {
       specialEventId: dto.specialEventId,
       kind: dto.kind,
       forWife: dto.forWife ?? false,
+      withWife: dto.withWife ?? false,
       itemDate: dto.itemDate,
       startTime: dto.startTime ?? null,
       placeKind: dto.placeKind ?? null,
@@ -151,6 +154,7 @@ export class CoVisitItemsService {
     if (!item) throw new NotFoundException('Item not found');
     if (dto.kind !== undefined) item.kind = dto.kind;
     if (dto.forWife !== undefined) item.forWife = dto.forWife;
+    if (dto.withWife !== undefined) item.withWife = dto.withWife;
     if (dto.itemDate !== undefined) item.itemDate = dto.itemDate;
     if (dto.startTime !== undefined) item.startTime = dto.startTime ?? null;
     if (dto.placeKind !== undefined) item.placeKind = dto.placeKind ?? null;

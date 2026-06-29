@@ -38,6 +38,10 @@ export class CreateCoVisitItemDto {
   @IsBoolean()
   forWife?: boolean;
 
+  @IsOptional()
+  @IsBoolean()
+  withWife?: boolean;
+
   @IsDateString()
   itemDate!: string;
 

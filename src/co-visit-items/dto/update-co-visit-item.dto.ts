@@ -25,6 +25,10 @@ export class UpdateCoVisitItemDto {
   forWife?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  withWife?: boolean;
+
+  @IsOptional()
   @IsDateString()
   itemDate?: string;
 

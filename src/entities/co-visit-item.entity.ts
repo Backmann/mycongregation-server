@@ -47,6 +47,10 @@ export class CoVisitItem {
   @Column({ type: 'boolean', default: false })
   forWife!: boolean;
 
+  /** Marks the overseer's field-service day shared with his wife. */
+  @Column({ type: 'boolean', default: false })
+  withWife!: boolean;
+
   @Column({ type: 'date' })
   itemDate!: string;
 
