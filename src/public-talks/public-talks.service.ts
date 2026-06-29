@@ -12,6 +12,21 @@ import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 import { CreatePublicTalkDto } from './dto/create-public-talk.dto';
 import { UpdatePublicTalkDto } from './dto/update-public-talk.dto';
 
+/**
+ * Monday (ISO `YYYY-MM-DD`) of the current week. A public talk only counts as
+ * "given" once its week is in the past; the current/upcoming week's assignment
+ * is scheduled, not yet delivered.
+ */
+function currentWeekMondayISO(): string {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export interface PaginatedResult<T> {
   data: T[];
   total: number;
@@ -99,10 +114,14 @@ export class PublicTalksService {
       order: { weekStartDate: 'DESC' },
     });
 
+    // Only past weeks count as "given": the current/upcoming week's assignment
+    // is scheduled, not yet delivered, and could still be changed.
+    const currentWeekStart = currentWeekMondayISO();
     const latestByTalk = new Map<string, Assignment>();
     for (const a of histories) {
       if (a.status === AssignmentStatus.CANCELLED) continue;
       if (!a.publicTalkId) continue;
+      if (a.weekStartDate >= currentWeekStart) continue;
       if (!latestByTalk.has(a.publicTalkId)) {
         latestByTalk.set(a.publicTalkId, a);
       }
