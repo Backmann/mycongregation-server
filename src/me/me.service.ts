@@ -10,6 +10,7 @@ import { TalkExchange } from '../entities/talk-exchange.entity';
 import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { CartAssignment } from '../entities/cart-assignment.entity';
+import { CoVisitItem } from '../entities/co-visit-item.entity';
 
 export type MyAssignmentKind =
   | 'meeting'
@@ -17,7 +18,8 @@ export type MyAssignmentKind =
   | 'cleaning'
   | 'cart'
   | 'field_service'
-  | 'outgoing_talk';
+  | 'outgoing_talk'
+  | 'co_lunch';
 
 export interface MyAssignmentItem {
   kind: MyAssignmentKind;
@@ -40,6 +42,8 @@ export interface MyAssignmentItem {
   /** Outgoing public talk: host congregation name. */
   congregationName?: string;
   asAssistant?: boolean;
+  /** CO-visit lunch: organizer note shown as a task instruction. */
+  note?: string;
 }
 
 export interface MyPublisherResponse {
@@ -108,6 +112,8 @@ export class MeService {
     private readonly externalCongregationsRepo: Repository<ExternalCongregation>,
     @InjectRepository(PublicTalk)
     private readonly publicTalksRepo: Repository<PublicTalk>,
+    @InjectRepository(CoVisitItem)
+    private readonly coVisitItemsRepo: Repository<CoVisitItem>,
   ) {}
 
   /**
@@ -298,6 +304,27 @@ export class MeService {
         location: host?.address ?? undefined,
         mapUrl: host?.mapUrl ?? undefined,
         congregationName: host?.name ?? undefined,
+      });
+    }
+
+    // ---- CO-visit lunches the publisher organizes (note = instruction) ----
+    const coLunches = await this.coVisitItemsRepo
+      .createQueryBuilder('c')
+      .where('c.congregation_id = :tenantId', { tenantId })
+      .andWhere("c.kind IN ('lunch', 'lunch_box')")
+      .andWhere('c.assignee_publisher_id = :pid', { pid })
+      .andWhere('c.item_date BETWEEN :today AND :horizon', { today, horizon })
+      .orderBy('c.item_date', 'ASC')
+      .getMany();
+    for (const c of coLunches) {
+      if (c.itemDate < today) continue;
+      items.push({
+        kind: 'co_lunch',
+        sortDate: c.itemDate,
+        date: c.itemDate,
+        time: c.startTime ?? undefined,
+        label: c.kind,
+        note: c.note ?? undefined,
       });
     }
 
