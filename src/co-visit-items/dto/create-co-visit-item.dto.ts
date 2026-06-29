@@ -14,6 +14,7 @@ import {
 export const CO_VISIT_ITEM_KINDS = [
   'field_service',
   'lunch',
+  'lunch_box',
   'pastoral',
   'pioneers',
   'elders',
