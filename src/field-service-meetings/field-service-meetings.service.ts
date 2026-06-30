@@ -45,6 +45,7 @@ export class FieldServiceMeetingsService {
       conductorPublisherId: dto.conductorPublisherId ?? null,
       topic: dto.topic ?? null,
       sourceUrl: dto.sourceUrl ?? null,
+      isGeneral: dto.isGeneral ?? false,
     });
     return this.repo.save(entity);
   }
@@ -68,6 +69,7 @@ export class FieldServiceMeetingsService {
     }
     if (dto.topic !== undefined) entity.topic = dto.topic ?? null;
     if (dto.sourceUrl !== undefined) entity.sourceUrl = dto.sourceUrl ?? null;
+    if (dto.isGeneral !== undefined) entity.isGeneral = dto.isGeneral;
     return this.repo.save(entity);
   }
 

@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsDateString,
   IsInt,
   IsNotEmpty,
@@ -43,4 +44,8 @@ export class CreateFieldServiceMeetingDto {
   @IsString()
   @MaxLength(2000)
   sourceUrl?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  isGeneral?: boolean;
 }

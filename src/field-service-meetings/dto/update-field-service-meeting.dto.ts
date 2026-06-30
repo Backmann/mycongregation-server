@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -46,4 +47,8 @@ export class UpdateFieldServiceMeetingDto {
   @IsString()
   @MaxLength(2000)
   sourceUrl?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  isGeneral?: boolean;
 }

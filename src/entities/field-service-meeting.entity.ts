@@ -77,6 +77,13 @@ export class FieldServiceMeeting {
   })
   sourceUrl!: string | null;
 
+  @Column({
+    type: 'boolean',
+    default: false,
+    comment: 'Combined field-service meeting for the whole congregation',
+  })
+  isGeneral!: boolean;
+
   // ---- Timestamps ----
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
