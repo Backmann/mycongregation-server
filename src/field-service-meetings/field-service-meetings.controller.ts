@@ -38,6 +38,16 @@ export class FieldServiceMeetingsController {
     return this.service.list(congregationId, query);
   }
 
+  @Get('conductor-stats')
+  conductorStats(@TenantId() congregationId: string) {
+    return this.service.conductorStats(congregationId);
+  }
+
+  @Get('topic-history')
+  topicHistory(@TenantId() congregationId: string) {
+    return this.service.topicHistory(congregationId);
+  }
+
   @Post()
   @UseGuards(ResponsibilityGuard)
   @RequireResponsibility(ResponsibilityType.SERVICE_OVERSEER)

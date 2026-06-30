@@ -6,6 +6,30 @@ import { CreateFieldServiceMeetingDto } from './dto/create-field-service-meeting
 import { UpdateFieldServiceMeetingDto } from './dto/update-field-service-meeting.dto';
 import { QueryFieldServiceMeetingsDto } from './dto/query-field-service-meetings.dto';
 
+/** Add n days to an ISO 'YYYY-MM-DD' date (UTC, calendar-safe). */
+function addDaysISO(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Actual calendar date (ISO) of a meeting, from its week start + weekday. */
+function meetingDateISO(m: FieldServiceMeeting): string {
+  return addDaysISO(m.weekStartDate, m.dayOfWeek - 1);
+}
+
+export interface ConductorStat {
+  conductorPublisherId: string;
+  total: number;
+  lastDate: string | null; // most recent past meeting (<= today)
+  nextDate: string | null; // soonest upcoming meeting (> today)
+}
+
+export interface TopicHistoryEntry {
+  topic: string;
+  lastDate: string;
+}
+
 @Injectable()
 export class FieldServiceMeetingsService {
   constructor(
@@ -78,5 +102,62 @@ export class FieldServiceMeetingsService {
     if (!res.affected) {
       throw new NotFoundException('Field service meeting not found');
     }
+  }
+
+  /**
+   * Per-conductor rotation summary across ALL assigned meetings — past and
+   * future. `lastDate` is the most recent meeting already held; `nextDate` is
+   * the soonest upcoming one. Helps spread the load fairly.
+   */
+  async conductorStats(congregationId: string): Promise<ConductorStat[]> {
+    const meetings = await this.repo.find({ where: { congregationId } });
+    const today = new Date().toISOString().slice(0, 10);
+    const map = new Map<
+      string,
+      { total: number; lastDate: string | null; nextDate: string | null }
+    >();
+    for (const m of meetings) {
+      if (!m.conductorPublisherId) continue;
+      const d = meetingDateISO(m);
+      const e = map.get(m.conductorPublisherId) ?? {
+        total: 0,
+        lastDate: null,
+        nextDate: null,
+      };
+      e.total += 1;
+      if (d <= today) {
+        if (!e.lastDate || d > e.lastDate) e.lastDate = d;
+      } else {
+        if (!e.nextDate || d < e.nextDate) e.nextDate = d;
+      }
+      map.set(m.conductorPublisherId, e);
+    }
+    return [...map.entries()].map(([conductorPublisherId, e]) => ({
+      conductorPublisherId,
+      ...e,
+    }));
+  }
+
+  /**
+   * Distinct meeting topics with the most recent date each was used. Lets the
+   * UI flag "this topic was already used on …" when a topic is re-entered.
+   */
+  async topicHistory(congregationId: string): Promise<TopicHistoryEntry[]> {
+    const meetings = await this.repo.find({ where: { congregationId } });
+    const map = new Map<string, TopicHistoryEntry>();
+    for (const m of meetings) {
+      const topic = (m.topic ?? '').trim();
+      if (!topic) continue;
+      const key = topic.toLowerCase();
+      const d = meetingDateISO(m);
+      const e = map.get(key);
+      if (!e) {
+        map.set(key, { topic, lastDate: d });
+      } else if (d > e.lastDate) {
+        e.lastDate = d;
+        e.topic = topic;
+      }
+    }
+    return [...map.values()];
   }
 }
