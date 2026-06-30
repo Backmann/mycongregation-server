@@ -32,6 +32,9 @@ export class MeetingSettingsService {
     const congregation = await this.getCongregation(tenantId);
     if (dto.name !== undefined) congregation.name = dto.name;
     if (dto.timezone !== undefined) congregation.timezone = dto.timezone;
+    if (dto.assignmentAutomationEnabled !== undefined)
+      congregation.assignmentAutomationEnabled =
+        dto.assignmentAutomationEnabled;
     return this.congRepo.save(congregation);
   }
 
@@ -94,7 +97,12 @@ export class MeetingSettingsService {
 
   /** Everything the settings screen needs in one call. */
   async overview(tenantId: string): Promise<{
-    congregation: { id: string; name: string; timezone: string | null };
+    congregation: {
+      id: string;
+      name: string;
+      timezone: string | null;
+      assignmentAutomationEnabled: boolean;
+    };
     versions: MeetingSettings[];
     effective: MeetingSettings | null;
   }> {
@@ -108,6 +116,7 @@ export class MeetingSettingsService {
         id: congregation.id,
         name: congregation.name,
         timezone: congregation.timezone,
+        assignmentAutomationEnabled: congregation.assignmentAutomationEnabled,
       },
       versions,
       effective,

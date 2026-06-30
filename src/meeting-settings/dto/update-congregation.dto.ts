@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UpdateCongregationDto {
   @IsOptional()
@@ -10,4 +10,8 @@ export class UpdateCongregationDto {
   @IsString()
   @MaxLength(64)
   timezone?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  assignmentAutomationEnabled?: boolean;
 }

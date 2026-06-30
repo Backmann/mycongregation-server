@@ -4,6 +4,8 @@ import { NotFoundException } from '@nestjs/common';
 import { AssignmentsService } from './assignments.service';
 import { Assignment } from '../entities/assignment.entity';
 import { Responsibility } from '../entities/responsibility.entity';
+import { Publisher } from '../entities/publisher.entity';
+import { Congregation } from '../entities/congregation.entity';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
 
@@ -80,6 +82,18 @@ describe('AssignmentsService draft visibility', () => {
         {
           provide: getRepositoryToken(Responsibility),
           useValue: responsibilitiesRepo,
+        },
+        {
+          provide: getRepositoryToken(Publisher),
+          useValue: { findOne: jest.fn().mockResolvedValue(null) },
+        },
+        {
+          provide: getRepositoryToken(Congregation),
+          useValue: {
+            findOne: jest
+              .fn()
+              .mockResolvedValue({ assignmentAutomationEnabled: false }),
+          },
         },
         { provide: PushNotificationsService, useValue: pushMock },
         {

@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Assignment } from '../entities/assignment.entity';
 import { Responsibility } from '../entities/responsibility.entity';
+import { Publisher } from '../entities/publisher.entity';
+import { Congregation } from '../entities/congregation.entity';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
 import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
 import { AssignmentSectionGuard } from '../common/guards/assignment-section.guard';
@@ -10,7 +12,12 @@ import { AssignmentsController } from './assignments.controller';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Assignment, Responsibility]),
+    TypeOrmModule.forFeature([
+      Assignment,
+      Responsibility,
+      Publisher,
+      Congregation,
+    ]),
     PushNotificationsModule,
     TalkExchangeModule,
   ],

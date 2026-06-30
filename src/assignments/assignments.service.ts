@@ -6,6 +6,8 @@ import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { QueryAssignmentDto } from './dto/query-assignment.dto';
 import { Responsibility } from '../entities/responsibility.entity';
+import { Publisher } from '../entities/publisher.entity';
+import { Congregation } from '../entities/congregation.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -15,6 +17,32 @@ import { PushNotificationsService } from '../push-notifications/push-notificatio
 import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
 
 const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
+
+/**
+ * Congregation-opt-in rule: whoever is chairman is also assigned the
+ * concluding (midweek) / opening (weekend) prayer of the same meeting.
+ * Maps the chairman part to its prayer part + the capability the prayer needs.
+ */
+const CHAIRMAN_PRAYER_RULES: Record<
+  string,
+  { prayerPartKey: string; prayerCapability: string }
+> = {
+  midweek_chairman: {
+    prayerPartKey: 'midweek_closing_prayer',
+    prayerCapability: 'midweek_opening_prayer',
+  },
+  weekend_chairman: {
+    prayerPartKey: 'weekend_opening_prayer',
+    prayerCapability: 'weekend_opening_prayer',
+  },
+};
+
+export interface AssignmentRuleWarning {
+  code: 'prayer_capability_missing';
+  partKey: string;
+  capability: string;
+  publisherName: string;
+}
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -30,6 +58,10 @@ export class AssignmentsService {
     private readonly repo: Repository<Assignment>,
     @InjectRepository(Responsibility)
     private readonly responsibilitiesRepo: Repository<Responsibility>,
+    @InjectRepository(Publisher)
+    private readonly publishersRepo: Repository<Publisher>,
+    @InjectRepository(Congregation)
+    private readonly congregationsRepo: Repository<Congregation>,
     private readonly pushNotifications: PushNotificationsService,
     private readonly talkExchange: TalkExchangeService,
   ) {}
@@ -164,6 +196,7 @@ export class AssignmentsService {
         `Assignment ${id} is removed; restore it before updating`,
       );
     }
+    const prevPublisherId = existing.publisherId;
     // If a published assignment's assignee / partner / invited speaker changes,
     // flag it so the scheduler can notify the congregation of the change.
     const changed =
@@ -186,7 +219,90 @@ export class AssignmentsService {
         saved.weekStartDate,
       );
     }
+    // Congregation rule: chairman -> concluding/opening prayer auto-fill.
+    const ruleWarnings = await this.applyChairmanPrayerRule(
+      congregationId,
+      saved,
+      prevPublisherId,
+    );
+    if (ruleWarnings.length) {
+      (
+        saved as Assignment & { ruleWarnings?: AssignmentRuleWarning[] }
+      ).ruleWarnings = ruleWarnings;
+    }
     return saved;
+  }
+
+  /**
+   * When the congregation has automation enabled and the chairman of a meeting
+   * changes, mirror that publisher into the meeting's prayer slot — but only
+   * if the slot is empty or still holds the previous chairman (so manual
+   * overrides are respected). If the new chairman lacks the prayer capability,
+   * the prayer is left untouched and a warning is returned for the UI to show.
+   */
+  private async applyChairmanPrayerRule(
+    congregationId: string,
+    chairman: Assignment,
+    prevPublisherId: string | null,
+  ): Promise<AssignmentRuleWarning[]> {
+    const rule = CHAIRMAN_PRAYER_RULES[chairman.partKey];
+    if (!rule) return [];
+    if (chairman.publisherId === prevPublisherId) return [];
+    const congregation = await this.congregationsRepo.findOne({
+      where: { id: congregationId },
+    });
+    if (!congregation?.assignmentAutomationEnabled) return [];
+
+    const prayer = await this.repo.findOne({
+      where: {
+        congregationId,
+        weekStartDate: chairman.weekStartDate,
+        eventType: chairman.eventType,
+        partKey: rule.prayerPartKey,
+      },
+    });
+    if (!prayer) return [];
+
+    const prayerIsAutoOrEmpty =
+      prayer.publisherId == null ||
+      (prevPublisherId != null && prayer.publisherId === prevPublisherId);
+    if (!prayerIsAutoOrEmpty) return [];
+
+    // Chairman cleared -> clear the auto-filled prayer too.
+    if (chairman.publisherId == null) {
+      if (prayer.publisherId != null) {
+        prayer.publisherId = null;
+        if (prayer.status === AssignmentStatus.PUBLISHED) {
+          prayer.changedSincePublish = true;
+        }
+        await this.repo.save(prayer);
+      }
+      return [];
+    }
+
+    const pub = await this.publishersRepo.findOne({
+      where: { id: chairman.publisherId, congregationId },
+    });
+    const hasCapability = pub?.capabilities?.[rule.prayerCapability] === true;
+    if (!hasCapability) {
+      return [
+        {
+          code: 'prayer_capability_missing',
+          partKey: rule.prayerPartKey,
+          capability: rule.prayerCapability,
+          publisherName: pub?.displayName ?? '',
+        },
+      ];
+    }
+
+    if (prayer.publisherId !== chairman.publisherId) {
+      prayer.publisherId = chairman.publisherId;
+      if (prayer.status === AssignmentStatus.PUBLISHED) {
+        prayer.changedSincePublish = true;
+      }
+      await this.repo.save(prayer);
+    }
+    return [];
   }
 
   async remove(congregationId: string, id: string): Promise<void> {

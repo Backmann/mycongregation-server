@@ -37,6 +37,13 @@ export class Congregation {
   })
   timezone!: string | null;
 
+  @Column({
+    type: 'boolean',
+    default: false,
+    comment: 'Opt-in for congregation-specific assignment automation rules',
+  })
+  assignmentAutomationEnabled!: boolean;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
