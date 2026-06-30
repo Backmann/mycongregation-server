@@ -15,6 +15,7 @@ import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 import { EventType } from '../common/enums/event-type.enum';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
+import { DutiesService } from '../duties/duties.service';
 
 const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
 
@@ -38,10 +39,10 @@ const CHAIRMAN_PRAYER_RULES: Record<
 };
 
 export interface AssignmentRuleWarning {
-  code: 'prayer_capability_missing';
-  partKey: string;
-  capability: string;
+  code: 'prayer_capability_missing' | 'mic_capability_off' | 'mic_taken';
   publisherName: string;
+  partKey?: string;
+  capability?: string;
 }
 
 export interface PaginatedResult<T> {
@@ -64,6 +65,7 @@ export class AssignmentsService {
     private readonly congregationsRepo: Repository<Congregation>,
     private readonly pushNotifications: PushNotificationsService,
     private readonly talkExchange: TalkExchangeService,
+    private readonly dutiesService: DutiesService,
   ) {}
 
   /**
@@ -225,6 +227,16 @@ export class AssignmentsService {
       saved,
       prevPublisherId,
     );
+    // Congregation rule (Stage 2): Treasures-talk speaker -> microphone #1.
+    if (saved.partKey === 'treasures_talk') {
+      const micWarnings = await this.dutiesService.reconcileTreasuresMic(
+        congregationId,
+        saved.weekStartDate,
+        saved.eventType,
+        prevPublisherId,
+      );
+      ruleWarnings.push(...micWarnings);
+    }
     if (ruleWarnings.length) {
       (
         saved as Assignment & { ruleWarnings?: AssignmentRuleWarning[] }

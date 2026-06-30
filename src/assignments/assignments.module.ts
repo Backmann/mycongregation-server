@@ -6,6 +6,7 @@ import { Publisher } from '../entities/publisher.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
 import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
+import { DutiesModule } from '../duties/duties.module';
 import { AssignmentSectionGuard } from '../common/guards/assignment-section.guard';
 import { AssignmentsService } from './assignments.service';
 import { AssignmentsController } from './assignments.controller';
@@ -20,6 +21,7 @@ import { AssignmentsController } from './assignments.controller';
     ]),
     PushNotificationsModule,
     TalkExchangeModule,
+    DutiesModule,
   ],
   controllers: [AssignmentsController],
   providers: [AssignmentsService, AssignmentSectionGuard],

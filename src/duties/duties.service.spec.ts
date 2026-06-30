@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { Congregation } from '../entities/congregation.entity';
 import { NotFoundException } from '@nestjs/common';
 import { DutiesService } from './duties.service';
 import { Duty } from '../entities/duty.entity';
@@ -21,7 +22,8 @@ describe('DutiesService', () => {
     save: jest.Mock;
     remove: jest.Mock;
   };
-  let assignmentRepo: { count: jest.Mock };
+  let assignmentRepo: { count: jest.Mock; findOne: jest.Mock };
+  let congregationRepo: { findOne: jest.Mock };
   let publisherRepo: { findOne: jest.Mock };
   let meetingRepo: { find: jest.Mock; save: jest.Mock };
   let qb: Record<string, jest.Mock>;
@@ -49,7 +51,15 @@ describe('DutiesService', () => {
       save: jest.fn((x) => Promise.resolve({ id: x.id ?? 'd1', ...x })),
       remove: jest.fn().mockResolvedValue(undefined),
     };
-    assignmentRepo = { count: jest.fn().mockResolvedValue(0) };
+    assignmentRepo = {
+      count: jest.fn().mockResolvedValue(0),
+      findOne: jest.fn(),
+    };
+    congregationRepo = {
+      findOne: jest
+        .fn()
+        .mockResolvedValue({ assignmentAutomationEnabled: false }),
+    };
     publisherRepo = { findOne: jest.fn() };
     meetingRepo = {
       find: jest.fn().mockResolvedValue([]),
@@ -63,6 +73,10 @@ describe('DutiesService', () => {
         { provide: getRepositoryToken(Assignment), useValue: assignmentRepo },
         { provide: getRepositoryToken(Publisher), useValue: publisherRepo },
         { provide: getRepositoryToken(MeetingSettings), useValue: meetingRepo },
+        {
+          provide: getRepositoryToken(Congregation),
+          useValue: congregationRepo,
+        },
       ],
     }).compile();
 
@@ -173,5 +187,66 @@ describe('DutiesService', () => {
     await expect(service.remove('c1', 'nope')).rejects.toThrow(
       NotFoundException,
     );
+  });
+
+  describe('reconcileTreasuresMic', () => {
+    const W = '2026-07-06';
+    beforeEach(() => {
+      congregationRepo.findOne.mockResolvedValue({
+        assignmentAutomationEnabled: true,
+      });
+    });
+
+    it('fills mic slot 0 from the Treasures-talk speaker', async () => {
+      repo.findOne.mockResolvedValue({ id: 'mic0', publisherId: null });
+      assignmentRepo.findOne.mockResolvedValue({ publisherId: 'spk' });
+      publisherRepo.findOne.mockResolvedValue({
+        id: 'spk',
+        displayName: 'Bro',
+        capabilities: { duty_microphone: true },
+      });
+      const warnings = await service.reconcileTreasuresMic('c1', W, MIDWEEK);
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'mic0', publisherId: 'spk' }),
+      );
+      expect(warnings).toEqual([]);
+    });
+
+    it('leaves a manually-taken mic and warns mic_taken', async () => {
+      repo.findOne.mockResolvedValue({ id: 'mic0', publisherId: 'other' });
+      assignmentRepo.findOne.mockResolvedValue({ publisherId: 'spk' });
+      publisherRepo.findOne.mockResolvedValue({
+        id: 'other',
+        displayName: 'Other',
+      });
+      const warnings = await service.reconcileTreasuresMic('c1', W, MIDWEEK);
+      expect(repo.save).not.toHaveBeenCalled();
+      expect(warnings).toEqual([{ code: 'mic_taken', publisherName: 'Other' }]);
+    });
+
+    it('fills but flags a missing mic capability', async () => {
+      repo.findOne.mockResolvedValue({ id: 'mic0', publisherId: null });
+      assignmentRepo.findOne.mockResolvedValue({ publisherId: 'spk' });
+      publisherRepo.findOne.mockResolvedValue({
+        id: 'spk',
+        displayName: 'Bro',
+        capabilities: {},
+      });
+      const warnings = await service.reconcileTreasuresMic('c1', W, MIDWEEK);
+      expect(repo.save).toHaveBeenCalled();
+      expect(warnings).toEqual([
+        { code: 'mic_capability_off', publisherName: 'Bro' },
+      ]);
+    });
+
+    it('is a no-op when automation is disabled', async () => {
+      congregationRepo.findOne.mockResolvedValue({
+        assignmentAutomationEnabled: false,
+      });
+      repo.findOne.mockResolvedValue({ id: 'mic0', publisherId: null });
+      const warnings = await service.reconcileTreasuresMic('c1', W, MIDWEEK);
+      expect(repo.save).not.toHaveBeenCalled();
+      expect(warnings).toEqual([]);
+    });
   });
 });

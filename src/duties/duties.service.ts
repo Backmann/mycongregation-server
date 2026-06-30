@@ -4,7 +4,9 @@ import { LessThanOrEqual, Not, Repository } from 'typeorm';
 import { Duty } from '../entities/duty.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Publisher } from '../entities/publisher.entity';
+import { Congregation } from '../entities/congregation.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
+import { EventType } from '../common/enums/event-type.enum';
 import {
   DutyType,
   SINGLE_SLOT_DUTIES_AFTER_MIC,
@@ -29,6 +31,11 @@ export interface DutyWithWarnings {
   warnings: DutyWarning[];
 }
 
+export interface MicRuleWarning {
+  code: 'mic_taken' | 'mic_capability_off';
+  publisherName: string;
+}
+
 @Injectable()
 export class DutiesService {
   constructor(
@@ -40,6 +47,8 @@ export class DutiesService {
     private readonly publisherRepo: Repository<Publisher>,
     @InjectRepository(MeetingSettings)
     private readonly meetingRepo: Repository<MeetingSettings>,
+    @InjectRepository(Congregation)
+    private readonly congregationRepo: Repository<Congregation>,
   ) {}
 
   list(congregationId: string, query: QueryDutiesDto): Promise<Duty[]> {
@@ -145,10 +154,109 @@ export class DutiesService {
       .orIgnore()
       .execute();
 
+    // Trigger B: if the Treasures talk speaker is already set, mirror them onto
+    // microphone slot 0 (fills the gap when the program precedes duty generation).
+    await this.reconcileTreasuresMic(
+      congregationId,
+      dto.weekStartDate,
+      dto.eventType,
+    );
+
     return this.list(congregationId, {
       weekStart: dto.weekStartDate,
       eventType: dto.eventType,
     });
+  }
+
+  /**
+   * Congregation rule (Stage 2): the Treasures-talk speaker also carries
+   * microphone #1 (slot 0) of the same midweek meeting. Called from both the
+   * assignment editor (when the speaker changes) and `generateWeek` (when the
+   * mic slots are created), so it works whichever is set up first.
+   *
+   * Smart default: fill slot 0 when empty or still holding the previous
+   * speaker; clear it when the speaker is removed; leave it alone (with a soft
+   * "already taken" hint) when someone else was placed there manually. The
+   * `duty_microphone` capability is advisory only — same as a manual assign.
+   */
+  async reconcileTreasuresMic(
+    congregationId: string,
+    weekStartDate: string,
+    eventType: EventType,
+    prevSpeakerId?: string | null,
+  ): Promise<MicRuleWarning[]> {
+    if (eventType !== EventType.MIDWEEK) return [];
+    const congregation = await this.congregationRepo.findOne({
+      where: { id: congregationId },
+    });
+    if (!congregation?.assignmentAutomationEnabled) return [];
+
+    const mic = await this.repo.findOne({
+      where: {
+        congregationId,
+        weekStartDate,
+        eventType,
+        dutyType: DutyType.MICROPHONE,
+        slotIndex: 0,
+      },
+    });
+    if (!mic) return [];
+
+    const speaker = await this.assignmentRepo.findOne({
+      where: {
+        congregationId,
+        weekStartDate,
+        eventType,
+        partKey: 'treasures_talk',
+      },
+    });
+    const speakerId = speaker?.publisherId ?? null;
+    const micHolder = mic.publisherId;
+
+    // Speaker removed -> clear the mic only if it mirrored that speaker.
+    if (speakerId == null) {
+      if (prevSpeakerId != null && micHolder === prevSpeakerId) {
+        mic.publisherId = null;
+        await this.repo.save(mic);
+      }
+      return [];
+    }
+
+    const micIsAutoOrEmpty =
+      micHolder == null ||
+      (prevSpeakerId != null && micHolder === prevSpeakerId);
+
+    if (!micIsAutoOrEmpty) {
+      if (micHolder !== speakerId) {
+        const holder = await this.publisherRepo.findOne({
+          where: { id: micHolder as string, congregationId },
+        });
+        return [
+          { code: 'mic_taken', publisherName: holder?.displayName ?? '' },
+        ];
+      }
+      return [];
+    }
+
+    if (micHolder !== speakerId) {
+      mic.publisherId = speakerId;
+      await this.repo.save(mic);
+    }
+
+    // Advisory capability flag, mirroring the manual-assign behaviour.
+    const speakerPub = await this.publisherRepo.findOne({
+      where: { id: speakerId, congregationId },
+    });
+    const caps = (speakerPub?.capabilities ?? {}) as Record<string, boolean>;
+    if (caps['duty_microphone'] !== true) {
+      return [
+        {
+          code: 'mic_capability_off',
+          publisherName: speakerPub?.displayName ?? '',
+        },
+      ];
+    }
+    return [];
   }
 
   private async getOne(congregationId: string, id: string): Promise<Duty> {

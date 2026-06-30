@@ -7,6 +7,7 @@ import { Duty } from '../entities/duty.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
+import { Congregation } from '../entities/congregation.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 
 @Module({
@@ -17,9 +18,11 @@ import { Responsibility } from '../entities/responsibility.entity';
       Publisher,
       MeetingSettings,
       Responsibility,
+      Congregation,
     ]),
   ],
   controllers: [DutiesController],
   providers: [DutiesService, ResponsibilityGuard],
+  exports: [DutiesService],
 })
 export class DutiesModule {}
