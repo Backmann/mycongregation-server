@@ -39,7 +39,11 @@ const CHAIRMAN_PRAYER_RULES: Record<
 };
 
 export interface AssignmentRuleWarning {
-  code: 'prayer_capability_missing' | 'mic_capability_off' | 'mic_taken';
+  code:
+    | 'prayer_capability_missing'
+    | 'treasures_capability_missing'
+    | 'mic_capability_off'
+    | 'mic_taken';
   publisherName: string;
   partKey?: string;
   capability?: string;
@@ -227,16 +231,14 @@ export class AssignmentsService {
       saved,
       prevPublisherId,
     );
-    // Congregation rule (Stage 2): Treasures-talk speaker -> microphone #1.
-    if (saved.partKey === 'treasures_talk') {
-      const micWarnings = await this.dutiesService.reconcileTreasuresMic(
-        congregationId,
-        saved.weekStartDate,
-        saved.eventType,
-        prevPublisherId,
-      );
-      ruleWarnings.push(...micWarnings);
-    }
+    // Congregation rule (Stage 2): the Treasures talk and the midweek opening
+    // prayer are linked both ways, and microphone #1 follows the speaker.
+    const linkWarnings = await this.applyTreasuresPrayerLink(
+      congregationId,
+      saved,
+      prevPublisherId,
+    );
+    ruleWarnings.push(...linkWarnings);
     if (ruleWarnings.length) {
       (
         saved as Assignment & { ruleWarnings?: AssignmentRuleWarning[] }
@@ -315,6 +317,109 @@ export class AssignmentsService {
       await this.repo.save(prayer);
     }
     return [];
+  }
+
+  /**
+   * Congregation opt-in rule (Stage 2, extended): the Treasures-talk speaker
+   * and the midweek opening prayer are linked BOTH ways — whichever part is
+   * assigned first mirrors into the other, and microphone #1 always follows
+   * the Treasures speaker (one-way; editing the mic changes nothing back).
+   *
+   * Manual overrides are respected: the mirrored slot is only touched when it
+   * is empty or still holds the previous publisher of the edited part. When
+   * the edited part is cleared, an auto-filled counterpart (and the mic) is
+   * cleared too. Capability checks mirror the chairman rule: the target part's
+   * capability must be on, otherwise the slot is left alone and a warning is
+   * returned for the UI.
+   */
+  private async applyTreasuresPrayerLink(
+    congregationId: string,
+    edited: Assignment,
+    prevPublisherId: string | null,
+  ): Promise<AssignmentRuleWarning[]> {
+    if (edited.eventType !== EventType.MIDWEEK) return [];
+    const isTreasures = edited.partKey === 'treasures_talk';
+    const isPrayer = edited.partKey === 'midweek_opening_prayer';
+    if (!isTreasures && !isPrayer) return [];
+    if (edited.publisherId === prevPublisherId) return [];
+    const congregation = await this.congregationsRepo.findOne({
+      where: { id: congregationId },
+    });
+    if (!congregation?.assignmentAutomationEnabled) return [];
+
+    const warnings: AssignmentRuleWarning[] = [];
+    const otherKey = isTreasures ? 'midweek_opening_prayer' : 'treasures_talk';
+    const other = await this.repo.findOne({
+      where: {
+        congregationId,
+        weekStartDate: edited.weekStartDate,
+        eventType: edited.eventType,
+        partKey: otherKey,
+      },
+    });
+
+    // Track the Treasures speaker before this rule ran, so the mic reconcile
+    // can tell an auto-filled slot from a manual one.
+    let prevTreasuresId = isTreasures
+      ? prevPublisherId
+      : (other?.publisherId ?? null);
+    let treasuresChanged = isTreasures;
+
+    if (other) {
+      const otherIsAutoOrEmpty =
+        other.publisherId == null ||
+        (prevPublisherId != null && other.publisherId === prevPublisherId);
+      if (otherIsAutoOrEmpty) {
+        if (edited.publisherId == null) {
+          // Edited part cleared -> clear the auto-filled counterpart too.
+          if (other.publisherId != null) {
+            other.publisherId = null;
+            if (other.status === AssignmentStatus.PUBLISHED) {
+              other.changedSincePublish = true;
+            }
+            await this.repo.save(other);
+            if (otherKey === 'treasures_talk') treasuresChanged = true;
+          }
+        } else {
+          const pub = await this.publishersRepo.findOne({
+            where: { id: edited.publisherId, congregationId },
+          });
+          const capability = otherKey; // part key doubles as capability key
+          const hasCapability = pub?.capabilities?.[capability] === true;
+          if (!hasCapability) {
+            warnings.push({
+              code:
+                otherKey === 'treasures_talk'
+                  ? 'treasures_capability_missing'
+                  : 'prayer_capability_missing',
+              partKey: otherKey,
+              capability,
+              publisherName: pub?.displayName ?? '',
+            });
+          } else if (other.publisherId !== edited.publisherId) {
+            other.publisherId = edited.publisherId;
+            if (other.status === AssignmentStatus.PUBLISHED) {
+              other.changedSincePublish = true;
+            }
+            await this.repo.save(other);
+            if (otherKey === 'treasures_talk') treasuresChanged = true;
+          }
+        }
+      }
+    }
+
+    // Microphone #1 follows the Treasures speaker whenever it (may have)
+    // changed — whether the talk was edited directly or via the prayer.
+    if (treasuresChanged) {
+      const micWarnings = await this.dutiesService.reconcileTreasuresMic(
+        congregationId,
+        edited.weekStartDate,
+        edited.eventType,
+        prevTreasuresId,
+      );
+      warnings.push(...micWarnings);
+    }
+    return warnings;
   }
 
   async remove(congregationId: string, id: string): Promise<void> {

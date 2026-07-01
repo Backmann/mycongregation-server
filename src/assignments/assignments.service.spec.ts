@@ -257,3 +257,181 @@ describe('AssignmentsService draft visibility', () => {
     expect(pushMock.sendScheduleChanged).not.toHaveBeenCalled();
   });
 });
+
+describe('AssignmentsService treasures <-> opening-prayer link', () => {
+  let service: AssignmentsService;
+  let repo: {
+    createQueryBuilder: jest.Mock;
+    findOne: jest.Mock;
+    find: jest.Mock;
+    save: jest.Mock;
+  };
+  let publishersRepo: { findOne: jest.Mock };
+  let dutiesMock: { reconcileTreasuresMic: jest.Mock };
+
+  const week = '2026-06-29';
+
+  function assignment(partial: Record<string, unknown>) {
+    return {
+      id: 'a-x',
+      congregationId: 'c1',
+      weekStartDate: week,
+      eventType: 'midweek',
+      status: 'draft',
+      deletedAt: null,
+      publisherId: null,
+      ...partial,
+    };
+  }
+
+  beforeEach(async () => {
+    repo = {
+      createQueryBuilder: jest.fn(),
+      findOne: jest.fn(),
+      find: jest.fn(),
+      save: jest.fn().mockImplementation((e: unknown) => Promise.resolve(e)),
+    };
+    publishersRepo = { findOne: jest.fn() };
+    dutiesMock = { reconcileTreasuresMic: jest.fn().mockResolvedValue([]) };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        AssignmentsService,
+        { provide: getRepositoryToken(Assignment), useValue: repo },
+        {
+          provide: getRepositoryToken(Responsibility),
+          useValue: { count: jest.fn().mockResolvedValue(0) },
+        },
+        { provide: getRepositoryToken(Publisher), useValue: publishersRepo },
+        {
+          provide: getRepositoryToken(Congregation),
+          useValue: {
+            findOne: jest
+              .fn()
+              .mockResolvedValue({ assignmentAutomationEnabled: true }),
+          },
+        },
+        { provide: PushNotificationsService, useValue: {} },
+        {
+          provide: TalkExchangeService,
+          useValue: { syncProgramToJournal: jest.fn() },
+        },
+        { provide: DutiesService, useValue: dutiesMock },
+      ],
+    }).compile();
+    service = moduleRef.get(AssignmentsService);
+  });
+
+  it('mirrors the Treasures speaker into an empty opening prayer and reconciles the mic', async () => {
+    const talk = assignment({ id: 'a-talk', partKey: 'treasures_talk' });
+    const prayer = assignment({
+      id: 'a-prayer',
+      partKey: 'midweek_opening_prayer',
+    });
+    repo.findOne
+      .mockResolvedValueOnce(talk) // getById
+      .mockResolvedValueOnce(prayer); // counterpart lookup
+    publishersRepo.findOne.mockResolvedValue({
+      id: 'p1',
+      displayName: 'Brother A',
+      capabilities: { midweek_opening_prayer: true },
+    });
+
+    await service.update('c1', 'a-talk', { publisherId: 'p1' });
+
+    expect(prayer.publisherId).toBe('p1');
+    expect(dutiesMock.reconcileTreasuresMic).toHaveBeenCalledWith(
+      'c1',
+      week,
+      'midweek',
+      null,
+    );
+  });
+
+  it('mirrors the opening-prayer brother into an empty Treasures talk (reverse direction)', async () => {
+    const prayer = assignment({
+      id: 'a-prayer',
+      partKey: 'midweek_opening_prayer',
+    });
+    const talk = assignment({ id: 'a-talk', partKey: 'treasures_talk' });
+    repo.findOne.mockResolvedValueOnce(prayer).mockResolvedValueOnce(talk);
+    publishersRepo.findOne.mockResolvedValue({
+      id: 'p2',
+      displayName: 'Brother B',
+      capabilities: { treasures_talk: true },
+    });
+
+    await service.update('c1', 'a-prayer', { publisherId: 'p2' });
+
+    expect(talk.publisherId).toBe('p2');
+    expect(dutiesMock.reconcileTreasuresMic).toHaveBeenCalledWith(
+      'c1',
+      week,
+      'midweek',
+      null,
+    );
+  });
+
+  it('leaves a manually assigned counterpart alone', async () => {
+    const talk = assignment({ id: 'a-talk', partKey: 'treasures_talk' });
+    const prayer = assignment({
+      id: 'a-prayer',
+      partKey: 'midweek_opening_prayer',
+      publisherId: 'p-manual',
+    });
+    repo.findOne.mockResolvedValueOnce(talk).mockResolvedValueOnce(prayer);
+    publishersRepo.findOne.mockResolvedValue({
+      id: 'p1',
+      displayName: 'Brother A',
+      capabilities: { midweek_opening_prayer: true },
+    });
+
+    await service.update('c1', 'a-talk', { publisherId: 'p1' });
+
+    expect(prayer.publisherId).toBe('p-manual');
+  });
+
+  it('returns a warning and does not mirror when the capability is off', async () => {
+    const prayer = assignment({
+      id: 'a-prayer',
+      partKey: 'midweek_opening_prayer',
+    });
+    const talk = assignment({ id: 'a-talk', partKey: 'treasures_talk' });
+    repo.findOne.mockResolvedValueOnce(prayer).mockResolvedValueOnce(talk);
+    publishersRepo.findOne.mockResolvedValue({
+      id: 'p3',
+      displayName: 'Brother C',
+      capabilities: {},
+    });
+
+    const saved = (await service.update('c1', 'a-prayer', {
+      publisherId: 'p3',
+    })) as Assignment & { ruleWarnings?: { code: string }[] };
+
+    expect(talk.publisherId).toBeNull();
+    expect(saved.ruleWarnings?.[0]?.code).toBe('treasures_capability_missing');
+  });
+
+  it('clears the auto-filled prayer and mic when the speaker is removed', async () => {
+    const talk = assignment({
+      id: 'a-talk',
+      partKey: 'treasures_talk',
+      publisherId: 'p1',
+    });
+    const prayer = assignment({
+      id: 'a-prayer',
+      partKey: 'midweek_opening_prayer',
+      publisherId: 'p1',
+    });
+    repo.findOne.mockResolvedValueOnce(talk).mockResolvedValueOnce(prayer);
+
+    await service.update('c1', 'a-talk', { publisherId: null });
+
+    expect(prayer.publisherId).toBeNull();
+    expect(dutiesMock.reconcileTreasuresMic).toHaveBeenCalledWith(
+      'c1',
+      week,
+      'midweek',
+      'p1',
+    );
+  });
+});
