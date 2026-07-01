@@ -140,6 +140,15 @@ export class PublishersController {
     return this.publishersService.updateAccess(tenantId, id, dto, user);
   }
 
+  @Roles(UserRole.ADMIN)
+  @Post(':id/access/resend-invite')
+  resendInvite(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.publishersService.resendInvite(tenantId, id);
+  }
+
   @UseGuards(ResponsibilityGuard)
   @RequireResponsibility(ResponsibilityType.SECRETARY)
   @Post()

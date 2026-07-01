@@ -540,6 +540,24 @@ export class PublishersService {
     return this.getAccess(tenantId, id);
   }
 
+  /**
+   * Re-issue a fresh 72h invitation link and email it — for someone whose
+   * original invite expired before they set a password. Reuses the same
+   * invitation flow as first-time access.
+   */
+  async resendInvite(tenantId: string, id: string): Promise<AccessSummary> {
+    const publisher = await this.findOne(tenantId, id);
+    if (!publisher.userId) {
+      throw new NotFoundException('This person has no app access');
+    }
+    const user = await this.usersService.findByIdInCongregation(
+      publisher.userId,
+      tenantId,
+    );
+    await this.usersService.sendInvitation(user.id, user.email);
+    return this.getAccess(tenantId, id);
+  }
+
   async create(tenantId: string, dto: CreatePublisherDto): Promise<Publisher> {
     const displayName = this.buildDisplayName(
       dto.firstName,
