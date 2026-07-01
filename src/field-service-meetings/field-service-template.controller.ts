@@ -25,7 +25,10 @@ export class FieldServiceTemplateController {
 
   @Put()
   @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(ResponsibilityType.SERVICE_OVERSEER)
+  @RequireResponsibility(
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+  )
   replaceSlots(
     @TenantId() congregationId: string,
     @Body() dto: ReplaceFieldServiceTemplateDto,
@@ -35,7 +38,10 @@ export class FieldServiceTemplateController {
 
   @Post('generate')
   @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(ResponsibilityType.SERVICE_OVERSEER)
+  @RequireResponsibility(
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+  )
   generate(
     @TenantId() congregationId: string,
     @Body() dto: GenerateFieldServiceDto,

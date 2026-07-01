@@ -50,7 +50,10 @@ export class FieldServiceMeetingsController {
 
   @Post()
   @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(ResponsibilityType.SERVICE_OVERSEER)
+  @RequireResponsibility(
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+  )
   create(
     @TenantId() congregationId: string,
     @Body() dto: CreateFieldServiceMeetingDto,
@@ -60,7 +63,10 @@ export class FieldServiceMeetingsController {
 
   @Patch(':id')
   @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(ResponsibilityType.SERVICE_OVERSEER)
+  @RequireResponsibility(
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+  )
   update(
     @TenantId() congregationId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -71,7 +77,10 @@ export class FieldServiceMeetingsController {
 
   @Delete(':id')
   @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(ResponsibilityType.SERVICE_OVERSEER)
+  @RequireResponsibility(
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+  )
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(
     @TenantId() congregationId: string,

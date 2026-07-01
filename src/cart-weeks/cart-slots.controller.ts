@@ -61,6 +61,7 @@ export class CartSlotsController {
   @RequireResponsibility(
     ResponsibilityType.PUBLIC_WITNESSING,
     ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
   )
   assign(
     @TenantId() congregationId: string,
@@ -77,6 +78,7 @@ export class CartSlotsController {
   @RequireResponsibility(
     ResponsibilityType.PUBLIC_WITNESSING,
     ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
   )
   async unassign(
     @TenantId() congregationId: string,

@@ -20,6 +20,8 @@ export enum ResponsibilityType {
   SECRETARY = 'secretary',
   /** Координатор полевого служения — field ministry organization. */
   SERVICE_OVERSEER = 'service_overseer',
+  /** Помощник служебного старейшины — same field-ministry permissions. */
+  SERVICE_OVERSEER_ASSISTANT = 'service_overseer_assistant',
   /** Публичное свидетельствование — carts, displays. */
   PUBLIC_WITNESSING = 'public_witnessing',
   /** Координатор уборки — Kingdom Hall cleaning rotation. */

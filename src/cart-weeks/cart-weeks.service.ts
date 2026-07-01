@@ -304,6 +304,7 @@ export class CartWeeksService {
         type: In([
           ResponsibilityType.PUBLIC_WITNESSING,
           ResponsibilityType.SERVICE_OVERSEER,
+          ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
         ]),
       },
     });
@@ -704,6 +705,7 @@ export class CartWeeksService {
         type: In([
           ResponsibilityType.PUBLIC_WITNESSING,
           ResponsibilityType.SERVICE_OVERSEER,
+          ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
         ]),
       },
     });

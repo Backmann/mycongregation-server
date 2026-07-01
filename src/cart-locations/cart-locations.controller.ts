@@ -41,6 +41,7 @@ export class CartLocationsController {
   @RequireResponsibility(
     ResponsibilityType.PUBLIC_WITNESSING,
     ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
   )
   create(
     @TenantId() congregationId: string,
@@ -54,6 +55,7 @@ export class CartLocationsController {
   @RequireResponsibility(
     ResponsibilityType.PUBLIC_WITNESSING,
     ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
   )
   update(
     @TenantId() congregationId: string,
@@ -69,6 +71,7 @@ export class CartLocationsController {
   @RequireResponsibility(
     ResponsibilityType.PUBLIC_WITNESSING,
     ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
   )
   async remove(
     @TenantId() congregationId: string,

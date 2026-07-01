@@ -21,7 +21,10 @@ export class FieldServiceMonthThemesController {
 
   @Put()
   @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(ResponsibilityType.SERVICE_OVERSEER)
+  @RequireResponsibility(
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+  )
   upsert(
     @TenantId() congregationId: string,
     @Body() dto: UpsertFieldServiceMonthThemeDto,

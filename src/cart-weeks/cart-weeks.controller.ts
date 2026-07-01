@@ -37,6 +37,7 @@ export class CartWeeksController {
   @RequireResponsibility(
     ResponsibilityType.PUBLIC_WITNESSING,
     ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
   )
   pairings(@TenantId() congregationId: string, @Query('weeks') weeks?: string) {
     return this.service.recentPairings(
@@ -50,6 +51,7 @@ export class CartWeeksController {
   @RequireResponsibility(
     ResponsibilityType.PUBLIC_WITNESSING,
     ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
   )
   build(
     @TenantId() congregationId: string,
@@ -64,6 +66,7 @@ export class CartWeeksController {
   @RequireResponsibility(
     ResponsibilityType.PUBLIC_WITNESSING,
     ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
   )
   open(
     @TenantId() congregationId: string,
@@ -77,6 +80,7 @@ export class CartWeeksController {
   @RequireResponsibility(
     ResponsibilityType.PUBLIC_WITNESSING,
     ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
   )
   publish(
     @TenantId() congregationId: string,
@@ -91,6 +95,7 @@ export class CartWeeksController {
   @RequireResponsibility(
     ResponsibilityType.PUBLIC_WITNESSING,
     ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
   )
   async remove(
     @TenantId() congregationId: string,

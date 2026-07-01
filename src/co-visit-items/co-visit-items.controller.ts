@@ -48,6 +48,7 @@ export class CoVisitItemsController {
   @UseGuards(ResponsibilityGuard)
   @RequireResponsibility(
     ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
     ResponsibilityType.BODY_COORDINATOR,
   )
   create(
@@ -62,6 +63,7 @@ export class CoVisitItemsController {
   @UseGuards(ResponsibilityGuard)
   @RequireResponsibility(
     ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
     ResponsibilityType.BODY_COORDINATOR,
   )
   update(
@@ -78,6 +80,7 @@ export class CoVisitItemsController {
   @UseGuards(ResponsibilityGuard)
   @RequireResponsibility(
     ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
     ResponsibilityType.BODY_COORDINATOR,
   )
   remove(
