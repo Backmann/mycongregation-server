@@ -1,6 +1,15 @@
 import { NotFoundException } from '@nestjs/common';
 import { FieldServiceMeetingsService } from './field-service-meetings.service';
 
+// expo-server-sdk (pulled in via the push service) is ESM-only and breaks
+// under Jest — mock the module before the service import resolves it.
+jest.mock('../push-notifications/push-notifications.service', () => ({
+  PushNotificationsService: class PushNotificationsServiceMock {},
+}));
+
+const pubRepoMock = { findOne: jest.fn().mockResolvedValue(null) } as any;
+const pushMock = { sendToUsers: jest.fn().mockResolvedValue(undefined) } as any;
+
 /** Minimal chainable query-builder mock. */
 function makeQb(result: unknown[]) {
   const qb: Record<string, jest.Mock> = {};
@@ -17,7 +26,7 @@ describe('FieldServiceMeetingsService', () => {
   it('list() scopes by congregation, filters by week, orders by day then time', async () => {
     const qb = makeQb([{ id: 'm1' }]);
     const repo = { createQueryBuilder: jest.fn(() => qb) } as any;
-    const svc = new FieldServiceMeetingsService(repo);
+    const svc = new FieldServiceMeetingsService(repo, pubRepoMock, pushMock);
 
     const out = await svc.list(CONG, { weekStart: '2026-05-18' });
 
@@ -39,7 +48,7 @@ describe('FieldServiceMeetingsService', () => {
   it('list() omits the week filter when weekStart is absent', async () => {
     const qb = makeQb([]);
     const repo = { createQueryBuilder: jest.fn(() => qb) } as any;
-    const svc = new FieldServiceMeetingsService(repo);
+    const svc = new FieldServiceMeetingsService(repo, pubRepoMock, pushMock);
 
     await svc.list(CONG, {});
 
@@ -54,7 +63,7 @@ describe('FieldServiceMeetingsService', () => {
         id: 'new',
       })),
     } as any;
-    const svc = new FieldServiceMeetingsService(repo);
+    const svc = new FieldServiceMeetingsService(repo, pubRepoMock, pushMock);
 
     const out = await svc.create(CONG, {
       weekStartDate: '2026-05-18',
@@ -76,7 +85,7 @@ describe('FieldServiceMeetingsService', () => {
 
   it('update() throws NotFound when the row is missing for this tenant', async () => {
     const repo = { findOne: jest.fn(async () => null) } as any;
-    const svc = new FieldServiceMeetingsService(repo);
+    const svc = new FieldServiceMeetingsService(repo, pubRepoMock, pushMock);
 
     await expect(
       svc.update(CONG, 'missing', { startTime: '11:00' } as any),
@@ -97,7 +106,7 @@ describe('FieldServiceMeetingsService', () => {
       findOne: jest.fn(async () => row),
       save: jest.fn(async (v: unknown) => v),
     } as any;
-    const svc = new FieldServiceMeetingsService(repo);
+    const svc = new FieldServiceMeetingsService(repo, pubRepoMock, pushMock);
 
     const out = await svc.update(CONG, 'm1', {
       startTime: '11:30',
@@ -109,16 +118,152 @@ describe('FieldServiceMeetingsService', () => {
     expect(out.address).toBe('A');
   });
 
-  it('remove() throws NotFound when nothing was deleted', async () => {
-    const repo = { delete: jest.fn(async () => ({ affected: 0 })) } as any;
-    const svc = new FieldServiceMeetingsService(repo);
+  it('remove() throws NotFound when the row is missing for this tenant', async () => {
+    const repo = {
+      findOne: jest.fn(async () => null),
+      delete: jest.fn(),
+    } as any;
+    const svc = new FieldServiceMeetingsService(repo, pubRepoMock, pushMock);
 
     await expect(svc.remove(CONG, 'missing')).rejects.toBeInstanceOf(
       NotFoundException,
     );
-    expect(repo.delete).toHaveBeenCalledWith({
-      id: 'missing',
-      congregationId: CONG,
+    expect(repo.findOne).toHaveBeenCalledWith({
+      where: { id: 'missing', congregationId: CONG },
     });
+    expect(repo.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe('FieldServiceMeetingsService conductor pushes', () => {
+  const meetingRow = {
+    id: 'm1',
+    congregationId: CONG,
+    weekStartDate: '2026-07-06',
+    dayOfWeek: 6,
+    startTime: '10:30',
+    address: 'Ostenallee 12, Hamm',
+    conductorPublisherId: null as string | null,
+    topic: null,
+    sourceUrl: null,
+    isGeneral: false,
+  };
+
+  function makePubRepo() {
+    return {
+      findOne: jest.fn(async () => ({
+        id: 'p1',
+        userId: 'u1',
+        user: { uiLanguage: 'ru' },
+      })),
+    } as any;
+  }
+  function makePush() {
+    return { sendToUsers: jest.fn().mockResolvedValue(undefined) } as any;
+  }
+
+  it('notifies the conductor when assigned on create', async () => {
+    const repo = {
+      create: jest.fn((x: unknown) => x),
+      save: jest.fn(async (x: any) => ({ ...meetingRow, ...x })),
+    } as any;
+    const pubRepo = makePubRepo();
+    const push = makePush();
+    const svc = new FieldServiceMeetingsService(repo, pubRepo, push);
+
+    await svc.create(CONG, {
+      weekStartDate: '2026-07-06',
+      dayOfWeek: 6,
+      startTime: '10:30',
+      address: 'Ostenallee 12, Hamm',
+      conductorPublisherId: 'p1',
+    } as any);
+
+    expect(push.sendToUsers).toHaveBeenCalledTimes(1);
+    const [tenant, userIds, , body] = push.sendToUsers.mock.calls[0];
+    expect(tenant).toBe(CONG);
+    expect(userIds).toEqual(['u1']);
+    expect(body).toContain('11.07.2026');
+    expect(body).toContain('10:30');
+  });
+
+  it('stays silent when notifyConductor=false', async () => {
+    const repo = {
+      create: jest.fn((x: unknown) => x),
+      save: jest.fn(async (x: any) => ({ ...meetingRow, ...x })),
+    } as any;
+    const push = makePush();
+    const svc = new FieldServiceMeetingsService(repo, makePubRepo(), push);
+
+    await svc.create(CONG, {
+      weekStartDate: '2026-07-06',
+      dayOfWeek: 6,
+      startTime: '10:30',
+      address: 'A',
+      conductorPublisherId: 'p1',
+      notifyConductor: false,
+    } as any);
+
+    expect(push.sendToUsers).not.toHaveBeenCalled();
+  });
+
+  it('notifies both the old and the new conductor on change', async () => {
+    const existing = { ...meetingRow, conductorPublisherId: 'p-old' };
+    const repo = {
+      findOne: jest.fn(async () => existing),
+      save: jest.fn(async (x: any) => x),
+    } as any;
+    const pubRepo = {
+      findOne: jest.fn(async ({ where }: any) => ({
+        id: where.id,
+        userId: `u-${where.id}`,
+        user: { uiLanguage: 'ru' },
+      })),
+    } as any;
+    const push = makePush();
+    const svc = new FieldServiceMeetingsService(repo, pubRepo, push);
+
+    await svc.update(CONG, 'm1', { conductorPublisherId: 'p-new' } as any);
+
+    expect(push.sendToUsers).toHaveBeenCalledTimes(2);
+    const targets = push.sendToUsers.mock.calls.map((c: any[]) => c[1][0]);
+    expect(targets).toEqual(['u-p-old', 'u-p-new']);
+  });
+
+  it('notifies the conductor when the meeting is removed', async () => {
+    const existing = { ...meetingRow, conductorPublisherId: 'p1' };
+    const repo = {
+      findOne: jest.fn(async () => existing),
+      delete: jest.fn(async () => ({ affected: 1 })),
+    } as any;
+    const push = makePush();
+    const svc = new FieldServiceMeetingsService(repo, makePubRepo(), push);
+
+    await svc.remove(CONG, 'm1');
+
+    expect(repo.delete).toHaveBeenCalled();
+    expect(push.sendToUsers).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips the push silently when the publisher has no login', async () => {
+    const repo = {
+      create: jest.fn((x: unknown) => x),
+      save: jest.fn(async (x: any) => ({ ...meetingRow, ...x })),
+    } as any;
+    const pubRepo = {
+      findOne: jest.fn(async () => ({ id: 'p1', userId: null, user: null })),
+    } as any;
+    const push = makePush();
+    const svc = new FieldServiceMeetingsService(repo, pubRepo, push);
+
+    await svc.create(CONG, {
+      weekStartDate: '2026-07-06',
+      dayOfWeek: 6,
+      startTime: '10:30',
+      address: 'A',
+      conductorPublisherId: 'p1',
+    } as any);
+
+    expect(push.sendToUsers).not.toHaveBeenCalled();
   });
 });

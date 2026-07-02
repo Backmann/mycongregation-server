@@ -2,6 +2,12 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { FieldServiceMeetingsService } from './field-service-meetings.service';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
+import { Publisher } from '../entities/publisher.entity';
+import { PushNotificationsService } from '../push-notifications/push-notifications.service';
+
+jest.mock('../push-notifications/push-notifications.service', () => ({
+  PushNotificationsService: class PushNotificationsServiceMock {},
+}));
 
 const CONG = 'cong-1';
 
@@ -26,6 +32,14 @@ async function buildService(rows: FieldServiceMeeting[]) {
     providers: [
       FieldServiceMeetingsService,
       { provide: getRepositoryToken(FieldServiceMeeting), useValue: repo },
+      {
+        provide: getRepositoryToken(Publisher),
+        useValue: { findOne: jest.fn().mockResolvedValue(null) },
+      },
+      {
+        provide: PushNotificationsService,
+        useValue: { sendToUsers: jest.fn().mockResolvedValue(undefined) },
+      },
     ],
   }).compile();
   return moduleRef.get(FieldServiceMeetingsService);

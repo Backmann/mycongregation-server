@@ -1,10 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { CreateFieldServiceMeetingDto } from './dto/create-field-service-meeting.dto';
 import { UpdateFieldServiceMeetingDto } from './dto/update-field-service-meeting.dto';
 import { QueryFieldServiceMeetingsDto } from './dto/query-field-service-meetings.dto';
+import { Publisher } from '../entities/publisher.entity';
+import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 
 /** Add n days to an ISO 'YYYY-MM-DD' date (UTC, calendar-safe). */
 function addDaysISO(iso: string, n: number): string {
@@ -30,12 +32,94 @@ export interface TopicHistoryEntry {
   lastDate: string;
 }
 
+type PushLang = 'ru' | 'en' | 'de';
+type ConductorPushKind = 'assigned' | 'unassigned' | 'cancelled';
+
+const PUSH_TEXTS: Record<
+  PushLang,
+  { title: string } & Record<ConductorPushKind, string>
+> = {
+  ru: {
+    title: 'Встреча для проповеди',
+    assigned: 'Вы ведёте встречу: {date}, {time} — {address}',
+    unassigned: 'Вы больше не ведёте встречу {date}, {time}',
+    cancelled: 'Встреча {date}, {time} отменена',
+  },
+  en: {
+    title: 'Field service meeting',
+    assigned: 'You conduct the meeting: {date}, {time} — {address}',
+    unassigned: 'You no longer conduct the meeting on {date}, {time}',
+    cancelled: 'The meeting on {date}, {time} was cancelled',
+  },
+  de: {
+    title: 'Zusammenkunft für den Predigtdienst',
+    assigned: 'Du leitest die Zusammenkunft: {date}, {time} — {address}',
+    unassigned: 'Du leitest die Zusammenkunft am {date}, {time} nicht mehr',
+    cancelled: 'Die Zusammenkunft am {date}, {time} wurde abgesagt',
+  },
+};
+
+/** ISO YYYY-MM-DD -> DD.MM.YYYY. */
+function fmtDate(iso: string): string {
+  return `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}`;
+}
+
 @Injectable()
 export class FieldServiceMeetingsService {
+  private readonly logger = new Logger(FieldServiceMeetingsService.name);
+
   constructor(
     @InjectRepository(FieldServiceMeeting)
     private readonly repo: Repository<FieldServiceMeeting>,
+    @InjectRepository(Publisher)
+    private readonly publishersRepo: Repository<Publisher>,
+    private readonly push: PushNotificationsService,
   ) {}
+
+  /**
+   * Push-notify a conductor about being assigned to / removed from a meeting
+   * (or the meeting being cancelled). Best-effort: a push failure never fails
+   * the request. Skipped silently when the publisher has no linked login.
+   */
+  private async notifyConductor(
+    congregationId: string,
+    meeting: FieldServiceMeeting,
+    kind: ConductorPushKind,
+    publisherId: string,
+  ): Promise<void> {
+    try {
+      const pub = await this.publishersRepo.findOne({
+        where: { id: publisherId, congregationId },
+        relations: { user: true },
+      });
+      if (!pub?.userId) return;
+      const lang = (
+        ['ru', 'en', 'de'].includes(pub.user?.uiLanguage ?? '')
+          ? pub.user!.uiLanguage
+          : 'ru'
+      ) as PushLang;
+      const texts = PUSH_TEXTS[lang];
+      const body = texts[kind]
+        .replace('{date}', fmtDate(meetingDateISO(meeting)))
+        .replace('{time}', meeting.startTime)
+        .replace('{address}', meeting.address);
+      await this.push.sendToUsers(
+        congregationId,
+        [pub.userId],
+        texts.title,
+        body,
+        {
+          type: 'field_service_meeting',
+          meetingId: meeting.id,
+          date: meetingDateISO(meeting),
+        },
+      );
+    } catch (e) {
+      this.logger.warn(
+        `conductor push failed (${kind}): ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
 
   list(
     congregationId: string,
@@ -56,7 +140,7 @@ export class FieldServiceMeetingsService {
       .getMany();
   }
 
-  create(
+  async create(
     congregationId: string,
     dto: CreateFieldServiceMeetingDto,
   ): Promise<FieldServiceMeeting> {
@@ -71,7 +155,16 @@ export class FieldServiceMeetingsService {
       sourceUrl: dto.sourceUrl ?? null,
       isGeneral: dto.isGeneral ?? false,
     });
-    return this.repo.save(entity);
+    const saved = await this.repo.save(entity);
+    if (saved.conductorPublisherId && dto.notifyConductor !== false) {
+      await this.notifyConductor(
+        congregationId,
+        saved,
+        'assigned',
+        saved.conductorPublisherId,
+      );
+    }
+    return saved;
   }
 
   async update(
@@ -85,6 +178,7 @@ export class FieldServiceMeetingsService {
     if (!entity) {
       throw new NotFoundException('Field service meeting not found');
     }
+    const prevConductorId = entity.conductorPublisherId;
     if (dto.dayOfWeek !== undefined) entity.dayOfWeek = dto.dayOfWeek;
     if (dto.startTime !== undefined) entity.startTime = dto.startTime;
     if (dto.address !== undefined) entity.address = dto.address;
@@ -94,13 +188,44 @@ export class FieldServiceMeetingsService {
     if (dto.topic !== undefined) entity.topic = dto.topic ?? null;
     if (dto.sourceUrl !== undefined) entity.sourceUrl = dto.sourceUrl ?? null;
     if (dto.isGeneral !== undefined) entity.isGeneral = dto.isGeneral;
-    return this.repo.save(entity);
+    const saved = await this.repo.save(entity);
+    if (
+      dto.notifyConductor !== false &&
+      prevConductorId !== saved.conductorPublisherId
+    ) {
+      if (prevConductorId) {
+        await this.notifyConductor(
+          congregationId,
+          saved,
+          'unassigned',
+          prevConductorId,
+        );
+      }
+      if (saved.conductorPublisherId) {
+        await this.notifyConductor(
+          congregationId,
+          saved,
+          'assigned',
+          saved.conductorPublisherId,
+        );
+      }
+    }
+    return saved;
   }
 
   async remove(congregationId: string, id: string): Promise<void> {
-    const res = await this.repo.delete({ id, congregationId });
-    if (!res.affected) {
+    const entity = await this.repo.findOne({ where: { id, congregationId } });
+    if (!entity) {
       throw new NotFoundException('Field service meeting not found');
+    }
+    await this.repo.delete({ id, congregationId });
+    if (entity.conductorPublisherId) {
+      await this.notifyConductor(
+        congregationId,
+        entity,
+        'cancelled',
+        entity.conductorPublisherId,
+      );
     }
   }
 

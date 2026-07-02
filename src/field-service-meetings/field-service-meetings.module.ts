@@ -11,6 +11,8 @@ import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { FieldServiceMonthTheme } from '../entities/field-service-month-theme.entity';
 import { FieldServiceTemplateSlot } from '../entities/field-service-template-slot.entity';
 import { Responsibility } from '../entities/responsibility.entity';
+import { Publisher } from '../entities/publisher.entity';
+import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
 
 @Module({
   imports: [
@@ -19,7 +21,9 @@ import { Responsibility } from '../entities/responsibility.entity';
       FieldServiceMonthTheme,
       FieldServiceTemplateSlot,
       Responsibility,
+      Publisher,
     ]),
+    PushNotificationsModule,
   ],
   controllers: [
     FieldServiceMeetingsController,

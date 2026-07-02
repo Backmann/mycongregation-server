@@ -51,4 +51,9 @@ export class UpdateFieldServiceMeetingDto {
   @IsOptional()
   @IsBoolean()
   isGeneral?: boolean;
+
+  /** When false, the conductor is not push-notified about this change. */
+  @IsOptional()
+  @IsBoolean()
+  notifyConductor?: boolean;
 }
