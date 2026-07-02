@@ -199,17 +199,8 @@ export class CoVisitItemsService {
         };
         if (it.kind === 'field_service' && isMineAssignee) {
           view.serviceWith = it.forWife ? 'wife' : it.withWife ? 'joint' : 'co';
-          if (it.forWife && !view.note) {
-            // Inherit the "type of service" from the overseer's paired row.
-            const pair = items.find(
-              (p) =>
-                !p.forWife &&
-                p.kind === 'field_service' &&
-                p.itemDate === it.itemDate &&
-                (p.startTime ?? '') === (it.startTime ?? ''),
-            );
-            view.note = pair?.note ?? null;
-          }
+          // The type of service is personal: the wife's row carries her own
+          // note (she may be in a different kind of ministry than the CO).
         }
         mine.push(view);
       }

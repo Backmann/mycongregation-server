@@ -114,7 +114,7 @@ describe('CoVisitItemsService.mine', () => {
     withWife: false,
   };
 
-  it('returns partner items with serviceWith and inherits the note for a wife pair', async () => {
+  it("returns partner items with serviceWith and the person's OWN note", async () => {
     const items = [
       {
         ...base,
@@ -129,6 +129,7 @@ describe('CoVisitItemsService.mine', () => {
         kind: 'field_service',
         forWife: true,
         assigneePublisherId: 'p1',
+        note: 'Изучения',
       },
     ];
     const svc = build(
@@ -139,7 +140,7 @@ describe('CoVisitItemsService.mine', () => {
     expect(out).toHaveLength(1);
     expect(out[0].items).toHaveLength(1);
     expect(out[0].items[0].serviceWith).toBe('wife');
-    expect(out[0].items[0].note).toBe('Повторные посещения');
+    expect(out[0].items[0].note).toBe('Изучения');
   });
 
   it('shows the pioneer meeting only to regular pioneers', async () => {
