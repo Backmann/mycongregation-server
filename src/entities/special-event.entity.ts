@@ -47,6 +47,10 @@ export class SpecialEvent {
   @Column({ type: 'varchar', length: 50, nullable: true })
   time!: string | null;
 
+  /** Optional end time — the event runs "time – timeEnd". */
+  @Column({ type: 'varchar', length: 5, nullable: true, name: 'time_end' })
+  timeEnd!: string | null;
+
   @Column({ type: 'text', nullable: true })
   address!: string | null;
 

@@ -37,6 +37,11 @@ export class UpdateSpecialEventDto {
 
   @IsOptional()
   @IsString()
+  @Length(0, 5)
+  timeEnd?: string;
+
+  @IsOptional()
+  @IsString()
   address?: string;
 
   @IsOptional()
