@@ -215,3 +215,78 @@ describe('CoVisitItemsService.hostStats', () => {
     expect(out.find((s) => s.kind === 'lunch_box')?.total).toBe(1);
   });
 });
+
+describe('CoVisitItemsService.mine — accommodation host & legacy copies', () => {
+  const CONG = 'c1';
+  const USER = { id: 'u1', role: 'publisher' } as any;
+
+  function build(visitExtra: any, publisher: any, items: any[]) {
+    const repo = { find: jest.fn(async () => items) } as any;
+    const eventsRepo = {
+      find: jest.fn(async () => [
+        {
+          id: 'v1',
+          title: 'Визит',
+          date: '2099-01-05',
+          endDate: '2099-01-11',
+          type: 'circuit_overseer_visit',
+          ...visitExtra,
+        },
+      ]),
+    } as any;
+    const publishersRepo = { findOne: jest.fn(async () => publisher) } as any;
+    return new CoVisitItemsService(repo, eventsRepo, {} as any, publishersRepo);
+  }
+
+  it('gives the accommodation host a synthetic item', async () => {
+    const svc = build(
+      { coAccommodationPublisherId: 'p1' },
+      { id: 'p1', pioneerType: 'none', appointment: 'publisher' },
+      [],
+    );
+    const out = await svc.mine(CONG, USER);
+    expect(out).toHaveLength(1);
+    expect(out[0].items[0].kind).toBe('accommodation');
+  });
+
+  it('skips legacy wife copies of shared kinds (no duplicates)', async () => {
+    const base = {
+      congregationId: CONG,
+      specialEventId: 'v1',
+      itemDate: '2099-01-06',
+      startTime: '12:15',
+      placeKind: null,
+      cartLocationId: null,
+      cartLocation: null,
+      placeText: null,
+      assignee: null,
+      assigneeText: null,
+      note: null,
+      sortOrder: 0,
+      withWife: false,
+    };
+    const svc = build(
+      {},
+      { id: 'p1', pioneerType: 'none', appointment: 'publisher' },
+      [
+        {
+          ...base,
+          id: 'l1',
+          kind: 'lunch',
+          forWife: false,
+          assigneePublisherId: 'p1',
+        },
+        {
+          ...base,
+          id: 'l2',
+          kind: 'lunch',
+          forWife: true,
+          assigneePublisherId: 'p1',
+        },
+      ],
+    );
+    const out = await svc.mine(CONG, USER);
+    expect(out[0].items).toHaveLength(1);
+    expect(out[0].items[0].id).toBe('l1');
+  });
+});

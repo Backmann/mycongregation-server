@@ -190,6 +190,9 @@ export class CoVisitItemsService {
       })[] = [];
       for (const it of items) {
         if (it.kind === 'document_review') continue;
+        // The wife's rows exist only for separate field service; legacy
+        // copies of shared kinds (lunch, ...) would duplicate the item.
+        if (it.forWife && it.kind !== 'field_service') continue;
         const isMineAssignee = it.assigneePublisherId === publisher.id;
         const isPioneerMeeting = it.kind === 'pioneers' && isPioneer;
         const isEldersMeeting = it.kind === 'elders' && isAppointed;
@@ -203,6 +206,28 @@ export class CoVisitItemsService {
           // note (she may be in a different kind of ministry than the CO).
         }
         mine.push(view);
+      }
+      // The publisher hosting the couple sees the stay on their home screen.
+      if (visit.coAccommodationPublisherId === publisher.id) {
+        mine.unshift({
+          id: `accommodation-${visit.id}`,
+          kind: 'accommodation',
+          forWife: false,
+          withWife: false,
+          itemDate: visit.date,
+          startTime: null,
+          placeKind: null,
+          cartLocationId: null,
+          cartLocationName: null,
+          placeText: null,
+          assigneePublisherId: publisher.id,
+          assigneeName: null,
+          assigneePhone: null,
+          assigneeAddress: null,
+          assigneeText: null,
+          note: null,
+          sortOrder: -1,
+        });
       }
       if (mine.length > 0) {
         out.push({
