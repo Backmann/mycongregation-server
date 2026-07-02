@@ -33,6 +33,15 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 export class CoVisitItemsController {
   constructor(private readonly service: CoVisitItemsService) {}
 
+  /** The signed-in member's own slice of upcoming visits (any role). */
+  @Get('mine')
+  mine(
+    @TenantId() congregationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.mine(congregationId, user);
+  }
+
   @Get()
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.ELDER)

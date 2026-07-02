@@ -6,6 +6,8 @@ import { SpecialEvent } from '../entities/special-event.entity';
 import { CreateCoVisitItemDto } from './dto/create-co-visit-item.dto';
 import { UpdateCoVisitItemDto } from './dto/update-co-visit-item.dto';
 import { User } from '../entities/user.entity';
+import { Publisher } from '../entities/publisher.entity';
+import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
@@ -69,7 +71,109 @@ export class CoVisitItemsService {
     private readonly eventsRepo: Repository<SpecialEvent>,
     @InjectRepository(User)
     private readonly usersRepo: Repository<User>,
+    @InjectRepository(Publisher)
+    private readonly publishersRepo: Repository<Publisher>,
   ) {}
+
+  /**
+   * The signed-in person's own slice of upcoming circuit-overseer visits,
+   * readable by ANY authenticated member (unlike the full schedule):
+   *   • items where they are the assignee (service partner, lunch host, …) —
+   *     for a wife's separate-service row the "type of service" note is
+   *     inherited from the overseer's paired row;
+   *   • the pioneer meeting for regular pioneers;
+   *   • the elders/MS meeting for elders and ministerial servants.
+   * Private assignee data of other people is never included.
+   */
+  async mine(
+    congregationId: string,
+    user: AuthenticatedUser,
+  ): Promise<
+    {
+      visit: {
+        id: string;
+        title: string;
+        date: string;
+        endDate: string | null;
+      };
+      items: (CoVisitItemView & { serviceWith?: 'co' | 'wife' | 'joint' })[];
+    }[]
+  > {
+    const publisher = await this.publishersRepo.findOne({
+      where: { congregationId, userId: user.id },
+    });
+    if (!publisher) return [];
+    const isPioneer = publisher.pioneerType === 'regular';
+    const isAppointed =
+      publisher.appointment === PublisherAppointment.ELDER ||
+      publisher.appointment === PublisherAppointment.MINISTERIAL_SERVANT;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const visits = (
+      await this.eventsRepo.find({
+        where: { congregationId, type: 'circuit_overseer_visit' },
+        order: { date: 'ASC' },
+      })
+    ).filter((e) => (e.endDate ?? e.date) >= today);
+    if (visits.length === 0) return [];
+
+    const out: {
+      visit: {
+        id: string;
+        title: string;
+        date: string;
+        endDate: string | null;
+      };
+      items: (CoVisitItemView & { serviceWith?: 'co' | 'wife' | 'joint' })[];
+    }[] = [];
+    for (const visit of visits) {
+      const items = await this.repo.find({
+        where: { congregationId, specialEventId: visit.id },
+        relations: { assignee: true, cartLocation: true },
+        order: { itemDate: 'ASC', startTime: 'ASC', sortOrder: 'ASC' },
+      });
+      const mine: (CoVisitItemView & {
+        serviceWith?: 'co' | 'wife' | 'joint';
+      })[] = [];
+      for (const it of items) {
+        if (it.kind === 'document_review') continue;
+        const isMineAssignee = it.assigneePublisherId === publisher.id;
+        const isPioneerMeeting = it.kind === 'pioneers' && isPioneer;
+        const isEldersMeeting = it.kind === 'elders' && isAppointed;
+        if (!isMineAssignee && !isPioneerMeeting && !isEldersMeeting) continue;
+        const view = toCoVisitItemView(it, false) as CoVisitItemView & {
+          serviceWith?: 'co' | 'wife' | 'joint';
+        };
+        if (it.kind === 'field_service' && isMineAssignee) {
+          view.serviceWith = it.forWife ? 'wife' : it.withWife ? 'joint' : 'co';
+          if (it.forWife && !view.note) {
+            // Inherit the "type of service" from the overseer's paired row.
+            const pair = items.find(
+              (p) =>
+                !p.forWife &&
+                p.kind === 'field_service' &&
+                p.itemDate === it.itemDate &&
+                (p.startTime ?? '') === (it.startTime ?? ''),
+            );
+            view.note = pair?.note ?? null;
+          }
+        }
+        mine.push(view);
+      }
+      if (mine.length > 0) {
+        out.push({
+          visit: {
+            id: visit.id,
+            title: visit.title,
+            date: visit.date,
+            endDate: visit.endDate ?? null,
+          },
+          items: mine,
+        });
+      }
+    }
+    return out;
+  }
 
   private async canViewPrivate(
     congregationId: string,

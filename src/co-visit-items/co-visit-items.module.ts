@@ -8,10 +8,17 @@ import { CoVisitItem } from '../entities/co-visit-item.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { User } from '../entities/user.entity';
 import { Responsibility } from '../entities/responsibility.entity';
+import { Publisher } from '../entities/publisher.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([CoVisitItem, SpecialEvent, Responsibility, User]),
+    TypeOrmModule.forFeature([
+      CoVisitItem,
+      SpecialEvent,
+      Responsibility,
+      User,
+      Publisher,
+    ]),
   ],
   controllers: [CoVisitItemsController],
   providers: [CoVisitItemsService, RolesGuard, ResponsibilityGuard],
