@@ -8,6 +8,7 @@ import {
   Length,
   Max,
   Min,
+  IsUUID,
 } from 'class-validator';
 
 export class UpdateSpecialEventDto {
@@ -73,6 +74,10 @@ export class UpdateSpecialEventDto {
   @IsString()
   @Length(1, 2000)
   coAccommodationAddress?: string;
+
+  @IsOptional()
+  @IsUUID()
+  coAccommodationPublisherId?: string | null;
 
   @IsOptional()
   @IsInt()

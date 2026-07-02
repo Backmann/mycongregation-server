@@ -42,6 +42,14 @@ export class CoVisitItemsController {
     return this.service.mine(congregationId, user);
   }
 
+  /** Hosting rotation across all visits (for the host picker). */
+  @Get('host-stats')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  hostStats(@TenantId() congregationId: string) {
+    return this.service.hostStats(congregationId);
+  }
+
   @Get()
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.ELDER)

@@ -179,3 +179,38 @@ describe('CoVisitItemsService.mine', () => {
     expect(await svc.mine(CONG, USER)).toHaveLength(0);
   });
 });
+
+describe('CoVisitItemsService.hostStats', () => {
+  it('aggregates totals with past lastDate and future nextDate per kind', async () => {
+    const rows = [
+      { kind: 'lunch', itemDate: '2020-01-01', assigneePublisherId: 'p1' },
+      { kind: 'lunch', itemDate: '2020-06-01', assigneePublisherId: 'p1' },
+      { kind: 'lunch', itemDate: '2099-01-01', assigneePublisherId: 'p2' },
+      { kind: 'lunch_box', itemDate: '2020-03-01', assigneePublisherId: 'p1' },
+    ];
+    const qb: any = {
+      select: () => qb,
+      where: () => qb,
+      andWhere: () => qb,
+      getMany: async () => rows,
+    };
+    const repo = { createQueryBuilder: () => qb } as any;
+    const svc = new CoVisitItemsService(repo, {} as any, {} as any, {} as any);
+    const out = await svc.hostStats('c1');
+    const p1lunch = out.find(
+      (s) => s.publisherId === 'p1' && s.kind === 'lunch',
+    );
+    expect(p1lunch).toMatchObject({
+      total: 2,
+      lastDate: '2020-06-01',
+      nextDate: null,
+    });
+    const p2 = out.find((s) => s.publisherId === 'p2');
+    expect(p2).toMatchObject({
+      total: 1,
+      lastDate: null,
+      nextDate: '2099-01-01',
+    });
+    expect(out.find((s) => s.kind === 'lunch_box')?.total).toBe(1);
+  });
+});

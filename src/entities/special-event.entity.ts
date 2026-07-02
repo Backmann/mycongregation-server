@@ -77,6 +77,10 @@ export class SpecialEvent {
   @Column({ type: 'text', nullable: true })
   coAccommodationAddress!: string | null;
 
+  /** Circuit-overseer visit only: the publisher hosting the couple, if any. */
+  @Column({ type: 'uuid', nullable: true })
+  coAccommodationPublisherId!: string | null;
+
   /**
    * Circuit-overseer visit only: ISO weekday (1=Mon..7=Sun) the midweek
    * meeting is held on during the visit, which often differs from the normal

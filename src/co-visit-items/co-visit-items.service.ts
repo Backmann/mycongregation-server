@@ -85,6 +85,59 @@ export class CoVisitItemsService {
    *   • the elders/MS meeting for elders and ministerial servants.
    * Private assignee data of other people is never included.
    */
+  /**
+   * Hosting rotation across ALL visits (past ones included): for every
+   * publisher who has ever hosted a lunch / prepared a lunch box, the total,
+   * the last past date and the next scheduled date. Powers the "who hasn't
+   * hosted yet" ordering in the host picker.
+   */
+  async hostStats(congregationId: string): Promise<
+    {
+      publisherId: string;
+      kind: string;
+      total: number;
+      lastDate: string | null;
+      nextDate: string | null;
+    }[]
+  > {
+    const rows = await this.repo
+      .createQueryBuilder('i')
+      .select(['i.kind', 'i.itemDate', 'i.assigneePublisherId'])
+      .where('i.congregationId = :congregationId', { congregationId })
+      .andWhere('i.kind IN (:...kinds)', { kinds: ['lunch', 'lunch_box'] })
+      .andWhere('i.assigneePublisherId IS NOT NULL')
+      .getMany();
+    const today = new Date().toISOString().slice(0, 10);
+    const map = new Map<
+      string,
+      {
+        publisherId: string;
+        kind: string;
+        total: number;
+        lastDate: string | null;
+        nextDate: string | null;
+      }
+    >();
+    for (const r of rows) {
+      const key = `${r.assigneePublisherId}|${r.kind}`;
+      const st = map.get(key) ?? {
+        publisherId: r.assigneePublisherId!,
+        kind: r.kind,
+        total: 0,
+        lastDate: null,
+        nextDate: null,
+      };
+      st.total += 1;
+      if (r.itemDate <= today) {
+        if (!st.lastDate || r.itemDate > st.lastDate) st.lastDate = r.itemDate;
+      } else if (!st.nextDate || r.itemDate < st.nextDate) {
+        st.nextDate = r.itemDate;
+      }
+      map.set(key, st);
+    }
+    return Array.from(map.values());
+  }
+
   async mine(
     congregationId: string,
     user: AuthenticatedUser,
