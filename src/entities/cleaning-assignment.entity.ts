@@ -48,6 +48,21 @@ export class CleaningAssignment {
   @Column({ type: 'uuid', nullable: true })
   serviceGroupId!: string | null;
 
+  /**
+   * Hall-plan window numbers to wash this week. Meaningful only for the
+   * THOROUGH slot; forced null for other slot types.
+   */
+  @Column({ type: 'int', array: true, nullable: true })
+  windows!: number[] | null;
+
+  /**
+   * When the assigned group agreed to do the weekly thorough cleaning.
+   * Optional — set by the cleaning coordinator or the group's overseer once
+   * the group picks a day; drives the "2 hours before" push reminder.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  thoroughPlannedAt!: Date | null;
+
   @ManyToOne(() => ServiceGroup, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'service_group_id' })
   serviceGroup!: ServiceGroup | null;

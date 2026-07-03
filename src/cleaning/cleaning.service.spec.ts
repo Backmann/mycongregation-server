@@ -8,8 +8,18 @@ const groups = [
   { id: 'C', name: 'Group C' },
 ];
 
-function svcWith(repo: any, groupRepo: any) {
-  return new CleaningService(repo, groupRepo);
+function svcWith(
+  repo: any,
+  groupRepo: any,
+  publisherRepo: any = { findOne: jest.fn(async () => null) },
+  responsibilityRepo: any = { count: jest.fn(async () => 0) },
+) {
+  return new CleaningService(
+    repo,
+    groupRepo,
+    publisherRepo,
+    responsibilityRepo,
+  );
 }
 
 describe('CleaningService.suggestNextAfterMeetingGroup', () => {
@@ -94,6 +104,217 @@ describe('CleaningService.setSlot', () => {
     } as any);
     expect(out.serviceGroupId).toBe('B');
     expect(repo.save).toHaveBeenCalledWith(existing);
+  });
+});
+
+describe('CleaningService.setSlot windows', () => {
+  it('deduplicates and sorts windows for the THOROUGH slot', async () => {
+    const repo = {
+      findOne: jest.fn(async () => null),
+      create: jest.fn((v: unknown) => v),
+      save: jest.fn(async (v: unknown) => v),
+    } as any;
+    const svc = svcWith(repo, { find: jest.fn() });
+    const out = await svc.setSlot(CONG, {
+      weekStartDate: '2026-05-18',
+      slotType: CleaningSlotType.THOROUGH,
+      serviceGroupId: 'B',
+      windows: [5, 4, 5, 1],
+    } as any);
+    expect(out.windows).toEqual([1, 4, 5]);
+  });
+
+  it('forces windows to null for non-THOROUGH slots', async () => {
+    const repo = {
+      findOne: jest.fn(async () => null),
+      create: jest.fn((v: unknown) => v),
+      save: jest.fn(async (v: unknown) => v),
+    } as any;
+    const svc = svcWith(repo, { find: jest.fn() });
+    const out = await svc.setSlot(CONG, {
+      weekStartDate: '2026-05-18',
+      slotType: CleaningSlotType.AFTER_MEETING,
+      serviceGroupId: 'A',
+      windows: [1, 2],
+    } as any);
+    expect(out.windows).toBeNull();
+  });
+
+  it('stores null when the windows list is empty', async () => {
+    const repo = {
+      findOne: jest.fn(async () => null),
+      create: jest.fn((v: unknown) => v),
+      save: jest.fn(async (v: unknown) => v),
+    } as any;
+    const svc = svcWith(repo, { find: jest.fn() });
+    const out = await svc.setSlot(CONG, {
+      weekStartDate: '2026-05-18',
+      slotType: CleaningSlotType.THOROUGH,
+      serviceGroupId: 'B',
+      windows: [],
+    } as any);
+    expect(out.windows).toBeNull();
+  });
+
+  it('resets thoroughPlannedAt when the assigned group changes', async () => {
+    const existing = {
+      id: 'r1',
+      serviceGroupId: 'A',
+      thoroughPlannedAt: new Date('2026-05-22T18:00:00Z'),
+    } as any;
+    const repo = {
+      findOne: jest.fn(async () => existing),
+      save: jest.fn(async (v: unknown) => v),
+    } as any;
+    const svc = svcWith(repo, { find: jest.fn() });
+    const out = await svc.setSlot(CONG, {
+      weekStartDate: '2026-05-18',
+      slotType: CleaningSlotType.THOROUGH,
+      serviceGroupId: 'B',
+      windows: [3],
+    } as any);
+    expect(out.thoroughPlannedAt).toBeNull();
+    expect(out.serviceGroupId).toBe('B');
+  });
+
+  it('keeps thoroughPlannedAt when the group stays the same', async () => {
+    const planned = new Date('2026-05-22T18:00:00Z');
+    const existing = {
+      id: 'r1',
+      serviceGroupId: 'A',
+      thoroughPlannedAt: planned,
+    } as any;
+    const repo = {
+      findOne: jest.fn(async () => existing),
+      save: jest.fn(async (v: unknown) => v),
+    } as any;
+    const svc = svcWith(repo, { find: jest.fn() });
+    const out = await svc.setSlot(CONG, {
+      weekStartDate: '2026-05-18',
+      slotType: CleaningSlotType.THOROUGH,
+      serviceGroupId: 'A',
+      windows: [3, 7],
+    } as any);
+    expect(out.thoroughPlannedAt).toBe(planned);
+    expect(out.windows).toEqual([3, 7]);
+  });
+});
+
+describe('CleaningService.planThorough', () => {
+  const WEEK = '2026-05-18';
+  const admin = { id: 'u-admin', role: 'admin' } as any;
+  const member = { id: 'u-member', role: 'publisher' } as any;
+
+  function slotRepo(slot: any) {
+    return {
+      findOne: jest.fn(async () => slot),
+      save: jest.fn(async (v: unknown) => v),
+    } as any;
+  }
+
+  it('404s when the week has no thorough slot with a group', async () => {
+    const svc = svcWith(slotRepo(null), { find: jest.fn() });
+    await expect(
+      svc.planThorough(CONG, { weekStartDate: WEEK, plannedAt: null }, admin),
+    ).rejects.toThrow('No thorough cleaning assignment');
+  });
+
+  it('allows an admin and saves the planned time', async () => {
+    const slot = { serviceGroupId: 'A', thoroughPlannedAt: null } as any;
+    const svc = svcWith(slotRepo(slot), { find: jest.fn() });
+    const out = await svc.planThorough(
+      CONG,
+      { weekStartDate: WEEK, plannedAt: '2026-05-22T18:00:00Z' },
+      admin,
+    );
+    expect(out.thoroughPlannedAt).toEqual(new Date('2026-05-22T18:00:00Z'));
+  });
+
+  it('allows a cleaning coordinator via responsibility', async () => {
+    const slot = { serviceGroupId: 'A', thoroughPlannedAt: null } as any;
+    const svc = svcWith(
+      slotRepo(slot),
+      { find: jest.fn() },
+      { findOne: jest.fn(async () => null) },
+      { count: jest.fn(async () => 1) },
+    );
+    const out = await svc.planThorough(
+      CONG,
+      { weekStartDate: WEEK, plannedAt: '2026-05-20T10:00:00Z' },
+      member,
+    );
+    expect(out.thoroughPlannedAt).toEqual(new Date('2026-05-20T10:00:00Z'));
+  });
+
+  it('allows the overseer of the assigned group', async () => {
+    const slot = { serviceGroupId: 'A', thoroughPlannedAt: null } as any;
+    const svc = svcWith(
+      slotRepo(slot),
+      {
+        find: jest.fn(),
+        findOne: jest.fn(async () => ({
+          id: 'A',
+          overseerPublisherId: 'pub-1',
+        })),
+      },
+      { findOne: jest.fn(async () => ({ id: 'pub-1' })) },
+      { count: jest.fn(async () => 0) },
+    );
+    const out = await svc.planThorough(
+      CONG,
+      { weekStartDate: WEEK, plannedAt: '2026-05-23T09:00:00Z' },
+      member,
+    );
+    expect(out.thoroughPlannedAt).toEqual(new Date('2026-05-23T09:00:00Z'));
+  });
+
+  it('rejects a member who is neither coordinator nor the group overseer', async () => {
+    const slot = { serviceGroupId: 'A', thoroughPlannedAt: null } as any;
+    const svc = svcWith(
+      slotRepo(slot),
+      {
+        find: jest.fn(),
+        findOne: jest.fn(async () => ({
+          id: 'A',
+          overseerPublisherId: 'pub-1',
+        })),
+      },
+      { findOne: jest.fn(async () => ({ id: 'pub-OTHER' })) },
+      { count: jest.fn(async () => 0) },
+    );
+    await expect(
+      svc.planThorough(
+        CONG,
+        { weekStartDate: WEEK, plannedAt: '2026-05-23T09:00:00Z' },
+        member,
+      ),
+    ).rejects.toThrow('Only the cleaning coordinator');
+  });
+
+  it('rejects a plannedAt outside the assignment week', async () => {
+    const slot = { serviceGroupId: 'A', thoroughPlannedAt: null } as any;
+    const svc = svcWith(slotRepo(slot), { find: jest.fn() });
+    await expect(
+      svc.planThorough(
+        CONG,
+        { weekStartDate: WEEK, plannedAt: '2026-06-05T18:00:00Z' },
+        admin,
+      ),
+    ).rejects.toThrow('must fall inside');
+  });
+
+  it('clears the plan with plannedAt = null', async () => {
+    const slot = {
+      serviceGroupId: 'A',
+      thoroughPlannedAt: new Date('2026-05-22T18:00:00Z'),
+    } as any;
+    const svc = svcWith(slotRepo(slot), { find: jest.fn() });
+    const out = await svc.planThorough(
+      CONG,
+      { weekStartDate: WEEK, plannedAt: null },
+      admin,
+    );
+    expect(out.thoroughPlannedAt).toBeNull();
   });
 });
 

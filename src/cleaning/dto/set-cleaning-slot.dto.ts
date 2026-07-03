@@ -1,4 +1,13 @@
-import { IsDateString, IsEnum, IsOptional, IsUUID } from 'class-validator';
+import {
+  IsArray,
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsUUID,
+  Max,
+  Min,
+} from 'class-validator';
 import { CleaningSlotType } from '../../common/enums/cleaning-slot-type.enum';
 
 export class SetCleaningSlotDto {
@@ -15,4 +24,15 @@ export class SetCleaningSlotDto {
   @IsOptional()
   @IsUUID()
   serviceGroupId?: string | null;
+
+  /**
+   * Hall-plan window numbers to wash. Only meaningful for the THOROUGH slot
+   * (forced null otherwise). Deduplicated and sorted server-side.
+   */
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  @Max(99, { each: true })
+  windows?: number[] | null;
 }

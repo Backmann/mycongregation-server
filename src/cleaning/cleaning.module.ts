@@ -5,6 +5,7 @@ import { CleaningService } from './cleaning.service';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
+import { Publisher } from '../entities/publisher.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 
 @Module({
@@ -12,6 +13,7 @@ import { Responsibility } from '../entities/responsibility.entity';
     TypeOrmModule.forFeature([
       CleaningAssignment,
       ServiceGroup,
+      Publisher,
       Responsibility,
     ]),
   ],
