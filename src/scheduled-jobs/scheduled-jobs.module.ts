@@ -4,9 +4,15 @@ import { AdminController } from './admin.controller';
 import { PublishersModule } from '../publishers/publishers.module';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
+import { CleaningModule } from '../cleaning/cleaning.module';
 
 @Module({
-  imports: [PublishersModule, PushNotificationsModule, AuditLogModule],
+  imports: [
+    PublishersModule,
+    PushNotificationsModule,
+    AuditLogModule,
+    CleaningModule,
+  ],
   controllers: [AdminController],
   providers: [ScheduledJobsService],
 })

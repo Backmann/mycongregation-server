@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { PublishersService } from '../publishers/publishers.service';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { CleaningRemindersService } from '../cleaning/cleaning-reminders.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -12,7 +13,42 @@ export class ScheduledJobsService {
     private readonly publishersService: PublishersService,
     private readonly pushNotificationsService: PushNotificationsService,
     private readonly auditLogService: AuditLogService,
+    private readonly cleaningReminders: CleaningRemindersService,
   ) {}
+
+  /**
+   * Cleaning reminders — every 15 minutes. Each tick checks, per congregation
+   * and in its local timezone, whether a reminder is due: 2h before each
+   * meeting (after-meeting group), Monday 09:00 (weekly group + windows), and
+   * 2h before the day the weekly group agreed on. A reminder_log row makes
+   * every send idempotent, so delayed ticks or restarts never double-send.
+   * The cadence must match TICK_MINUTES in CleaningRemindersService.
+   */
+  @Cron('*/15 * * * *', {
+    name: 'cleaning-reminders',
+    timeZone: 'UTC',
+  })
+  async handleCleaningReminders(): Promise<void> {
+    try {
+      await this.cleaningReminders.runTick();
+    } catch (err) {
+      this.logger.error('[CleaningReminders] tick failed', err as Error);
+    }
+  }
+
+  /** Daily housekeeping of the reminder ledger. Runs at 04:00 UTC. */
+  @Cron('0 4 * * *', {
+    name: 'cleaning-reminder-log-cleanup',
+    timeZone: 'UTC',
+  })
+  async handleReminderLogCleanup(): Promise<void> {
+    try {
+      const deleted = await this.cleaningReminders.cleanupOldLog();
+      this.logger.log(`[CleaningReminders] log cleanup — deleted=${deleted}`);
+    } catch (err) {
+      this.logger.error('[CleaningReminders] log cleanup failed', err as Error);
+    }
+  }
 
   /**
    * Nightly job — recompute every active publisher's status from the last
