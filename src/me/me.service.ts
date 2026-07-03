@@ -32,6 +32,10 @@ export interface MyAssignmentItem {
   time?: string;
   endTime?: string;
   label: string;
+  /** Cleaning: hall-plan window numbers for the weekly thorough slot. */
+  windows?: number[];
+  /** Cleaning: ISO datetime the group agreed to do the thorough cleaning. */
+  thoroughPlannedAt?: string;
   /** Part key for meeting items (lets the client tailor display). */
   partKey?: string;
   /** Program order of the part within the meeting (for sorting). */
@@ -224,6 +228,12 @@ export class MeService {
           sortDate: c.weekStartDate,
           weekStartDate: c.weekStartDate,
           label: c.slotType,
+          ...(c.slotType === 'thorough' && c.windows?.length
+            ? { windows: c.windows }
+            : {}),
+          ...(c.slotType === 'thorough' && c.thoroughPlannedAt
+            ? { thoroughPlannedAt: c.thoroughPlannedAt.toISOString() }
+            : {}),
         });
       }
     }
