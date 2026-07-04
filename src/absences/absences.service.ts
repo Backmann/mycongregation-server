@@ -80,10 +80,43 @@ export class AbsencesService {
       .where('a.congregation_id = :tenantId', { tenantId });
   }
 
-  async findAll(tenantId: string, query: QueryAbsencesDto): Promise<Absence[]> {
+  /**
+   * Absence READS are scoped: admins, elders, and holders of any
+   * responsibility (planners of schedules/duties/cleaning legitimately need
+   * the full picture) see everything; a regular publisher sees only their
+   * OWN absences. Personal notes must not leak congregation-wide.
+   */
+  private async canReadAll(user: AuthenticatedUser): Promise<boolean> {
+    if (user.role === UserRole.ADMIN || user.role === UserRole.ELDER) {
+      return true;
+    }
+    const held = await this.responsibilitiesRepo.count({
+      where: { congregationId: user.congregationId, userId: user.id },
+    });
+    return held > 0;
+  }
+
+  private async ownPublisherId(
+    user: AuthenticatedUser,
+  ): Promise<string | null> {
+    const me = await this.publishersRepo.findOne({
+      where: { congregationId: user.congregationId, userId: user.id },
+    });
+    return me?.id ?? null;
+  }
+
+  async findAll(
+    tenantId: string,
+    query: QueryAbsencesDto,
+    user: AuthenticatedUser,
+  ): Promise<Absence[]> {
     const qb = this.baseQuery(tenantId);
 
-    if (query.publisherId) {
+    if (!(await this.canReadAll(user))) {
+      const myId = await this.ownPublisherId(user);
+      if (!myId) return [];
+      qb.andWhere('a.publisher_id = :own', { own: myId });
+    } else if (query.publisherId) {
       qb.andWhere('a.publisher_id = :pid', { pid: query.publisherId });
     }
     if (query.all !== 'true') {
@@ -98,13 +131,23 @@ export class AbsencesService {
     return qb.orderBy('a.start_date', 'ASC').getMany();
   }
 
-  async findOne(tenantId: string, id: string): Promise<Absence> {
+  async findOne(
+    tenantId: string,
+    id: string,
+    user: AuthenticatedUser,
+  ): Promise<Absence> {
     const found = await this.baseQuery(tenantId)
       .andWhere('a.id = :id', { id })
       .withDeleted()
       .getOne();
     if (!found) {
       throw new NotFoundException('Absence not found');
+    }
+    if (!(await this.canReadAll(user))) {
+      const myId = await this.ownPublisherId(user);
+      if (!myId || found.publisherId !== myId) {
+        throw new ForbiddenException('You may only view your own absences');
+      }
     }
     return found;
   }
@@ -170,6 +213,6 @@ export class AbsencesService {
     }
     await this.assertCanWrite(user, found.publisherId);
     await this.repo.restore(id);
-    return this.findOne(tenantId, id);
+    return this.findOne(tenantId, id, user);
   }
 }

@@ -31,16 +31,21 @@ export class AbsencesController {
   constructor(private readonly service: AbsencesService) {}
 
   @Get()
-  list(@TenantId() tenantId: string, @Query() query: QueryAbsencesDto) {
-    return this.service.findAll(tenantId, query);
+  list(
+    @TenantId() tenantId: string,
+    @Query() query: QueryAbsencesDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.findAll(tenantId, query, user);
   }
 
   @Get(':id')
   findOne(
     @TenantId() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.findOne(tenantId, id);
+    return this.service.findOne(tenantId, id, user);
   }
 
   @Post()

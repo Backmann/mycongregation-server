@@ -19,6 +19,8 @@ import { AddGroupMembersDto } from './dto/add-group-members.dto';
 import { QueryServiceGroupsDto } from './dto/query-service-groups.dto';
 import { QueryPublishersDto } from '../publishers/dto/query-publishers.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -46,8 +48,9 @@ export class ServiceGroupsController {
     @TenantId() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: QueryPublishersDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.serviceGroupsService.findPublishers(tenantId, id, query);
+    return this.serviceGroupsService.findPublishers(tenantId, id, query, user);
   }
 
   @Roles(UserRole.ADMIN)

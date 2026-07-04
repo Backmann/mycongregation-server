@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
@@ -11,6 +12,8 @@ import { UpdateServiceGroupDto } from './dto/update-service-group.dto';
 import { QueryServiceGroupsDto } from './dto/query-service-groups.dto';
 import { PublishersService } from '../publishers/publishers.service';
 import { QueryPublishersDto } from '../publishers/dto/query-publishers.dto';
+import { redactPrivateFields } from '../publishers/publisher-privacy';
+import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
 type ResolvedPublisher = Awaited<ReturnType<PublishersService['findOne']>>;
 
@@ -172,16 +175,42 @@ export class ServiceGroupsService {
     return this.findOne(tenantId, id);
   }
 
+  /**
+   * Group member list. Privileged callers (admins, elders, members granted
+   * private-data access) get the full rows; a regular publisher may load ONLY
+   * their own group, redacted to a name-and-scheduling roster; any other
+   * group is Forbidden. Closes the leak where full publisher cards (phones,
+   * addresses, notes) were reachable through the group endpoint.
+   */
   async findPublishers(
     tenantId: string,
     id: string,
     query: QueryPublishersDto,
+    user: AuthenticatedUser,
   ) {
     await this.findEntity(tenantId, id);
-    return this.publishersService.findAll(tenantId, {
+    const privileged = await this.publishersService.resolvePrivateAccess(
+      tenantId,
+      user,
+    );
+    if (!privileged) {
+      const ownGroupId = await this.publishersService.findOwnServiceGroupId(
+        tenantId,
+        user.id,
+      );
+      if (ownGroupId !== id) {
+        throw new ForbiddenException(
+          'You may only view the members of your own service group',
+        );
+      }
+      query.includeRemoved = false;
+    }
+    const result = await this.publishersService.findAll(tenantId, {
       ...query,
       serviceGroupId: id,
     });
+    if (privileged) return result;
+    return { ...result, data: result.data.map(redactPrivateFields) };
   }
 
   /** Add (or move) publishers into this group. Tenant- and existence-checked. */
