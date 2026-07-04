@@ -379,6 +379,38 @@ export class PublishersService {
     };
   }
 
+  /**
+   * Names-only roster for schedule display: every congregation member sees
+   * assignment names on the posted schedules anyway, so exposing id +
+   * displayName to any authenticated member leaks nothing new — while the
+   * full directory stays restricted to privileged users (or, for a regular
+   * publisher, to their own service group).
+   */
+  async roster(
+    tenantId: string,
+  ): Promise<{ data: { id: string; displayName: string }[] }> {
+    const rows = await this.publishersRepo
+      .createQueryBuilder('publisher')
+      .select(['publisher.id', 'publisher.displayName'])
+      .where('publisher.congregation_id = :tenantId', { tenantId })
+      .orderBy('publisher.display_name', 'ASC')
+      .getMany();
+    return {
+      data: rows.map((r) => ({ id: r.id, displayName: r.displayName })),
+    };
+  }
+
+  /** Service group of the caller's own publisher record (null if unlinked). */
+  async findOwnServiceGroupId(
+    tenantId: string,
+    userId: string,
+  ): Promise<string | null> {
+    const me = await this.publishersRepo.findOne({
+      where: { congregationId: tenantId, userId },
+    });
+    return me?.serviceGroupId ?? null;
+  }
+
   async findOne(tenantId: string, id: string): Promise<Publisher> {
     const publisher = await this.publishersRepo.findOne({
       where: { id, congregationId: tenantId },

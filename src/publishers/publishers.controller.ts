@@ -59,11 +59,11 @@ export class PublishersController {
   }
 
   /**
-   * Directory list. Any authenticated member may list publishers so the
-   * scheduling/group pickers work, but only those who may see private data
-   * (admins, elders, or members granted access) receive the private fields.
-   * For everyone else the rows are redacted to a name-and-scheduling roster
-   * and removed publishers are excluded entirely.
+   * Directory list. Privileged callers (admins, elders, members granted
+   * access to private data) get the full directory with filters. A regular
+   * publisher gets ONLY their own service group, redacted to a
+   * name-and-scheduling roster — the directory must not expose the whole
+   * congregation to everyone. Unlinked users get an empty page.
    */
   @Get()
   async findAll(
@@ -77,12 +77,35 @@ export class PublishersController {
     );
     if (!privileged) {
       query.includeRemoved = false;
+      const ownGroupId = await this.publishersService.findOwnServiceGroupId(
+        tenantId,
+        user.id,
+      );
+      if (!ownGroupId) {
+        return {
+          data: [],
+          total: 0,
+          limit: query.limit ?? 50,
+          offset: query.offset ?? 0,
+        };
+      }
+      query.serviceGroupId = ownGroupId;
     }
     const result = await this.publishersService.findAll(tenantId, query);
     if (privileged) {
       return result;
     }
     return { ...result, data: result.data.map(redactPrivateFields) };
+  }
+
+  /**
+   * Names-only roster (id + displayName) for resolving assignment names on
+   * schedules. Open to any authenticated member — these names appear on the
+   * posted schedules anyway. Must stay above the ':id' route.
+   */
+  @Get('roster')
+  roster(@TenantId() tenantId: string) {
+    return this.publishersService.roster(tenantId);
   }
 
   @Get(':id')
