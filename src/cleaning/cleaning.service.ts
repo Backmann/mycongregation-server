@@ -159,21 +159,7 @@ export class CleaningService {
     }
 
     const plannedAt = dto.plannedAt ? new Date(dto.plannedAt) : null;
-    if (plannedAt) {
-      const weekStart = new Date(`${dto.weekStartDate}T00:00:00Z`);
-      const weekEnd = new Date(weekStart);
-      weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
-      // Local wall-clock times land within a day of the UTC week bounds.
-      const slack = 24 * 60 * 60 * 1000;
-      if (
-        plannedAt.getTime() < weekStart.getTime() - slack ||
-        plannedAt.getTime() >= weekEnd.getTime() + slack
-      ) {
-        throw new BadRequestException(
-          'plannedAt must fall inside the assignment week',
-        );
-      }
-    }
+    CleaningService.assertInsideWeek(plannedAt, dto.weekStartDate);
 
     const allowed = await this.canPlanThorough(
       congregationId,
@@ -188,6 +174,82 @@ export class CleaningService {
 
     slot.thoroughPlannedAt = plannedAt;
     return this.repo.save(slot);
+  }
+
+  /**
+   * Set (or clear) the date and time of the GENERAL (annual) cleaning for the
+   * given week. Congregation-wide, so only admins and the cleaning
+   * coordinator may plan it. The datetime is stored in the same
+   * thoroughPlannedAt column on the general row (per-row semantics: for
+   * THOROUGH — the group-agreed day, for GENERAL — the congregation-wide
+   * date/time driving the 2h-before push to everyone).
+   */
+  async planGeneral(
+    congregationId: string,
+    dto: PlanThoroughDto,
+    user: AuthenticatedUser,
+  ): Promise<CleaningAssignment> {
+    const slot = await this.repo.findOne({
+      where: {
+        congregationId,
+        weekStartDate: dto.weekStartDate,
+        slotType: CleaningSlotType.GENERAL,
+      },
+    });
+    if (!slot) {
+      throw new NotFoundException(
+        'No general cleaning is scheduled for this week',
+      );
+    }
+
+    const plannedAt = dto.plannedAt ? new Date(dto.plannedAt) : null;
+    CleaningService.assertInsideWeek(plannedAt, dto.weekStartDate);
+
+    const allowed = await this.isCoordinatorOrAdmin(congregationId, user);
+    if (!allowed) {
+      throw new ForbiddenException(
+        'Only the cleaning coordinator can plan the general cleaning',
+      );
+    }
+
+    slot.thoroughPlannedAt = plannedAt;
+    return this.repo.save(slot);
+  }
+
+  /** Throws if the planned datetime falls outside the assignment week. */
+  private static assertInsideWeek(
+    plannedAt: Date | null,
+    weekStartDate: string,
+  ): void {
+    if (!plannedAt) return;
+    const weekStart = new Date(`${weekStartDate}T00:00:00Z`);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
+    // Local wall-clock times land within a day of the UTC week bounds.
+    const slack = 24 * 60 * 60 * 1000;
+    if (
+      plannedAt.getTime() < weekStart.getTime() - slack ||
+      plannedAt.getTime() >= weekEnd.getTime() + slack
+    ) {
+      throw new BadRequestException(
+        'plannedAt must fall inside the assignment week',
+      );
+    }
+  }
+
+  private async isCoordinatorOrAdmin(
+    congregationId: string,
+    user: AuthenticatedUser,
+  ): Promise<boolean> {
+    if (user.role === UserRole.ADMIN) return true;
+    const holds = await this.responsibilityRepo.count({
+      where: {
+        congregationId,
+        userId: user.id,
+        type: ResponsibilityType.CLEANING_COORDINATOR,
+      },
+    });
+    return holds > 0;
   }
 
   private async canPlanThorough(

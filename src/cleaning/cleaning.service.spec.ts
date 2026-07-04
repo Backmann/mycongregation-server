@@ -318,6 +318,82 @@ describe('CleaningService.planThorough', () => {
   });
 });
 
+describe('CleaningService.planGeneral', () => {
+  const WEEK = '2026-05-18';
+  const admin = { id: 'u-admin', role: 'admin' } as any;
+  const member = { id: 'u-member', role: 'publisher' } as any;
+
+  function slotRepo(slot: any) {
+    return {
+      findOne: jest.fn(async () => slot),
+      save: jest.fn(async (v: unknown) => v),
+    } as any;
+  }
+
+  it('404s when the week has no general slot', async () => {
+    const svc = svcWith(slotRepo(null), { find: jest.fn() });
+    await expect(
+      svc.planGeneral(CONG, { weekStartDate: WEEK, plannedAt: null }, admin),
+    ).rejects.toThrow('No general cleaning');
+  });
+
+  it('allows an admin to set the datetime', async () => {
+    const slot = { slotType: 'general', thoroughPlannedAt: null } as any;
+    const svc = svcWith(slotRepo(slot), { find: jest.fn() });
+    const out = await svc.planGeneral(
+      CONG,
+      { weekStartDate: WEEK, plannedAt: '2026-05-23T08:00:00Z' },
+      admin,
+    );
+    expect(out.thoroughPlannedAt).toEqual(new Date('2026-05-23T08:00:00Z'));
+  });
+
+  it('allows the cleaning coordinator via responsibility', async () => {
+    const slot = { slotType: 'general', thoroughPlannedAt: null } as any;
+    const svc = svcWith(
+      slotRepo(slot),
+      { find: jest.fn() },
+      { findOne: jest.fn(async () => null) },
+      { count: jest.fn(async () => 1) },
+    );
+    const out = await svc.planGeneral(
+      CONG,
+      { weekStartDate: WEEK, plannedAt: '2026-05-23T08:00:00Z' },
+      member,
+    );
+    expect(out.thoroughPlannedAt).toEqual(new Date('2026-05-23T08:00:00Z'));
+  });
+
+  it('rejects a regular member (group overseer rule does NOT apply)', async () => {
+    const slot = { slotType: 'general', thoroughPlannedAt: null } as any;
+    const svc = svcWith(
+      slotRepo(slot),
+      { find: jest.fn() },
+      { findOne: jest.fn(async () => ({ id: 'pub-1' })) },
+      { count: jest.fn(async () => 0) },
+    );
+    await expect(
+      svc.planGeneral(
+        CONG,
+        { weekStartDate: WEEK, plannedAt: '2026-05-23T08:00:00Z' },
+        member,
+      ),
+    ).rejects.toThrow('Only the cleaning coordinator');
+  });
+
+  it('rejects a datetime outside the week', async () => {
+    const slot = { slotType: 'general', thoroughPlannedAt: null } as any;
+    const svc = svcWith(slotRepo(slot), { find: jest.fn() });
+    await expect(
+      svc.planGeneral(
+        CONG,
+        { weekStartDate: WEEK, plannedAt: '2026-06-10T08:00:00Z' },
+        admin,
+      ),
+    ).rejects.toThrow('must fall inside');
+  });
+});
+
 describe('CleaningService.clearSlot', () => {
   it('deletes the slot row for the tenant/week/type', async () => {
     const repo = { delete: jest.fn(async () => ({ affected: 1 })) } as any;

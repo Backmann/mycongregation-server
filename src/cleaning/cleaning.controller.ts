@@ -60,6 +60,19 @@ export class CleaningController {
     return this.service.planThorough(congregationId, dto, user);
   }
 
+  /**
+   * Set/clear the date and time of the general (annual) cleaning. Permission
+   * is checked in the service (coordinator or admin only).
+   */
+  @Patch('general-plan')
+  planGeneral(
+    @TenantId() congregationId: string,
+    @Body() dto: PlanThoroughDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.planGeneral(congregationId, dto, user);
+  }
+
   @Delete()
   @UseGuards(ResponsibilityGuard)
   @RequireResponsibility(ResponsibilityType.CLEANING_COORDINATOR)

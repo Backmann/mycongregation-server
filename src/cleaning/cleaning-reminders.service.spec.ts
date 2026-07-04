@@ -216,6 +216,39 @@ describe('CleaningRemindersService.forCongregation', () => {
     expect(sends).toHaveLength(0);
   });
 
+  it('pushes the WHOLE congregation 2h before the planned general cleaning', async () => {
+    // Планируем генеральную на сб 2026-05-23 10:00 Berlin; 2h до = 08:00 = 06:00Z.
+    const rows = [
+      {
+        slotType: CleaningSlotType.GENERAL,
+        serviceGroupId: null,
+        thoroughPlannedAt: '2026-05-23T08:00:00.000Z', // 10:00 Berlin
+      },
+    ];
+    const everyone = [
+      { userId: 'u1' },
+      { userId: 'u2' },
+      { userId: null },
+      { userId: 'u3' },
+    ];
+    const { svc, sends } = makeSvc({
+      meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
+      cleaningRepo: cleaningRepoWith(rows),
+      publisherRepo: { find: jest.fn(async () => everyone) } as any,
+    });
+    await svc['forCongregation'](cong, new Date('2026-05-23T06:00:00Z'));
+    const general = sends.filter(
+      (s) => s.data.type === 'cleaning_general_planned',
+    );
+    expect(general).toHaveLength(1);
+    expect(general[0].users).toEqual(['u1', 'u2', 'u3']);
+    // повторный тик в том же окне не дублирует
+    await svc['forCongregation'](cong, new Date('2026-05-23T06:10:00Z'));
+    expect(
+      sends.filter((s) => s.data.type === 'cleaning_general_planned'),
+    ).toHaveLength(1);
+  });
+
   it('does nothing when no group is assigned', async () => {
     const { svc, sends } = makeSvc({
       meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,

@@ -43,6 +43,8 @@ const STR: Record<
     weeklyBodyNoWindows: string;
     plannedTitle: string;
     plannedBody: string;
+    generalTitle: string;
+    generalBody: string;
   }
 > = {
   ru: {
@@ -56,6 +58,9 @@ const STR: Record<
       'На этой неделе ваша группа проводит еженедельную уборку. Договоритесь о дне.',
     plannedTitle: 'Еженедельная уборка сегодня',
     plannedBody: 'Через 2 часа ваша группа проводит еженедельную уборку зала.',
+    generalTitle: 'Генеральная уборка сегодня',
+    generalBody:
+      'Через 2 часа — генеральная уборка зала. Приглашается всё собрание!',
   },
   en: {
     afterTitle: 'Cleaning after the meeting',
@@ -68,6 +73,9 @@ const STR: Record<
       'Your group does the weekly cleaning this week. Please agree on a day.',
     plannedTitle: 'Weekly cleaning today',
     plannedBody: 'Your group does the weekly hall cleaning in 2 hours.',
+    generalTitle: 'General cleaning today',
+    generalBody:
+      'The general hall cleaning starts in 2 hours. The whole congregation is invited!',
   },
   de: {
     afterTitle: 'Reinigung nach der Zusammenkunft',
@@ -80,6 +88,9 @@ const STR: Record<
       'Eure Gruppe macht diese Woche die wöchentliche Reinigung. Stimmt einen Tag ab.',
     plannedTitle: 'Wöchentliche Reinigung heute',
     plannedBody: 'Eure Gruppe reinigt in 2 Stunden den Saal.',
+    generalTitle: 'Grundreinigung heute',
+    generalBody:
+      'In 2 Stunden beginnt die Grundreinigung des Saals. Die ganze Versammlung ist eingeladen!',
   },
 };
 
@@ -233,6 +244,9 @@ export class CleaningRemindersService {
     const thoroughSlot = assignments.find(
       (a) => a.slotType === CleaningSlotType.THOROUGH,
     );
+    const generalSlot = assignments.find(
+      (a) => a.slotType === CleaningSlotType.GENERAL,
+    );
 
     // 1. After-meeting group: 2h before each meeting today.
     if (settings && afterSlot?.serviceGroupId) {
@@ -313,6 +327,36 @@ export class CleaningRemindersService {
               s.plannedTitle,
               s.plannedBody,
               { type: 'cleaning_weekly_planned', weekStart },
+            );
+          }
+        }
+      }
+    }
+
+    // 4. General (annual) cleaning: 2h-before push to the WHOLE congregation
+    // once the coordinator has set a date and time for it.
+    if (generalSlot?.thoroughPlannedAt) {
+      const planned = CleaningRemindersService.localParts(
+        new Date(generalSlot.thoroughPlannedAt),
+        tz,
+      );
+      if (planned.date === p.date) {
+        const target = planned.minutesOfDay - LEAD_MINUTES;
+        if (CleaningRemindersService.hits(target, p.minutesOfDay)) {
+          const key = `${weekStart}:general:${planned.date}`;
+          if (await this.claim(cong.id, 'cleaning_general_planned', key)) {
+            const everyone = await this.publisherRepo.find({
+              where: { congregationId: cong.id },
+            });
+            const users = everyone
+              .map((m) => m.userId)
+              .filter((id): id is string => Boolean(id));
+            await this.push.sendToUsers(
+              cong.id,
+              users,
+              s.generalTitle,
+              s.generalBody,
+              { type: 'cleaning_general_planned', weekStart },
             );
           }
         }

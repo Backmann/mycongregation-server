@@ -238,6 +238,29 @@ export class MeService {
       }
     }
 
+    // ---- General (annual) cleaning: whole congregation ----
+    const generalCleanings = await this.cleaningRepo
+      .createQueryBuilder('c')
+      .where('c.congregation_id = :tenantId', { tenantId })
+      .andWhere("c.slot_type = 'general'")
+      .andWhere('c.week_start_date BETWEEN :ws AND :we', {
+        ws: weekFloor,
+        we: horizon,
+      })
+      .orderBy('c.week_start_date', 'ASC')
+      .getMany();
+    for (const c of generalCleanings) {
+      items.push({
+        kind: 'cleaning',
+        sortDate: c.weekStartDate,
+        weekStartDate: c.weekStartDate,
+        label: c.slotType,
+        ...(c.thoroughPlannedAt
+          ? { thoroughPlannedAt: c.thoroughPlannedAt.toISOString() }
+          : {}),
+      });
+    }
+
     // ---- Field service meetings (as conductor) ----
     // ---- Public witnessing (cart) assignments ----
     const cartAssignments = await this.cartAssignmentsRepo
