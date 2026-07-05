@@ -59,11 +59,15 @@ export class PublishersController {
   }
 
   /**
-   * Directory list. Privileged callers (admins, elders, members granted
-   * access to private data) get the full directory with filters. A regular
-   * publisher gets ONLY their own service group, redacted to a
-   * name-and-scheduling roster — the directory must not expose the whole
-   * congregation to everyone. Unlinked users get an empty page.
+   * Directory list, three access tiers:
+   *  - privileged (admins, elders, members granted private-data access):
+   *    full directory with filters;
+   *  - holders of ANY responsibility (schedule/duty/cleaning planners, who
+   *    may be ministerial servants): the FULL congregation, but redacted to
+   *    the name-and-scheduling roster — their pickers need every candidate,
+   *    not just their own group, yet no private contact data;
+   *  - regular publishers: ONLY their own service group, redacted. Unlinked
+   *    users get an empty page.
    */
   @Get()
   async findAll(
@@ -77,19 +81,25 @@ export class PublishersController {
     );
     if (!privileged) {
       query.includeRemoved = false;
-      const ownGroupId = await this.publishersService.findOwnServiceGroupId(
+      const planner = await this.publishersService.holdsAnyResponsibility(
         tenantId,
         user.id,
       );
-      if (!ownGroupId) {
-        return {
-          data: [],
-          total: 0,
-          limit: query.limit ?? 50,
-          offset: query.offset ?? 0,
-        };
+      if (!planner) {
+        const ownGroupId = await this.publishersService.findOwnServiceGroupId(
+          tenantId,
+          user.id,
+        );
+        if (!ownGroupId) {
+          return {
+            data: [],
+            total: 0,
+            limit: query.limit ?? 50,
+            offset: query.offset ?? 0,
+          };
+        }
+        query.serviceGroupId = ownGroupId;
       }
-      query.serviceGroupId = ownGroupId;
     }
     const result = await this.publishersService.findAll(tenantId, query);
     if (privileged) {

@@ -24,6 +24,30 @@ function makeController(service: Partial<Record<string, unknown>>) {
 }
 
 describe('PublishersController.findAll — directory scoping', () => {
+  it('gives a responsibility holder the full congregation, redacted', async () => {
+    const findAll = jest.fn(async () => ({
+      data: [{ id: 'p1', displayName: 'A', mobilePhone: 'secret' }],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    }));
+    const controller = makeController({
+      resolvePrivateAccess: jest.fn(async () => false),
+      holdsAnyResponsibility: jest.fn(async () => true),
+      findOwnServiceGroupId: jest.fn(),
+      findAll,
+    });
+    const query: Record<string, unknown> = {};
+    const res = (await controller.findAll(TENANT, USER, query as never)) as {
+      data: Record<string, unknown>[];
+    };
+    // группа НЕ навязана — пикеру нужны все кандидаты
+    expect(query.serviceGroupId).toBeUndefined();
+    // приватные поля вырезаны
+    expect(res.data[0].mobilePhone).toBeUndefined();
+    expect(res.data[0].displayName).toBe('A');
+  });
+
   it('forces a regular publisher to their own service group', async () => {
     const findAll = jest.fn(async () => ({
       data: [{ id: 'p1', displayName: 'A', mobilePhone: 'secret' }],
@@ -33,6 +57,7 @@ describe('PublishersController.findAll — directory scoping', () => {
     }));
     const controller = makeController({
       resolvePrivateAccess: jest.fn(async () => false),
+      holdsAnyResponsibility: jest.fn(async () => false),
       findOwnServiceGroupId: jest.fn(async () => 'group-7'),
       findAll,
     });
@@ -57,6 +82,7 @@ describe('PublishersController.findAll — directory scoping', () => {
     const findAll = jest.fn();
     const controller = makeController({
       resolvePrivateAccess: jest.fn(async () => false),
+      holdsAnyResponsibility: jest.fn(async () => false),
       findOwnServiceGroupId: jest.fn(async () => null),
       findAll,
     });

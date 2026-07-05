@@ -9,6 +9,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, IsNull, MoreThanOrEqual, Repository } from 'typeorm';
 import { Publisher } from '../entities/publisher.entity';
+import { Responsibility } from '../entities/responsibility.entity';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
@@ -409,6 +410,22 @@ export class PublishersService {
       where: { congregationId: tenantId, userId },
     });
     return me?.serviceGroupId ?? null;
+  }
+
+  /**
+   * Whether the user holds ANY responsibility in the congregation. Planners
+   * (schedule/duty/cleaning editors — possibly ministerial servants, not
+   * elders) need the full name roster for their pickers. Queried through the
+   * repository manager to avoid injecting yet another repository.
+   */
+  async holdsAnyResponsibility(
+    tenantId: string,
+    userId: string,
+  ): Promise<boolean> {
+    const held = await this.publishersRepo.manager.count(Responsibility, {
+      where: { congregationId: tenantId, userId },
+    });
+    return held > 0;
   }
 
   async findOne(tenantId: string, id: string): Promise<Publisher> {
