@@ -306,6 +306,22 @@ describe('TalkExchangeService', () => {
     );
   });
 
+  it('removes the journal entry when the slot week is CANCELLED', async () => {
+    assignmentRepo.findOne.mockResolvedValue({
+      id: 'asg',
+      publisherId: 'pub-1',
+      speakerName: null,
+      publicTalkId: 'talk-1',
+      status: 'cancelled',
+    });
+    repo.findOne.mockResolvedValue({ id: 'tx-9' });
+
+    await service.syncProgramToJournal(TENANT, '2026-06-15');
+
+    expect(repo.softDelete).toHaveBeenCalledWith('tx-9');
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
   it('removes the journal entry when the program slot has no speaker', async () => {
     assignmentRepo.findOne.mockResolvedValue({
       id: 'asg',

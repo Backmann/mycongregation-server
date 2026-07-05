@@ -15,6 +15,7 @@ import {
 import { AssignmentsService } from './assignments.service';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
+import { SwapPublicTalkDto } from './dto/swap-public-talk.dto';
 import { QueryAssignmentDto } from './dto/query-assignment.dto';
 import { BulkCreateAssignmentDto } from './dto/bulk-create-assignment.dto';
 import { PublishAssignmentsDto } from './dto/publish-assignments.dto';
@@ -85,6 +86,20 @@ export class AssignmentsController {
       dto.weekStartDate,
       dto.eventType,
     );
+  }
+
+  /**
+   * Swap or move the weekend public-talk contents between two weeks (the
+   * booked speaker arrived on a different date). Guarded by the weekend
+   * section rights via eventType in the body.
+   */
+  @Post('public-talk/swap')
+  @UseGuards(AssignmentSectionGuard)
+  swapPublicTalk(
+    @TenantId() congregationId: string,
+    @Body() dto: SwapPublicTalkDto,
+  ) {
+    return this.service.swapPublicTalk(congregationId, dto);
   }
 
   @Patch(':id')

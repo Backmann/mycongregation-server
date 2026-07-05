@@ -384,9 +384,12 @@ export class TalkExchangeService {
       },
     });
 
-    const hasLocal = !!(slot && slot.publisherId);
+    // A cancelled week (congress, memorial, ...) counts as "no speaker":
+    // its journal entry must not survive the cancellation.
+    const active = slot && slot.status !== AssignmentStatus.CANCELLED;
+    const hasLocal = !!(active && slot.publisherId);
     const hasInvited = !!(
-      slot &&
+      active &&
       !slot.publisherId &&
       slot.speakerName?.trim()
     );

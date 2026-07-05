@@ -1,9 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, IsNull, Not, In } from 'typeorm';
 import { Assignment } from '../entities/assignment.entity';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
+import { SwapPublicTalkDto } from './dto/swap-public-talk.dto';
 import { QueryAssignmentDto } from './dto/query-assignment.dto';
 import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
@@ -178,7 +183,16 @@ export class AssignmentsService {
       ...dto,
       congregationId,
     });
-    return this.repo.save(assignment);
+    const saved = await this.repo.save(assignment);
+    // Keep the "К нам" journal in sync when the weekend public-talk slot is
+    // created directly with a speaker (not only via update).
+    if (saved.partKey === PUBLIC_TALK_PART_KEY) {
+      await this.talkExchange.syncProgramToJournal(
+        congregationId,
+        saved.weekStartDate,
+      );
+    }
+    return saved;
   }
 
   async bulkCreate(
@@ -188,7 +202,16 @@ export class AssignmentsService {
     const entities = dtos.map((dto) =>
       this.repo.create({ ...dto, congregationId }),
     );
-    return this.repo.save(entities);
+    const saved = await this.repo.save(entities);
+    const talkWeeks = new Set(
+      saved
+        .filter((a) => a.partKey === PUBLIC_TALK_PART_KEY)
+        .map((a) => a.weekStartDate),
+    );
+    for (const week of talkWeeks) {
+      await this.talkExchange.syncProgramToJournal(congregationId, week);
+    }
+    return saved;
   }
 
   async update(
@@ -422,6 +445,85 @@ export class AssignmentsService {
     return warnings;
   }
 
+  /**
+   * Swap or move the weekend public-talk slot contents (speaker, invited
+   * name/congregation, talk number) between two weeks. Used when the brother
+   * booked for another week arrives today. 'swap' exchanges the two weeks;
+   * 'move' fills the target and clears the source. The "К нам" journal is
+   * re-synced for both weeks afterwards.
+   */
+  async swapPublicTalk(
+    congregationId: string,
+    dto: SwapPublicTalkDto,
+  ): Promise<{ source: Assignment; target: Assignment }> {
+    if (dto.sourceWeekStartDate === dto.targetWeekStartDate) {
+      throw new BadRequestException('Source and target weeks must differ');
+    }
+    const findSlot = (week: string) =>
+      this.repo.findOne({
+        where: {
+          congregationId,
+          weekStartDate: week,
+          partKey: PUBLIC_TALK_PART_KEY,
+        },
+      });
+    const source = await findSlot(dto.sourceWeekStartDate);
+    const target = await findSlot(dto.targetWeekStartDate);
+    if (!source || !target) {
+      throw new NotFoundException(
+        'Both weeks must have a weekend public-talk slot',
+      );
+    }
+
+    type TalkFields = Pick<
+      Assignment,
+      'publisherId' | 'speakerName' | 'speakerCongregation' | 'publicTalkId'
+    >;
+    const take = (a: Assignment): TalkFields => ({
+      publisherId: a.publisherId,
+      speakerName: a.speakerName,
+      speakerCongregation: a.speakerCongregation,
+      publicTalkId: a.publicTalkId,
+    });
+    const put = (a: Assignment, f: TalkFields) => {
+      const changed =
+        a.publisherId !== f.publisherId ||
+        a.speakerName !== f.speakerName ||
+        a.speakerCongregation !== f.speakerCongregation ||
+        a.publicTalkId !== f.publicTalkId;
+      Object.assign(a, f);
+      if (changed && a.status === AssignmentStatus.PUBLISHED) {
+        a.changedSincePublish = true;
+      }
+    };
+
+    const fromSource = take(source);
+    const fromTarget = take(target);
+    put(target, fromSource);
+    put(
+      source,
+      dto.mode === 'swap'
+        ? fromTarget
+        : {
+            publisherId: null,
+            speakerName: null,
+            speakerCongregation: null,
+            publicTalkId: null,
+          },
+    );
+
+    await this.repo.save([source, target]);
+    await this.talkExchange.syncProgramToJournal(
+      congregationId,
+      dto.sourceWeekStartDate,
+    );
+    await this.talkExchange.syncProgramToJournal(
+      congregationId,
+      dto.targetWeekStartDate,
+    );
+    return { source, target };
+  }
+
   async remove(congregationId: string, id: string): Promise<void> {
     const existing = await this.getById(congregationId, id);
     if (existing.deletedAt) {
@@ -431,6 +533,14 @@ export class AssignmentsService {
       id,
       congregationId,
     });
+    // Deleting the weekend public-talk slot must also clear the "К нам"
+    // journal entry — otherwise an accidental pick leaves a ghost record.
+    if (existing.partKey === PUBLIC_TALK_PART_KEY) {
+      await this.talkExchange.syncProgramToJournal(
+        congregationId,
+        existing.weekStartDate,
+      );
+    }
   }
 
   async restore(congregationId: string, id: string): Promise<Assignment> {
@@ -449,7 +559,14 @@ export class AssignmentsService {
       id,
       congregationId,
     });
-    return this.getById(congregationId, id);
+    const restored = await this.getById(congregationId, id);
+    if (restored.partKey === PUBLIC_TALK_PART_KEY) {
+      await this.talkExchange.syncProgramToJournal(
+        congregationId,
+        restored.weekStartDate,
+      );
+    }
+    return restored;
   }
 
   /**
