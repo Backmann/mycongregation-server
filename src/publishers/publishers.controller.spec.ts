@@ -122,3 +122,44 @@ describe('PublishersController.roster', () => {
     expect(res.data[0]).toEqual({ id: 'p1', displayName: 'A' });
   });
 });
+
+describe('PublishersController.findOne — computed status visibility', () => {
+  function setup(role: string) {
+    const controller = makeController({
+      resolvePrivateAccess: jest.fn(async () => true),
+      findOne: jest.fn(async () => ({
+        id: 'pub-1',
+        displayName: 'A',
+        status: 'inactive',
+        lastEditedById: null,
+      })),
+      resolveEditorName: jest.fn(async () => null),
+    });
+    const user = { id: 'u', role } as AuthenticatedUser;
+    return { controller, user };
+  }
+
+  it('includes status for an elder', async () => {
+    const { controller, user } = setup('elder');
+    const res = (await controller.findOne(TENANT, user, 'pub-1')) as {
+      status?: string;
+    };
+    expect(res.status).toBe('inactive');
+  });
+
+  it('includes status for an admin', async () => {
+    const { controller, user } = setup('admin');
+    const res = (await controller.findOne(TENANT, user, 'pub-1')) as {
+      status?: string;
+    };
+    expect(res.status).toBe('inactive');
+  });
+
+  it('strips status for a trusted non-elder (canViewPrivateData)', async () => {
+    const { controller, user } = setup('publisher');
+    const res = (await controller.findOne(TENANT, user, 'pub-1')) as {
+      status?: string;
+    };
+    expect(res.status).toBeUndefined();
+  });
+});

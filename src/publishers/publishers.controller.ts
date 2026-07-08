@@ -139,7 +139,17 @@ export class PublishersController {
       tenantId,
       publisher.lastEditedById,
     );
-    return { ...publisher, lastEditedByName };
+    // The computed status (active/irregular/inactive) is pastoral information
+    // for elders — strip it for anyone who is not an admin or elder (e.g. a
+    // trusted member with canViewPrivateData), so it never leaks in the
+    // response, not even to the publisher themselves.
+    const canSeeStatus =
+      user.role === UserRole.ADMIN || user.role === UserRole.ELDER;
+    const result = { ...publisher, lastEditedByName };
+    if (!canSeeStatus) {
+      delete (result as { status?: unknown }).status;
+    }
+    return result;
   }
 
   @Roles(UserRole.ADMIN)
