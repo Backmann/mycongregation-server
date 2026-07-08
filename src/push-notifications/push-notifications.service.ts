@@ -99,26 +99,57 @@ export class PushNotificationsService {
    * Best-effort: catches all errors internally and logs them. The caller
    * (recomputeStatus) should treat this as fire-and-forget.
    */
+  /**
+   * Notify a SINGLE user of a publisher's status change. Used for the group
+   * overseer only — status changes are sensitive and must not fan out to all
+   * elders or the congregation. Both the Expo tokens and the web-push subs are
+   * scoped to `recipientUserId`.
+   */
+  async sendStatusChangeToUser(
+    tenantId: string,
+    recipientUserId: string,
+    publisher: { id: string; displayName: string },
+    before: string,
+    after: string,
+  ): Promise<void> {
+    return this.sendStatusChange(
+      tenantId,
+      publisher,
+      before,
+      after,
+      undefined,
+      recipientUserId,
+    );
+  }
+
   async sendStatusChange(
     tenantId: string,
     publisher: { id: string; displayName: string },
     before: string,
     after: string,
     excludeUserId?: string,
+    onlyUserId?: string,
   ): Promise<void> {
     const where: Record<string, unknown> = {
       congregationId: tenantId,
-      role: In([UserRole.ADMIN, UserRole.ELDER]),
     };
-    if (excludeUserId) {
-      where.userId = Not(excludeUserId);
+    if (onlyUserId) {
+      // Scoped delivery to a single recipient (the group overseer).
+      where.userId = onlyUserId;
+    } else {
+      where.role = In([UserRole.ADMIN, UserRole.ELDER]);
+      if (excludeUserId) {
+        where.userId = Not(excludeUserId);
+      }
     }
 
     const tokens = await this.pushTokenRepo.find({ where });
-    const webSubs = await this.webPushService.getSubscriptionsByTenant(
-      tenantId,
-      excludeUserId,
-    );
+    const webSubs = onlyUserId
+      ? await this.webPushService.getSubscriptionsByUser(tenantId, onlyUserId)
+      : await this.webPushService.getSubscriptionsByTenant(
+          tenantId,
+          excludeUserId,
+        );
     if (tokens.length === 0 && webSubs.length === 0) {
       this.logger.log(
         `No push recipients in tenant=${tenantId}; skipping send`,

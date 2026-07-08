@@ -9,6 +9,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, IsNull, MoreThanOrEqual, Repository } from 'typeorm';
 import { Publisher } from '../entities/publisher.entity';
+import { ServiceGroup } from '../entities/service-group.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Assignment } from '../entities/assignment.entity';
@@ -154,22 +155,52 @@ export class PublishersService {
         fields: ['status'],
       });
     }
-    // Fire-and-forget push to admin/elder devices. Best-effort: errors are
-    // swallowed so a push failure can never break the status pipeline.
-    this.pushNotificationsService
-      .sendStatusChange(
-        tenantId,
-        { id: publisher.id, displayName: publisher.displayName },
-        before.status,
-        newStatus,
-        publisher.userId ?? undefined,
-      )
-      .catch((err: any) => {
-        this.logger.warn(
-          `sendStatusChange failed for publisher=${publisher.id}: ${err?.message ?? err}`,
-        );
-      });
+    // Notify ONLY the overseer of this publisher's service group — a status
+    // change (e.g. becoming irregular/inactive after missing reports) is
+    // sensitive and must not fan out to every elder or the whole congregation.
+    // Best-effort: errors are swallowed so a push failure can never break the
+    // status pipeline.
+    const overseerUserId = await this.resolveGroupOverseerUserId(
+      tenantId,
+      publisher.serviceGroupId,
+    );
+    if (overseerUserId) {
+      this.pushNotificationsService
+        .sendStatusChangeToUser(
+          tenantId,
+          overseerUserId,
+          { id: publisher.id, displayName: publisher.displayName },
+          before.status,
+          newStatus,
+        )
+        .catch((err: any) => {
+          this.logger.warn(
+            `sendStatusChange failed for publisher=${publisher.id}: ${err?.message ?? err}`,
+          );
+        });
+    }
     return 'updated';
+  }
+
+  /**
+   * Resolve the linked user account of the overseer of a service group, so a
+   * status-change notification can be sent to exactly that person. Returns
+   * null when the group has no overseer, the overseer has no linked user, or
+   * the publisher is not in any group.
+   */
+  private async resolveGroupOverseerUserId(
+    tenantId: string,
+    serviceGroupId: string | null,
+  ): Promise<string | null> {
+    if (!serviceGroupId) return null;
+    const group = await this.publishersRepo.manager.findOne(ServiceGroup, {
+      where: { id: serviceGroupId, congregationId: tenantId },
+    });
+    if (!group?.overseerPublisherId) return null;
+    const overseer = await this.publishersRepo.findOne({
+      where: { id: group.overseerPublisherId, congregationId: tenantId },
+    });
+    return overseer?.userId ?? null;
   }
 
   /**

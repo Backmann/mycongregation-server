@@ -111,6 +111,16 @@ export class WebPushService {
     return this.subRepo.find({ where });
   }
 
+  /** Web-push subscriptions for a single user (scoped, sensitive sends). */
+  async getSubscriptionsByUser(
+    tenantId: string,
+    userId: string,
+  ): Promise<WebPushSubscription[]> {
+    return this.subRepo.find({
+      where: { congregationId: tenantId, userId },
+    });
+  }
+
   /**
    * Send a single push to one subscription. Synchronous-ish: the push
    * service responds with an HTTP status code directly (unlike Expo which
