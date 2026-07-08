@@ -10,7 +10,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, IsNull, MoreThanOrEqual, Repository } from 'typeorm';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
+import { User } from '../entities/user.entity';
 import { Responsibility } from '../entities/responsibility.entity';
+import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
@@ -155,20 +157,21 @@ export class PublishersService {
         fields: ['status'],
       });
     }
-    // Notify ONLY the overseer of this publisher's service group — a status
-    // change (e.g. becoming irregular/inactive after missing reports) is
-    // sensitive and must not fan out to every elder or the whole congregation.
-    // Best-effort: errors are swallowed so a push failure can never break the
-    // status pipeline.
-    const overseerUserId = await this.resolveGroupOverseerUserId(
+    // Notify a SCOPED set — the overseer of this publisher's service group,
+    // the congregation secretary (keeps the reporting records), and all
+    // admins. A status change (e.g. becoming irregular/inactive after missing
+    // reports) is sensitive and must not fan out to every elder or the whole
+    // congregation. Best-effort: errors are swallowed so a push failure can
+    // never break the status pipeline.
+    const recipientUserIds = await this.resolveStatusChangeRecipients(
       tenantId,
       publisher.serviceGroupId,
     );
-    if (overseerUserId) {
+    for (const recipientUserId of recipientUserIds) {
       this.pushNotificationsService
         .sendStatusChangeToUser(
           tenantId,
-          overseerUserId,
+          recipientUserId,
           { id: publisher.id, displayName: publisher.displayName },
           before.status,
           newStatus,
@@ -183,24 +186,52 @@ export class PublishersService {
   }
 
   /**
-   * Resolve the linked user account of the overseer of a service group, so a
-   * status-change notification can be sent to exactly that person. Returns
-   * null when the group has no overseer, the overseer has no linked user, or
-   * the publisher is not in any group.
+   * Resolve the set of user accounts that should be notified of a publisher's
+   * status change: the overseer of the publisher's service group, the
+   * congregation secretary, and every admin. Deduplicated; entries without a
+   * linked user account are dropped. Returns an empty array when nobody
+   * qualifies (rather than broadcasting).
    */
-  private async resolveGroupOverseerUserId(
+  private async resolveStatusChangeRecipients(
     tenantId: string,
     serviceGroupId: string | null,
-  ): Promise<string | null> {
-    if (!serviceGroupId) return null;
-    const group = await this.publishersRepo.manager.findOne(ServiceGroup, {
-      where: { id: serviceGroupId, congregationId: tenantId },
+  ): Promise<string[]> {
+    const userIds = new Set<string>();
+
+    // 1) Overseer of the publisher's service group.
+    if (serviceGroupId) {
+      const group = await this.publishersRepo.manager.findOne(ServiceGroup, {
+        where: { id: serviceGroupId, congregationId: tenantId },
+      });
+      if (group?.overseerPublisherId) {
+        const overseer = await this.publishersRepo.findOne({
+          where: {
+            id: group.overseerPublisherId,
+            congregationId: tenantId,
+          },
+        });
+        if (overseer?.userId) userIds.add(overseer.userId);
+      }
+    }
+
+    // 2) Congregation secretary (holds the SECRETARY responsibility).
+    const secretary = await this.publishersRepo.manager.findOne(
+      Responsibility,
+      {
+        where: { congregationId: tenantId, type: ResponsibilityType.SECRETARY },
+      },
+    );
+    if (secretary?.userId) userIds.add(secretary.userId);
+
+    // 3) All admins of the congregation.
+    const admins = await this.publishersRepo.manager.find(User, {
+      where: { congregationId: tenantId, role: UserRole.ADMIN },
     });
-    if (!group?.overseerPublisherId) return null;
-    const overseer = await this.publishersRepo.findOne({
-      where: { id: group.overseerPublisherId, congregationId: tenantId },
-    });
-    return overseer?.userId ?? null;
+    for (const a of admins) {
+      if (a.id) userIds.add(a.id);
+    }
+
+    return [...userIds];
   }
 
   /**

@@ -194,6 +194,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       find: jest.fn(),
       manager: {
         findOne: jest.fn().mockResolvedValue(null),
+        find: jest.fn().mockResolvedValue([]),
       },
     } as unknown as jest.Mocked<Repository<Publisher>>;
     reportsRepo = {
@@ -244,7 +245,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       );
     });
 
-    it('notifies ONLY the group overseer of a status change', async () => {
+    it('notifies the group overseer, the secretary and admins', async () => {
       const pub = makePublisher({
         id: 'pub-1',
         status: PublisherStatus.INACTIVE,
@@ -252,14 +253,17 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         serviceGroupId: 'grp-9',
       });
       publishersRepo.findOne
-        .mockResolvedValueOnce(pub) // recomputeStatus lookup
+        .mockResolvedValueOnce(pub)
         .mockResolvedValueOnce(
           makePublisher({ id: 'ovr-1', userId: 'user-overseer' }),
-        ); // overseer lookup
-      (publishersRepo.manager.findOne as jest.Mock).mockResolvedValue({
-        id: 'grp-9',
-        overseerPublisherId: 'ovr-1',
-      });
+        );
+      (publishersRepo.manager.findOne as jest.Mock)
+        .mockResolvedValueOnce({ id: 'grp-9', overseerPublisherId: 'ovr-1' })
+        .mockResolvedValueOnce({ userId: 'user-secretary' });
+      (publishersRepo.manager.find as jest.Mock).mockResolvedValue([
+        { id: 'user-admin-1' },
+        { id: 'user-admin-2' },
+      ]);
       reportsRepo.find.mockResolvedValue([
         makeReport({ reportMonth: '2026-04-01', servedThisMonth: true }),
       ]);
@@ -267,22 +271,59 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
 
       await service.recomputeStatus('cong-1', 'pub-1');
-      await new Promise((r) => setImmediate(r)); // let fire-and-forget settle
+      await new Promise((r) => setImmediate(r));
 
-      expect(
-        pushNotificationsService.sendStatusChangeToUser,
-      ).toHaveBeenCalledWith(
-        'cong-1',
-        'user-overseer',
-        expect.objectContaining({ id: 'pub-1' }),
-        expect.anything(),
-        expect.anything(),
+      const targets =
+        pushNotificationsService.sendStatusChangeToUser.mock.calls.map(
+          (c) => c[1],
+        );
+      expect(new Set(targets)).toEqual(
+        new Set([
+          'user-overseer',
+          'user-secretary',
+          'user-admin-1',
+          'user-admin-2',
+        ]),
       );
-      // The broadcast path is never used.
       expect(pushNotificationsService.sendStatusChange).not.toHaveBeenCalled();
     });
 
-    it('sends no notification when the group has no linked overseer', async () => {
+    it('deduplicates when the overseer is also an admin', async () => {
+      const pub = makePublisher({
+        id: 'pub-1',
+        status: PublisherStatus.INACTIVE,
+        statusManuallyOverridden: false,
+        serviceGroupId: 'grp-9',
+      });
+      publishersRepo.findOne
+        .mockResolvedValueOnce(pub)
+        .mockResolvedValueOnce(
+          makePublisher({ id: 'ovr-1', userId: 'user-dual' }),
+        );
+      (publishersRepo.manager.findOne as jest.Mock)
+        .mockResolvedValueOnce({ id: 'grp-9', overseerPublisherId: 'ovr-1' })
+        .mockResolvedValueOnce(null);
+      (publishersRepo.manager.find as jest.Mock).mockResolvedValue([
+        { id: 'user-dual' },
+      ]);
+      reportsRepo.find.mockResolvedValue([
+        makeReport({ reportMonth: '2026-04-01', servedThisMonth: true }),
+      ]);
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
+
+      await service.recomputeStatus('cong-1', 'pub-1');
+      await new Promise((r) => setImmediate(r));
+
+      expect(
+        pushNotificationsService.sendStatusChangeToUser,
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        pushNotificationsService.sendStatusChangeToUser.mock.calls[0][1],
+      ).toBe('user-dual');
+    });
+
+    it('sends nothing when nobody qualifies', async () => {
       const pub = makePublisher({
         id: 'pub-1',
         status: PublisherStatus.INACTIVE,
@@ -290,10 +331,10 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         serviceGroupId: 'grp-9',
       });
       publishersRepo.findOne.mockResolvedValue(pub);
-      (publishersRepo.manager.findOne as jest.Mock).mockResolvedValue({
-        id: 'grp-9',
-        overseerPublisherId: null,
-      });
+      (publishersRepo.manager.findOne as jest.Mock)
+        .mockResolvedValueOnce({ id: 'grp-9', overseerPublisherId: null })
+        .mockResolvedValueOnce(null);
+      (publishersRepo.manager.find as jest.Mock).mockResolvedValue([]);
       reportsRepo.find.mockResolvedValue([
         makeReport({ reportMonth: '2026-04-01', servedThisMonth: true }),
       ]);
