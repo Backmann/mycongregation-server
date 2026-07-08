@@ -99,6 +99,7 @@ describe('ServiceReportsService', () => {
   let closuresRepo: jest.Mocked<Repository<ReportMonthClosure>>;
   let auditLogService: { logUpdate: jest.Mock; findForEntity: jest.Mock };
   let publishersService: { recomputeStatus: jest.Mock };
+  let auxiliaryPioneersService: { isActiveAuxiliaryPioneer: jest.Mock };
 
   beforeEach(() => {
     reportsRepo = {
@@ -138,6 +139,9 @@ describe('ServiceReportsService', () => {
       findForEntity: jest.fn(),
     };
     publishersService = { recomputeStatus: jest.fn() };
+    auxiliaryPioneersService = {
+      isActiveAuxiliaryPioneer: jest.fn().mockResolvedValue(false),
+    };
     service = new ServiceReportsService(
       reportsRepo,
       publishersRepo,
@@ -146,6 +150,7 @@ describe('ServiceReportsService', () => {
       closuresRepo,
       auditLogService as any,
       publishersService as any,
+      auxiliaryPioneersService as any,
     );
   });
 
@@ -306,6 +311,38 @@ describe('ServiceReportsService', () => {
         }),
       ).rejects.toThrow('Students do not submit service reports');
       expect(reportsRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('an active auxiliary pioneer gets the hours form (pioneerType NONE)', async () => {
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ id: 'pub-self', pioneerType: PioneerType.NONE }),
+      );
+      auxiliaryPioneersService.isActiveAuxiliaryPioneer.mockResolvedValue(true);
+      reportsRepo.save.mockResolvedValue(makeReport());
+
+      await service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
+        reportMonth: '2026-04',
+        hoursReported: 15,
+        bibleStudies: 1,
+      });
+
+      expect(reportsRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ hoursReported: 15, servedThisMonth: null }),
+      );
+    });
+
+    it('an active auxiliary pioneer is rejected if they send the non-hours form', async () => {
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ id: 'pub-self', pioneerType: PioneerType.NONE }),
+      );
+      auxiliaryPioneersService.isActiveAuxiliaryPioneer.mockResolvedValue(true);
+      await expect(
+        service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
+          reportMonth: '2026-04',
+          servedThisMonth: true,
+          bibleStudies: 0,
+        }),
+      ).rejects.toThrow();
     });
 
     describe('regular publisher form (PioneerType.NONE)', () => {

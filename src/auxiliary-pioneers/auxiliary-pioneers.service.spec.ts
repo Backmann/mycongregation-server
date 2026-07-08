@@ -193,6 +193,24 @@ describe('AuxiliaryPioneersService', () => {
     });
   });
 
+  describe('isSelfActiveAuxiliaryPioneer', () => {
+    it('false when the user has no publisher record', async () => {
+      publisherRepo.findOne.mockResolvedValue(null);
+      await expect(
+        service.isSelfActiveAuxiliaryPioneer(CONG, plain, '2026-04-01'),
+      ).resolves.toBe(false);
+    });
+    it('true when the resolved publisher is serving that month', async () => {
+      publisherRepo.findOne.mockResolvedValue({ id: 'p-self' });
+      repo.find.mockResolvedValue([
+        { startMonth: '2026-03-01', endMonth: null, untilCancelled: true },
+      ]);
+      await expect(
+        service.isSelfActiveAuxiliaryPioneer(CONG, plain, '2026-04-01'),
+      ).resolves.toBe(true);
+    });
+  });
+
   describe('isActiveAuxiliaryPioneer', () => {
     it('true when a period covers the month', async () => {
       repo.find.mockResolvedValue([

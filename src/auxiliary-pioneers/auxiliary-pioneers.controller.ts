@@ -36,6 +36,26 @@ export class AuxiliaryPioneersController {
     return this.service.journal(congregationId);
   }
 
+  /**
+   * Whether the CURRENT user is an active auxiliary pioneer in a given month.
+   * Available to the publisher themselves (drives the report form + badges);
+   * returns just a boolean, never the roster.
+   */
+  @Get('mine')
+  async mine(
+    @TenantId() congregationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('month') month: string,
+  ): Promise<{ serving: boolean }> {
+    const monthIso = month || new Date().toISOString().slice(0, 10);
+    const serving = await this.service.isSelfActiveAuxiliaryPioneer(
+      congregationId,
+      user,
+      monthIso,
+    );
+    return { serving };
+  }
+
   @Post()
   create(
     @TenantId() congregationId: string,

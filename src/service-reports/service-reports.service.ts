@@ -14,6 +14,7 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { PublishersService } from '../publishers/publishers.service';
+import { AuxiliaryPioneersService } from '../auxiliary-pioneers/auxiliary-pioneers.service';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
@@ -143,6 +144,7 @@ export class ServiceReportsService {
     private readonly closuresRepo: Repository<ReportMonthClosure>,
     private readonly auditLogService: AuditLogService,
     private readonly publishersService: PublishersService,
+    private readonly auxiliaryPioneersService: AuxiliaryPioneersService,
   ) {}
 
   /**
@@ -175,7 +177,16 @@ export class ServiceReportsService {
       throw new BadRequestException('Students do not submit service reports');
     }
     const reportMonth = this.normalizeReportMonth(dto.reportMonth);
-    const isPioneer = publisher.pioneerType !== PioneerType.NONE;
+    // The hours form applies to actual pioneers AND to anyone serving as an
+    // auxiliary pioneer in this report month (they report hours that month).
+    const isAuxThisMonth =
+      await this.auxiliaryPioneersService.isActiveAuxiliaryPioneer(
+        tenantId,
+        publisher.id,
+        reportMonth,
+      );
+    const isPioneer =
+      publisher.pioneerType !== PioneerType.NONE || isAuxThisMonth;
 
     this.validateFormVariant(dto, isPioneer);
 

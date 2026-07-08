@@ -9,6 +9,7 @@ import { ServiceReportsController } from './service-reports.controller';
 import { ServiceReportsService } from './service-reports.service';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { PublishersModule } from '../publishers/publishers.module';
+import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneers.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -20,6 +21,7 @@ import { PublishersModule } from '../publishers/publishers.module';
     ]),
     AuditLogModule,
     PublishersModule,
+    AuxiliaryPioneersModule,
   ],
   controllers: [ServiceReportsController],
   providers: [ServiceReportsService],

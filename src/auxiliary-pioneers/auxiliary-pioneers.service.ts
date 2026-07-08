@@ -243,6 +243,28 @@ export class AuxiliaryPioneersService {
   }
 
   /**
+   * Whether the current user's own publisher record is an active auxiliary
+   * pioneer in the given month. Used by the report form and the "you serve as
+   * an auxiliary pioneer" badges — available to the publisher themselves.
+   */
+  async isSelfActiveAuxiliaryPioneer(
+    congregationId: string,
+    user: AuthenticatedUser,
+    monthIso: string,
+  ): Promise<boolean> {
+    const publisher = await this.publisherRepo.findOne({
+      where: { congregationId, userId: user.id },
+      select: ['id'],
+    });
+    if (!publisher) return false;
+    return this.isActiveAuxiliaryPioneer(
+      congregationId,
+      publisher.id,
+      monthIso,
+    );
+  }
+
+  /**
    * Is this publisher an active auxiliary pioneer in the given month? Used by
    * the reports module to switch the report form to the hours variant.
    */
