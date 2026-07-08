@@ -40,7 +40,6 @@ function makePublisher(overrides: Partial<Publisher> = {}): Publisher {
     firstName: 'Test',
     lastName: 'Publisher',
     isActive: true,
-    isRegular: true,
     pioneerType: PioneerType.NONE,
     status: PublisherStatus.INACTIVE,
     statusManuallyOverridden: false,

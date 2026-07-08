@@ -73,10 +73,6 @@ export class CreatePublisherDto {
   @IsBoolean()
   isActive?: boolean;
 
-  @IsOptional()
-  @IsBoolean()
-  isRegular?: boolean;
-
   // ---- Spirituality ----
   @IsOptional()
   @IsEnum(PublisherAppointment)

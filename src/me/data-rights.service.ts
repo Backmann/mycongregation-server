@@ -182,7 +182,6 @@ export class DataRightsService {
         publisher.notes = null;
         publisher.removedNote = null;
         publisher.isActive = false;
-        publisher.isRegular = false;
         publisher.removedAt = new Date();
         publisher.anonymizedAt = new Date();
         publisher.userId = null;

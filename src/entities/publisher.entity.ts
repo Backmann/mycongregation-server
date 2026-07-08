@@ -89,9 +89,6 @@ export class Publisher {
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;
 
-  @Column({ type: 'boolean', default: true })
-  isRegular!: boolean;
-
   // ---- Spirituality ----
   @Column({
     type: 'enum',
