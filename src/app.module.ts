@@ -42,6 +42,7 @@ import { CircuitOverseerModule } from './circuit-overseer/circuit-overseer.modul
 import { DutiesModule } from './duties/duties.module';
 import { FieldServiceMeetingsModule } from './field-service-meetings/field-service-meetings.module';
 import { CoVisitItemsModule } from './co-visit-items/co-visit-items.module';
+import { AuxiliaryPioneersModule } from './auxiliary-pioneers/auxiliary-pioneers.module';
 import { CleaningModule } from './cleaning/cleaning.module';
 import { CartLocationsModule } from './cart-locations/cart-locations.module';
 import { CartWeeksModule } from './cart-weeks/cart-weeks.module';
@@ -119,6 +120,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     DutiesModule,
     FieldServiceMeetingsModule,
     CoVisitItemsModule,
+    AuxiliaryPioneersModule,
     CleaningModule,
     CartLocationsModule,
     CartWeeksModule,
