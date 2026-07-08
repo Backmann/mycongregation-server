@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { PublishersService } from './publishers.service';
+import { AuxiliaryPioneersService } from '../auxiliary-pioneers/auxiliary-pioneers.service';
 import { CreatePublisherDto } from './dto/create-publisher.dto';
 import { UpdatePublisherDto } from './dto/update-publisher.dto';
 import { QueryPublishersDto } from './dto/query-publishers.dto';
@@ -33,7 +34,10 @@ import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 @Controller('publishers')
 @UseGuards(RolesGuard)
 export class PublishersController {
-  constructor(private readonly publishersService: PublishersService) {}
+  constructor(
+    private readonly publishersService: PublishersService,
+    private readonly auxiliaryPioneersService: AuxiliaryPioneersService,
+  ) {}
 
   @UseGuards(ResponsibilityGuard)
   @RequireResponsibility(ResponsibilityType.SECRETARY)
@@ -149,7 +153,15 @@ export class PublishersController {
     if (!canSeeStatus) {
       delete (result as { status?: unknown }).status;
     }
-    return result;
+    // Flag whether the publisher serves as an auxiliary pioneer this month, so
+    // the card can show an elder a badge. No hour goal is exposed here.
+    const isAuxiliaryPioneerNow =
+      await this.auxiliaryPioneersService.isActiveAuxiliaryPioneer(
+        tenantId,
+        publisher.id,
+        new Date().toISOString().slice(0, 10),
+      );
+    return { ...result, isAuxiliaryPioneerNow };
   }
 
   @Roles(UserRole.ADMIN)

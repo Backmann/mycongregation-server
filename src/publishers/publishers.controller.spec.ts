@@ -19,8 +19,13 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 const TENANT = 'cong-1';
 const USER = { id: 'user-1', role: 'publisher' } as AuthenticatedUser;
 
-function makeController(service: Partial<Record<string, unknown>>) {
-  return new PublishersController(service as never);
+function makeController(
+  service: Partial<Record<string, unknown>>,
+  aux: Partial<Record<string, unknown>> = {
+    isActiveAuxiliaryPioneer: jest.fn().mockResolvedValue(false),
+  },
+) {
+  return new PublishersController(service as never, aux as never);
 }
 
 describe('PublishersController.findAll — directory scoping', () => {
@@ -161,5 +166,26 @@ describe('PublishersController.findOne — computed status visibility', () => {
       status?: string;
     };
     expect(res.status).toBeUndefined();
+  });
+
+  it('exposes isAuxiliaryPioneerNow from the aux service', async () => {
+    const controller = makeController(
+      {
+        resolvePrivateAccess: jest.fn(async () => true),
+        findOne: jest.fn(async () => ({
+          id: 'pub-1',
+          displayName: 'A',
+          status: 'active',
+          lastEditedById: null,
+        })),
+        resolveEditorName: jest.fn(async () => null),
+      },
+      { isActiveAuxiliaryPioneer: jest.fn().mockResolvedValue(true) },
+    );
+    const user = { id: 'u', role: 'elder' } as AuthenticatedUser;
+    const res = (await controller.findOne(TENANT, user, 'pub-1')) as {
+      isAuxiliaryPioneerNow?: boolean;
+    };
+    expect(res.isAuxiliaryPioneerNow).toBe(true);
   });
 });
