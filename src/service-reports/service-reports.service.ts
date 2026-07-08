@@ -15,6 +15,7 @@ import { ReportMonthClosure } from '../entities/report-month-closure.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { PublishersService } from '../publishers/publishers.service';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
+import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -168,6 +169,11 @@ export class ServiceReportsService {
       user,
       dto.publisherId,
     );
+    // Students (appointment=STUDENT) are not reporting publishers — they never
+    // submit a service report, not even on their behalf.
+    if (publisher.appointment === PublisherAppointment.STUDENT) {
+      throw new BadRequestException('Students do not submit service reports');
+    }
     const reportMonth = this.normalizeReportMonth(dto.reportMonth);
     const isPioneer = publisher.pioneerType !== PioneerType.NONE;
 

@@ -6,6 +6,7 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceReport } from '../entities/service-report.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Responsibility } from '../entities/responsibility.entity';
+import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { Congregation } from '../entities/congregation.entity';
 import { User } from '../entities/user.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
@@ -73,13 +74,18 @@ export class ReportRemindersService {
     });
   }
 
-  /** Active publishers in the congregation with no report for the month. */
+  /** Reporting publishers with no report for the month. Students
+   * (appointment=STUDENT) don't submit reports, so they never get a reminder. */
   private async collectMissing(
     tenantId: string,
     reportMonth: string,
   ): Promise<MissingPublisher[]> {
     const publishers = await this.publisherRepo.find({
-      where: { congregationId: tenantId, isActive: true },
+      where: {
+        congregationId: tenantId,
+        isActive: true,
+        appointment: Not(PublisherAppointment.STUDENT),
+      },
     });
     if (publishers.length === 0) return [];
     const reports = await this.reportRepo.find({

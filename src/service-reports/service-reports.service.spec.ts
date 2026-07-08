@@ -31,6 +31,7 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
+import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
 // ===========================================================
@@ -293,6 +294,20 @@ describe('ServiceReportsService', () => {
   // =========================================================
 
   describe('submitOwnReport', () => {
+    it('rejects a report from a student (appointment=STUDENT)', async () => {
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ appointment: PublisherAppointment.STUDENT }),
+      );
+      await expect(
+        service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
+          reportMonth: '2026-04',
+          servedThisMonth: true,
+          bibleStudies: 0,
+        }),
+      ).rejects.toThrow('Students do not submit service reports');
+      expect(reportsRepo.create).not.toHaveBeenCalled();
+    });
+
     describe('regular publisher form (PioneerType.NONE)', () => {
       beforeEach(() => {
         publishersRepo.findOne.mockResolvedValue(
