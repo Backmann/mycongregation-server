@@ -177,6 +177,7 @@ export class ServiceReportsService {
       throw new BadRequestException('Students do not submit service reports');
     }
     const reportMonth = this.normalizeReportMonth(dto.reportMonth);
+    this.assertMonthIsReportable(reportMonth);
     // The hours form applies to actual pioneers AND to anyone serving as an
     // auxiliary pioneer in this report month (they report hours that month).
     const isAuxThisMonth =
@@ -1128,6 +1129,23 @@ export class ServiceReportsService {
   private normalizeReportMonth(input: string): string {
     const yearMonth = input.slice(0, 7);
     return `${yearMonth}-01`;
+  }
+
+  /**
+   * A service report can only be submitted for a month that has already
+   * finished. The current month is still in progress, so it (and any future
+   * month) is rejected — in July you report for June, not July.
+   */
+  private assertMonthIsReportable(reportMonth: string): void {
+    const now = new Date();
+    const currentMonthStart = `${now.getFullYear()}-${String(
+      now.getMonth() + 1,
+    ).padStart(2, '0')}-01`;
+    if (reportMonth >= currentMonthStart) {
+      throw new BadRequestException(
+        'Reports can only be submitted for a month that has already ended.',
+      );
+    }
   }
 
   /** Enforce form-variant rules based on publisher type. */

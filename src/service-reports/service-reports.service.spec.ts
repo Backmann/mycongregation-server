@@ -299,6 +299,43 @@ describe('ServiceReportsService', () => {
   // =========================================================
 
   describe('submitOwnReport', () => {
+    it('rejects a report for the current (unfinished) month', async () => {
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ id: 'pub-self' }),
+      );
+      const now = new Date();
+      const thisMonth = `${now.getFullYear()}-${String(
+        now.getMonth() + 1,
+      ).padStart(2, '0')}`;
+      await expect(
+        service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
+          reportMonth: thisMonth,
+          servedThisMonth: true,
+          bibleStudies: 0,
+        }),
+      ).rejects.toThrow('already ended');
+      expect(reportsRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a report for a future month', async () => {
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ id: 'pub-self' }),
+      );
+      const future = new Date();
+      future.setMonth(future.getMonth() + 2);
+      const futureMonth = `${future.getFullYear()}-${String(
+        future.getMonth() + 1,
+      ).padStart(2, '0')}`;
+      await expect(
+        service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
+          reportMonth: futureMonth,
+          servedThisMonth: true,
+          bibleStudies: 0,
+        }),
+      ).rejects.toThrow('already ended');
+      expect(reportsRepo.create).not.toHaveBeenCalled();
+    });
+
     it('rejects a report from a student (appointment=STUDENT)', async () => {
       publishersRepo.findOne.mockResolvedValue(
         makePublisher({ appointment: PublisherAppointment.STUDENT }),
