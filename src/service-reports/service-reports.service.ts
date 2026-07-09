@@ -34,6 +34,8 @@ export interface GroupReportsResponse {
 export interface GroupReportRow {
   publisherId: string;
   displayName: string;
+  groupId: string | null;
+  groupName: string | null;
   isPioneer: boolean;
   report:
     | (ServiceReport & { canEdit: boolean; lastEditedByName: string | null })
@@ -569,6 +571,12 @@ export class ServiceReportsService {
 
     const reportByPubId = new Map(reports.map((r) => [r.publisherId, r]));
 
+    // Resolve group names so the client can render sections by service group.
+    const allGroups = await this.serviceGroupsRepo.find({
+      where: { congregationId: tenantId },
+    });
+    const groupNameById = new Map(allGroups.map((g) => [g.id, g.name]));
+
     return {
       reportMonth: normalizedMonth,
       scopeLabel,
@@ -576,6 +584,10 @@ export class ServiceReportsService {
       publishers: publisherScope.map((p) => ({
         publisherId: p.id,
         displayName: p.displayName,
+        groupId: p.serviceGroupId ?? null,
+        groupName: p.serviceGroupId
+          ? (groupNameById.get(p.serviceGroupId) ?? null)
+          : null,
         isPioneer: p.pioneerType !== PioneerType.NONE,
         report:
           (reportByPubId.get(p.id) as
@@ -905,8 +917,13 @@ export class ServiceReportsService {
     tenantId: string,
     publisherId: string,
   ): Promise<string[]> {
+    // Both the group overseer and the group assistant oversee the group: they
+    // may view their group's reports and submit/edit on behalf of its members.
     const groups = await this.serviceGroupsRepo.find({
-      where: { congregationId: tenantId, overseerPublisherId: publisherId },
+      where: [
+        { congregationId: tenantId, overseerPublisherId: publisherId },
+        { congregationId: tenantId, assistantPublisherId: publisherId },
+      ],
     });
     return groups.map((g) => g.id);
   }
@@ -1074,7 +1091,7 @@ export class ServiceReportsService {
     const editorIds = [
       ...new Set(
         reports
-          .map((r) => r.lastEditedById)
+          .flatMap((r) => [r.lastEditedById, r.submittedById])
           .filter((id): id is string => id !== null && id !== undefined),
       ),
     ];
@@ -1094,6 +1111,13 @@ export class ServiceReportsService {
     }
 
     for (const r of reports) {
+      (
+        r as ServiceReport & {
+          submittedByName: string | null;
+        }
+      ).submittedByName = r.submittedById
+        ? (nameByUserId.get(r.submittedById) ?? null)
+        : null;
       (
         r as ServiceReport & {
           lastEditedByName: string | null;

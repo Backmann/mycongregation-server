@@ -1200,6 +1200,7 @@ describe('ServiceReportsService', () => {
         makePublisher({ id: 'p2', displayName: 'Beta' }),
       ]);
       reportsRepo.find.mockResolvedValue([]);
+      serviceGroupsRepo.find.mockResolvedValue([]);
 
       const result = await service.findGroupReports(
         'cong-1',
@@ -1209,13 +1210,13 @@ describe('ServiceReportsService', () => {
 
       expect(result.scopeLabel).toBe('Congregation');
       expect(result.publishers).toHaveLength(2);
-      expect(serviceGroupsRepo.find).not.toHaveBeenCalled();
     });
 
     it('allows ELDER to see all publishers in the congregation', async () => {
       jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
       publishersRepo.find.mockResolvedValue([makePublisher({ id: 'p1' })]);
       reportsRepo.find.mockResolvedValue([]);
+      serviceGroupsRepo.find.mockResolvedValue([]);
 
       const result = await service.findGroupReports(
         'cong-1',
@@ -1224,7 +1225,6 @@ describe('ServiceReportsService', () => {
       );
 
       expect(result.publishers).toHaveLength(1);
-      expect(serviceGroupsRepo.find).not.toHaveBeenCalled();
     });
 
     it('forbids non-elder/admin who oversees no group', async () => {
@@ -1263,11 +1263,61 @@ describe('ServiceReportsService', () => {
       expect(result.scopeLabel).toBe('Group 1');
       expect(result.publishers).toHaveLength(2);
       expect(serviceGroupsRepo.find).toHaveBeenCalledWith({
-        where: {
-          congregationId: 'cong-1',
-          overseerPublisherId: 'pub-overseer',
-        },
+        where: [
+          { congregationId: 'cong-1', overseerPublisherId: 'pub-overseer' },
+          { congregationId: 'cong-1', assistantPublisherId: 'pub-overseer' },
+        ],
       });
+    });
+
+    it('allows the group ASSISTANT to see their group (same as overseer)', async () => {
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ id: 'pub-assistant' }),
+      );
+      serviceGroupsRepo.find.mockResolvedValue([
+        { id: 'group-1', name: 'Group 1' } as ServiceGroup,
+      ]);
+      publishersRepo.find.mockResolvedValue([
+        makePublisher({ id: 'p1', displayName: 'Alpha' }),
+      ]);
+      reportsRepo.find.mockResolvedValue([]);
+
+      const result = await service.findGroupReports(
+        'cong-1',
+        makeUser({ id: 'user-assistant', role: UserRole.PUBLISHER }),
+        '2026-04',
+      );
+
+      expect(result.publishers).toHaveLength(1);
+      // The query is an OR over overseer/assistant, so the assistant resolves
+      // the same group.
+      expect(serviceGroupsRepo.find).toHaveBeenCalledWith({
+        where: [
+          { congregationId: 'cong-1', overseerPublisherId: 'pub-assistant' },
+          { congregationId: 'cong-1', assistantPublisherId: 'pub-assistant' },
+        ],
+      });
+    });
+
+    it('includes groupName on each row for client grouping', async () => {
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      publishersRepo.find.mockResolvedValue([
+        makePublisher({ id: 'p1', displayName: 'Alpha', serviceGroupId: 'g1' }),
+      ]);
+      reportsRepo.find.mockResolvedValue([]);
+      serviceGroupsRepo.find.mockResolvedValue([
+        { id: 'g1', name: 'Group One' } as ServiceGroup,
+      ]);
+
+      const result = await service.findGroupReports(
+        'cong-1',
+        makeUser({ id: 'admin', role: UserRole.ADMIN }),
+        '2026-04',
+      );
+
+      expect(result.publishers[0].groupName).toBe('Group One');
+      expect(result.publishers[0].groupId).toBe('g1');
     });
 
     it('returns null report for publishers without a submission', async () => {
