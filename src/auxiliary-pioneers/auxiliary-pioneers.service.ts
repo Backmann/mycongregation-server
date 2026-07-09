@@ -16,6 +16,7 @@ import { PublisherAppointment } from '../common/enums/publisher-appointment.enum
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { CreateAuxiliaryPioneerDto } from './dto/create-auxiliary-pioneer.dto';
 import { StopAuxiliaryPioneerDto } from './dto/stop-auxiliary-pioneer.dto';
+import { UpdateAuxiliaryPioneerDto } from './dto/update-auxiliary-pioneer.dto';
 import {
   auxiliaryPioneerHourGoal,
   isActiveInMonth,
@@ -207,6 +208,37 @@ export class AuxiliaryPioneersService {
       note: dto.note ?? null,
       createdBy: user.id,
     });
+    return this.repo.save(row);
+  }
+
+  /**
+   * Edit a period (start/end months, until-cancelled). The publisher is not
+   * changed. When untilCancelled becomes true the end month is cleared.
+   */
+  async update(
+    congregationId: string,
+    user: AuthenticatedUser,
+    id: string,
+    dto: UpdateAuxiliaryPioneerDto,
+  ): Promise<AuxiliaryPioneer> {
+    await this.assertCanManage(congregationId, user);
+    const row = await this.repo.findOne({ where: { id, congregationId } });
+    if (!row) throw new NotFoundException('Record not found.');
+
+    if (dto.startMonth !== undefined) {
+      row.startMonth = this.normalizeMonth(dto.startMonth);
+    }
+    if (dto.untilCancelled !== undefined) {
+      row.untilCancelled = dto.untilCancelled;
+    }
+    if (row.untilCancelled) {
+      row.endMonth = null;
+    } else if (dto.endMonth !== undefined) {
+      row.endMonth = this.normalizeMonth(dto.endMonth);
+    }
+    if (row.endMonth && row.endMonth < row.startMonth) {
+      throw new BadRequestException('End month cannot precede start month.');
+    }
     return this.repo.save(row);
   }
 

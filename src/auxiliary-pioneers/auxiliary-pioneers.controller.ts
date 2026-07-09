@@ -17,6 +17,7 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { AuxiliaryPioneersService } from './auxiliary-pioneers.service';
 import { CreateAuxiliaryPioneerDto } from './dto/create-auxiliary-pioneer.dto';
 import { StopAuxiliaryPioneerDto } from './dto/stop-auxiliary-pioneer.dto';
+import { UpdateAuxiliaryPioneerDto } from './dto/update-auxiliary-pioneer.dto';
 
 @Controller('auxiliary-pioneers')
 @UseGuards(JwtAuthGuard)
@@ -73,6 +74,16 @@ export class AuxiliaryPioneersController {
     @Body() dto: StopAuxiliaryPioneerDto,
   ) {
     return this.service.stop(congregationId, user, id, dto);
+  }
+
+  @Patch(':id')
+  update(
+    @TenantId() congregationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateAuxiliaryPioneerDto,
+  ) {
+    return this.service.update(congregationId, user, id, dto);
   }
 
   @Delete(':id')

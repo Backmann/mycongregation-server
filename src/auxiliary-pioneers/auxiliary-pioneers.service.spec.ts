@@ -169,6 +169,49 @@ describe('AuxiliaryPioneersService', () => {
     });
   });
 
+  describe('update', () => {
+    const existing = {
+      id: 'a1',
+      congregationId: CONG,
+      startMonth: '2026-03-01',
+      endMonth: '2026-05-01',
+      untilCancelled: false,
+    };
+    it('changes the start month', async () => {
+      repo.findOne.mockResolvedValue({ ...existing });
+      const res = await service.update(CONG, admin, 'a1', {
+        startMonth: '2024-01-15',
+      });
+      expect(res.startMonth).toBe('2024-01-01');
+    });
+    it('switching to until-cancelled clears the end month', async () => {
+      repo.findOne.mockResolvedValue({ ...existing });
+      const res = await service.update(CONG, admin, 'a1', {
+        untilCancelled: true,
+      });
+      expect(res.untilCancelled).toBe(true);
+      expect(res.endMonth).toBeNull();
+    });
+    it('rejects an end month before the start', async () => {
+      repo.findOne.mockResolvedValue({ ...existing });
+      await expect(
+        service.update(CONG, admin, 'a1', { endMonth: '2026-01-01' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+    it('404 when the record is missing', async () => {
+      repo.findOne.mockResolvedValue(null);
+      await expect(
+        service.update(CONG, admin, 'missing', { startMonth: '2026-03-01' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+    it('forbidden for a non-manager', async () => {
+      responsibilityRepo.count.mockResolvedValue(0);
+      await expect(
+        service.update(CONG, plain, 'a1', { startMonth: '2026-03-01' }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
   describe('stop', () => {
     it('sets endMonth and clears untilCancelled', async () => {
       repo.findOne.mockResolvedValue({
