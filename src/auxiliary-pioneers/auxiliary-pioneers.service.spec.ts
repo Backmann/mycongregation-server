@@ -212,6 +212,68 @@ describe('AuxiliaryPioneersService', () => {
     });
   });
 
+  describe('journal', () => {
+    beforeEach(() => {
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 6, 15)); // July 2026
+    });
+    afterEach(() => jest.restoreAllMocks());
+
+    it('classifies upcoming / serving / finished by the current month', async () => {
+      repo.find.mockResolvedValue([
+        {
+          id: 'up',
+          publisherId: 'p-up',
+          startMonth: '2026-08-01',
+          endMonth: '2026-08-01',
+          untilCancelled: false,
+        }, // future → upcoming
+        {
+          id: 'now',
+          publisherId: 'p-now',
+          startMonth: '2026-03-01',
+          endMonth: null,
+          untilCancelled: true,
+        }, // covers July → serving
+        {
+          id: 'past',
+          publisherId: 'p-past',
+          startMonth: '2026-01-01',
+          endMonth: '2026-02-01',
+          untilCancelled: false,
+        }, // past → finished
+      ]);
+      publisherRepo.find.mockResolvedValue([
+        { id: 'p-up', displayName: 'Up' },
+        { id: 'p-now', displayName: 'Now' },
+        { id: 'p-past', displayName: 'Past' },
+      ]);
+      const rows = await service.journal(CONG);
+      const byId = Object.fromEntries(rows.map((r) => [r.id, r.state]));
+      expect(byId).toEqual({
+        up: 'upcoming',
+        now: 'serving',
+        past: 'finished',
+      });
+      // Order: serving, then upcoming, then finished.
+      expect(rows.map((r) => r.id)).toEqual(['now', 'up', 'past']);
+    });
+
+    it('a single future month is upcoming, not finished', async () => {
+      repo.find.mockResolvedValue([
+        {
+          id: 'aug',
+          publisherId: 'p1',
+          startMonth: '2026-08-01',
+          endMonth: '2026-08-01',
+          untilCancelled: false,
+        },
+      ]);
+      publisherRepo.find.mockResolvedValue([{ id: 'p1', displayName: 'A' }]);
+      const rows = await service.journal(CONG);
+      expect(rows[0].state).toBe('upcoming');
+    });
+  });
+
   describe('stop', () => {
     it('sets endMonth and clears untilCancelled', async () => {
       repo.findOne.mockResolvedValue({

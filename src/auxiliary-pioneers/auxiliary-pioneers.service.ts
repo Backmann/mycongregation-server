@@ -41,6 +41,8 @@ export interface AuxPioneerMonthRow {
   hourGoal: number;
 }
 
+export type AuxPioneerState = 'upcoming' | 'serving' | 'finished';
+
 export interface AuxPioneerJournalRow {
   id: string;
   publisherId: string;
@@ -48,7 +50,7 @@ export interface AuxPioneerJournalRow {
   startMonth: string;
   endMonth: string | null;
   untilCancelled: boolean;
-  serving: boolean;
+  state: AuxPioneerState;
 }
 
 @Injectable()
@@ -147,26 +149,52 @@ export class AuxiliaryPioneersService {
       congregationId,
       all.map((p) => p.publisherId),
     );
-    const rows = all.map((p) => ({
-      id: p.id,
-      publisherId: p.publisherId,
-      publisherName: names.get(p.publisherId) ?? '—',
-      startMonth: p.startMonth,
-      endMonth: p.endMonth,
-      untilCancelled: p.untilCancelled,
-      serving: isActiveInMonth(
+    const rows = all.map((p) => {
+      const startKey = p.startMonth.slice(0, 7);
+      const serving = isActiveInMonth(
         {
           startMonth: p.startMonth,
           endMonth: p.endMonth,
           untilCancelled: p.untilCancelled,
         },
         nowKey,
-      ),
-    }));
-    // Serving first, then by most recent start.
+      );
+      // Three time-relative states: a record entirely in the future is
+      // "upcoming"; one covering the current month is "serving"; one entirely
+      // in the past is "finished". This makes the journal correct at any point
+      // in time — e.g. "only August" is upcoming in July, serving in August,
+      // finished in September — without any recomputation.
+      let state: AuxPioneerState;
+      if (serving) {
+        state = 'serving';
+      } else if (startKey > nowKey) {
+        state = 'upcoming';
+      } else {
+        state = 'finished';
+      }
+      return {
+        id: p.id,
+        publisherId: p.publisherId,
+        publisherName: names.get(p.publisherId) ?? '—',
+        startMonth: p.startMonth,
+        endMonth: p.endMonth,
+        untilCancelled: p.untilCancelled,
+        state,
+      };
+    });
+    // Serving first, then upcoming (soonest first), then finished (most recent
+    // first).
+    const order: Record<AuxPioneerState, number> = {
+      serving: 0,
+      upcoming: 1,
+      finished: 2,
+    };
     rows.sort((a, b) => {
-      if (a.serving !== b.serving) return a.serving ? -1 : 1;
-      return b.startMonth.localeCompare(a.startMonth);
+      if (a.state !== b.state) return order[a.state] - order[b.state];
+      if (a.state === 'upcoming') {
+        return a.startMonth.localeCompare(b.startMonth); // soonest first
+      }
+      return b.startMonth.localeCompare(a.startMonth); // most recent first
     });
     return rows;
   }
