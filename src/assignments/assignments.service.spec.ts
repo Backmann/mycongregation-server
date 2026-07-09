@@ -30,10 +30,14 @@ function makeQb() {
     'withDeleted',
     'update',
     'set',
+    'select',
+    'addSelect',
+    'groupBy',
   ]) {
     qb[m] = jest.fn().mockReturnThis();
   }
   qb.getManyAndCount = jest.fn().mockResolvedValue([[], 0]);
+  qb.getRawMany = jest.fn().mockResolvedValue([]);
   qb.execute = jest.fn().mockResolvedValue({ affected: 0 });
   return qb;
 }
@@ -255,6 +259,19 @@ describe('AssignmentsService draft visibility', () => {
     );
     expect(res).toEqual({ notified: 0 });
     expect(pushMock.sendScheduleChanged).not.toHaveBeenCalled();
+  });
+
+  it('listPublishedWeeks maps raw rows to week flags', async () => {
+    qb.getRawMany.mockResolvedValue([
+      { week: '2026-07-06', hasMidweek: true, hasWeekend: true },
+      { week: '2026-06-29', hasMidweek: true, hasWeekend: false },
+    ]);
+    const res = await service.listPublishedWeeks('c1');
+    expect(res).toEqual([
+      { weekStartDate: '2026-07-06', hasMidweek: true, hasWeekend: true },
+      { weekStartDate: '2026-06-29', hasMidweek: true, hasWeekend: false },
+    ]);
+    expect(qb.andWhere).toHaveBeenCalledWith("a.status = 'published'");
   });
 });
 

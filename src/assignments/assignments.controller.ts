@@ -37,6 +37,12 @@ export class AssignmentsController {
     return this.service.list(congregationId, query, user);
   }
 
+  /** Published weeks for the schedule week-navigator drawer. */
+  @Get('weeks')
+  publishedWeeks(@TenantId() congregationId: string) {
+    return this.service.listPublishedWeeks(congregationId);
+  }
+
   @Get(':id')
   getById(
     @TenantId() congregationId: string,

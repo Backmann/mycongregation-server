@@ -153,6 +153,52 @@ export class AssignmentsService {
     return { data, total, limit, offset };
   }
 
+  /**
+   * Weeks that have at least one published midweek or weekend meeting, for the
+   * schedule week-navigator drawer. Returns one row per week with flags for
+   * which meetings are published, limited to the last 12 months plus all future
+   * weeks, newest first.
+   */
+  async listPublishedWeeks(congregationId: string): Promise<
+    {
+      weekStartDate: string;
+      hasMidweek: boolean;
+      hasWeekend: boolean;
+    }[]
+  > {
+    const since = new Date();
+    since.setMonth(since.getMonth() - 12);
+    const sinceIso = since.toISOString().slice(0, 10);
+
+    const rows = await this.repo
+      .createQueryBuilder('a')
+      .select('a.weekStartDate', 'week')
+      .addSelect("bool_or(a.eventType = 'midweek')", 'hasMidweek')
+      .addSelect("bool_or(a.eventType = 'weekend')", 'hasWeekend')
+      .where('a.congregationId = :congregationId', { congregationId })
+      .andWhere("a.status = 'published'")
+      .andWhere('a.eventType IN (:...types)', {
+        types: [EventType.MIDWEEK, EventType.WEEKEND],
+      })
+      .andWhere('a.weekStartDate >= :sinceIso', { sinceIso })
+      .groupBy('a.weekStartDate')
+      .orderBy('a.weekStartDate', 'DESC')
+      .getRawMany<{
+        week: string;
+        hasMidweek: boolean;
+        hasWeekend: boolean;
+      }>();
+
+    return rows.map((r) => ({
+      weekStartDate:
+        typeof r.week === 'string'
+          ? r.week
+          : new Date(r.week).toISOString().slice(0, 10),
+      hasMidweek: r.hasMidweek === true,
+      hasWeekend: r.hasWeekend === true,
+    }));
+  }
+
   async getById(
     congregationId: string,
     id: string,
