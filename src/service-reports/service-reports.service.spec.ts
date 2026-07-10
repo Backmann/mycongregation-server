@@ -99,7 +99,10 @@ describe('ServiceReportsService', () => {
   let closuresRepo: jest.Mocked<Repository<ReportMonthClosure>>;
   let auditLogService: { logUpdate: jest.Mock; findForEntity: jest.Mock };
   let publishersService: { recomputeStatus: jest.Mock };
-  let auxiliaryPioneersService: { isActiveAuxiliaryPioneer: jest.Mock };
+  let auxiliaryPioneersService: {
+    isActiveAuxiliaryPioneer: jest.Mock;
+    activePublisherIdsForMonth: jest.Mock;
+  };
 
   beforeEach(() => {
     reportsRepo = {
@@ -141,6 +144,7 @@ describe('ServiceReportsService', () => {
     publishersService = { recomputeStatus: jest.fn() };
     auxiliaryPioneersService = {
       isActiveAuxiliaryPioneer: jest.fn().mockResolvedValue(false),
+      activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()),
     };
     service = new ServiceReportsService(
       reportsRepo,
@@ -1318,6 +1322,30 @@ describe('ServiceReportsService', () => {
 
       expect(result.publishers[0].groupName).toBe('Group One');
       expect(result.publishers[0].groupId).toBe('g1');
+    });
+
+    it('flags an auxiliary pioneer as isPioneer for the month (hours form)', async () => {
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      publishersRepo.find.mockResolvedValue([
+        makePublisher({
+          id: 'p-aux',
+          displayName: 'Aux',
+          pioneerType: PioneerType.NONE,
+        }),
+      ]);
+      reportsRepo.find.mockResolvedValue([]);
+      serviceGroupsRepo.find.mockResolvedValue([]);
+      auxiliaryPioneersService.activePublisherIdsForMonth.mockResolvedValue(
+        new Set(['p-aux']),
+      );
+
+      const result = await service.findGroupReports(
+        'cong-1',
+        makeUser({ id: 'admin', role: UserRole.ADMIN }),
+        '2026-04',
+      );
+
+      expect(result.publishers[0].isPioneer).toBe(true);
     });
 
     it('returns null report for publishers without a submission', async () => {

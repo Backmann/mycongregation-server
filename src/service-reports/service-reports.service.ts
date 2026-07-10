@@ -577,6 +577,14 @@ export class ServiceReportsService {
     });
     const groupNameById = new Map(allGroups.map((g) => [g.id, g.name]));
 
+    // Publishers serving as auxiliary pioneers this month also use the hours
+    // form, so they must be flagged as pioneers for this month's report.
+    const auxThisMonth =
+      await this.auxiliaryPioneersService.activePublisherIdsForMonth(
+        tenantId,
+        normalizedMonth,
+      );
+
     return {
       reportMonth: normalizedMonth,
       scopeLabel,
@@ -588,7 +596,7 @@ export class ServiceReportsService {
         groupName: p.serviceGroupId
           ? (groupNameById.get(p.serviceGroupId) ?? null)
           : null,
-        isPioneer: p.pioneerType !== PioneerType.NONE,
+        isPioneer: p.pioneerType !== PioneerType.NONE || auxThisMonth.has(p.id),
         report:
           (reportByPubId.get(p.id) as
             | (ServiceReport & {

@@ -349,6 +349,35 @@ export class AuxiliaryPioneersService {
     );
   }
 
+  /**
+   * Publisher IDs that are active auxiliary pioneers in the given month — one
+   * query, for callers that classify many publishers at once (e.g. the group
+   * reports screen deciding who needs the hours form).
+   */
+  async activePublisherIdsForMonth(
+    congregationId: string,
+    monthIso: string,
+  ): Promise<Set<string>> {
+    const monthKey = monthKeyOf(monthIso);
+    const rows = await this.repo.find({ where: { congregationId } });
+    const out = new Set<string>();
+    for (const p of rows) {
+      if (
+        isActiveInMonth(
+          {
+            startMonth: p.startMonth,
+            endMonth: p.endMonth,
+            untilCancelled: p.untilCancelled,
+          },
+          monthKey,
+        )
+      ) {
+        out.add(p.publisherId);
+      }
+    }
+    return out;
+  }
+
   private async namesByIds(
     congregationId: string,
     ids: string[],
