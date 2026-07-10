@@ -434,7 +434,16 @@ export class ServiceReportsService {
       // Defensive — FK guarantees existence.
       throw new BadRequestException('Publisher record not found.');
     }
-    const isPioneer = publisher.pioneerType !== PioneerType.NONE;
+    // The hours form also applies to an auxiliary pioneer for the month this
+    // report belongs to — so editing their report keeps the hours variant.
+    const isAuxThisMonth =
+      await this.auxiliaryPioneersService.isActiveAuxiliaryPioneer(
+        tenantId,
+        publisher.id,
+        report.reportMonth,
+      );
+    const isPioneer =
+      publisher.pioneerType !== PioneerType.NONE || isAuxThisMonth;
 
     this.validateUpdateFormVariant(dto, isPioneer);
 

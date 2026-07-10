@@ -990,6 +990,41 @@ describe('ServiceReportsService', () => {
           ),
         ).rejects.toBeInstanceOf(BadRequestException);
       });
+
+      it('allows hoursReported when the publisher is an auxiliary pioneer that month', async () => {
+        publishersRepo.findOne.mockResolvedValue(
+          makePublisher({ pioneerType: PioneerType.NONE }),
+        );
+        auxiliaryPioneersService.isActiveAuxiliaryPioneer.mockResolvedValue(
+          true,
+        );
+
+        const result = await service.updateReport(
+          'cong-1',
+          makeUser({ id: 'user-self', role: UserRole.PUBLISHER }),
+          'report-1',
+          { hoursReported: 30 },
+        );
+        expect(result.hoursReported).toBe(30);
+      });
+
+      it('rejects servedThisMonth for an auxiliary pioneer that month', async () => {
+        publishersRepo.findOne.mockResolvedValue(
+          makePublisher({ pioneerType: PioneerType.NONE }),
+        );
+        auxiliaryPioneersService.isActiveAuxiliaryPioneer.mockResolvedValue(
+          true,
+        );
+
+        await expect(
+          service.updateReport(
+            'cong-1',
+            makeUser({ id: 'user-self', role: UserRole.PUBLISHER }),
+            'report-1',
+            { servedThisMonth: true },
+          ),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      });
     });
 
     describe('side effects', () => {
