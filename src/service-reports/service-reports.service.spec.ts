@@ -1251,6 +1251,26 @@ describe('ServiceReportsService', () => {
       expect(result.publishers).toHaveLength(2);
     });
 
+    it('returns the caller\u2019s own group id as myGroupId', async () => {
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ id: 'pub-me', serviceGroupId: 'my-group' }),
+      );
+      serviceGroupsRepo.find.mockResolvedValue([
+        { id: 'my-group', name: 'My Group' } as ServiceGroup,
+      ]);
+      publishersRepo.find.mockResolvedValue([makePublisher({ id: 'p1' })]);
+      reportsRepo.find.mockResolvedValue([]);
+
+      const result = await service.findGroupReports(
+        'cong-1',
+        makeUser({ id: 'user-me', role: UserRole.PUBLISHER }),
+        '2026-04',
+      );
+
+      expect(result.myGroupId).toBe('my-group');
+    });
+
     it('excludes students (appointment=STUDENT) from the congregation list', async () => {
       jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
       publishersRepo.find.mockResolvedValue([]);

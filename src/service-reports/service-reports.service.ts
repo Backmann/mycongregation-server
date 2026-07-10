@@ -28,6 +28,8 @@ export interface GroupReportsResponse {
   reportMonth: string;
   scopeLabel: string;
   closed: boolean;
+  /** The caller's own service group id (so the client can expand it). */
+  myGroupId: string | null;
   publishers: GroupReportRow[];
 }
 
@@ -516,6 +518,14 @@ export class ServiceReportsService {
     const normalizedMonth = this.normalizeReportMonth(reportMonthInput);
     const ctx = await this.buildPermissionContext(tenantId, user);
 
+    // The caller's own service group, so the client can expand it by default.
+    const myPublisher = ctx.myPublisherId
+      ? await this.publishersRepo.findOne({
+          where: { id: ctx.myPublisherId, congregationId: tenantId },
+        })
+      : null;
+    const myGroupId = myPublisher?.serviceGroupId ?? null;
+
     let publisherScope: Publisher[];
     let scopeLabel: string;
 
@@ -602,6 +612,7 @@ export class ServiceReportsService {
       reportMonth: normalizedMonth,
       scopeLabel,
       closed: isClosed,
+      myGroupId,
       publishers: publisherScope.map((p) => ({
         publisherId: p.id,
         displayName: p.displayName,

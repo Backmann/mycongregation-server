@@ -164,7 +164,7 @@ export class ServiceReportsController {
     @Query('months') monthsRaw?: string,
   ) {
     const months = monthsRaw
-      ? Math.max(1, Math.min(24, parseInt(monthsRaw, 10) || 12))
+      ? Math.max(1, Math.min(120, parseInt(monthsRaw, 10) || 12))
       : 12;
     return this.serviceReportsService.findHistoryForPublisher(
       tenantId,
