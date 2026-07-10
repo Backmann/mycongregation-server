@@ -1271,6 +1271,25 @@ describe('ServiceReportsService', () => {
       expect(result.myGroupId).toBe('my-group');
     });
 
+    it('reports consecutiveMissing for a publisher with no recent reports', async () => {
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      publishersRepo.find.mockResolvedValue([
+        makePublisher({ id: 'p1', displayName: 'Alpha' }),
+      ]);
+      // No reports at all (neither the selected month nor the lookback window).
+      reportsRepo.find.mockResolvedValue([]);
+      serviceGroupsRepo.find.mockResolvedValue([]);
+
+      const result = await service.findGroupReports(
+        'cong-1',
+        makeUser({ id: 'admin', role: UserRole.ADMIN }),
+        '2026-04',
+      );
+
+      // 2026-04, 2026-03, ... all missing → capped at 12.
+      expect(result.publishers[0].consecutiveMissing).toBeGreaterThanOrEqual(1);
+    });
+
     it('excludes students (appointment=STUDENT) from the congregation list', async () => {
       jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
       publishersRepo.find.mockResolvedValue([]);

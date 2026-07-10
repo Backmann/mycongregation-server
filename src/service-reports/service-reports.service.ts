@@ -39,6 +39,8 @@ export interface GroupReportRow {
   groupId: string | null;
   groupName: string | null;
   isPioneer: boolean;
+  /** Months in a row without a report, counting back from the selected month. */
+  consecutiveMissing: number;
   report:
     | (ServiceReport & { canEdit: boolean; lastEditedByName: string | null })
     | null;
@@ -594,6 +596,49 @@ export class ServiceReportsService {
 
     const reportByPubId = new Map(reports.map((r) => [r.publisherId, r]));
 
+    // Consecutive months without a report, counting backwards from the selected
+    // month, per publisher — for the "missed N months" flag. Look back up to 12
+    // months in one query.
+    const lookbackStart = new Date(normalizedMonth + 'T00:00:00Z');
+    lookbackStart.setUTCMonth(lookbackStart.getUTCMonth() - 12);
+    const lookbackStr = `${lookbackStart.getUTCFullYear()}-${String(
+      lookbackStart.getUTCMonth() + 1,
+    ).padStart(2, '0')}-01`;
+    const historyRows =
+      publisherIds.length === 0
+        ? []
+        : await this.reportsRepo.find({
+            where: {
+              congregationId: tenantId,
+              publisherId: In(publisherIds),
+              reportMonth: MoreThanOrEqual(lookbackStr),
+            },
+            select: ['publisherId', 'reportMonth'],
+          });
+    const reportedMonths = new Map<string, Set<string>>();
+    for (const r of historyRows) {
+      let set = reportedMonths.get(r.publisherId);
+      if (!set) {
+        set = new Set();
+        reportedMonths.set(r.publisherId, set);
+      }
+      set.add(r.reportMonth.slice(0, 7));
+    }
+    const consecutiveMissingFor = (publisherId: string): number => {
+      const set = reportedMonths.get(publisherId) ?? new Set();
+      let count = 0;
+      const cursor = new Date(normalizedMonth + 'T00:00:00Z');
+      for (let i = 0; i < 12; i++) {
+        const ym = `${cursor.getUTCFullYear()}-${String(
+          cursor.getUTCMonth() + 1,
+        ).padStart(2, '0')}`;
+        if (set.has(ym)) break;
+        count++;
+        cursor.setUTCMonth(cursor.getUTCMonth() - 1);
+      }
+      return count;
+    };
+
     // Resolve group names so the client can render sections by service group.
     const allGroups = await this.serviceGroupsRepo.find({
       where: { congregationId: tenantId },
@@ -621,6 +666,7 @@ export class ServiceReportsService {
           ? (groupNameById.get(p.serviceGroupId) ?? null)
           : null,
         isPioneer: p.pioneerType !== PioneerType.NONE || auxThisMonth.has(p.id),
+        consecutiveMissing: consecutiveMissingFor(p.id),
         report:
           (reportByPubId.get(p.id) as
             | (ServiceReport & {
