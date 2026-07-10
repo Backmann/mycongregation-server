@@ -98,6 +98,16 @@ export interface ServiceReportSummary {
   categories: ServiceReportSummaryCategory[];
   totalActivePublishers: number;
   totalInactivePublishers: number;
+  averages: {
+    /** Average hours among pioneers who reported hours this month. */
+    pioneerHours: number;
+    /** Average bible studies among everyone who reported this month. */
+    bibleStudies: number;
+    /** Publishers who submitted a report, as a share of active publishers. */
+    submittedPct: number;
+    /** Active publishers as a share of all (active + inactive). */
+    activePct: number;
+  };
   closed: boolean;
 }
 
@@ -871,11 +881,48 @@ export class ServiceReportsService {
 
     const closed = await this.isMonthClosed(tenantId, reportMonth);
 
+    // Averages / rates for the summary.
+    let pioneerHoursSum = 0;
+    let pioneerHoursCount = 0;
+    let studiesSum = 0;
+    let reportedCount = 0;
+    for (const report of reports) {
+      const type = typeByPubId.get(report.publisherId);
+      if (type === undefined) continue;
+      const shared =
+        report.servedThisMonth === true ||
+        (report.hoursReported != null && report.hoursReported > 0);
+      if (shared) {
+        reportedCount += 1;
+        studiesSum += report.bibleStudies ?? 0;
+      }
+      if (type !== PioneerType.NONE && report.hoursReported != null) {
+        pioneerHoursSum += report.hoursReported;
+        pioneerHoursCount += 1;
+      }
+    }
+    const totalPublishers = totalActivePublishers + totalInactivePublishers;
+    const round1 = (n: number) => Math.round(n * 10) / 10;
+    const averages = {
+      pioneerHours:
+        pioneerHoursCount > 0 ? round1(pioneerHoursSum / pioneerHoursCount) : 0,
+      bibleStudies: reportedCount > 0 ? round1(studiesSum / reportedCount) : 0,
+      submittedPct:
+        totalActivePublishers > 0
+          ? Math.round((reportedCount / totalActivePublishers) * 100)
+          : 0,
+      activePct:
+        totalPublishers > 0
+          ? Math.round((totalActivePublishers / totalPublishers) * 100)
+          : 0,
+    };
+
     return {
       reportMonth,
       categories,
       totalActivePublishers,
       totalInactivePublishers,
+      averages,
       closed,
     };
   }

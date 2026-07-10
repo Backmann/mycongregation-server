@@ -1625,6 +1625,14 @@ describe('ServiceReportsService', () => {
         hours: 120,
         bibleStudies: 6,
       });
+
+      // Averages: pioneer hours (30+50+100+120)/4 = 75; six reporters shared
+      // (2 publishers + 4 pioneers), studies (2+1+1+3+4+6)/6 = 2.8; submitted
+      // 6/42 ≈ 14%; active 42/(42+5) ≈ 89%.
+      expect(result.averages.pioneerHours).toBe(75);
+      expect(result.averages.bibleStudies).toBeCloseTo(2.8, 1);
+      expect(result.averages.submittedPct).toBe(14);
+      expect(result.averages.activePct).toBe(89);
     });
 
     it('allows the secretary and returns zeroed categories when no reports', async () => {
