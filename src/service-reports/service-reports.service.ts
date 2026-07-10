@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, MoreThanOrEqual, Repository } from 'typeorm';
+import { In, MoreThanOrEqual, Not, Repository } from 'typeorm';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
@@ -521,7 +521,10 @@ export class ServiceReportsService {
 
     if (ctx.alwaysView) {
       publisherScope = await this.publishersRepo.find({
-        where: { congregationId: tenantId },
+        where: {
+          congregationId: tenantId,
+          appointment: Not(PublisherAppointment.STUDENT),
+        },
         order: { lastName: 'ASC', firstName: 'ASC' },
       });
       scopeLabel = 'Congregation';
@@ -545,6 +548,7 @@ export class ServiceReportsService {
         where: {
           congregationId: tenantId,
           serviceGroupId: In(ctx.overseenGroupIds),
+          appointment: Not(PublisherAppointment.STUDENT),
         },
         order: { lastName: 'ASC', firstName: 'ASC' },
       });

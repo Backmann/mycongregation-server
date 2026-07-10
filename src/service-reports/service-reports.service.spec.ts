@@ -1251,6 +1251,25 @@ describe('ServiceReportsService', () => {
       expect(result.publishers).toHaveLength(2);
     });
 
+    it('excludes students (appointment=STUDENT) from the congregation list', async () => {
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      publishersRepo.find.mockResolvedValue([]);
+      reportsRepo.find.mockResolvedValue([]);
+      serviceGroupsRepo.find.mockResolvedValue([]);
+
+      await service.findGroupReports(
+        'cong-1',
+        makeUser({ id: 'admin', role: UserRole.ADMIN }),
+        '2026-04',
+      );
+
+      // The publisher query must exclude students.
+      const call = publishersRepo.find.mock.calls.find(
+        (c) => c[0]?.where?.congregationId === 'cong-1',
+      );
+      expect(call?.[0]?.where?.appointment).toBeDefined();
+    });
+
     it('allows ELDER to see all publishers in the congregation', async () => {
       jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
       publishersRepo.find.mockResolvedValue([makePublisher({ id: 'p1' })]);
