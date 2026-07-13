@@ -170,6 +170,25 @@ export class ServiceReportsController {
     );
   }
 
+  @Get('s21/:publisherId')
+  getS21Data(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('publisherId', ParseUUIDPipe) publisherId: string,
+    @Query('year') yearRaw?: string,
+  ) {
+    const now = new Date();
+    const defaultYear =
+      now.getUTCMonth() >= 8 ? now.getUTCFullYear() + 1 : now.getUTCFullYear();
+    const year = yearRaw ? parseInt(yearRaw, 10) || defaultYear : defaultYear;
+    return this.serviceReportsService.getS21Data(
+      tenantId,
+      user,
+      publisherId,
+      year,
+    );
+  }
+
   @Get('by-publisher/:publisherId')
   async findHistoryForPublisher(
     @TenantId() tenantId: string,

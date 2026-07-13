@@ -17,6 +17,8 @@ import { PublishersService } from '../publishers/publishers.service';
 import { AuxiliaryPioneersService } from '../auxiliary-pioneers/auxiliary-pioneers.service';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
+import { Gender } from '../common/enums/gender.enum';
+import { SpiritualStatus } from '../common/enums/spiritual-status.enum';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -93,6 +95,31 @@ export interface ServiceReportSummaryCategory {
  * `totalInactivePublishers` is a separate count of those whose status is
  * inactive; it is never folded into the active total.
  */
+export interface S21MonthRow {
+  reportMonth: string;
+  servedThisMonth: boolean | null;
+  hoursReported: number | null;
+  bibleStudies: number;
+  notes: string | null;
+}
+
+export interface S21DataResponse {
+  serviceYear: number;
+  publisher: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    displayName: string;
+    gender: Gender;
+    birthDate: string | null;
+    baptismDate: string | null;
+    spiritualStatus: SpiritualStatus;
+    appointment: PublisherAppointment;
+    pioneerType: PioneerType;
+  };
+  months: S21MonthRow[];
+}
+
 export interface ServiceYearSummary {
   serviceYear: number;
   firstMonth: string;
@@ -800,6 +827,72 @@ export class ServiceReportsService {
         isPioneer: publisher.pioneerType !== PioneerType.NONE,
       },
       timeline,
+    };
+  }
+
+  /**
+   * Data for the S-21 publisher record card, guarded strictly for elders (the
+   * secretary is an elder too) and admins — the card consolidates sensitive
+   * fields (spiritual status, full service history) and must not be assembled
+   * by anyone else. Returns the full publisher plus the 12 reports of the
+   * requested service year (Sep of year-1 .. Aug of year).
+   */
+  async getS21Data(
+    tenantId: string,
+    user: AuthenticatedUser,
+    publisherId: string,
+    serviceYear: number,
+  ): Promise<S21DataResponse> {
+    const isAdmin = user.role === UserRole.ADMIN;
+    const isElder = user.role === UserRole.ELDER;
+    if (!isAdmin && !isElder) {
+      throw new ForbiddenException(
+        'The S-21 record card is available only to elders and administrators.',
+      );
+    }
+
+    const publisher = await this.publishersRepo.findOne({
+      where: { id: publisherId, congregationId: tenantId },
+    });
+    if (!publisher) {
+      throw new NotFoundException('Publisher not found.');
+    }
+
+    // Service year: Sep (year-1) .. Aug (year).
+    const first = `${serviceYear - 1}-09-01`;
+    const last = `${serviceYear}-08-01`;
+    const reports = await this.reportsRepo.find({
+      where: {
+        publisherId,
+        congregationId: tenantId,
+        reportMonth: Between(first, last),
+      },
+      order: { reportMonth: 'ASC' },
+    });
+
+    const months: S21MonthRow[] = reports.map((r) => ({
+      reportMonth: r.reportMonth,
+      servedThisMonth: r.servedThisMonth,
+      hoursReported: r.hoursReported,
+      bibleStudies: r.bibleStudies,
+      notes: r.notes,
+    }));
+
+    return {
+      serviceYear,
+      publisher: {
+        id: publisher.id,
+        firstName: publisher.firstName,
+        lastName: publisher.lastName,
+        displayName: publisher.displayName,
+        gender: publisher.gender,
+        birthDate: publisher.birthDate,
+        baptismDate: publisher.baptismDate,
+        spiritualStatus: publisher.spiritualStatus,
+        appointment: publisher.appointment,
+        pioneerType: publisher.pioneerType,
+      },
+      months,
     };
   }
 

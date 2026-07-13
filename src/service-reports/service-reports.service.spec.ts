@@ -1663,6 +1663,69 @@ describe('ServiceReportsService', () => {
   // =========================================================
   // Year summary — service year Sep..Aug
   // =========================================================
+  describe('getS21Data', () => {
+    it('forbids a plain publisher', async () => {
+      await expect(
+        service.getS21Data(
+          'cong-1',
+          makeUser({ id: 'user-x', role: UserRole.PUBLISHER }),
+          'pub-1',
+          2026,
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('forbids a ministerial servant', async () => {
+      await expect(
+        service.getS21Data(
+          'cong-1',
+          makeUser({ id: 'user-ms', role: UserRole.MINISTERIAL_SERVANT }),
+          'pub-1',
+          2026,
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('allows an elder and returns the year rows', async () => {
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ id: 'pub-1', firstName: 'Anna', lastName: 'B' }),
+      );
+      reportsRepo.find.mockResolvedValue([
+        makeReport({
+          publisherId: 'pub-1',
+          reportMonth: '2025-09-01',
+          servedThisMonth: true,
+          bibleStudies: 2,
+        }),
+      ]);
+
+      const result = await service.getS21Data(
+        'cong-1',
+        makeUser({ id: 'elder', role: UserRole.ELDER }),
+        'pub-1',
+        2026,
+      );
+
+      expect(result.serviceYear).toBe(2026);
+      expect(result.publisher.id).toBe('pub-1');
+      expect(result.months).toHaveLength(1);
+      expect(result.months[0].reportMonth).toBe('2025-09-01');
+    });
+
+    it('allows an admin', async () => {
+      publishersRepo.findOne.mockResolvedValue(makePublisher({ id: 'pub-1' }));
+      reportsRepo.find.mockResolvedValue([]);
+
+      const result = await service.getS21Data(
+        'cong-1',
+        makeUser({ id: 'admin', role: UserRole.ADMIN }),
+        'pub-1',
+        2026,
+      );
+      expect(result.months).toEqual([]);
+    });
+  });
+
   describe('getYearSummary', () => {
     it('forbids a plain publisher', async () => {
       publishersRepo.findOne.mockResolvedValue(
