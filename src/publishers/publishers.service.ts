@@ -20,6 +20,8 @@ import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { Gender } from '../common/enums/gender.enum';
+import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
+import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { OverrideStatusDto } from './dto/override-status.dto';
@@ -669,7 +671,35 @@ export class PublishersService {
     return this.getAccess(tenantId, id);
   }
 
+  /**
+   * Enforce that a publisher's appointment is consistent with pioneer service:
+   * only baptized publishers (publisher / ministerial servant / elder) may be
+   * pioneers. Students and unbaptized publishers may report field service (the
+   * "served" checkbox) but cannot be pioneers of any kind.
+   */
+  private assertAppointmentConsistency(
+    appointment: PublisherAppointment | undefined,
+    pioneerType: PioneerType | undefined,
+  ): void {
+    if (appointment === undefined) return;
+    const isBaptized =
+      appointment === PublisherAppointment.PUBLISHER ||
+      appointment === PublisherAppointment.MINISTERIAL_SERVANT ||
+      appointment === PublisherAppointment.ELDER;
+    if (
+      !isBaptized &&
+      pioneerType !== undefined &&
+      pioneerType !== PioneerType.NONE
+    ) {
+      throw new BadRequestException(
+        'Only baptized publishers may be pioneers; students and unbaptized ' +
+          'publishers cannot have a pioneer type.',
+      );
+    }
+  }
+
   async create(tenantId: string, dto: CreatePublisherDto): Promise<Publisher> {
+    this.assertAppointmentConsistency(dto.appointment, dto.pioneerType);
     const displayName = this.buildDisplayName(
       dto.firstName,
       dto.middleName ?? null,
@@ -696,6 +726,10 @@ export class PublishersService {
   ): Promise<Publisher> {
     const publisher = await this.findOne(tenantId, id);
     Object.assign(publisher, dto);
+    this.assertAppointmentConsistency(
+      publisher.appointment,
+      publisher.pioneerType,
+    );
 
     if (
       dto.firstName !== undefined ||

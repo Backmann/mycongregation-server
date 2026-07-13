@@ -29,6 +29,8 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceReport } from '../entities/service-report.entity';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
+import { Gender } from '../common/enums/gender.enum';
+import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
@@ -191,6 +193,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       findOne: jest.fn(),
       save: jest.fn(),
       find: jest.fn(),
+      create: jest.fn((x: any) => x),
       manager: {
         findOne: jest.fn().mockResolvedValue(null),
         find: jest.fn().mockResolvedValue([]),
@@ -577,6 +580,59 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       expect(summary.processed).toBe(1);
       expect(summary.errors).toBe(1);
       expect(summary.updated).toBe(0);
+    });
+  });
+
+  describe('appointment/pioneer consistency', () => {
+    it('rejects creating an unbaptized publisher with a pioneer type', async () => {
+      await expect(
+        service.create('cong-1', {
+          firstName: 'Ivan',
+          lastName: 'N',
+          gender: Gender.BROTHER,
+          appointment: PublisherAppointment.UNBAPTIZED_PUBLISHER,
+          pioneerType: PioneerType.REGULAR,
+        } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects creating a student with a pioneer type', async () => {
+      await expect(
+        service.create('cong-1', {
+          firstName: 'Ivan',
+          lastName: 'N',
+          gender: Gender.BROTHER,
+          appointment: PublisherAppointment.STUDENT,
+          pioneerType: PioneerType.AUXILIARY_UNTIL_CANCELLED,
+        } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('allows a baptized publisher with a pioneer type', async () => {
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+      const result = await service.create('cong-1', {
+        firstName: 'Ivan',
+        lastName: 'N',
+        gender: Gender.BROTHER,
+        appointment: PublisherAppointment.PUBLISHER,
+        pioneerType: PioneerType.REGULAR,
+      } as any);
+      expect(result.pioneerType).toBe(PioneerType.REGULAR);
+    });
+
+    it('rejects updating a publisher to unbaptized while keeping a pioneer type', async () => {
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({
+          id: 'pub-1',
+          appointment: PublisherAppointment.PUBLISHER,
+          pioneerType: PioneerType.REGULAR,
+        }),
+      );
+      await expect(
+        service.update('cong-1', 'pub-1', {
+          appointment: PublisherAppointment.UNBAPTIZED_PUBLISHER,
+        } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 });
