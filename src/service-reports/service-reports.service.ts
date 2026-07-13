@@ -857,6 +857,12 @@ export class ServiceReportsService {
     if (!publisher) {
       throw new NotFoundException('Publisher not found.');
     }
+    // Students don't submit service reports, so an S-21 card is meaningless.
+    if (publisher.appointment === PublisherAppointment.STUDENT) {
+      throw new BadRequestException(
+        'The S-21 record card does not apply to students.',
+      );
+    }
 
     // Service year: Sep (year-1) .. Aug (year).
     const first = `${serviceYear - 1}-09-01`;

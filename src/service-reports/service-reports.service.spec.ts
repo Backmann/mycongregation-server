@@ -1724,6 +1724,24 @@ describe('ServiceReportsService', () => {
       );
       expect(result.months).toEqual([]);
     });
+
+    it('rejects a student (they do not submit reports)', async () => {
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({
+          id: 'pub-1',
+          appointment: PublisherAppointment.STUDENT,
+        }),
+      );
+
+      await expect(
+        service.getS21Data(
+          'cong-1',
+          makeUser({ id: 'elder', role: UserRole.ELDER }),
+          'pub-1',
+          2026,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
   });
 
   describe('getYearSummary', () => {
