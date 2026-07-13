@@ -63,6 +63,8 @@ export interface PublisherHistoryResponse {
     status: PublisherStatus | null;
     statusManuallyOverridden: boolean;
     isPioneer: boolean;
+    pioneerType: PioneerType;
+    pioneerSince: string | null;
   };
   timeline: PublisherHistoryEntry[];
 }
@@ -842,6 +844,8 @@ export class ServiceReportsService {
         status: publisher.status,
         statusManuallyOverridden: publisher.statusManuallyOverridden,
         isPioneer: publisher.pioneerType !== PioneerType.NONE,
+        pioneerType: publisher.pioneerType,
+        pioneerSince: publisher.pioneerSince,
       },
       timeline,
     };
