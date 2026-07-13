@@ -18,6 +18,7 @@ import {
 } from 'class-validator';
 import { Gender } from '../../common/enums/gender.enum';
 import { PublisherAppointment } from '../../common/enums/publisher-appointment.enum';
+import { SpiritualStatus } from '../../common/enums/spiritual-status.enum';
 import { PioneerType } from '../../common/enums/pioneer-type.enum';
 
 export class CreatePublisherDto {
@@ -84,6 +85,10 @@ export class CreatePublisherDto {
   )
   @IsDateString()
   baptismDate?: string;
+
+  @IsOptional()
+  @IsEnum(SpiritualStatus)
+  spiritualStatus?: SpiritualStatus;
 
   @IsOptional()
   @Transform(({ value }) =>

@@ -16,6 +16,7 @@ import { User } from './user.entity';
 import { ServiceGroup } from './service-group.entity';
 import { Gender } from '../common/enums/gender.enum';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
+import { SpiritualStatus } from '../common/enums/spiritual-status.enum';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { RemovalReason } from '../common/enums/removal-reason.enum';
 
@@ -99,6 +100,13 @@ export class Publisher {
 
   @Column({ type: 'date', nullable: true })
   baptismDate!: string | null;
+
+  @Column({
+    type: 'enum',
+    enum: SpiritualStatus,
+    default: SpiritualStatus.UNKNOWN,
+  })
+  spiritualStatus!: SpiritualStatus;
 
   @Column({
     type: 'date',
