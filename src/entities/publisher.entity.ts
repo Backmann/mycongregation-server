@@ -149,9 +149,10 @@ export class Publisher {
   @Column({
     type: 'varchar',
     length: 16,
+    nullable: true,
     default: PublisherStatus.INACTIVE,
   })
-  status!: PublisherStatus;
+  status!: PublisherStatus | null;
 
   @Column({
     type: 'boolean',

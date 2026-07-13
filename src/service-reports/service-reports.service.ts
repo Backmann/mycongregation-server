@@ -60,7 +60,7 @@ export interface PublisherHistoryResponse {
   publisher: {
     id: string;
     displayName: string;
-    status: PublisherStatus;
+    status: PublisherStatus | null;
     statusManuallyOverridden: boolean;
     isPioneer: boolean;
   };
@@ -676,8 +676,23 @@ export class ServiceReportsService {
       }
       set.add(r.reportMonth.slice(0, 7));
     }
+    // Reporting start month per publisher (ministry start / baptism): months
+    // before it are not counted as missed — a newcomer isn't penalised for
+    // months before they began reporting.
+    const startMonthOf = (p: Publisher): string | null => {
+      const raw =
+        p.appointment === PublisherAppointment.UNBAPTIZED_PUBLISHER
+          ? p.ministryStartDate
+          : p.baptismDate;
+      return raw ? raw.slice(0, 7) : null;
+    };
+    const startByPubId = new Map<string, string | null>(
+      publisherScope.map((p) => [p.id, startMonthOf(p)]),
+    );
+
     const consecutiveMissingFor = (publisherId: string): number => {
       const set = reportedMonths.get(publisherId) ?? new Set();
+      const start = startByPubId.get(publisherId) ?? null;
       let count = 0;
       const cursor = new Date(normalizedMonth + 'T00:00:00Z');
       for (let i = 0; i < 12; i++) {
@@ -685,6 +700,8 @@ export class ServiceReportsService {
           cursor.getUTCMonth() + 1,
         ).padStart(2, '0')}`;
         if (set.has(ym)) break;
+        // Stop counting once we reach a month before the publisher's start.
+        if (start && ym < start) break;
         count++;
         cursor.setUTCMonth(cursor.getUTCMonth() - 1);
       }

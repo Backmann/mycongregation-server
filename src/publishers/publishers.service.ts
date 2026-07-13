@@ -47,13 +47,39 @@ export function computeStatusFromReports(
     hoursReported: number | null;
   }[],
   currentMonth: Date,
+  /**
+   * First month the publisher was expected to report (start of ministry /
+   * baptism, or their first report). Months before this are not counted as
+   * missed — a newcomer isn't penalised for months before they began.
+   */
+  startMonth?: Date | null,
 ): PublisherStatus {
-  const windowStart = new Date(
+  const sixMonthsAgo = new Date(
     Date.UTC(currentMonth.getUTCFullYear(), currentMonth.getUTCMonth() - 5, 1),
   );
+  // Window starts at the later of "6 months ago" and the publisher's start.
+  const windowStart =
+    startMonth && startMonth.getTime() > sixMonthsAgo.getTime()
+      ? new Date(
+          Date.UTC(startMonth.getUTCFullYear(), startMonth.getUTCMonth(), 1),
+        )
+      : sixMonthsAgo;
+  // The last month that could have a report is the previous month (the current
+  // month isn't finished yet).
   const windowEnd = new Date(
-    Date.UTC(currentMonth.getUTCFullYear(), currentMonth.getUTCMonth(), 1),
+    Date.UTC(currentMonth.getUTCFullYear(), currentMonth.getUTCMonth() - 1, 1),
   );
+
+  // How many months the publisher could have reported in the window (inclusive
+  // of both ends), capped at 6.
+  let windowMonths = 0;
+  {
+    const cursor = new Date(windowStart.getTime());
+    while (cursor.getTime() <= windowEnd.getTime() && windowMonths < 6) {
+      windowMonths++;
+      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    }
+  }
 
   const servedMonths = new Set<string>();
   for (const r of reports) {
@@ -73,7 +99,11 @@ export function computeStatusFromReports(
   }
 
   if (servedMonths.size === 0) return PublisherStatus.INACTIVE;
-  if (servedMonths.size >= 6) return PublisherStatus.ACTIVE;
+  // Active if they reported every month they could have (a newcomer who has
+  // reported all of their first months counts as active), or 6+ overall.
+  if (servedMonths.size >= 6 || servedMonths.size >= windowMonths) {
+    return PublisherStatus.ACTIVE;
+  }
   return PublisherStatus.IRREGULAR;
 }
 import { CreatePublisherDto } from './dto/create-publisher.dto';
@@ -111,6 +141,21 @@ export class PublishersService {
    * reports. No-op when statusManuallyOverridden=true. Skips the save if
    * the computed status matches the stored value.
    */
+  /**
+   * The month from which a publisher is expected to report: their ministry
+   * start (unbaptized) or baptism date (baptized). Returns null if neither is
+   * set — the status logic then falls back to the plain 6-month window.
+   */
+  private reportingStartMonth(publisher: Publisher): Date | null {
+    const raw =
+      publisher.appointment === PublisherAppointment.UNBAPTIZED_PUBLISHER
+        ? publisher.ministryStartDate
+        : publisher.baptismDate;
+    if (!raw) return null;
+    const d = new Date(`${raw.slice(0, 7)}-01T00:00:00Z`);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
   async recomputeStatus(
     tenantId: string,
     publisherId: string,
@@ -122,6 +167,28 @@ export class PublishersService {
       throw new NotFoundException('Publisher not found.');
     }
     if (publisher.statusManuallyOverridden) return 'skipped_override';
+
+    // Students don't submit service reports, so they have no service status.
+    if (publisher.appointment === PublisherAppointment.STUDENT) {
+      if (publisher.status === null) return 'unchanged';
+      const before: { status: PublisherStatus | null } = {
+        status: publisher.status,
+      };
+      publisher.status = null;
+      await this.publishersRepo.save(publisher);
+      if (publisher.userId) {
+        await this.auditLogService.logUpdate({
+          tenantId,
+          entityType: 'Publisher',
+          entityId: publisher.id,
+          actorUserId: publisher.userId,
+          before,
+          after: { status: null } as { status: PublisherStatus | null },
+          fields: ['status'],
+        });
+      }
+      return 'updated';
+    }
 
     const now = new Date(Date.now());
     const windowStart = new Date(
@@ -139,7 +206,8 @@ export class PublishersService {
       },
     });
 
-    const newStatus = computeStatusFromReports(reports, now);
+    const startMonth = this.reportingStartMonth(publisher);
+    const newStatus = computeStatusFromReports(reports, now, startMonth);
     if (publisher.status === newStatus) return 'unchanged';
 
     const before = { status: publisher.status };
@@ -175,7 +243,7 @@ export class PublishersService {
           tenantId,
           recipientUserId,
           { id: publisher.id, displayName: publisher.displayName },
-          before.status,
+          before.status ?? '',
           newStatus,
         )
         .catch((err: any) => {

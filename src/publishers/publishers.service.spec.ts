@@ -583,6 +583,59 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
     });
   });
 
+  describe('status for students and newcomers', () => {
+    it('clears status to null for a student', async () => {
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({
+          id: 'pub-s',
+          appointment: PublisherAppointment.STUDENT,
+          status: PublisherStatus.INACTIVE,
+          statusManuallyOverridden: false,
+        }),
+      );
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+
+      const result = await service.recomputeStatus('cong-1', 'pub-s');
+
+      expect(result).toBe('updated');
+      expect(publishersRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'pub-s', status: null }),
+      );
+    });
+
+    it('treats a newcomer who reported every month since start as active', () => {
+      // Started 2 months ago; reported both months. Fewer than 6 served, but
+      // that's all they could have — should be ACTIVE, not IRREGULAR.
+      const now = new Date(Date.UTC(2026, 4, 15)); // May 2026
+      const start = new Date(Date.UTC(2026, 3, 1)); // April 2026
+      const reports = [
+        {
+          reportMonth: '2026-04-01',
+          servedThisMonth: true,
+          hoursReported: null,
+        },
+      ];
+      expect(computeStatusFromReports(reports, now, start)).toBe(
+        PublisherStatus.ACTIVE,
+      );
+    });
+
+    it('still marks a long-time publisher with one report as irregular', () => {
+      const now = new Date(Date.UTC(2026, 4, 15));
+      const start = new Date(Date.UTC(2020, 0, 1)); // long ago
+      const reports = [
+        {
+          reportMonth: '2026-04-01',
+          servedThisMonth: true,
+          hoursReported: null,
+        },
+      ];
+      expect(computeStatusFromReports(reports, now, start)).toBe(
+        PublisherStatus.IRREGULAR,
+      );
+    });
+  });
+
   describe('appointment/pioneer consistency', () => {
     it('rejects creating an unbaptized publisher with a pioneer type', async () => {
       await expect(
