@@ -119,6 +119,20 @@ export class ServiceReportsController {
     );
   }
 
+  @Get('year-summary')
+  getYearSummary(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('year') yearRaw?: string,
+  ) {
+    // Default to the current service year: Sep..Dec belong to next year's label.
+    const now = new Date();
+    const defaultYear =
+      now.getUTCMonth() >= 8 ? now.getUTCFullYear() + 1 : now.getUTCFullYear();
+    const year = yearRaw ? parseInt(yearRaw, 10) || defaultYear : defaultYear;
+    return this.serviceReportsService.getYearSummary(tenantId, user, year);
+  }
+
   @Get('closure')
   getClosure(
     @TenantId() tenantId: string,

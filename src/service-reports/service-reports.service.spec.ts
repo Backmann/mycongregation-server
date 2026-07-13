@@ -1661,6 +1661,72 @@ describe('ServiceReportsService', () => {
   });
 
   // =========================================================
+  // Year summary — service year Sep..Aug
+  // =========================================================
+  describe('getYearSummary', () => {
+    it('forbids a plain publisher', async () => {
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ id: 'pub', userId: 'user-x' }),
+      );
+      await expect(
+        service.getYearSummary(
+          'cong-1',
+          makeUser({ id: 'user-x', role: UserRole.PUBLISHER }),
+          2026,
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('sums hours and studies across the service year for an admin', async () => {
+      publishersRepo.findOne.mockResolvedValue(null);
+      publishersRepo.find.mockResolvedValue([
+        makePublisher({ id: 'p-reg', pioneerType: PioneerType.REGULAR }),
+        makePublisher({ id: 'p-pub', pioneerType: PioneerType.NONE }),
+      ]);
+      reportsRepo.find.mockResolvedValue([
+        makeReport({
+          publisherId: 'p-reg',
+          reportMonth: '2025-09-01',
+          servedThisMonth: null,
+          hoursReported: 50,
+          bibleStudies: 2,
+        }),
+        makeReport({
+          publisherId: 'p-reg',
+          reportMonth: '2025-10-01',
+          servedThisMonth: null,
+          hoursReported: 60,
+          bibleStudies: 3,
+        }),
+        makeReport({
+          publisherId: 'p-pub',
+          reportMonth: '2025-09-01',
+          servedThisMonth: true,
+          hoursReported: null,
+          bibleStudies: 1,
+        }),
+      ]);
+
+      const result = await service.getYearSummary(
+        'cong-1',
+        makeUser({ id: 'admin', role: UserRole.ADMIN }),
+        2026,
+      );
+
+      expect(result.serviceYear).toBe(2026);
+      expect(result.firstMonth).toBe('2025-09-01');
+      expect(result.lastMonth).toBe('2026-08-01');
+      expect(result.totalHours).toBe(110);
+      expect(result.totalStudies).toBe(6);
+      expect(result.monthly).toHaveLength(12);
+      // September bucket: 50 hours, studies 2 (reg) + 1 (pub) = 3.
+      const sep = result.monthly.find((m) => m.reportMonth === '2025-09-01');
+      expect(sep?.hours).toBe(50);
+      expect(sep?.studies).toBe(3);
+    });
+  });
+
+  // =========================================================
   // Month closure — close / reopen / status + freeze
   // =========================================================
   describe('month closure', () => {

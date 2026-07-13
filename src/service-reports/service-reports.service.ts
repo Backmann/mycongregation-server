@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, MoreThanOrEqual, Not, Repository } from 'typeorm';
+import { Between, In, MoreThanOrEqual, Not, Repository } from 'typeorm';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
@@ -93,6 +93,21 @@ export interface ServiceReportSummaryCategory {
  * `totalInactivePublishers` is a separate count of those whose status is
  * inactive; it is never folded into the active total.
  */
+export interface ServiceYearSummary {
+  serviceYear: number;
+  firstMonth: string;
+  lastMonth: string;
+  totalHours: number;
+  totalStudies: number;
+  avgMonthlyPioneerReports: number;
+  monthly: {
+    reportMonth: string;
+    hours: number;
+    studies: number;
+    reporters: number;
+  }[];
+}
+
 export interface ServiceReportSummary {
   reportMonth: string;
   categories: ServiceReportSummaryCategory[];
@@ -924,6 +939,109 @@ export class ServiceReportsService {
       totalInactivePublishers,
       averages,
       closed,
+    };
+  }
+
+  /**
+   * Yearly totals for a service year (September of year-1 through August of
+   * `year`), plus a per-month breakdown for the trend. Same audience as the
+   * monthly summary (admin/secretary).
+   */
+  async getYearSummary(
+    tenantId: string,
+    user: AuthenticatedUser,
+    serviceYear: number,
+  ): Promise<ServiceYearSummary> {
+    const ctx = await this.buildPermissionContext(tenantId, user);
+    if (!ctx.alwaysEdit) {
+      throw new ForbiddenException(
+        'Only administrators and the secretary may view the service summary.',
+      );
+    }
+
+    // Service year runs Sep (year-1) .. Aug (year).
+    const months: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(Date.UTC(serviceYear - 1, 8 + i, 1)); // month 8 = Sep
+      months.push(
+        `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(
+          2,
+          '0',
+        )}-01`,
+      );
+    }
+    const first = months[0];
+    const last = months[months.length - 1];
+
+    const publishers = await this.publishersRepo.find({
+      where: { congregationId: tenantId },
+    });
+    const typeByPubId = new Map<string, PioneerType>(
+      publishers.map((p) => [p.id, p.pioneerType]),
+    );
+
+    const reports = await this.reportsRepo.find({
+      where: {
+        congregationId: tenantId,
+        reportMonth: Between(first, last),
+      },
+    });
+
+    // Per-month accumulation.
+    const monthAcc = new Map<
+      string,
+      { hours: number; studies: number; reporters: number; pioneers: number }
+    >(
+      months.map((m) => [
+        m.slice(0, 7),
+        { hours: 0, studies: 0, reporters: 0, pioneers: 0 },
+      ]),
+    );
+    let totalHours = 0;
+    let totalStudies = 0;
+    let totalPioneerReports = 0;
+
+    for (const r of reports) {
+      const key = r.reportMonth.slice(0, 7);
+      const bucket = monthAcc.get(key);
+      if (!bucket) continue;
+      const type = typeByPubId.get(r.publisherId);
+      const shared =
+        r.servedThisMonth === true ||
+        (r.hoursReported != null && r.hoursReported > 0);
+      if (shared) {
+        bucket.reporters += 1;
+        bucket.studies += r.bibleStudies ?? 0;
+        totalStudies += r.bibleStudies ?? 0;
+      }
+      if (type !== undefined && type !== PioneerType.NONE) {
+        const h = r.hoursReported ?? 0;
+        bucket.hours += h;
+        bucket.pioneers += 1;
+        totalHours += h;
+        totalPioneerReports += 1;
+      }
+    }
+
+    const monthly = months.map((m) => {
+      const b = monthAcc.get(m.slice(0, 7))!;
+      return {
+        reportMonth: m,
+        hours: b.hours,
+        studies: b.studies,
+        reporters: b.reporters,
+      };
+    });
+
+    return {
+      serviceYear,
+      firstMonth: first,
+      lastMonth: last,
+      totalHours,
+      totalStudies,
+      avgMonthlyPioneerReports:
+        Math.round((totalPioneerReports / 12) * 10) / 10,
+      monthly,
     };
   }
 
