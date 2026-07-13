@@ -187,6 +187,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
     sendStatusChangeToUser: jest.Mock;
   };
   let usersService: { syncRoleFromAppointment: jest.Mock };
+  let auxiliaryPioneersService: { closeActiveForPublisher: jest.Mock };
 
   beforeEach(() => {
     publishersRepo = {
@@ -213,12 +214,16 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
     usersService = {
       syncRoleFromAppointment: jest.fn().mockResolvedValue(undefined),
     };
+    auxiliaryPioneersService = {
+      closeActiveForPublisher: jest.fn().mockResolvedValue(0),
+    };
     service = new PublishersService(
       publishersRepo,
       reportsRepo,
       auditLogService as any,
       pushNotificationsService as any,
       usersService as any,
+      auxiliaryPioneersService as any,
     );
   });
 
@@ -686,6 +691,45 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
           appointment: PublisherAppointment.UNBAPTIZED_PUBLISHER,
         } as any),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('closes an open auxiliary period when becoming a regular pioneer', async () => {
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({
+          id: 'pub-1',
+          appointment: PublisherAppointment.PUBLISHER,
+          pioneerType: PioneerType.NONE,
+        }),
+      );
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+
+      await service.update('cong-1', 'pub-1', {
+        pioneerType: PioneerType.REGULAR,
+        pioneerSince: '2026-08-01',
+      } as any);
+
+      expect(
+        auxiliaryPioneersService.closeActiveForPublisher,
+      ).toHaveBeenCalledWith('cong-1', 'pub-1', '2026-08-01');
+    });
+
+    it('does not close auxiliary periods when pioneer type is unchanged', async () => {
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({
+          id: 'pub-1',
+          appointment: PublisherAppointment.PUBLISHER,
+          pioneerType: PioneerType.REGULAR,
+        }),
+      );
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+
+      await service.update('cong-1', 'pub-1', {
+        mobilePhone: '123',
+      } as any);
+
+      expect(
+        auxiliaryPioneersService.closeActiveForPublisher,
+      ).not.toHaveBeenCalled();
     });
   });
 });

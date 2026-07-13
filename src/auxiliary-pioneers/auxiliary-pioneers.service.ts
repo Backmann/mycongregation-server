@@ -378,6 +378,49 @@ export class AuxiliaryPioneersService {
     return out;
   }
 
+  /**
+   * Close any open auxiliary-pioneer period for a publisher — used when they
+   * become a regular/special/missionary pioneer, so the two don't overlap. The
+   * period is ended the month before `fromMonthIso` (the auxiliary service runs
+   * up to, but not including, the month regular pioneering starts). Periods
+   * that already ended earlier are left untouched. Returns how many were closed.
+   */
+  async closeActiveForPublisher(
+    congregationId: string,
+    publisherId: string,
+    fromMonthIso: string,
+  ): Promise<number> {
+    const fromKey = monthKeyOf(fromMonthIso);
+    const [y, m] = fromKey.split('-').map((n) => parseInt(n, 10));
+    const prev = new Date(Date.UTC(y, m - 2, 1)); // month before `from`
+    const endMonth = `${prev.getUTCFullYear()}-${String(
+      prev.getUTCMonth() + 1,
+    ).padStart(2, '0')}-01`;
+
+    const rows = await this.repo.find({
+      where: { congregationId, publisherId },
+    });
+    let closed = 0;
+    for (const row of rows) {
+      const stillOpen =
+        row.untilCancelled ||
+        row.endMonth === null ||
+        row.endMonth >= `${fromKey}-01`;
+      if (!stillOpen) continue;
+      // Don't create an inverted range: if the period starts on/after the new
+      // pioneer month, remove it instead of ending it before it began.
+      if (row.startMonth >= `${fromKey}-01`) {
+        await this.repo.remove(row);
+      } else {
+        row.endMonth = endMonth;
+        row.untilCancelled = false;
+        await this.repo.save(row);
+      }
+      closed++;
+    }
+    return closed;
+  }
+
   private async namesByIds(
     congregationId: string,
     ids: string[],

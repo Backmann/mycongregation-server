@@ -25,6 +25,7 @@ describe('AuxiliaryPioneersService', () => {
     create: jest.Mock;
     save: jest.Mock;
     delete: jest.Mock;
+    remove: jest.Mock;
   };
   let publisherRepo: { find: jest.Mock; findOne: jest.Mock };
   let responsibilityRepo: { count: jest.Mock };
@@ -37,6 +38,7 @@ describe('AuxiliaryPioneersService', () => {
       create: jest.fn((v) => v),
       save: jest.fn(async (v) => ({ id: 'new', ...v })),
       delete: jest.fn(),
+      remove: jest.fn(async (v) => v),
     };
     publisherRepo = {
       find: jest.fn().mockResolvedValue([]),
@@ -340,6 +342,82 @@ describe('AuxiliaryPioneersService', () => {
       await expect(
         service.isActiveAuxiliaryPioneer(CONG, 'p1', '2026-09-01'),
       ).resolves.toBe(false);
+    });
+  });
+
+  describe('closeActiveForPublisher', () => {
+    it('ends an open until-cancelled period the month before the new pioneer month', async () => {
+      repo.find.mockResolvedValue([
+        {
+          id: 'a1',
+          congregationId: CONG,
+          publisherId: 'p1',
+          startMonth: '2026-05-01',
+          endMonth: null,
+          untilCancelled: true,
+        },
+      ]);
+
+      const closed = await service.closeActiveForPublisher(
+        CONG,
+        'p1',
+        '2026-08-01',
+      );
+
+      expect(closed).toBe(1);
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'a1',
+          endMonth: '2026-07-01',
+          untilCancelled: false,
+        }),
+      );
+    });
+
+    it('removes a period that starts on or after the new pioneer month', async () => {
+      repo.find.mockResolvedValue([
+        {
+          id: 'a2',
+          congregationId: CONG,
+          publisherId: 'p1',
+          startMonth: '2026-08-01',
+          endMonth: null,
+          untilCancelled: true,
+        },
+      ]);
+
+      const closed = await service.closeActiveForPublisher(
+        CONG,
+        'p1',
+        '2026-08-01',
+      );
+
+      expect(closed).toBe(1);
+      expect(repo.remove).toHaveBeenCalled();
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
+    it('leaves already-ended periods untouched', async () => {
+      repo.find.mockResolvedValue([
+        {
+          id: 'a3',
+          congregationId: CONG,
+          publisherId: 'p1',
+          startMonth: '2026-01-01',
+          endMonth: '2026-03-01',
+          untilCancelled: false,
+        },
+      ]);
+
+      const closed = await service.closeActiveForPublisher(
+        CONG,
+        'p1',
+        '2026-08-01',
+      );
+
+      expect(closed).toBe(0);
+      expect(repo.save).not.toHaveBeenCalled();
+      expect(repo.remove).not.toHaveBeenCalled();
     });
   });
 });

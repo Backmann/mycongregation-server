@@ -28,6 +28,7 @@ import { OverrideStatusDto } from './dto/override-status.dto';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { deriveRoleFromAppointment } from './derive-role';
 import { UsersService } from '../users/users.service';
+import { AuxiliaryPioneersService } from '../auxiliary-pioneers/auxiliary-pioneers.service';
 import { GrantAccessDto } from './dto/grant-access.dto';
 import { UpdateAccessDto } from './dto/update-access.dto';
 
@@ -134,6 +135,7 @@ export class PublishersService {
     private readonly auditLogService: AuditLogService,
     private readonly pushNotificationsService: PushNotificationsService,
     private readonly usersService: UsersService,
+    private readonly auxiliaryPioneersService: AuxiliaryPioneersService,
   ) {}
 
   /**
@@ -793,6 +795,7 @@ export class PublishersService {
     actorUserId?: string,
   ): Promise<Publisher> {
     const publisher = await this.findOne(tenantId, id);
+    const prevPioneerType = publisher.pioneerType;
     Object.assign(publisher, dto);
     this.assertAppointmentConsistency(
       publisher.appointment,
@@ -822,7 +825,30 @@ export class PublishersService {
     }
 
     publisher.lastEditedById = actorUserId ?? publisher.lastEditedById;
-    return this.publishersRepo.save(publisher);
+    const saved = await this.publishersRepo.save(publisher);
+
+    // Becoming a regular/special/missionary pioneer ends any open auxiliary
+    // period — the two must not overlap. Uses the pioneer start month if given,
+    // else the current month.
+    const PERMANENT: PioneerType[] = [
+      PioneerType.REGULAR,
+      PioneerType.SPECIAL,
+      PioneerType.MISSIONARY,
+    ];
+    const becamePermanent =
+      PERMANENT.includes(publisher.pioneerType) &&
+      !PERMANENT.includes(prevPioneerType);
+    if (becamePermanent) {
+      const fromMonth =
+        publisher.pioneerSince ?? new Date().toISOString().slice(0, 10);
+      await this.auxiliaryPioneersService.closeActiveForPublisher(
+        tenantId,
+        publisher.id,
+        fromMonth,
+      );
+    }
+
+    return saved;
   }
 
   /**
