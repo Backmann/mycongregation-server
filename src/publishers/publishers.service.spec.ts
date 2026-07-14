@@ -661,7 +661,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
           lastName: 'N',
           gender: Gender.BROTHER,
           appointment: PublisherAppointment.STUDENT,
-          pioneerType: PioneerType.AUXILIARY_UNTIL_CANCELLED,
+          pioneerType: PioneerType.REGULAR,
         } as any),
       ).rejects.toBeInstanceOf(BadRequestException);
     });

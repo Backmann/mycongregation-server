@@ -959,7 +959,6 @@ export class ServiceReportsService {
 
     const order: PioneerType[] = [
       PioneerType.NONE,
-      PioneerType.AUXILIARY_UNTIL_CANCELLED,
       PioneerType.REGULAR,
       PioneerType.SPECIAL,
       PioneerType.MISSIONARY,

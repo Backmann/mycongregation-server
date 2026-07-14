@@ -150,15 +150,15 @@ describe('CoVisitItemsService.mine', () => {
       items,
     );
     expect((await reg.mine(CONG, USER))[0]?.items).toHaveLength(1);
-    const aux = build(
+    const plain = build(
       {
         id: 'p1',
-        pioneerType: 'auxiliary_until_cancelled',
+        pioneerType: 'none',
         appointment: 'publisher',
       },
       items,
     );
-    expect(await aux.mine(CONG, USER)).toHaveLength(0);
+    expect(await plain.mine(CONG, USER)).toHaveLength(0);
   });
 
   it('shows the elders meeting to elders and ministerial servants only', async () => {

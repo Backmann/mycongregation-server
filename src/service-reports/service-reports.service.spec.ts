@@ -1515,16 +1515,12 @@ describe('ServiceReportsService', () => {
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
-    it('aggregates the five categories and the active total for an admin', async () => {
+    it('aggregates the four categories and the active total for an admin', async () => {
       publishersRepo.findOne.mockResolvedValue(null);
       publishersRepo.find.mockResolvedValue([
         makePublisher({ id: 'p-pub-a', pioneerType: PioneerType.NONE }),
         makePublisher({ id: 'p-pub-b', pioneerType: PioneerType.NONE }),
         makePublisher({ id: 'p-pub-c', pioneerType: PioneerType.NONE }),
-        makePublisher({
-          id: 'p-aux',
-          pioneerType: PioneerType.AUXILIARY_UNTIL_CANCELLED,
-        }),
         makePublisher({ id: 'p-reg', pioneerType: PioneerType.REGULAR }),
         makePublisher({ id: 'p-spec', pioneerType: PioneerType.SPECIAL }),
         makePublisher({ id: 'p-miss', pioneerType: PioneerType.MISSIONARY }),
@@ -1548,12 +1544,6 @@ describe('ServiceReportsService', () => {
           servedThisMonth: false,
           hoursReported: null,
           bibleStudies: 5,
-        }),
-        makeReport({
-          publisherId: 'p-aux',
-          servedThisMonth: null,
-          hoursReported: 30,
-          bibleStudies: 1,
         }),
         makeReport({
           publisherId: 'p-reg',
@@ -1591,7 +1581,6 @@ describe('ServiceReportsService', () => {
       expect(result.totalInactivePublishers).toBe(5);
       expect(result.categories.map((c) => c.pioneerType)).toEqual([
         PioneerType.NONE,
-        PioneerType.AUXILIARY_UNTIL_CANCELLED,
         PioneerType.REGULAR,
         PioneerType.SPECIAL,
         PioneerType.MISSIONARY,
@@ -1605,11 +1594,6 @@ describe('ServiceReportsService', () => {
       expect(byType[PioneerType.NONE].hours).toBeNull();
       expect(byType[PioneerType.NONE].bibleStudies).toBe(3);
       // pioneers: each report counts, hours + studies summed
-      expect(byType[PioneerType.AUXILIARY_UNTIL_CANCELLED]).toMatchObject({
-        count: 1,
-        hours: 30,
-        bibleStudies: 1,
-      });
       expect(byType[PioneerType.REGULAR]).toMatchObject({
         count: 1,
         hours: 50,
@@ -1626,12 +1610,12 @@ describe('ServiceReportsService', () => {
         bibleStudies: 6,
       });
 
-      // Averages: pioneer hours (30+50+100+120)/4 = 75; six reporters shared
-      // (2 publishers + 4 pioneers), studies (2+1+1+3+4+6)/6 = 2.8; submitted
-      // 6/42 ≈ 14%; active 42/(42+5) ≈ 89%.
-      expect(result.averages.pioneerHours).toBe(75);
-      expect(result.averages.bibleStudies).toBeCloseTo(2.8, 1);
-      expect(result.averages.submittedPct).toBe(14);
+      // Averages: pioneer hours (50+100+120)/3 = 90; five reporters shared
+      // (2 publishers + 3 pioneers), studies (2+1+3+4+6)/5 = 3.2; submitted
+      // 5/42 ≈ 12%; active 42/(42+5) ≈ 89%.
+      expect(result.averages.pioneerHours).toBe(90);
+      expect(result.averages.bibleStudies).toBeCloseTo(3.2, 1);
+      expect(result.averages.submittedPct).toBe(12);
       expect(result.averages.activePct).toBe(89);
     });
 
@@ -1654,7 +1638,7 @@ describe('ServiceReportsService', () => {
 
       expect(result.totalActivePublishers).toBe(7);
       expect(result.totalInactivePublishers).toBe(2);
-      expect(result.categories).toHaveLength(5);
+      expect(result.categories).toHaveLength(4);
       expect(result.categories.every((c) => c.count === 0)).toBe(true);
       expect(result.categories[0].bibleStudies).toBe(0);
     });
