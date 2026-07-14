@@ -103,6 +103,7 @@ export interface S21MonthRow {
   hoursReported: number | null;
   bibleStudies: number;
   notes: string | null;
+  wasAuxiliaryPioneer: boolean;
 }
 
 export interface S21DataResponse {
@@ -897,12 +898,24 @@ export class ServiceReportsService {
       order: { reportMonth: 'ASC' },
     });
 
+    // Which months this publisher served as an auxiliary pioneer (from real
+    // service periods) — so the card marks them and shows their hours, even for
+    // back-dated entries.
+    const auxMonths =
+      await this.auxiliaryPioneersService.auxiliaryMonthsForPublisher(
+        tenantId,
+        publisherId,
+        `${serviceYear - 1}-09`,
+        `${serviceYear}-08`,
+      );
+
     const months: S21MonthRow[] = reports.map((r) => ({
       reportMonth: r.reportMonth,
       servedThisMonth: r.servedThisMonth,
       hoursReported: r.hoursReported,
       bibleStudies: r.bibleStudies,
       notes: r.notes,
+      wasAuxiliaryPioneer: auxMonths.has(r.reportMonth.slice(0, 7)),
     }));
 
     return {

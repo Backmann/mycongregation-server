@@ -420,4 +420,56 @@ describe('AuxiliaryPioneersService', () => {
       expect(repo.remove).not.toHaveBeenCalled();
     });
   });
+
+  describe('auxiliaryMonthsForPublisher', () => {
+    it('returns the set of months covered by periods within the range', async () => {
+      repo.find.mockResolvedValue([
+        {
+          id: 'a1',
+          congregationId: CONG,
+          publisherId: 'p1',
+          startMonth: '2025-10-01',
+          endMonth: '2025-12-01',
+          untilCancelled: false,
+        },
+      ]);
+
+      const months = await service.auxiliaryMonthsForPublisher(
+        CONG,
+        'p1',
+        '2025-09',
+        '2026-08',
+      );
+
+      expect(months.has('2025-09')).toBe(false);
+      expect(months.has('2025-10')).toBe(true);
+      expect(months.has('2025-11')).toBe(true);
+      expect(months.has('2025-12')).toBe(true);
+      expect(months.has('2026-01')).toBe(false);
+    });
+
+    it('handles an until-cancelled (open-ended) period', async () => {
+      repo.find.mockResolvedValue([
+        {
+          id: 'a2',
+          congregationId: CONG,
+          publisherId: 'p1',
+          startMonth: '2026-06-01',
+          endMonth: null,
+          untilCancelled: true,
+        },
+      ]);
+
+      const months = await service.auxiliaryMonthsForPublisher(
+        CONG,
+        'p1',
+        '2025-09',
+        '2026-08',
+      );
+
+      expect(months.has('2026-05')).toBe(false);
+      expect(months.has('2026-06')).toBe(true);
+      expect(months.has('2026-08')).toBe(true);
+    });
+  });
 });

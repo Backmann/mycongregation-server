@@ -350,6 +350,47 @@ export class AuxiliaryPioneersService {
   }
 
   /**
+   * The set of months (YYYY-MM) in which a publisher served as an auxiliary
+   * pioneer, within [fromMonthKey, toMonthKey] inclusive. Used by the S-21 card
+   * to mark auxiliary months and show their hours, from real service periods
+   * (so back-dated entries are reflected correctly).
+   */
+  async auxiliaryMonthsForPublisher(
+    congregationId: string,
+    publisherId: string,
+    fromMonthKey: string, // "YYYY-MM"
+    toMonthKey: string, // "YYYY-MM"
+  ): Promise<Set<string>> {
+    const rows = await this.repo.find({
+      where: { congregationId, publisherId },
+    });
+    const result = new Set<string>();
+    // Walk each month in the range and test membership against every period.
+    const [fy, fm] = fromMonthKey.split('-').map((n) => parseInt(n, 10));
+    const [ty, tm] = toMonthKey.split('-').map((n) => parseInt(n, 10));
+    const cursor = new Date(Date.UTC(fy, fm - 1, 1));
+    const end = new Date(Date.UTC(ty, tm - 1, 1));
+    while (cursor.getTime() <= end.getTime()) {
+      const key = `${cursor.getUTCFullYear()}-${String(
+        cursor.getUTCMonth() + 1,
+      ).padStart(2, '0')}`;
+      const active = rows.some((p) =>
+        isActiveInMonth(
+          {
+            startMonth: p.startMonth,
+            endMonth: p.endMonth,
+            untilCancelled: p.untilCancelled,
+          },
+          key,
+        ),
+      );
+      if (active) result.add(key);
+      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    }
+    return result;
+  }
+
+  /**
    * Publisher IDs that are active auxiliary pioneers in the given month — one
    * query, for callers that classify many publishers at once (e.g. the group
    * reports screen deciding who needs the hours form).

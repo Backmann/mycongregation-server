@@ -102,6 +102,7 @@ describe('ServiceReportsService', () => {
   let auxiliaryPioneersService: {
     isActiveAuxiliaryPioneer: jest.Mock;
     activePublisherIdsForMonth: jest.Mock;
+    auxiliaryMonthsForPublisher: jest.Mock;
   };
 
   beforeEach(() => {
@@ -145,6 +146,7 @@ describe('ServiceReportsService', () => {
     auxiliaryPioneersService = {
       isActiveAuxiliaryPioneer: jest.fn().mockResolvedValue(false),
       activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()),
+      auxiliaryMonthsForPublisher: jest.fn().mockResolvedValue(new Set()),
     };
     service = new ServiceReportsService(
       reportsRepo,
@@ -1694,6 +1696,40 @@ describe('ServiceReportsService', () => {
       expect(result.publisher.id).toBe('pub-1');
       expect(result.months).toHaveLength(1);
       expect(result.months[0].reportMonth).toBe('2025-09-01');
+    });
+
+    it('marks months served as an auxiliary pioneer', async () => {
+      publishersRepo.findOne.mockResolvedValue(makePublisher({ id: 'pub-1' }));
+      reportsRepo.find.mockResolvedValue([
+        makeReport({
+          publisherId: 'pub-1',
+          reportMonth: '2025-10-01',
+          hoursReported: 30,
+          bibleStudies: 1,
+        }),
+        makeReport({
+          publisherId: 'pub-1',
+          reportMonth: '2025-11-01',
+          servedThisMonth: true,
+          bibleStudies: 2,
+        }),
+      ]);
+      auxiliaryPioneersService.auxiliaryMonthsForPublisher.mockResolvedValue(
+        new Set(['2025-10']),
+      );
+
+      const result = await service.getS21Data(
+        'cong-1',
+        makeUser({ id: 'elder', role: UserRole.ELDER }),
+        'pub-1',
+        2026,
+      );
+
+      const oct = result.months.find((m) => m.reportMonth === '2025-10-01');
+      const nov = result.months.find((m) => m.reportMonth === '2025-11-01');
+      expect(oct?.wasAuxiliaryPioneer).toBe(true);
+      expect(oct?.hoursReported).toBe(30);
+      expect(nov?.wasAuxiliaryPioneer).toBe(false);
     });
 
     it('allows an admin', async () => {
