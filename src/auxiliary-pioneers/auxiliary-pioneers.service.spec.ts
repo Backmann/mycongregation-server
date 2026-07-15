@@ -260,6 +260,23 @@ describe('AuxiliaryPioneersService', () => {
       expect(rows.map((r) => r.id)).toEqual(['now', 'up', 'past']);
     });
 
+    it('includes the publisher current pioneer type in each row', async () => {
+      repo.find.mockResolvedValue([
+        {
+          id: 'past',
+          publisherId: 'p-reg',
+          startMonth: '2026-01-01',
+          endMonth: '2026-02-01',
+          untilCancelled: false,
+        },
+      ]);
+      publisherRepo.find.mockResolvedValue([
+        { id: 'p-reg', displayName: 'Reg', pioneerType: 'regular' },
+      ]);
+      const rows = await service.journal(CONG);
+      expect(rows[0].currentPioneerType).toBe('regular');
+    });
+
     it('a single future month is upcoming, not finished', async () => {
       repo.find.mockResolvedValue([
         {

@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { AuxiliaryPioneer } from '../entities/auxiliary-pioneer.entity';
 import { Publisher } from '../entities/publisher.entity';
+import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { Responsibility } from '../entities/responsibility.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -51,6 +52,7 @@ export interface AuxPioneerJournalRow {
   endMonth: string | null;
   untilCancelled: boolean;
   state: AuxPioneerState;
+  currentPioneerType: PioneerType;
 }
 
 @Injectable()
@@ -149,6 +151,10 @@ export class AuxiliaryPioneersService {
       congregationId,
       all.map((p) => p.publisherId),
     );
+    const pioneerTypes = await this.pioneerTypesByIds(
+      congregationId,
+      all.map((p) => p.publisherId),
+    );
     const rows = all.map((p) => {
       const startKey = p.startMonth.slice(0, 7);
       const serving = isActiveInMonth(
@@ -180,6 +186,7 @@ export class AuxiliaryPioneersService {
         endMonth: p.endMonth,
         untilCancelled: p.untilCancelled,
         state,
+        currentPioneerType: pioneerTypes.get(p.publisherId) ?? PioneerType.NONE,
       };
     });
     // Serving first, then upcoming (soonest first), then finished (most recent
@@ -472,5 +479,19 @@ export class AuxiliaryPioneersService {
       select: ['id', 'displayName'],
     });
     return new Map(publishers.map((p) => [p.id, p.displayName]));
+  }
+
+  /** Current pioneer type per publisher id — for the journal to flag those who
+   * have moved on to permanent pioneering. */
+  private async pioneerTypesByIds(
+    congregationId: string,
+    ids: string[],
+  ): Promise<Map<string, PioneerType>> {
+    if (ids.length === 0) return new Map();
+    const publishers = await this.publisherRepo.find({
+      where: { id: In(ids), congregationId },
+      select: ['id', 'pioneerType'],
+    });
+    return new Map(publishers.map((p) => [p.id, p.pioneerType]));
   }
 }
