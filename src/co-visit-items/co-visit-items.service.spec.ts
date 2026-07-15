@@ -159,6 +159,18 @@ describe('CoVisitItemsService.mine', () => {
       items,
     );
     expect(await plain.mine(CONG, USER)).toHaveLength(0);
+
+    // Pioneer whose start date is in the future is not yet a pioneer.
+    const future = build(
+      {
+        id: 'p1',
+        pioneerType: 'regular',
+        pioneerSince: '2999-01-01',
+        appointment: 'publisher',
+      },
+      items,
+    );
+    expect(await future.mine(CONG, USER)).toHaveLength(0);
   });
 
   it('shows the elders meeting to elders and ministerial servants only', async () => {

@@ -16,6 +16,7 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { PublishersService } from '../publishers/publishers.service';
 import { AuxiliaryPioneersService } from '../auxiliary-pioneers/auxiliary-pioneers.service';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
+import { isActivePermanentPioneer } from '../common/pioneer-status';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { Gender } from '../common/enums/gender.enum';
 import { SpiritualStatus } from '../common/enums/spiritual-status.enum';
@@ -248,7 +249,11 @@ export class ServiceReportsService {
         reportMonth,
       );
     const isPioneer =
-      publisher.pioneerType !== PioneerType.NONE || isAuxThisMonth;
+      isActivePermanentPioneer(
+        publisher.pioneerType,
+        publisher.pioneerSince,
+        reportMonth,
+      ) || isAuxThisMonth;
 
     this.validateFormVariant(dto, isPioneer);
 
@@ -502,7 +507,11 @@ export class ServiceReportsService {
         report.reportMonth,
       );
     const isPioneer =
-      publisher.pioneerType !== PioneerType.NONE || isAuxThisMonth;
+      isActivePermanentPioneer(
+        publisher.pioneerType,
+        publisher.pioneerSince,
+        report.reportMonth,
+      ) || isAuxThisMonth;
 
     this.validateUpdateFormVariant(dto, isPioneer);
 
@@ -737,7 +746,12 @@ export class ServiceReportsService {
         groupName: p.serviceGroupId
           ? (groupNameById.get(p.serviceGroupId) ?? null)
           : null,
-        isPioneer: p.pioneerType !== PioneerType.NONE || auxThisMonth.has(p.id),
+        isPioneer:
+          isActivePermanentPioneer(
+            p.pioneerType,
+            p.pioneerSince,
+            normalizedMonth,
+          ) || auxThisMonth.has(p.id),
         consecutiveMissing: consecutiveMissingFor(p.id),
         report:
           (reportByPubId.get(p.id) as
@@ -844,7 +858,10 @@ export class ServiceReportsService {
         displayName: publisher.displayName,
         status: publisher.status,
         statusManuallyOverridden: publisher.statusManuallyOverridden,
-        isPioneer: publisher.pioneerType !== PioneerType.NONE,
+        isPioneer: isActivePermanentPioneer(
+          publisher.pioneerType,
+          publisher.pioneerSince,
+        ),
         pioneerType: publisher.pioneerType,
         pioneerSince: publisher.pioneerSince,
       },

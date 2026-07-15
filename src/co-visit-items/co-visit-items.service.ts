@@ -8,6 +8,8 @@ import { UpdateCoVisitItemDto } from './dto/update-co-visit-item.dto';
 import { User } from '../entities/user.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
+import { PioneerType } from '../common/enums/pioneer-type.enum';
+import { isActivePermanentPioneer } from '../common/pioneer-status';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
@@ -156,7 +158,9 @@ export class CoVisitItemsService {
       where: { congregationId, userId: user.id },
     });
     if (!publisher) return [];
-    const isPioneer = publisher.pioneerType === 'regular';
+    const isPioneer =
+      publisher.pioneerType === PioneerType.REGULAR &&
+      isActivePermanentPioneer(publisher.pioneerType, publisher.pioneerSince);
     const isAppointed =
       publisher.appointment === PublisherAppointment.ELDER ||
       publisher.appointment === PublisherAppointment.MINISTERIAL_SERVANT;

@@ -541,6 +541,58 @@ describe('ServiceReportsService', () => {
       });
     });
 
+    describe('future pioneer start date', () => {
+      afterEach(() => jest.restoreAllMocks());
+
+      it('uses the publisher (non-hours) form before pioneerSince arrives', async () => {
+        jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 30)); // May
+        publishersRepo.findOne.mockResolvedValue(
+          makePublisher({
+            pioneerType: PioneerType.REGULAR,
+            pioneerSince: '2026-06-01',
+          }),
+        );
+        auxiliaryPioneersService.isActiveAuxiliaryPioneer.mockResolvedValue(
+          false,
+        );
+        const saved = makeReport({ servedThisMonth: true });
+        reportsRepo.save.mockResolvedValue(saved);
+
+        // Reporting for April (before June start) → served checkbox, not hours.
+        const result = await service.submitOwnReport(
+          'cong-1',
+          makeUser({ id: 'user-self' }),
+          {
+            reportMonth: '2026-04',
+            servedThisMonth: true,
+            bibleStudies: 0,
+          },
+        );
+        expect(result).toBe(saved);
+      });
+
+      it('rejects the hours form before pioneerSince arrives', async () => {
+        jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 30)); // May
+        publishersRepo.findOne.mockResolvedValue(
+          makePublisher({
+            pioneerType: PioneerType.REGULAR,
+            pioneerSince: '2026-06-01',
+          }),
+        );
+        auxiliaryPioneersService.isActiveAuxiliaryPioneer.mockResolvedValue(
+          false,
+        );
+
+        await expect(
+          service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
+            reportMonth: '2026-04',
+            hoursReported: 60,
+            bibleStudies: 0,
+          }),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      });
+    });
+
     describe('reportMonth normalization', () => {
       beforeEach(() => {
         publishersRepo.findOne.mockResolvedValue(makePublisher());
