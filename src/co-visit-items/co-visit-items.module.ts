@@ -9,6 +9,7 @@ import { SpecialEvent } from '../entities/special-event.entity';
 import { User } from '../entities/user.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
+import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneers.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { Publisher } from '../entities/publisher.entity';
       User,
       Publisher,
     ]),
+    AuxiliaryPioneersModule,
   ],
   controllers: [CoVisitItemsController],
   providers: [CoVisitItemsService, RolesGuard, ResponsibilityGuard],

@@ -94,7 +94,16 @@ describe('CoVisitItemsService.mine', () => {
     } as any;
     const usersRepo = {} as any;
     const publishersRepo = { findOne: jest.fn(async () => publisher) } as any;
-    return new CoVisitItemsService(repo, eventsRepo, usersRepo, publishersRepo);
+    const auxService = {
+      isActiveAuxiliaryPioneer: jest.fn(async () => false),
+    } as any;
+    return new CoVisitItemsService(
+      repo,
+      eventsRepo,
+      usersRepo,
+      publishersRepo,
+      auxService,
+    );
   }
   const base = {
     congregationId: CONG,
@@ -143,13 +152,26 @@ describe('CoVisitItemsService.mine', () => {
     expect(out[0].items[0].note).toBe('Изучения');
   });
 
-  it('shows the pioneer meeting only to regular pioneers', async () => {
+  it('shows the pioneer meeting to all pioneers (regular/special/missionary)', async () => {
     const items = [{ ...base, id: 'pm', kind: 'pioneers' }];
     const reg = build(
       { id: 'p1', pioneerType: 'regular', appointment: 'publisher' },
       items,
     );
     expect((await reg.mine(CONG, USER))[0]?.items).toHaveLength(1);
+
+    // Special pioneers and missionaries are pioneers too.
+    const special = build(
+      { id: 'p1', pioneerType: 'special', appointment: 'publisher' },
+      items,
+    );
+    expect((await special.mine(CONG, USER))[0]?.items).toHaveLength(1);
+    const missionary = build(
+      { id: 'p1', pioneerType: 'missionary', appointment: 'publisher' },
+      items,
+    );
+    expect((await missionary.mine(CONG, USER))[0]?.items).toHaveLength(1);
+
     const plain = build(
       {
         id: 'p1',
@@ -171,6 +193,33 @@ describe('CoVisitItemsService.mine', () => {
       items,
     );
     expect(await future.mine(CONG, USER)).toHaveLength(0);
+  });
+
+  it('shows the pioneer meeting to an auxiliary pioneer serving this month', async () => {
+    const items = [{ ...base, id: 'pm', kind: 'pioneers' }];
+    // Publisher with no permanent pioneer type, but auxiliary this month.
+    const repo = { find: jest.fn(async () => items) } as any;
+    const eventsRepo = {
+      find: jest.fn(async () => [{ ...visit, type: 'circuit_overseer_visit' }]),
+    } as any;
+    const publishersRepo = {
+      findOne: jest.fn(async () => ({
+        id: 'p1',
+        pioneerType: 'none',
+        appointment: 'publisher',
+      })),
+    } as any;
+    const auxService = {
+      isActiveAuxiliaryPioneer: jest.fn(async () => true),
+    } as any;
+    const svc = new CoVisitItemsService(
+      repo,
+      eventsRepo,
+      {} as any,
+      publishersRepo,
+      auxService,
+    );
+    expect((await svc.mine(CONG, USER))[0]?.items).toHaveLength(1);
   });
 
   it('shows the elders meeting to elders and ministerial servants only', async () => {
@@ -247,7 +296,16 @@ describe('CoVisitItemsService.mine — accommodation host & legacy copies', () =
       ]),
     } as any;
     const publishersRepo = { findOne: jest.fn(async () => publisher) } as any;
-    return new CoVisitItemsService(repo, eventsRepo, {} as any, publishersRepo);
+    const auxService = {
+      isActiveAuxiliaryPioneer: jest.fn(async () => false),
+    } as any;
+    return new CoVisitItemsService(
+      repo,
+      eventsRepo,
+      {} as any,
+      publishersRepo,
+      auxService,
+    );
   }
 
   it('gives the accommodation host a synthetic item', async () => {

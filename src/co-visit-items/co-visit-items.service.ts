@@ -8,8 +8,8 @@ import { UpdateCoVisitItemDto } from './dto/update-co-visit-item.dto';
 import { User } from '../entities/user.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
-import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { isActivePermanentPioneer } from '../common/pioneer-status';
+import { AuxiliaryPioneersService } from '../auxiliary-pioneers/auxiliary-pioneers.service';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
@@ -75,6 +75,7 @@ export class CoVisitItemsService {
     private readonly usersRepo: Repository<User>,
     @InjectRepository(Publisher)
     private readonly publishersRepo: Repository<Publisher>,
+    private readonly auxiliaryPioneersService: AuxiliaryPioneersService,
   ) {}
 
   /**
@@ -158,14 +159,23 @@ export class CoVisitItemsService {
       where: { congregationId, userId: user.id },
     });
     if (!publisher) return [];
+    // The pioneer meeting is for every kind of pioneer: any active permanent
+    // pioneer (regular / special / missionary) OR an auxiliary pioneer serving
+    // this month. It concerns all of them directly.
+    const today = new Date().toISOString().slice(0, 10);
+    const isAuxNow =
+      await this.auxiliaryPioneersService.isActiveAuxiliaryPioneer(
+        congregationId,
+        publisher.id,
+        today,
+      );
     const isPioneer =
-      publisher.pioneerType === PioneerType.REGULAR &&
-      isActivePermanentPioneer(publisher.pioneerType, publisher.pioneerSince);
+      isActivePermanentPioneer(publisher.pioneerType, publisher.pioneerSince) ||
+      isAuxNow;
     const isAppointed =
       publisher.appointment === PublisherAppointment.ELDER ||
       publisher.appointment === PublisherAppointment.MINISTERIAL_SERVANT;
 
-    const today = new Date().toISOString().slice(0, 10);
     const visits = (
       await this.eventsRepo.find({
         where: { congregationId, type: 'circuit_overseer_visit' },
