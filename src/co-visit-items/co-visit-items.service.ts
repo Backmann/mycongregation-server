@@ -84,7 +84,8 @@ export class CoVisitItemsService {
    *   • items where they are the assignee (service partner, lunch host, …) —
    *     for a wife's separate-service row the "type of service" note is
    *     inherited from the overseer's paired row;
-   *   • the pioneer meeting for regular pioneers;
+   *   • the pioneer meeting for every pioneer — active permanent pioneers
+   *     (regular/special/missionary) and auxiliary pioneers serving this month;
    *   • the elders/MS meeting for elders and ministerial servants.
    * Private assignee data of other people is never included.
    */
