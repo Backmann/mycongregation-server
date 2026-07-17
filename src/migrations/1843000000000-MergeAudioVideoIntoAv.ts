@@ -4,56 +4,50 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * Merge the separate 'audio' and 'video' meeting duties into a single 'av'
  * (Аудио/Видео) duty — one brother handles audio and video during a meeting.
  *
- * Data migration (dutyType is a varchar, so no schema change):
- *   1. Duty rows: rename 'video' -> 'av' and 'audio' -> 'av'. The unique index
- *      (congregationId, weekStartDate, eventType, dutyType, slotIndex) means a
- *      meeting that had BOTH would collide, so we first delete the 'audio' row
- *      where an 'av'/'video' row already exists for the same meeting, keeping a
- *      single av (preferring the one that had a publisher assigned).
- *   2. Publisher capabilities (jsonb): anyone who had duty_audio OR duty_video
- *      gets duty_av; the old keys are removed.
+ * Data migration (duty_type is a varchar, so no schema change). Column names
+ * are snake_case (SnakeNamingStrategy): duty_type, congregation_id,
+ * week_start_date, event_type, slot_index, publisher_id.
+ *
+ * The unique index (congregation_id, week_start_date, event_type, duty_type,
+ * slot_index) means a meeting that has BOTH audio and video would collide once
+ * both become 'av'. To preserve any assigned brother, for each colliding pair
+ * we delete the row with NO publisher (or the audio row if both are assigned or
+ * both empty), keeping the assigned one. Then both remaining types are renamed
+ * to 'av'. Finally the duty_audio / duty_video publisher capabilities are
+ * merged into duty_av (audio OR video -> av).
  */
 export class MergeAudioVideoIntoAv1843000000000 implements MigrationInterface {
   name = 'MergeAudioVideoIntoAv1843000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // --- 1. Duty rows -------------------------------------------------------
-    // If a meeting has both audio and video, keep the one with a publisher (or
-    // the video row if neither/both have one) and drop the other, so renaming
-    // to 'av' won't violate the unique constraint.
+    // (a) Colliding pairs where VIDEO has no publisher: drop video, keep audio.
+    await queryRunner.query(`
+      DELETE FROM "duties" d_video
+      USING "duties" d_audio
+      WHERE d_video."duty_type" = 'video'
+        AND d_audio."duty_type" = 'audio'
+        AND d_video."congregation_id" = d_audio."congregation_id"
+        AND d_video."week_start_date" = d_audio."week_start_date"
+        AND d_video."event_type" = d_audio."event_type"
+        AND d_video."slot_index" = d_audio."slot_index"
+        AND d_video."publisher_id" IS NULL;
+    `);
+    // (b) Remaining colliding pairs: video has a publisher (or audio empty) —
+    //     drop audio, keep video.
     await queryRunner.query(`
       DELETE FROM "duties" d_audio
       USING "duties" d_video
-      WHERE d_audio."dutyType" = 'audio'
-        AND d_video."dutyType" = 'video'
-        AND d_audio."congregationId" = d_video."congregationId"
-        AND d_audio."weekStartDate" = d_video."weekStartDate"
-        AND d_audio."eventType" = d_video."eventType"
-        AND d_audio."slotIndex" = d_video."slotIndex"
-        AND (
-          d_video."publisherId" IS NOT NULL
-          OR d_audio."publisherId" IS NULL
-        );
+      WHERE d_audio."duty_type" = 'audio'
+        AND d_video."duty_type" = 'video'
+        AND d_audio."congregation_id" = d_video."congregation_id"
+        AND d_audio."week_start_date" = d_video."week_start_date"
+        AND d_audio."event_type" = d_video."event_type"
+        AND d_audio."slot_index" = d_video."slot_index";
     `);
-    // Any audio row that still collides with a remaining video row (video had
-    // no publisher but audio did — video already deleted above) is fine. Now
-    // rename video -> av first, then audio -> av (audio survivors are unique).
+    // (c) No collisions remain — rename both surviving types to 'av'.
     await queryRunner.query(
-      `UPDATE "duties" SET "dutyType" = 'av' WHERE "dutyType" = 'video';`,
-    );
-    // Delete any audio row that would now collide with the av (former video).
-    await queryRunner.query(`
-      DELETE FROM "duties" d_audio
-      USING "duties" d_av
-      WHERE d_audio."dutyType" = 'audio'
-        AND d_av."dutyType" = 'av'
-        AND d_audio."congregationId" = d_av."congregationId"
-        AND d_audio."weekStartDate" = d_av."weekStartDate"
-        AND d_audio."eventType" = d_av."eventType"
-        AND d_audio."slotIndex" = d_av."slotIndex";
-    `);
-    await queryRunner.query(
-      `UPDATE "duties" SET "dutyType" = 'av' WHERE "dutyType" = 'audio';`,
+      `UPDATE "duties" SET "duty_type" = 'av' WHERE "duty_type" IN ('audio', 'video');`,
     );
 
     // --- 2. Publisher capabilities -----------------------------------------
@@ -79,7 +73,7 @@ export class MergeAudioVideoIntoAv1843000000000 implements MigrationInterface {
     // Best-effort reversal: av -> audio (video is not recoverable), duty_av ->
     // duty_audio. This does not restore separate audio/video rows.
     await queryRunner.query(
-      `UPDATE "duties" SET "dutyType" = 'audio' WHERE "dutyType" = 'av';`,
+      `UPDATE "duties" SET "duty_type" = 'audio' WHERE "duty_type" = 'av';`,
     );
     await queryRunner.query(`
       UPDATE "publishers"
