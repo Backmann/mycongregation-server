@@ -85,12 +85,12 @@ describe('DutiesService', () => {
 
   const gen = { weekStartDate: '2026-05-18', eventType: MIDWEEK };
 
-  it('generateWeek inserts 2 + micCount + 5 slots (mics from settings)', async () => {
+  it('generateWeek inserts 2 + micCount + 4 slots (mics from settings)', async () => {
     meetingRepo.find.mockResolvedValue([{ microphoneSlots: 3 }]);
     await service.generateWeek('c1', gen);
     expect(qb.insert).toHaveBeenCalled();
     const rows = qb.values.mock.calls[0][0] as Array<{ dutyType: DutyType }>;
-    expect(rows).toHaveLength(2 + 3 + 5); // before + mics + after
+    expect(rows).toHaveLength(2 + 3 + 4); // before + mics + after
     expect(rows.filter((r) => r.dutyType === DutyType.MICROPHONE)).toHaveLength(
       3,
     );
@@ -100,7 +100,7 @@ describe('DutiesService', () => {
     meetingRepo.find.mockResolvedValue([]);
     await service.generateWeek('c1', gen);
     const rows = qb.values.mock.calls[0][0] as unknown[];
-    expect(rows).toHaveLength(2 + 2 + 5);
+    expect(rows).toHaveLength(2 + 2 + 4);
   });
 
   const duty: Duty = {

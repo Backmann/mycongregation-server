@@ -64,7 +64,7 @@ export class Duty {
     type: 'varchar',
     length: 32,
     comment:
-      'security | attendant | microphone | audio | video | zoom | ' +
+      'security | attendant | microphone | av | zoom | ' +
       'stage | ventilation | custom',
   })
   dutyType!: DutyType;

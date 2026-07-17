@@ -16,8 +16,7 @@ export enum DutyType {
   SECURITY = 'security',
   ATTENDANT = 'attendant',
   MICROPHONE = 'microphone',
-  AUDIO = 'audio',
-  VIDEO = 'video',
+  AV = 'av',
   ZOOM = 'zoom',
   STAGE = 'stage',
   VENTILATION = 'ventilation',
@@ -35,8 +34,7 @@ export const SINGLE_SLOT_DUTIES_BEFORE_MIC: DutyType[] = [
 ];
 
 export const SINGLE_SLOT_DUTIES_AFTER_MIC: DutyType[] = [
-  DutyType.AUDIO,
-  DutyType.VIDEO,
+  DutyType.AV,
   DutyType.ZOOM,
   DutyType.STAGE,
   DutyType.VENTILATION,
