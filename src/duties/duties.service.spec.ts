@@ -1,7 +1,8 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Congregation } from '../entities/congregation.entity';
-import { NotFoundException } from '@nestjs/common';
+import { SpecialEvent } from '../entities/special-event.entity';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { DutiesService } from './duties.service';
 import { Duty } from '../entities/duty.entity';
 import { Assignment } from '../entities/assignment.entity';
@@ -26,6 +27,7 @@ describe('DutiesService', () => {
   let congregationRepo: { findOne: jest.Mock };
   let publisherRepo: { findOne: jest.Mock };
   let meetingRepo: { find: jest.Mock; save: jest.Mock };
+  let specialEventRepo: { find: jest.Mock };
   let qb: Record<string, jest.Mock>;
 
   beforeEach(async () => {
@@ -65,6 +67,7 @@ describe('DutiesService', () => {
       find: jest.fn().mockResolvedValue([]),
       save: jest.fn((x) => Promise.resolve(x)),
     };
+    specialEventRepo = { find: jest.fn().mockResolvedValue([]) };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -77,6 +80,10 @@ describe('DutiesService', () => {
           provide: getRepositoryToken(Congregation),
           useValue: congregationRepo,
         },
+        {
+          provide: getRepositoryToken(SpecialEvent),
+          useValue: specialEventRepo,
+        },
       ],
     }).compile();
 
@@ -84,6 +91,26 @@ describe('DutiesService', () => {
   });
 
   const gen = { weekStartDate: '2026-05-18', eventType: MIDWEEK };
+
+  it('refuses to touch a meeting that has already taken place', async () => {
+    // A Wednesday meeting in a week long past: the settings version in force
+    // says midweek is day 3, so the duties froze the following midnight.
+    // Once only: the other tests rely on the default empty settings.
+    meetingRepo.find.mockResolvedValueOnce([
+      { effectiveFrom: '2020-01-01', midweekDow: 3, weekendDow: 7 },
+    ]);
+    repo.findOne.mockResolvedValue({
+      id: 'd1',
+      congregationId: 'c1',
+      weekStartDate: '2020-02-03',
+      eventType: MIDWEEK,
+      publisherId: null,
+    });
+    await expect(
+      service.assign('c1', 'd1', { publisherId: 'p1' }),
+    ).rejects.toThrow(ConflictException);
+    expect(repo.save).not.toHaveBeenCalled();
+  });
 
   it('generateWeek inserts 2 + micCount + 4 slots (mics from settings)', async () => {
     meetingRepo.find.mockResolvedValue([{ microphoneSlots: 3 }]);

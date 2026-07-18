@@ -8,6 +8,7 @@ import { Assignment } from '../entities/assignment.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { Congregation } from '../entities/congregation.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 
 @Module({
@@ -19,6 +20,7 @@ import { Responsibility } from '../entities/responsibility.entity';
       MeetingSettings,
       Responsibility,
       Congregation,
+      SpecialEvent,
     ]),
   ],
   controllers: [DutiesController],

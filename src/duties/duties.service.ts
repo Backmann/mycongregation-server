@@ -1,5 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { LessThanOrEqual, Not, Repository } from 'typeorm';
 import { Duty } from '../entities/duty.entity';
 import { Assignment } from '../entities/assignment.entity';
@@ -36,6 +41,22 @@ export interface MicRuleWarning {
   publisherName: string;
 }
 
+/** Today's date (YYYY-MM-DD) in the congregation's timezone. */
+function berlinToday(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Berlin',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
+function addDaysISO(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 @Injectable()
 export class DutiesService {
   constructor(
@@ -49,7 +70,55 @@ export class DutiesService {
     private readonly meetingRepo: Repository<MeetingSettings>,
     @InjectRepository(Congregation)
     private readonly congregationRepo: Repository<Congregation>,
+    @InjectRepository(SpecialEvent)
+    private readonly specialEventRepo: Repository<SpecialEvent>,
   ) {}
+
+  /**
+   * Duties of a meeting that has already taken place are history and must stay
+   * untouched: they freeze at midnight following the meeting's own day, so the
+   * meeting stays editable right through it. The day comes from the settings
+   * version in force for that week, and a circuit-overseer visit that moves the
+   * midweek meeting moves the deadline with it.
+   */
+  private async assertEditable(
+    congregationId: string,
+    weekStartDate: string,
+    eventType: string,
+  ): Promise<void> {
+    if (eventType !== 'midweek' && eventType !== 'weekend') return;
+
+    const versions = await this.meetingRepo.find({
+      where: { congregationId },
+      order: { effectiveFrom: 'ASC' },
+    });
+    let version: MeetingSettings | null = null;
+    for (const v of versions) {
+      if (v.effectiveFrom <= weekStartDate) version = v;
+    }
+    if (!version) version = versions[0] ?? null;
+    if (!version) return;
+
+    let dow = eventType === 'midweek' ? version.midweekDow : version.weekendDow;
+    if (eventType === 'midweek') {
+      const weekEnd = addDaysISO(weekStartDate, 6);
+      const visits = await this.specialEventRepo.find({
+        where: { congregationId, type: 'circuit_overseer_visit' },
+      });
+      const visit = visits.find(
+        (e) => e.date <= weekEnd && (e.endDate ?? e.date) >= weekStartDate,
+      );
+      if (visit) dow = visit.coMidweekDow ?? 2;
+    }
+    if (!dow) return;
+
+    const meetingDate = addDaysISO(weekStartDate, dow - 1);
+    if (meetingDate < berlinToday()) {
+      throw new ConflictException(
+        'This meeting has already taken place; its duties are part of the record and can no longer be changed.',
+      );
+    }
+  }
 
   list(congregationId: string, query: QueryDutiesDto): Promise<Duty[]> {
     const qb = this.repo
@@ -127,6 +196,7 @@ export class DutiesService {
     congregationId: string,
     dto: GenerateWeekDutiesDto,
   ): Promise<Duty[]> {
+    await this.assertEditable(congregationId, dto.weekStartDate, dto.eventType);
     const mics = await this.micCount(congregationId, dto.weekStartDate);
     const rows: Partial<Duty>[] = [];
     const base = {
@@ -324,6 +394,11 @@ export class DutiesService {
     dto: AssignDutyDto,
   ): Promise<DutyWithWarnings> {
     const duty = await this.getOne(congregationId, id);
+    await this.assertEditable(
+      congregationId,
+      duty.weekStartDate,
+      duty.eventType,
+    );
     duty.publisherId = dto.publisherId ?? null;
     if (dto.notes !== undefined) duty.notes = dto.notes;
     const saved = await this.repo.save(duty);
@@ -338,6 +413,7 @@ export class DutiesService {
     congregationId: string,
     dto: CreateCustomDutyDto,
   ): Promise<DutyWithWarnings> {
+    await this.assertEditable(congregationId, dto.weekStartDate, dto.eventType);
     const raw = await this.repo
       .createQueryBuilder('d')
       .select('MAX(d.slotIndex)', 'max')
@@ -368,6 +444,11 @@ export class DutiesService {
 
   async remove(congregationId: string, id: string): Promise<void> {
     const duty = await this.getOne(congregationId, id);
+    await this.assertEditable(
+      congregationId,
+      duty.weekStartDate,
+      duty.eventType,
+    );
     await this.repo.remove(duty);
   }
 }
