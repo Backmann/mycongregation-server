@@ -36,6 +36,8 @@ export interface MyAssignmentItem {
   windows?: number[];
   /** Cleaning: ISO datetime the group agreed to do the thorough cleaning. */
   thoroughPlannedAt?: string;
+  /** Duty slot number (microphones are numbered 1..n on screen). */
+  slotIndex?: number;
   /** Part key for meeting items (lets the client tailor display). */
   partKey?: string;
   /** Program order of the part within the meeting (for sorting). */
@@ -303,6 +305,7 @@ export class MeService {
         weekStartDate: d.weekStartDate,
         eventType: d.eventType,
         label: d.customLabel || d.dutyType,
+        slotIndex: d.slotIndex,
       });
     }
 
