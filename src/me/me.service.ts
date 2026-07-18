@@ -66,6 +66,20 @@ export interface MyAssignmentsResponse {
   items: MyAssignmentItem[];
 }
 
+/**
+ * What the signed-in publisher has on a given week, used by the schedule's week
+ * drawer to mark weeks at a glance. Meeting parts and duties are per meeting;
+ * cleaning belongs to the whole week (their service group is on duty).
+ */
+export interface MyWeekMarks {
+  weekStartDate: string;
+  midweekParts: boolean;
+  midweekDuties: boolean;
+  weekendParts: boolean;
+  weekendDuties: boolean;
+  cleaning: boolean;
+}
+
 /** Today's date (YYYY-MM-DD) in the congregation's timezone. */
 function berlinToday(): string {
   return new Intl.DateTimeFormat('en-CA', {
@@ -143,6 +157,88 @@ export class MeService {
         serviceGroupId: me.serviceGroupId ?? null,
       },
     };
+  }
+
+  /**
+   * Weeks where the signed-in publisher has something on: a meeting part (own
+   * or as assistant), a duty, or their service group cleaning. Covers every
+   * week, not just the 8-week horizon of myAssignments, because the week drawer
+   * lists the whole published range.
+   */
+  async myWeeks(tenantId: string, userId: string): Promise<MyWeekMarks[]> {
+    const me = await this.publishersRepo.findOne({
+      where: { congregationId: tenantId, userId },
+    });
+    if (!me) return [];
+    const pid = me.id;
+    const groupId = me.serviceGroupId ?? null;
+
+    const byWeek = new Map<string, MyWeekMarks>();
+    const mark = (week: string): MyWeekMarks => {
+      let m = byWeek.get(week);
+      if (!m) {
+        m = {
+          weekStartDate: week,
+          midweekParts: false,
+          midweekDuties: false,
+          weekendParts: false,
+          weekendDuties: false,
+          cleaning: false,
+        };
+        byWeek.set(week, m);
+      }
+      return m;
+    };
+
+    const parts = await this.assignmentsRepo
+      .createQueryBuilder('a')
+      .select('a.week_start_date', 'week')
+      .addSelect('a.event_type', 'eventType')
+      .where('a.congregation_id = :tenantId', { tenantId })
+      .andWhere("a.status = 'published'")
+      .andWhere('(a.publisher_id = :pid OR a.assistant_publisher_id = :pid)', {
+        pid,
+      })
+      .groupBy('a.week_start_date')
+      .addGroupBy('a.event_type')
+      .getRawMany<{ week: string; eventType: string }>();
+    for (const r of parts) {
+      const m = mark(fmtISO(new Date(r.week)));
+      if (r.eventType === 'midweek') m.midweekParts = true;
+      if (r.eventType === 'weekend') m.weekendParts = true;
+    }
+
+    const duties = await this.dutiesRepo
+      .createQueryBuilder('d')
+      .select('d.week_start_date', 'week')
+      .addSelect('d.event_type', 'eventType')
+      .where('d.congregation_id = :tenantId', { tenantId })
+      .andWhere('d.publisher_id = :pid', { pid })
+      .groupBy('d.week_start_date')
+      .addGroupBy('d.event_type')
+      .getRawMany<{ week: string; eventType: string }>();
+    for (const r of duties) {
+      const m = mark(fmtISO(new Date(r.week)));
+      if (r.eventType === 'midweek') m.midweekDuties = true;
+      if (r.eventType === 'weekend') m.weekendDuties = true;
+    }
+
+    if (groupId) {
+      const cleaning = await this.cleaningRepo
+        .createQueryBuilder('c')
+        .select('c.week_start_date', 'week')
+        .where('c.congregation_id = :tenantId', { tenantId })
+        .andWhere('c.service_group_id = :groupId', { groupId })
+        .groupBy('c.week_start_date')
+        .getRawMany<{ week: string }>();
+      for (const r of cleaning) {
+        mark(fmtISO(new Date(r.week))).cleaning = true;
+      }
+    }
+
+    return [...byWeek.values()].sort((a, b) =>
+      a.weekStartDate < b.weekStartDate ? 1 : -1,
+    );
   }
 
   async myAssignments(

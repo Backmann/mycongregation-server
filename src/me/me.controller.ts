@@ -26,6 +26,14 @@ export class MeController {
     return this.service.myAssignments(tenantId, user.id);
   }
 
+  @Get('weeks')
+  myWeeks(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.myWeeks(tenantId, user.id);
+  }
+
   @Get('publisher')
   myPublisher(
     @TenantId() tenantId: string,
