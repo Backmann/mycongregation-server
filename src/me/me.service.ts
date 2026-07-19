@@ -80,6 +80,7 @@ export interface MyWeekMarks {
   weekendParts: boolean;
   weekendDuties: boolean;
   cleaning: boolean;
+  fieldService: boolean;
 }
 
 /** Today's date (YYYY-MM-DD) in the congregation's timezone. */
@@ -163,7 +164,8 @@ export class MeService {
 
   /**
    * Weeks where the signed-in publisher has something on: a meeting part (own
-   * or as assistant), a duty, or their service group cleaning. Covers every
+   * or as assistant), a duty, their service group's cleaning, or a field
+   * service meeting they conduct. Covers every
    * week, not just the 8-week horizon of myAssignments, because the week drawer
    * lists the whole published range.
    */
@@ -186,6 +188,7 @@ export class MeService {
           weekendParts: false,
           weekendDuties: false,
           cleaning: false,
+          fieldService: false,
         };
         byWeek.set(week, m);
       }
@@ -236,6 +239,17 @@ export class MeService {
       for (const r of cleaning) {
         mark(fmtISO(new Date(r.week))).cleaning = true;
       }
+    }
+
+    const field = await this.fieldRepo
+      .createQueryBuilder('f')
+      .select('f.week_start_date', 'week')
+      .where('f.congregation_id = :tenantId', { tenantId })
+      .andWhere('f.conductor_publisher_id = :pid', { pid })
+      .groupBy('f.week_start_date')
+      .getRawMany<{ week: string }>();
+    for (const r of field) {
+      mark(fmtISO(new Date(r.week))).fieldService = true;
     }
 
     return [...byWeek.values()].sort((a, b) =>
