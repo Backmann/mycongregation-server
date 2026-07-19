@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { MeService } from './me.service';
 import { Publisher } from '../entities/publisher.entity';
 import { Assignment } from '../entities/assignment.entity';
@@ -32,6 +33,10 @@ describe('MeService.myPublisher', () => {
         { provide: getRepositoryToken(PublicTalk), useValue: stub },
         { provide: getRepositoryToken(CartAssignment), useValue: stub },
         { provide: getRepositoryToken(CoVisitItem), useValue: stub },
+        {
+          provide: AuditLogService,
+          useValue: { logUpdate: jest.fn(), logCreate: jest.fn() },
+        },
       ],
     }).compile();
     service = moduleRef.get(MeService);
@@ -46,7 +51,7 @@ describe('MeService.myPublisher', () => {
     });
   });
 
-  it('returns only the light identity fields when linked', async () => {
+  it('returns identity and own contacts, never staff-only fields', async () => {
     publishersRepo.findOne.mockResolvedValue({
       id: 'p1',
       displayName: 'Adele B.',
@@ -54,8 +59,13 @@ describe('MeService.myPublisher', () => {
       lastName: 'Backmann',
       pioneerType: 'none',
       serviceGroupId: 'g1',
-      // Fields below must NOT leak into the response.
+      // Own contacts DO belong here — the publisher edits them from this card.
+      mobilePhone: '+49 151 000',
       email: 'private@example.org',
+      address: 'Alte Soester Str. 7',
+      contactsConfirmedAt: null,
+      contactsConfirmedByUserId: null,
+      // Staff-only commentary must still never leak.
       notes: 'sensitive',
     });
     const res = await service.myPublisher('c1', 'u1');
@@ -67,8 +77,14 @@ describe('MeService.myPublisher', () => {
         lastName: 'Backmann',
         pioneerType: 'none',
         serviceGroupId: 'g1',
+        mobilePhone: '+49 151 000',
+        email: 'private@example.org',
+        address: 'Alte Soester Str. 7',
+        contactsConfirmedAt: null,
+        contactsConfirmedByUserId: null,
       },
     });
+    expect(JSON.stringify(res)).not.toContain('sensitive');
   });
 
   it('normalizes a missing pioneerType to null', async () => {
@@ -171,6 +187,10 @@ describe('MeService.myAssignments (outgoing talks)', () => {
         {
           provide: getRepositoryToken(CoVisitItem),
           useValue: emptyRepo(),
+        },
+        {
+          provide: AuditLogService,
+          useValue: { logUpdate: jest.fn(), logCreate: jest.fn() },
         },
       ],
     }).compile();

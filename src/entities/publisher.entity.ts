@@ -86,6 +86,17 @@ export class Publisher {
   @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   address!: string | null;
 
+  /**
+   * When the publisher last confirmed their contacts are current, and who did
+   * it — themselves, or the secretary on behalf of someone without an account.
+   * Checked once a service year, from 1 September.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  contactsConfirmedAt!: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  contactsConfirmedByUserId!: string | null;
+
   // ---- Status flags ----
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;

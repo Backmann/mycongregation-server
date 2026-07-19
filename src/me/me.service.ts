@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Publisher } from '../entities/publisher.entity';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
@@ -52,6 +53,13 @@ export interface MyAssignmentItem {
   note?: string;
 }
 
+/** The fields a publisher may change in their own card. */
+export interface MyContactsInput {
+  mobilePhone?: string | null;
+  email?: string | null;
+  address?: string | null;
+}
+
 export interface MyPublisherResponse {
   publisher: {
     id: string;
@@ -60,6 +68,13 @@ export interface MyPublisherResponse {
     lastName: string;
     pioneerType: string | null;
     serviceGroupId: string | null;
+    /** Own contacts — the publisher keeps these up to date themselves. */
+    mobilePhone: string | null;
+    email: string | null;
+    address: string | null;
+    /** Yearly check: when the contacts were last confirmed, and by whom. */
+    contactsConfirmedAt: string | null;
+    contactsConfirmedByUserId: string | null;
   } | null;
 }
 
@@ -117,6 +132,7 @@ export class MeService {
   constructor(
     @InjectRepository(Publisher)
     private readonly publishersRepo: Repository<Publisher>,
+    private readonly auditLogService: AuditLogService,
     @InjectRepository(Assignment)
     private readonly assignmentsRepo: Repository<Assignment>,
     @InjectRepository(Duty)
@@ -158,8 +174,77 @@ export class MeService {
         lastName: me.lastName,
         pioneerType: me.pioneerType ?? null,
         serviceGroupId: me.serviceGroupId ?? null,
+        // Own contacts: the publisher edits these themselves.
+        mobilePhone: me.mobilePhone ?? null,
+        email: me.email ?? null,
+        address: me.address ?? null,
+        contactsConfirmedAt: me.contactsConfirmedAt
+          ? me.contactsConfirmedAt.toISOString()
+          : null,
+        contactsConfirmedByUserId: me.contactsConfirmedByUserId ?? null,
       },
     };
+  }
+
+  /**
+   * A publisher changing their own contacts. Only phone, e-mail and address —
+   * the name identifies them across schedules, reports and printed sheets, so
+   * it stays with the administrators. Saving also counts as confirming the
+   * contacts are current, and the change is written to the audit log, which is
+   * what makes "changed by whom and when" visible afterwards.
+   */
+  async updateMyContacts(
+    tenantId: string,
+    userId: string,
+    dto: MyContactsInput,
+  ): Promise<MyPublisherResponse> {
+    const me = await this.publishersRepo.findOne({
+      where: { congregationId: tenantId, userId },
+    });
+    if (!me) throw new NotFoundException('No publisher card for this account');
+
+    const before = {
+      mobilePhone: me.mobilePhone ?? null,
+      email: me.email ?? null,
+      address: me.address ?? null,
+    };
+    if (dto.mobilePhone !== undefined) me.mobilePhone = dto.mobilePhone || null;
+    if (dto.email !== undefined) me.email = dto.email || null;
+    if (dto.address !== undefined) me.address = dto.address || null;
+    me.contactsConfirmedAt = new Date();
+    me.contactsConfirmedByUserId = userId;
+    await this.publishersRepo.save(me);
+
+    await this.auditLogService.logUpdate({
+      tenantId,
+      entityType: 'publisher',
+      entityId: me.id,
+      actorUserId: userId,
+      before,
+      after: {
+        mobilePhone: me.mobilePhone ?? null,
+        email: me.email ?? null,
+        address: me.address ?? null,
+      },
+      fields: ['mobilePhone', 'email', 'address'],
+    });
+
+    return this.myPublisher(tenantId, userId);
+  }
+
+  /** "My contacts are still correct" — stamps the yearly check without edits. */
+  async confirmMyContacts(
+    tenantId: string,
+    userId: string,
+  ): Promise<MyPublisherResponse> {
+    const me = await this.publishersRepo.findOne({
+      where: { congregationId: tenantId, userId },
+    });
+    if (!me) throw new NotFoundException('No publisher card for this account');
+    me.contactsConfirmedAt = new Date();
+    me.contactsConfirmedByUserId = userId;
+    await this.publishersRepo.save(me);
+    return this.myPublisher(tenantId, userId);
   }
 
   /**
