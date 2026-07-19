@@ -4,6 +4,7 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -209,6 +210,19 @@ export class PublishersController {
   @Post()
   create(@TenantId() tenantId: string, @Body() dto: CreatePublisherDto) {
     return this.publishersService.create(tenantId, dto);
+  }
+
+  /** The yearly contact check done on someone's behalf. */
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(ResponsibilityType.SECRETARY)
+  @Post(':id/contacts/confirm')
+  @HttpCode(200)
+  confirmContacts(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.publishersService.confirmContacts(tenantId, id, user?.id);
   }
 
   @UseGuards(ResponsibilityGuard)

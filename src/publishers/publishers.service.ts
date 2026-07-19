@@ -788,6 +788,22 @@ export class PublishersService {
     return this.publishersRepo.save(publisher);
   }
 
+  /**
+   * "These contacts are still correct" for someone else — the secretary doing
+   * the yearly check for a publisher who does not use the app.
+   */
+  async confirmContacts(
+    tenantId: string,
+    id: string,
+    actorUserId?: string,
+  ): Promise<Publisher> {
+    const publisher = await this.findOne(tenantId, id);
+    publisher.contactsConfirmedAt = new Date();
+    publisher.contactsConfirmedByUserId = actorUserId ?? null;
+    publisher.lastEditedById = actorUserId ?? publisher.lastEditedById;
+    return this.publishersRepo.save(publisher);
+  }
+
   async update(
     tenantId: string,
     id: string,
@@ -796,7 +812,23 @@ export class PublishersService {
   ): Promise<Publisher> {
     const publisher = await this.findOne(tenantId, id);
     const prevPioneerType = publisher.pioneerType;
+    // Contacts count as checked whenever somebody touches them — the publisher
+    // themselves or the secretary on their behalf. One rule, so the card always
+    // shows a date somebody can trust.
+    const contactsBefore = {
+      mobilePhone: publisher.mobilePhone ?? null,
+      email: publisher.email ?? null,
+      address: publisher.address ?? null,
+    };
     Object.assign(publisher, dto);
+    const contactsChanged =
+      (publisher.mobilePhone ?? null) !== contactsBefore.mobilePhone ||
+      (publisher.email ?? null) !== contactsBefore.email ||
+      (publisher.address ?? null) !== contactsBefore.address;
+    if (contactsChanged) {
+      publisher.contactsConfirmedAt = new Date();
+      publisher.contactsConfirmedByUserId = actorUserId ?? null;
+    }
     this.assertAppointmentConsistency(
       publisher.appointment,
       publisher.pioneerType,
