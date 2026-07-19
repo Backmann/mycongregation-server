@@ -82,6 +82,7 @@ describe('MeService.myPublisher', () => {
         address: 'Alte Soester Str. 7',
         contactsConfirmedAt: null,
         contactsConfirmedByUserId: null,
+        contactsConfirmedByName: null,
       },
     });
     expect(JSON.stringify(res)).not.toContain('sensitive');

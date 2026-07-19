@@ -144,13 +144,19 @@ export class PublishersController {
       tenantId,
       publisher.lastEditedById,
     );
+    // Who vouched for the contacts — themselves, or the secretary for them.
+    const contactsConfirmedByName =
+      await this.publishersService.resolveEditorName(
+        tenantId,
+        publisher.contactsConfirmedByUserId,
+      );
     // The computed status (active/irregular/inactive) is pastoral information
     // for elders — strip it for anyone who is not an admin or elder (e.g. a
     // trusted member with canViewPrivateData), so it never leaks in the
     // response, not even to the publisher themselves.
     const canSeeStatus =
       user.role === UserRole.ADMIN || user.role === UserRole.ELDER;
-    const result = { ...publisher, lastEditedByName };
+    const result = { ...publisher, lastEditedByName, contactsConfirmedByName };
     if (!canSeeStatus) {
       delete (result as { status?: unknown }).status;
     }

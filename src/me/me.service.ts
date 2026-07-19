@@ -75,6 +75,8 @@ export interface MyPublisherResponse {
     /** Yearly check: when the contacts were last confirmed, and by whom. */
     contactsConfirmedAt: string | null;
     contactsConfirmedByUserId: string | null;
+    /** Congregation name of whoever last confirmed — "checked by" needs a who. */
+    contactsConfirmedByName: string | null;
   } | null;
 }
 
@@ -182,6 +184,10 @@ export class MeService {
           ? me.contactsConfirmedAt.toISOString()
           : null,
         contactsConfirmedByUserId: me.contactsConfirmedByUserId ?? null,
+        contactsConfirmedByName: await this.resolveActorName(
+          tenantId,
+          me.contactsConfirmedByUserId,
+        ),
       },
     };
   }
@@ -193,6 +199,23 @@ export class MeService {
    * contacts are current, and the change is written to the audit log, which is
    * what makes "changed by whom and when" visible afterwards.
    */
+  /**
+   * Turn the user id kept with the contact check into the name the congregation
+   * knows, so the card can say who vouched for the data — themselves, or the
+   * secretary. Falls back to null when that account has no publisher card.
+   */
+  private async resolveActorName(
+    tenantId: string,
+    userId: string | null | undefined,
+  ): Promise<string | null> {
+    if (!userId) return null;
+    const actor = await this.publishersRepo.findOne({
+      where: { congregationId: tenantId, userId },
+      select: { id: true, displayName: true },
+    });
+    return actor?.displayName ?? null;
+  }
+
   async updateMyContacts(
     tenantId: string,
     userId: string,
