@@ -3,7 +3,7 @@ export default () => ({
     nodeEnv: process.env.NODE_ENV,
     port: parseInt(process.env.PORT || '3000', 10),
     apiPrefix: process.env.API_PREFIX || 'api',
-    corsOrigin: process.env.CORS_ORIGIN || '*',
+    corsOrigin: process.env.CORS_ORIGIN || '',
   },
   database: {
     host: process.env.POSTGRES_HOST,

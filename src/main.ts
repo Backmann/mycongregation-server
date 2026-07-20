@@ -12,7 +12,27 @@ async function bootstrap() {
 
   const port = config.get<number>('app.port') ?? 3000;
   const apiPrefix = config.get<string>('app.apiPrefix') ?? 'api';
-  const corsOrigin = config.get<string>('app.corsOrigin') ?? '*';
+  const nodeEnv = config.get<string>('app.nodeEnv');
+  const corsOrigin = config.get<string>('app.corsOrigin') ?? '';
+  const corsOrigins = corsOrigin
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  // Fail closed, not open. The old default was '*', which combined with
+  // credentials: true meant that a missing or mistyped CORS_ORIGIN in
+  // production would make the API answer ANY website and hand it the
+  // caller's credentials. A misconfiguration should stop the server, not
+  // silently widen it.
+  if (
+    nodeEnv === 'production' &&
+    (corsOrigins.length === 0 || corsOrigins.includes('*'))
+  ) {
+    throw new Error(
+      'CORS_ORIGIN must list explicit origins in production ' +
+        '(e.g. https://mycongregation.org). Refusing to start with a wildcard.',
+    );
+  }
 
   // ---- Security headers (Phase L Phase 4A — data-protection.md) -----------
   //
@@ -66,9 +86,11 @@ async function bootstrap() {
 
   app.setGlobalPrefix(apiPrefix);
 
+  // Outside production an empty or wildcard value stays permissive so that
+  // local development and Expo's changing ports keep working.
   app.enableCors({
     origin:
-      corsOrigin === '*' ? true : corsOrigin.split(',').map((s) => s.trim()),
+      corsOrigins.length > 0 && !corsOrigins.includes('*') ? corsOrigins : true,
     credentials: true,
   });
 
