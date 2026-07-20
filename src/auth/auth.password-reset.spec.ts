@@ -9,6 +9,13 @@ import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
 
+const sessionsRepo = {
+  update: jest.fn().mockResolvedValue({ affected: 0 }),
+  findOne: jest.fn(),
+  save: jest.fn(),
+  create: jest.fn(),
+};
+
 describe('AuthService — password reset', () => {
   let service: AuthService;
   let users: {
@@ -38,7 +45,12 @@ describe('AuthService — password reset', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         AuthService,
-        { provide: getDataSourceToken(), useValue: {} },
+        {
+          provide: getDataSourceToken(),
+          // A password reset now also revokes every refresh session, so the
+          // stub has to answer getRepository.
+          useValue: { getRepository: () => sessionsRepo },
+        },
         { provide: UsersService, useValue: users },
         { provide: JwtService, useValue: { signAsync: jest.fn() } },
         {

@@ -10,11 +10,12 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomBytes } from 'crypto';
 import { MailService } from '../mail/mail.service';
 import { User } from '../entities/user.entity';
+import { RefreshSession } from '../entities/refresh-session.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { UsersService } from '../users/users.service';
@@ -29,6 +30,24 @@ interface RefreshTokenPayload {
   role: UserRole;
   congregationId: string;
   tokenType: 'refresh';
+  /** Session id — the row in refresh_sessions this token belongs to. */
+  sid: string;
+}
+
+/** Refresh tokens are high-entropy machine strings; a digest is enough. */
+function digest(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+/** '30d' / '12h' / '45m' / '3600s' -> milliseconds. Defaults to 30 days. */
+function durationToMs(value: string | undefined): number {
+  const DAY = 24 * 60 * 60 * 1000;
+  if (!value) return 30 * DAY;
+  const m = /^(\d+)\s*([smhd])$/.exec(value.trim());
+  if (!m) return 30 * DAY;
+  const n = parseInt(m[1], 10);
+  const unit = { s: 1000, m: 60_000, h: 3_600_000, d: DAY }[m[2]] ?? DAY;
+  return n * unit;
 }
 
 @Injectable()
@@ -185,6 +204,8 @@ export class AuthService {
     const rounds = this.config.get<number>('bcrypt.rounds') ?? 12;
     const passwordHash = await bcrypt.hash(password, rounds);
     await this.usersService.completePasswordReset(user.id, passwordHash);
+    // A reset is the one moment where killing every device is the point.
+    await this.revokeAllSessions(user.id);
     return { ok: true };
   }
 
@@ -206,9 +227,15 @@ export class AuthService {
   }
 
   /**
-   * Exchanges a valid refresh token for a fresh access token.
-   * Trusts the JWT signature; no DB lookup on the hot path.
-   * Throws UnauthorizedException if token is invalid, expired, or wrong type.
+   * Exchanges a refresh token for a fresh pair. The signature alone is no
+   * longer enough: the token must match a live session row, and using it
+   * rotates that session away.
+   *
+   * Rotation is what makes theft visible. If a token that was already spent
+   * comes back, either the thief or the rightful owner is replaying it — we
+   * cannot tell which, so every session of that user is revoked and both are
+   * sent back to the login screen. That is the intended behaviour, not an
+   * inconvenience to smooth over.
    */
   async refresh(refreshToken: string) {
     let payload: RefreshTokenPayload;
@@ -223,15 +250,74 @@ export class AuthService {
     if (payload.tokenType !== 'refresh') {
       throw new UnauthorizedException('Token is not a refresh token');
     }
+    // Tokens issued before sessions existed carry no sid. They are not
+    // revocable, so they are not honoured: everyone signs in once more.
+    if (!payload.sid) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
 
-    const accessPayload = {
-      sub: payload.sub,
-      email: payload.email,
-      role: payload.role,
-      congregationId: payload.congregationId,
-    };
-    const accessToken = this.jwtService.sign(accessPayload);
-    return { accessToken };
+    const sessions = this.dataSource.getRepository(RefreshSession);
+    const session = await sessions.findOne({ where: { id: payload.sid } });
+    if (!session) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    if (session.revokedAt) {
+      await this.revokeAllSessions(session.userId);
+      throw new UnauthorizedException('Refresh token was already used');
+    }
+    if (session.tokenHash !== digest(refreshToken)) {
+      await this.revokeAllSessions(session.userId);
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+    if (session.expiresAt.getTime() <= Date.now()) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    // The account may have been disabled since the token was handed out.
+    const user = await this.usersService.findById(session.userId);
+    if (!user || !user.isActive) {
+      await this.revokeAllSessions(session.userId);
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    session.revokedAt = new Date();
+    session.lastUsedAt = new Date();
+    await sessions.save(session);
+
+    return this.issueTokens(user);
+  }
+
+  /**
+   * Signing out kills this device's session and nothing else. Always answers
+   * ok: a caller holding a dead token should still end up signed out, and the
+   * answer must not reveal whether the token was real.
+   */
+  async logout(refreshToken: string): Promise<{ ok: true }> {
+    try {
+      const payload = this.jwtService.verify<RefreshTokenPayload>(
+        refreshToken,
+        { secret: this.config.get<string>('jwt.refreshSecret') },
+      );
+      if (payload?.sid) {
+        await this.dataSource
+          .getRepository(RefreshSession)
+          .update(
+            { id: payload.sid, revokedAt: IsNull() },
+            { revokedAt: new Date() },
+          );
+      }
+    } catch {
+      // Invalid or expired token — nothing to revoke.
+    }
+    return { ok: true };
+  }
+
+  /** Used on password reset and whenever a token looks stolen. */
+  private async revokeAllSessions(userId: string): Promise<void> {
+    await this.dataSource
+      .getRepository(RefreshSession)
+      .update({ userId, revokedAt: IsNull() }, { revokedAt: new Date() });
   }
 
   private signAccessToken(user: User): string {
@@ -244,25 +330,46 @@ export class AuthService {
     return this.jwtService.sign(payload);
   }
 
-  private signRefreshToken(user: User): string {
+  /**
+   * Creates the session row first, then signs a token that names it. The row
+   * stores only a digest, so a database dump does not hand out live tokens.
+   */
+  private async signRefreshToken(user: User): Promise<string> {
+    const sessions = this.dataSource.getRepository(RefreshSession);
+    const ttlMs = durationToMs(this.config.get<string>('jwt.refreshExpiresIn'));
+    const session = await sessions.save(
+      sessions.create({
+        userId: user.id,
+        tokenHash: '',
+        expiresAt: new Date(Date.now() + ttlMs),
+        lastUsedAt: null,
+        revokedAt: null,
+      }),
+    );
+
     const payload: RefreshTokenPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
       congregationId: user.congregationId,
       tokenType: 'refresh',
+      sid: session.id,
     };
-    return this.jwtService.sign(payload, {
+    const token = this.jwtService.sign(payload, {
       secret: this.config.get<string>('jwt.refreshSecret'),
       expiresIn: (this.config.get<string>('jwt.refreshExpiresIn') ??
         '30d') as never,
     });
+
+    session.tokenHash = digest(token);
+    await sessions.save(session);
+    return token;
   }
 
-  private issueTokens(user: User) {
+  private async issueTokens(user: User) {
     return {
       accessToken: this.signAccessToken(user),
-      refreshToken: this.signRefreshToken(user),
+      refreshToken: await this.signRefreshToken(user),
       user: {
         id: user.id,
         email: user.email,

@@ -56,6 +56,17 @@ export class AuthController {
     return this.authService.forgotPassword(dto.email, req.ip ?? 'unknown');
   }
 
+  /**
+   * Public on purpose: the access token may already be dead when a person
+   * signs out, and they must still be able to end the session.
+   */
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('logout')
+  logout(@Body() dto: RefreshDto) {
+    return this.authService.logout(dto.refreshToken);
+  }
+
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('reset-password')
