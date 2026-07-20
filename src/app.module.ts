@@ -1,5 +1,8 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { UserOrIpThrottlerGuard } from './common/guards/throttler.guard';
 import { BackupsModule } from './backups/backups.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
@@ -124,8 +127,22 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     CleaningModule,
     CartLocationsModule,
     CartWeeksModule,
+    // A broad net against hammering: nothing but login and password reset had
+    // any limit before this. Two windows so that a short burst — opening a
+    // screen that fires a dozen queries at once — stays comfortable, while a
+    // script running flat out is stopped within the minute.
+    ThrottlerModule.forRoot([
+      { name: 'short', ttl: 10_000, limit: 60 },
+      { name: 'long', ttl: 60_000, limit: 300 },
+    ]),
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: UserOrIpThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}
