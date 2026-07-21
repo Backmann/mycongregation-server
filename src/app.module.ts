@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { UserOrIpThrottlerGuard } from './common/guards/throttler.guard';
+import { RequestContextInterceptor } from './common/request-context.interceptor';
 import { BackupsModule } from './backups/backups.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
@@ -142,6 +143,13 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     {
       provide: APP_GUARD,
       useClass: UserOrIpThrottlerGuard,
+    },
+    {
+      // Runs after authentication, so request.user is already there. It makes
+      // the acting person available to the journal without every service
+      // having to be handed one.
+      provide: APP_INTERCEPTOR,
+      useClass: RequestContextInterceptor,
     },
   ],
 })

@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { AuditLog } from '../entities/audit-log.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { AuditLogService } from './audit-log.service';
+import { requestContext } from '../common/request-context';
 
 type MockRepo<T extends object = any> = Partial<
   Record<keyof Repository<T>, jest.Mock>
@@ -362,6 +363,55 @@ describe('AuditLogService', () => {
     it('does nothing when given no one', async () => {
       await expect(service.redactForPerson('cong-1', [])).resolves.toBe(0);
       expect(auditRepo.find).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('who gets named as the actor', () => {
+    it('takes the acting user from the request context', async () => {
+      await requestContext.run(
+        { userId: 'user-7', congregationId: 'cong-1' },
+        () =>
+          service.logEvent({
+            tenantId: 'cong-1',
+            entityType: 'assignment',
+            entityId: 'a-1',
+            action: 'DELETE',
+          }),
+      );
+
+      const row = (auditRepo.save as jest.Mock).mock.calls[0][0];
+      expect(row.actorUserId).toBe('user-7');
+      expect(row.source).toBe('user');
+    });
+
+    it('records a change with nobody signed in as the system, not as unknown', async () => {
+      await service.logEvent({
+        tenantId: 'cong-1',
+        entityType: 'assignment',
+        entityId: 'a-2',
+        action: 'CREATE' as never,
+      });
+
+      const row = (auditRepo.save as jest.Mock).mock.calls[0][0];
+      expect(row.actorUserId).toBeNull();
+      expect(row.source).toBe('system');
+    });
+
+    it('lets an explicit actor win over the context', async () => {
+      await requestContext.run(
+        { userId: 'user-7', congregationId: 'cong-1' },
+        () =>
+          service.logFieldsChanged({
+            tenantId: 'cong-1',
+            entityType: 'publisher',
+            entityId: 'p-1',
+            actorUserId: 'user-9',
+            fields: ['status'],
+          }),
+      );
+      expect((auditRepo.save as jest.Mock).mock.calls[0][0].actorUserId).toBe(
+        'user-9',
+      );
     });
   });
 });

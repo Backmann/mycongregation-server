@@ -32,6 +32,7 @@ describe('ActivityFeedService', () => {
       actorUserId: 'user-1',
       subjectId: null,
       redactedAt: null,
+      source: 'user' as const,
       beforeJson: null,
       afterJson: null,
       changedFields: [],

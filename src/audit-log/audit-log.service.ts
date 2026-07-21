@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, LessThan, Repository } from 'typeorm';
 import { AuditLog } from '../entities/audit-log.entity';
 import { Publisher } from '../entities/publisher.entity';
+import { requestContext } from '../common/request-context';
 
 /**
  * Beyond the three that change data:
@@ -27,7 +28,8 @@ export type AuditAction =
 export interface AuditLogEntry {
   id: string;
   action: AuditAction;
-  actorUserId: string;
+  /** Null when the change was made by the system rather than a person. */
+  actorUserId: string | null;
   actorName: string | null;
   changedFields: string[];
   before: Record<string, any> | null;
@@ -40,6 +42,20 @@ export interface AuditLogEntry {
 
 @Injectable()
 export class AuditLogService {
+  /**
+   * Who is acting. Callers that already hold the user may pass it; everyone
+   * else gets it from the request context, which is the point of that context
+   * — a service that changes assignments should not have to be handed a user
+   * just so the journal can name one.
+   */
+  private actorOf(explicit?: string | null): {
+    actorUserId: string | null;
+    source: 'user' | 'system';
+  } {
+    const actorUserId = explicit ?? requestContext.get()?.userId ?? null;
+    return { actorUserId, source: actorUserId ? 'user' : 'system' };
+  }
+
   constructor(
     @InjectRepository(AuditLog)
     private readonly auditRepo: Repository<AuditLog>,
@@ -203,7 +219,7 @@ export class AuditLogService {
     entityType: string;
     entityId: string;
     action: Exclude<AuditAction, 'UPDATE' | 'CREATE'>;
-    actorUserId: string;
+    actorUserId?: string | null;
     subjectId?: string | null;
     detail?: Record<string, any>;
   }): Promise<void> {
@@ -213,7 +229,7 @@ export class AuditLogService {
         entityType: opts.entityType,
         entityId: opts.entityId,
         action: opts.action,
-        actorUserId: opts.actorUserId,
+        ...this.actorOf(opts.actorUserId),
         subjectId: opts.subjectId ?? null,
         beforeJson: null,
         afterJson: opts.detail ? JSON.stringify(opts.detail) : null,
@@ -236,7 +252,7 @@ export class AuditLogService {
     tenantId: string;
     entityType: string;
     entityId: string;
-    actorUserId: string;
+    actorUserId?: string | null;
     subjectId?: string | null;
     fields: string[];
   }): Promise<void> {
@@ -247,7 +263,7 @@ export class AuditLogService {
         entityType: opts.entityType,
         entityId: opts.entityId,
         action: 'UPDATE',
-        actorUserId: opts.actorUserId,
+        ...this.actorOf(opts.actorUserId),
         subjectId: opts.subjectId ?? null,
         beforeJson: null,
         afterJson: null,

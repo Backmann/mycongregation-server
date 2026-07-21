@@ -44,8 +44,17 @@ export class AuditLog {
   @Column({ type: 'varchar', length: 32 })
   action!: string;
 
-  @Column({ type: 'uuid', name: 'actor_user_id' })
-  actorUserId!: string;
+  /** Null when nobody human acted — see `source`. */
+  @Column({ type: 'uuid', nullable: true, name: 'actor_user_id' })
+  actorUserId!: string | null;
+
+  /**
+   * 'user' when a person did it, 'system' for the scheduled jobs, imports and
+   * syncs that run with nobody signed in. Explicit, because a null actor
+   * without a reason cannot be told apart from a missing one.
+   */
+  @Column({ type: 'varchar', length: 16, default: 'user' })
+  source!: 'user' | 'system';
 
   /**
    * Whom the entry is ABOUT, when that is not the actor: the brother whose

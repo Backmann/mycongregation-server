@@ -129,9 +129,12 @@ export class ActivityFeedService {
     pubMap: Map<string, Publisher>,
     reportMap: Map<string, ServiceReport>,
   ): ActivityFeedEntry {
-    const actor = userMap.get(row.actorUserId);
+    // A system change has no actor by design — say so rather than showing it
+    // as an unknown person, which reads like a fault.
+    const actor = row.actorUserId ? userMap.get(row.actorUserId) : undefined;
     const actorName = formatUserName(actor);
-    const actorLabel = actorName ?? '(unknown actor)';
+    const actorLabel =
+      actorName ?? (row.source === 'system' ? '(system)' : '(unknown actor)');
     const before = parseJson(row.beforeJson);
     const after = parseJson(row.afterJson);
     const occurredAt = row.createdAt.toISOString();
