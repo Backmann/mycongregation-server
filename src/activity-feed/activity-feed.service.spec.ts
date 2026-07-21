@@ -30,6 +30,8 @@ describe('ActivityFeedService', () => {
       entityId: 'pub-1',
       action: 'update',
       actorUserId: 'user-1',
+      subjectId: null,
+      redactedAt: null,
       beforeJson: null,
       afterJson: null,
       changedFields: [],

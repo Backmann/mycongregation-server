@@ -4,7 +4,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { Publisher } from '../entities/publisher.entity';
 import { User } from '../entities/user.entity';
@@ -201,6 +201,29 @@ export class DataRightsService {
       await m.delete(WebPushSubscription, { userId });
       await m.delete(PushReceipt, { userId });
       await m.delete(Responsibility, { userId });
+
+      // Empty every journal entry that held this person's values. The entries
+      // stay: what an administrator did last March is the congregation's
+      // record and must not disappear because a member exercised a right.
+      // What goes is only what was theirs.
+      const concerned = [userId, publisher?.id].filter(
+        (v): v is string => typeof v === 'string',
+      );
+      const pending = await m.find(AuditLog, {
+        where: [
+          { congregationId: tenantId, actorUserId: In(concerned) },
+          { congregationId: tenantId, subjectId: In(concerned) },
+          { congregationId: tenantId, entityId: In(concerned) },
+        ],
+      });
+      for (const row of pending) {
+        if (row.redactedAt) continue;
+        row.beforeJson = null;
+        row.afterJson = null;
+        row.changedFields = [];
+        row.redactedAt = new Date();
+        await m.save(AuditLog, row);
+      }
 
       // Record the erasure event itself (IDs + timestamp only, no erased PII).
       await m.insert(AuditLog, {

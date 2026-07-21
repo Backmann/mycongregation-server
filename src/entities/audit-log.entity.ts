@@ -8,7 +8,13 @@ import {
 import { encryptedTransformer } from '../crypto/encrypted.transformer';
 
 /**
- * Append-only log of changes to auditable entities (currently ServiceReport).
+ * Append-only log of changes to auditable entities.
+ *
+ * Append-only is meant literally: nothing in the application edits or deletes
+ * a row. Only two things ever remove content — the nightly retention job,
+ * which drops entries past a year, and an erasure request, which empties a
+ * row's values while leaving the row. A journal an administrator can edit
+ * proves nothing on the day it is needed.
  *
  * Storage notes:
  * - `beforeJson` / `afterJson` are JSON-serialised maps containing ONLY
@@ -21,6 +27,7 @@ import { encryptedTransformer } from '../crypto/encrypted.transformer';
 @Entity('audit_logs')
 @Index(['congregationId', 'entityType', 'entityId', 'createdAt'])
 @Index(['congregationId', 'actorUserId'])
+@Index(['congregationId', 'subjectId'])
 export class AuditLog {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -39,6 +46,14 @@ export class AuditLog {
 
   @Column({ type: 'uuid', name: 'actor_user_id' })
   actorUserId!: string;
+
+  /**
+   * Whom the entry is ABOUT, when that is not the actor: the brother whose
+   * report the secretary entered, the publisher whose card an elder edited.
+   * Null when actor and subject are the same person.
+   */
+  @Column({ type: 'uuid', nullable: true, name: 'subject_id' })
+  subjectId!: string | null;
 
   @Column({
     type: 'text',
@@ -63,6 +78,14 @@ export class AuditLog {
     default: () => "'{}'::text[]",
   })
   changedFields!: string[];
+
+  /**
+   * Set when the values were cleared at the request of the person they
+   * concerned. The entry stays — who did what and when is the congregation's
+   * record — but its personal contents are gone.
+   */
+  @Column({ type: 'timestamptz', nullable: true, name: 'redacted_at' })
+  redactedAt!: Date | null;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt!: Date;

@@ -21,6 +21,9 @@ function makeDataSource() {
   const repos = new Map<unknown, ReturnType<typeof makeRepo>>();
   const manager = {
     findOne: jest.fn().mockResolvedValue(null),
+    // Erasure now also empties the journal entries about this person, so the
+    // transaction manager has to answer find().
+    find: jest.fn().mockResolvedValue([]),
     save: jest.fn().mockResolvedValue(undefined),
     update: jest.fn().mockResolvedValue(undefined),
     delete: jest.fn().mockResolvedValue(undefined),

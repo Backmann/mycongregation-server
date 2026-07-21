@@ -4,7 +4,25 @@ import { In, LessThan, Repository } from 'typeorm';
 import { AuditLog } from '../entities/audit-log.entity';
 import { Publisher } from '../entities/publisher.entity';
 
-export type AuditAction = 'UPDATE' | 'CREATE' | 'DELETE';
+/**
+ * Beyond the three that change data:
+ *  VIEW     — someone looked at something looking is a privilege for (an S-21
+ *             card). The app already treats seeing another person's data as a
+ *             right that has to be granted; a granted right that leaves no
+ *             trace cannot be answered for.
+ *  DOWNLOAD — something left the server: a backup, an export.
+ *  DENY     — an attempt the server refused. The past freezes and permissions
+ *             bite, and until now every rejection vanished silently. A refused
+ *             attempt to edit last week's meeting is precisely what a journal
+ *             is consulted about.
+ */
+export type AuditAction =
+  | 'UPDATE'
+  | 'CREATE'
+  | 'DELETE'
+  | 'VIEW'
+  | 'DOWNLOAD'
+  | 'DENY';
 
 export interface AuditLogEntry {
   id: string;
@@ -15,6 +33,9 @@ export interface AuditLogEntry {
   before: Record<string, any> | null;
   after: Record<string, any> | null;
   createdAt: string;
+  subjectId?: string | null;
+  /** True when the values were cleared at the subject's request. */
+  redacted?: boolean;
 }
 
 @Injectable()
@@ -36,6 +57,7 @@ export class AuditLogService {
     entityType: string;
     entityId: string;
     actorUserId: string;
+    subjectId?: string | null;
     before: T;
     after: T;
     fields: (keyof T)[];
@@ -166,6 +188,111 @@ export class AuditLogService {
       after: r.afterJson ? JSON.parse(r.afterJson) : null,
       createdAt: r.createdAt.toISOString(),
     }));
+  }
+
+  /**
+   * Records that something HAPPENED, with no before/after to speak of: a card
+   * was viewed, a backup downloaded, an attempt refused, a bulk import run.
+   *
+   * `detail` is for the few facts that make the line readable later — which
+   * year of the S-21, how many weeks an import covered, which rule refused
+   * the attempt. It is not a place for the data itself.
+   */
+  async logEvent(opts: {
+    tenantId: string;
+    entityType: string;
+    entityId: string;
+    action: Exclude<AuditAction, 'UPDATE' | 'CREATE'>;
+    actorUserId: string;
+    subjectId?: string | null;
+    detail?: Record<string, any>;
+  }): Promise<void> {
+    await this.auditRepo.save(
+      this.auditRepo.create({
+        congregationId: opts.tenantId,
+        entityType: opts.entityType,
+        entityId: opts.entityId,
+        action: opts.action,
+        actorUserId: opts.actorUserId,
+        subjectId: opts.subjectId ?? null,
+        beforeJson: null,
+        afterJson: opts.detail ? JSON.stringify(opts.detail) : null,
+        changedFields: [],
+      }),
+    );
+  }
+
+  /**
+   * Records WHICH fields changed and nothing more — no old value, no new one.
+   *
+   * For personal contact details this is the whole of what a journal needs:
+   * "the phone number was changed, by this person, on this date" answers every
+   * question a dispute raises. Keeping the numbers themselves would quietly
+   * turn the journal into a second, permanent copy of everyone's contact
+   * history — the most sensitive table in the database, and one that outlives
+   * the card it mirrors.
+   */
+  async logFieldsChanged(opts: {
+    tenantId: string;
+    entityType: string;
+    entityId: string;
+    actorUserId: string;
+    subjectId?: string | null;
+    fields: string[];
+  }): Promise<void> {
+    if (opts.fields.length === 0) return;
+    await this.auditRepo.save(
+      this.auditRepo.create({
+        congregationId: opts.tenantId,
+        entityType: opts.entityType,
+        entityId: opts.entityId,
+        action: 'UPDATE',
+        actorUserId: opts.actorUserId,
+        subjectId: opts.subjectId ?? null,
+        beforeJson: null,
+        afterJson: null,
+        changedFields: opts.fields,
+      }),
+    );
+  }
+
+  /**
+   * Empties the values of every entry concerning a person, keeping the entries
+   * themselves. Called when someone exercises their right to erasure.
+   *
+   * Rows are kept deliberately. "Who changed the schedule last March" is the
+   * congregation's own record, and one member's erasure request must not be
+   * able to remove the trace of what somebody else did. What goes is only what
+   * belonged to the person asking: the values, and the field names, which for
+   * contact details are themselves telling.
+   *
+   * Returns how many entries were emptied.
+   */
+  async redactForPerson(
+    tenantId: string,
+    personIds: string[],
+  ): Promise<number> {
+    const ids = personIds.filter(Boolean);
+    if (ids.length === 0) return 0;
+
+    const rows = await this.auditRepo.find({
+      where: [
+        { congregationId: tenantId, actorUserId: In(ids) },
+        { congregationId: tenantId, subjectId: In(ids) },
+        { congregationId: tenantId, entityId: In(ids) },
+      ],
+    });
+    const pending = rows.filter((r) => r.redactedAt === null);
+    if (pending.length === 0) return 0;
+
+    for (const row of pending) {
+      row.beforeJson = null;
+      row.afterJson = null;
+      row.changedFields = [];
+      row.redactedAt = new Date();
+    }
+    await this.auditRepo.save(pending);
+    return pending.length;
   }
 
   /**

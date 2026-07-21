@@ -246,4 +246,122 @@ describe('AuditLogService', () => {
       expect(result[0].changedFields).toEqual([]);
     });
   });
+
+  describe('logFieldsChanged — the fact, not the values', () => {
+    it('records which fields changed and keeps neither side', async () => {
+      await service.logFieldsChanged({
+        tenantId: 'cong-1',
+        entityType: 'publisher',
+        entityId: 'pub-1',
+        actorUserId: 'user-1',
+        subjectId: 'user-1',
+        fields: ['mobilePhone', 'address'],
+      });
+
+      const row = (auditRepo.save as jest.Mock).mock.calls[0][0];
+      expect(row.changedFields).toEqual(['mobilePhone', 'address']);
+      // The whole point: no phone number is kept anywhere in the entry.
+      expect(row.beforeJson).toBeNull();
+      expect(row.afterJson).toBeNull();
+    });
+
+    it('writes nothing when nothing changed', async () => {
+      await service.logFieldsChanged({
+        tenantId: 'cong-1',
+        entityType: 'publisher',
+        entityId: 'pub-1',
+        actorUserId: 'user-1',
+        fields: [],
+      });
+      expect(auditRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('logEvent — things that happen without changing anything', () => {
+    it('records a view, naming whose card it was', async () => {
+      await service.logEvent({
+        tenantId: 'cong-1',
+        entityType: 'publisher',
+        entityId: 'pub-9',
+        action: 'VIEW',
+        actorUserId: 'elder-1',
+        subjectId: 'user-9',
+        detail: { document: 'S-21', serviceYear: 2026 },
+      });
+
+      const row = (auditRepo.save as jest.Mock).mock.calls[0][0];
+      expect(row.action).toBe('VIEW');
+      expect(row.subjectId).toBe('user-9');
+      expect(JSON.parse(row.afterJson)).toEqual({
+        document: 'S-21',
+        serviceYear: 2026,
+      });
+      expect(row.changedFields).toEqual([]);
+    });
+
+    it('records a refusal, which used to vanish entirely', async () => {
+      await service.logEvent({
+        tenantId: 'cong-1',
+        entityType: 'duty',
+        entityId: 'duty-3',
+        action: 'DENY',
+        actorUserId: 'user-2',
+        detail: { reason: 'past_frozen' },
+      });
+      const row = (auditRepo.save as jest.Mock).mock.calls[0][0];
+      expect(row.action).toBe('DENY');
+      expect(JSON.parse(row.afterJson).reason).toBe('past_frozen');
+    });
+  });
+
+  describe('redactForPerson — erasure empties entries but keeps them', () => {
+    const row = (over: Partial<AuditLog> = {}) =>
+      ({
+        id: 'a1',
+        congregationId: 'cong-1',
+        entityType: 'publisher',
+        entityId: 'pub-1',
+        action: 'UPDATE',
+        actorUserId: 'user-1',
+        subjectId: null,
+        beforeJson: '{"mobilePhone":"+49..."}',
+        afterJson: '{"mobilePhone":"+49..."}',
+        changedFields: ['mobilePhone'],
+        redactedAt: null,
+        createdAt: new Date(),
+        ...over,
+      }) as AuditLog;
+
+    it('clears the values and marks the entry, without deleting it', async () => {
+      const entry = row();
+      (auditRepo.find as jest.Mock).mockResolvedValue([entry]);
+
+      const count = await service.redactForPerson('cong-1', ['user-1']);
+
+      expect(count).toBe(1);
+      expect(entry.beforeJson).toBeNull();
+      expect(entry.afterJson).toBeNull();
+      // Field names go too: "the phone was changed" is itself telling.
+      expect(entry.changedFields).toEqual([]);
+      expect(entry.redactedAt).toBeInstanceOf(Date);
+      // The row survives — someone else's actions must not disappear with it.
+      expect(auditRepo.delete).not.toHaveBeenCalled();
+      expect(auditRepo.save).toHaveBeenCalled();
+    });
+
+    it('leaves an already redacted entry alone', async () => {
+      (auditRepo.find as jest.Mock).mockResolvedValue([
+        row({ redactedAt: new Date('2026-01-01') }),
+      ]);
+      await expect(service.redactForPerson('cong-1', ['user-1'])).resolves.toBe(
+        0,
+      );
+      expect(auditRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when given no one', async () => {
+      await expect(service.redactForPerson('cong-1', [])).resolves.toBe(0);
+      expect(auditRepo.find).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -238,18 +238,20 @@ export class MeService {
     me.contactsConfirmedByUserId = userId;
     await this.publishersRepo.save(me);
 
-    await this.auditLogService.logUpdate({
+    // Field names only — no old number, no new one. The journal has to answer
+    // "who changed my phone and when", and it can do that without becoming a
+    // permanent second copy of everyone's contact history.
+    const changed = (['mobilePhone', 'email', 'address'] as const).filter(
+      (f) => (before as Record<string, unknown>)[f] !== (me[f] ?? null),
+    );
+
+    await this.auditLogService.logFieldsChanged({
       tenantId,
       entityType: 'publisher',
       entityId: me.id,
       actorUserId: userId,
-      before,
-      after: {
-        mobilePhone: me.mobilePhone ?? null,
-        email: me.email ?? null,
-        address: me.address ?? null,
-      },
-      fields: ['mobilePhone', 'email', 'address'],
+      subjectId: me.userId ?? null,
+      fields: [...changed],
     });
 
     return this.myPublisher(tenantId, userId);
