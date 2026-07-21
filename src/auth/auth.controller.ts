@@ -7,9 +7,12 @@ import {
   Patch,
   Post,
   Req,
+  Res,
+  UnauthorizedException,
 } from '@nestjs/common';
-import type { Request } from 'express';
-import { AuthService } from './auth.service';
+import type { Request, Response } from 'express';
+import { ConfigService } from '@nestjs/config';
+import { AuthService, durationToMs } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { BootstrapDto } from './dto/bootstrap.dto';
 import { LoginDto } from './dto/login.dto';
@@ -21,13 +24,48 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import type { AuthenticatedUser } from './decorators/current-user.decorator';
+import {
+  clearRefreshCookie,
+  readRefreshToken,
+  setRefreshCookie,
+  wantsCookieAuth,
+} from './refresh-cookie';
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly usersService: UsersService,
+    private readonly config: ConfigService,
   ) {}
+
+  private get cookieOpts() {
+    return {
+      apiPrefix: this.config.get<string>('app.apiPrefix') ?? 'api',
+      isProduction: this.config.get<string>('app.nodeEnv') === 'production',
+    };
+  }
+
+  /**
+   * In cookie mode the refresh token is put in an httpOnly cookie and taken
+   * OUT of the response body. Leaving it in the body would defeat the whole
+   * exercise: a script could simply read the login or refresh response instead
+   * of reading localStorage.
+   */
+  private deliverTokens<T extends { refreshToken: string }>(
+    req: Request,
+    res: Response,
+    result: T,
+  ): T | Omit<T, 'refreshToken'> {
+    if (!wantsCookieAuth(req)) return result;
+
+    setRefreshCookie(res, result.refreshToken, {
+      ...this.cookieOpts,
+      maxAgeMs: durationToMs(this.config.get<string>('jwt.refreshExpiresIn')),
+    });
+    const { refreshToken: _omitted, ...rest } = result;
+    return rest;
+  }
 
   @Public()
   @Post('bootstrap')
@@ -38,15 +76,27 @@ export class AuthController {
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('login')
-  login(@Body() dto: LoginDto, @Req() req: Request) {
-    return this.authService.login(dto, req.ip ?? 'unknown');
+  async login(
+    @Body() dto: LoginDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.login(dto, req.ip ?? 'unknown');
+    return this.deliverTokens(req, res, result);
   }
 
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('refresh')
-  refresh(@Body() dto: RefreshDto) {
-    return this.authService.refresh(dto.refreshToken);
+  async refresh(
+    @Body() dto: RefreshDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const token = readRefreshToken(req, dto.refreshToken);
+    if (!token) throw new UnauthorizedException('No refresh token');
+    const result = await this.authService.refresh(token);
+    return this.deliverTokens(req, res, result);
   }
 
   @Public()
@@ -63,8 +113,16 @@ export class AuthController {
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('logout')
-  logout(@Body() dto: RefreshDto) {
-    return this.authService.logout(dto.refreshToken);
+  async logout(
+    @Body() dto: RefreshDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const token = readRefreshToken(req, dto.refreshToken);
+    // Clear the cookie whatever happens: someone who asked to sign out must
+    // end up signed out, even if the token was already dead.
+    clearRefreshCookie(res, this.cookieOpts);
+    return token ? this.authService.logout(token) : { ok: true as const };
   }
 
   @Public()

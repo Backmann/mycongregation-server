@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import cookieParser from 'cookie-parser';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import helmet from 'helmet';
@@ -83,6 +84,9 @@ async function bootstrap() {
   );
 
   // -------------------------------------------------------------------------
+
+  // Needed so the auth endpoints can read the httpOnly refresh cookie.
+  app.use(cookieParser());
 
   app.setGlobalPrefix(apiPrefix);
 

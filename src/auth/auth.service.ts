@@ -40,7 +40,7 @@ function digest(token: string): string {
 }
 
 /** '30d' / '12h' / '45m' / '3600s' -> milliseconds. Defaults to 30 days. */
-function durationToMs(value: string | undefined): number {
+export function durationToMs(value: string | undefined): number {
   const DAY = 24 * 60 * 60 * 1000;
   if (!value) return 30 * DAY;
   const m = /^(\d+)\s*([smhd])$/.exec(value.trim());
