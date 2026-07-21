@@ -81,8 +81,29 @@ export interface PublisherHistoryResponse {
  *   no longer report hours.
  * - `bibleStudies` — sum of Bible studies across the counted reports.
  */
+/**
+ * The lines of the monthly summary.
+ *
+ * 'auxiliary' is not a PioneerType and never will be: auxiliary pioneering is
+ * a PERIOD a publisher serves, not a property they carry, so it lives in the
+ * auxiliary_pioneers table and has to be looked up per month. That is exactly
+ * why the summary used to miss it — it built its lines by walking the
+ * PioneerType enum, which cannot express "was an auxiliary pioneer in March".
+ */
+export type ServiceSummaryCategoryKey =
+  | 'none'
+  | 'auxiliary'
+  | PioneerType.REGULAR
+  | PioneerType.SPECIAL
+  | PioneerType.MISSIONARY;
+
 export interface ServiceReportSummaryCategory {
-  pioneerType: PioneerType;
+  /**
+   * Kept under this name so an app build from before this change still renders
+   * the four lines it knows; the new auxiliary line simply shows its raw key
+   * until that client updates.
+   */
+  pioneerType: ServiceSummaryCategoryKey;
   count: number;
   hours: number | null;
   bibleStudies: number;
@@ -979,50 +1000,92 @@ export class ServiceReportsService {
     const publishers = await this.publishersRepo.find({
       where: { congregationId: tenantId },
     });
-    const typeByPubId = new Map<string, PioneerType>(
-      publishers.map((p) => [p.id, p.pioneerType]),
+
+    // Which publishers actually served as auxiliary pioneers in THIS month.
+    // Their line was missing entirely before, so their studies were being
+    // added to the publishers' line and their hours dropped on the floor.
+    const auxIds =
+      await this.auxiliaryPioneersService.activePublisherIdsForMonth(
+        tenantId,
+        reportMonth,
+      );
+
+    /**
+     * The category a publisher belongs to FOR THIS MONTH.
+     *
+     * The month matters. Reading publisher.pioneerType on its own answers
+     * "what are they today", which is a different question: someone appointed
+     * a regular pioneer from next month is still an auxiliary pioneer — or an
+     * ordinary publisher — in the month being reported. isActivePermanentPioneer
+     * is the shared rule for that, already used by the report form and the
+     * hour goals; the summary was the one place that bypassed it and so
+     * counted a future pioneer as a present one.
+     */
+    const categoryOf = (
+      pub: (typeof publishers)[number],
+    ): ServiceSummaryCategoryKey => {
+      if (
+        isActivePermanentPioneer(pub.pioneerType, pub.pioneerSince, reportMonth)
+      ) {
+        return pub.pioneerType as
+          | PioneerType.REGULAR
+          | PioneerType.SPECIAL
+          | PioneerType.MISSIONARY;
+      }
+      // A permanent appointment that has already started outranks an auxiliary
+      // period; only below it does the period decide.
+      if (auxIds.has(pub.id)) return 'auxiliary';
+      return 'none';
+    };
+
+    const categoryByPubId = new Map<string, ServiceSummaryCategoryKey>(
+      publishers.map((p) => [p.id, categoryOf(p)]),
     );
 
     const reports = await this.reportsRepo.find({
       where: { congregationId: tenantId, reportMonth },
     });
 
-    const order: PioneerType[] = [
-      PioneerType.NONE,
+    const order: ServiceSummaryCategoryKey[] = [
+      'none',
+      'auxiliary',
       PioneerType.REGULAR,
       PioneerType.SPECIAL,
       PioneerType.MISSIONARY,
     ];
     const acc = new Map<
-      PioneerType,
+      ServiceSummaryCategoryKey,
       { count: number; hours: number; bibleStudies: number }
     >(order.map((t) => [t, { count: 0, hours: 0, bibleStudies: 0 }]));
 
     for (const report of reports) {
-      const type = typeByPubId.get(report.publisherId);
-      if (type === undefined) continue;
-      const bucket = acc.get(type);
+      const category = categoryByPubId.get(report.publisherId);
+      if (category === undefined) continue;
+      const bucket = acc.get(category);
       if (!bucket) continue;
 
-      if (type === PioneerType.NONE) {
+      if (category === 'none') {
         // Ordinary publishers: count only those who shared in the ministry.
         if (report.servedThisMonth === true) {
           bucket.count += 1;
           bucket.bibleStudies += report.bibleStudies ?? 0;
         }
       } else {
+        // Auxiliary pioneers report hours just as permanent ones do.
         bucket.count += 1;
         bucket.hours += report.hoursReported ?? 0;
         bucket.bibleStudies += report.bibleStudies ?? 0;
       }
     }
 
-    const categories: ServiceReportSummaryCategory[] = order.map((type) => {
-      const bucket = acc.get(type)!;
+    const categories: ServiceReportSummaryCategory[] = order.map((key) => {
+      const bucket = acc.get(key)!;
       return {
-        pioneerType: type,
+        pioneerType: key,
+        // Ordinary publishers do not report hours; every other line does,
+        // auxiliary pioneers included.
+        hours: key === 'none' ? null : bucket.hours,
         count: bucket.count,
-        hours: type === PioneerType.NONE ? null : bucket.hours,
         bibleStudies: bucket.bibleStudies,
       };
     });
@@ -1051,8 +1114,8 @@ export class ServiceReportsService {
     let studiesSum = 0;
     let reportedCount = 0;
     for (const report of reports) {
-      const type = typeByPubId.get(report.publisherId);
-      if (type === undefined) continue;
+      const category = categoryByPubId.get(report.publisherId);
+      if (category === undefined) continue;
       const shared =
         report.servedThisMonth === true ||
         (report.hoursReported != null && report.hoursReported > 0);
@@ -1060,7 +1123,9 @@ export class ServiceReportsService {
         reportedCount += 1;
         studiesSum += report.bibleStudies ?? 0;
       }
-      if (type !== PioneerType.NONE && report.hoursReported != null) {
+      // Same correction here: an auxiliary pioneer's hours belong in the
+      // pioneer average, and a not-yet-started permanent pioneer's do not.
+      if (category !== 'none' && report.hoursReported != null) {
         pioneerHoursSum += report.hoursReported;
         pioneerHoursCount += 1;
       }

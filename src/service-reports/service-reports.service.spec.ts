@@ -1634,7 +1634,8 @@ describe('ServiceReportsService', () => {
       expect(result.totalActivePublishers).toBe(42);
       expect(result.totalInactivePublishers).toBe(5);
       expect(result.categories.map((c) => c.pioneerType)).toEqual([
-        PioneerType.NONE,
+        'none',
+        'auxiliary',
         PioneerType.REGULAR,
         PioneerType.SPECIAL,
         PioneerType.MISSIONARY,
@@ -1692,9 +1693,177 @@ describe('ServiceReportsService', () => {
 
       expect(result.totalActivePublishers).toBe(7);
       expect(result.totalInactivePublishers).toBe(2);
-      expect(result.categories).toHaveLength(4);
+      expect(result.categories).toHaveLength(5);
       expect(result.categories.every((c) => c.count === 0)).toBe(true);
       expect(result.categories[0].bibleStudies).toBe(0);
+    });
+
+    /**
+     * Both cases below were reported from a real congregation: the studies of
+     * auxiliary pioneers turned up on the publishers' line, and a sister who
+     * becomes a regular pioneer NEXT month was already counted as one, taking
+     * her 30 hours with her.
+     */
+    describe('the month decides the category, not today', () => {
+      const summaryFor = async (month = '2026-04') =>
+        service.getSummary(
+          'cong-1',
+          makeUser({ id: 'admin-id', role: UserRole.ADMIN }),
+          month,
+        );
+
+      const line = (result: any, key: string) =>
+        result.categories.find((c: any) => c.pioneerType === key);
+
+      beforeEach(() => {
+        publishersRepo.count.mockResolvedValue(10);
+      });
+
+      it('puts an auxiliary pioneer on her own line, not among the publishers', async () => {
+        publishersRepo.find.mockResolvedValue([
+          makePublisher({ id: 'p-pub' }),
+          makePublisher({ id: 'p-aux' }),
+        ]);
+        auxiliaryPioneersService.activePublisherIdsForMonth.mockResolvedValue(
+          new Set(['p-aux']),
+        );
+        reportsRepo.find.mockResolvedValue([
+          makeReport({
+            publisherId: 'p-pub',
+            servedThisMonth: true,
+            bibleStudies: 2,
+          }),
+          makeReport({
+            publisherId: 'p-aux',
+            servedThisMonth: true,
+            hoursReported: 30,
+            bibleStudies: 2,
+          }),
+        ]);
+
+        const result = await summaryFor();
+
+        // The publishers' line keeps only the publisher's own studies — this
+        // is the "20 instead of 18" the congregation saw.
+        expect(line(result, 'none')).toMatchObject({
+          count: 1,
+          bibleStudies: 2,
+        });
+        // And the auxiliary line exists at all, with her hours on it. They
+        // used to be discarded entirely.
+        expect(line(result, 'auxiliary')).toMatchObject({
+          count: 1,
+          hours: 30,
+          bibleStudies: 2,
+        });
+      });
+
+      it('does not count a pioneer whose appointment starts next month', async () => {
+        publishersRepo.find.mockResolvedValue([
+          makePublisher({ id: 'p-reg', pioneerType: PioneerType.REGULAR }),
+          // Appointed from May while we are reporting April.
+          makePublisher({
+            id: 'p-susanne',
+            pioneerType: PioneerType.REGULAR,
+            pioneerSince: '2026-05-01',
+          }),
+        ]);
+        auxiliaryPioneersService.activePublisherIdsForMonth.mockResolvedValue(
+          new Set(['p-susanne']),
+        );
+        reportsRepo.find.mockResolvedValue([
+          makeReport({ publisherId: 'p-reg', hoursReported: 50 }),
+          makeReport({ publisherId: 'p-susanne', hoursReported: 30 }),
+        ]);
+
+        const result = await summaryFor('2026-04');
+
+        // Nine regulars, not ten — and without her thirty hours.
+        expect(line(result, PioneerType.REGULAR)).toMatchObject({
+          count: 1,
+          hours: 50,
+        });
+        expect(line(result, 'auxiliary')).toMatchObject({
+          count: 1,
+          hours: 30,
+        });
+      });
+
+      it('counts her as a regular pioneer once the month arrives', async () => {
+        publishersRepo.find.mockResolvedValue([
+          makePublisher({
+            id: 'p-susanne',
+            pioneerType: PioneerType.REGULAR,
+            pioneerSince: '2026-05-01',
+          }),
+        ]);
+        auxiliaryPioneersService.activePublisherIdsForMonth.mockResolvedValue(
+          new Set(),
+        );
+        reportsRepo.find.mockResolvedValue([
+          makeReport({
+            publisherId: 'p-susanne',
+            reportMonth: '2026-05-01',
+            hoursReported: 60,
+          }),
+        ]);
+
+        const result = await summaryFor('2026-05');
+
+        expect(line(result, PioneerType.REGULAR)).toMatchObject({
+          count: 1,
+          hours: 60,
+        });
+        expect(line(result, 'auxiliary')).toMatchObject({ count: 0, hours: 0 });
+      });
+
+      it('lets a started permanent appointment outrank a stale auxiliary period', async () => {
+        publishersRepo.find.mockResolvedValue([
+          makePublisher({
+            id: 'p-both',
+            pioneerType: PioneerType.REGULAR,
+            pioneerSince: '2026-01-01',
+          }),
+        ]);
+        // A period left open by mistake must not drag her back down a line.
+        auxiliaryPioneersService.activePublisherIdsForMonth.mockResolvedValue(
+          new Set(['p-both']),
+        );
+        reportsRepo.find.mockResolvedValue([
+          makeReport({ publisherId: 'p-both', hoursReported: 70 }),
+        ]);
+
+        const result = await summaryFor();
+
+        expect(line(result, PioneerType.REGULAR)).toMatchObject({ count: 1 });
+        expect(line(result, 'auxiliary')).toMatchObject({ count: 0 });
+      });
+
+      it('includes auxiliary hours in the pioneer average and excludes a future pioneer', async () => {
+        publishersRepo.find.mockResolvedValue([
+          makePublisher({ id: 'p-aux' }),
+          makePublisher({
+            id: 'p-future',
+            pioneerType: PioneerType.REGULAR,
+            pioneerSince: '2026-09-01',
+          }),
+        ]);
+        // Both are serving as auxiliary pioneers this month — which is exactly
+        // the situation of someone awaiting a regular appointment.
+        auxiliaryPioneersService.activePublisherIdsForMonth.mockResolvedValue(
+          new Set(['p-aux', 'p-future']),
+        );
+        reportsRepo.find.mockResolvedValue([
+          makeReport({ publisherId: 'p-aux', hoursReported: 30 }),
+          makeReport({ publisherId: 'p-future', hoursReported: 50 }),
+        ]);
+
+        const result = await summaryFor();
+
+        // Both report hours and both are auxiliary this month, so the average
+        // is over the two of them — the future appointment changes nothing.
+        expect(result.averages.pioneerHours).toBe(40);
+      });
     });
   });
 
