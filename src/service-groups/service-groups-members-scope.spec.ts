@@ -46,7 +46,12 @@ describe('ServiceGroupsService.findPublishers — scoping', () => {
 
   it('redacts private fields for a regular publisher reading their own group', async () => {
     const { svc } = makeSvc({ ownGroup: 'g1' });
-    const res = (await svc.findPublishers(TENANT, 'g1', {} as any, member)) as {
+    const res = (await svc.findPublishers(
+      TENANT,
+      'g1',
+      {} as any,
+      member,
+    )) as unknown as {
       data: Record<string, unknown>[];
     };
     expect(res.data[0].mobilePhone).toBeUndefined();
@@ -55,7 +60,12 @@ describe('ServiceGroupsService.findPublishers — scoping', () => {
 
   it('returns full rows to privileged callers', async () => {
     const { svc } = makeSvc({ privileged: true });
-    const res = (await svc.findPublishers(TENANT, 'g1', {} as any, member)) as {
+    const res = (await svc.findPublishers(
+      TENANT,
+      'g1',
+      {} as any,
+      member,
+    )) as unknown as {
       data: Record<string, unknown>[];
     };
     expect(res.data[0].mobilePhone).toBe('secret');

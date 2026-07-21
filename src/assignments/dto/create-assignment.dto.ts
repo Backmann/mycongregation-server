@@ -38,13 +38,21 @@ export class CreateAssignmentDto {
   @Min(1)
   partDurationMin?: number;
 
+  /**
+   * Explicit null means "nobody" — on update that is how an assignment is
+   * cleared, since the service writes the payload straight onto the record.
+   *
+   * class-validator's @IsOptional() has always let null past at runtime; only
+   * the type said otherwise, so a test exercising real behaviour could not
+   * compile. Nobody noticed because the gate does not type-check specs.
+   */
   @IsOptional()
   @IsUUID()
-  publisherId?: string;
+  publisherId?: string | null;
 
   @IsOptional()
   @IsUUID()
-  assistantPublisherId?: string;
+  assistantPublisherId?: string | null;
 
   @IsOptional()
   @IsEnum(AssignmentStatus)

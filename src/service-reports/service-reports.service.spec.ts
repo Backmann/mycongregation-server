@@ -1357,10 +1357,16 @@ describe('ServiceReportsService', () => {
       );
 
       // The publisher query must exclude students.
+      // `where` is typed as "one condition or an array of them", so it has to
+      // be narrowed before reading a field off it.
+      const whereOf = (c: any) =>
+        (Array.isArray(c?.[0]?.where) ? c[0].where[0] : c?.[0]?.where) as
+          | Record<string, unknown>
+          | undefined;
       const call = publishersRepo.find.mock.calls.find(
-        (c) => c[0]?.where?.congregationId === 'cong-1',
+        (c) => whereOf(c)?.congregationId === 'cong-1',
       );
-      expect(call?.[0]?.where?.appointment).toBeDefined();
+      expect(whereOf(call)?.appointment).toBeDefined();
     });
 
     it('allows ELDER to see all publishers in the congregation', async () => {

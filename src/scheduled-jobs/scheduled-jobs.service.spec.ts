@@ -48,6 +48,7 @@ describe('ScheduledJobsService', () => {
       publishersService as any,
       pushNotificationsService,
       auditLogService as any,
+      { runDueReminders: jest.fn() } as any,
     );
   });
 

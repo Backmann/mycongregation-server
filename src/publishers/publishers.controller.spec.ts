@@ -43,7 +43,11 @@ describe('PublishersController.findAll — directory scoping', () => {
       findAll,
     });
     const query: Record<string, unknown> = {};
-    const res = (await controller.findAll(TENANT, USER, query as never)) as {
+    const res = (await controller.findAll(
+      TENANT,
+      USER,
+      query as never,
+    )) as unknown as {
       data: Record<string, unknown>[];
     };
     // группа НЕ навязана — пикеру нужны все кандидаты
@@ -67,7 +71,11 @@ describe('PublishersController.findAll — directory scoping', () => {
       findAll,
     });
     const query: Record<string, unknown> = { includeRemoved: true };
-    const res = (await controller.findAll(TENANT, USER, query as never)) as {
+    const res = (await controller.findAll(
+      TENANT,
+      USER,
+      query as never,
+    )) as unknown as {
       data: Record<string, unknown>[];
     };
     // own group forced, removed excluded
@@ -108,7 +116,11 @@ describe('PublishersController.findAll — directory scoping', () => {
       findAll,
     });
     const query: Record<string, unknown> = {};
-    const res = (await controller.findAll(TENANT, USER, query as never)) as {
+    const res = (await controller.findAll(
+      TENANT,
+      USER,
+      query as never,
+    )) as unknown as {
       data: Record<string, unknown>[];
     };
     expect(query.serviceGroupId).toBeUndefined();

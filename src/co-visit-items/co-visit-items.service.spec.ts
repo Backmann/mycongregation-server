@@ -257,7 +257,13 @@ describe('CoVisitItemsService.hostStats', () => {
       getMany: async () => rows,
     };
     const repo = { createQueryBuilder: () => qb } as any;
-    const svc = new CoVisitItemsService(repo, {} as any, {} as any, {} as any);
+    const svc = new CoVisitItemsService(
+      repo,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
     const out = await svc.hostStats('c1');
     const p1lunch = out.find(
       (s) => s.publisherId === 'p1' && s.kind === 'lunch',

@@ -123,7 +123,7 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
         userFixture({ id: 'u-2' }),
       ]);
 
-      const result = await service.findAllInCongregation(CONG);
+      const result = await service.findAllInCongregation(CONG, 'viewer-1');
 
       expect(repo.find).toHaveBeenCalledWith({
         where: { congregationId: CONG },
