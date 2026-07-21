@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { LessThanOrEqual, Not, Repository } from 'typeorm';
@@ -60,6 +61,7 @@ function addDaysISO(iso: string, days: number): string {
 @Injectable()
 export class DutiesService {
   constructor(
+    private readonly auditLog: AuditLogService,
     @InjectRepository(Duty)
     private readonly repo: Repository<Duty>,
     @InjectRepository(Assignment)
@@ -114,6 +116,16 @@ export class DutiesService {
 
     const meetingDate = addDaysISO(weekStartDate, dow - 1);
     if (meetingDate < berlinToday()) {
+      // The refusal itself is worth recording: "who tried to change last
+      // week's duties" is exactly the question the journal gets asked, and
+      // until now every rejection vanished without trace.
+      await this.auditLog.logEvent({
+        tenantId: congregationId,
+        entityType: 'duty',
+        entityId: congregationId,
+        action: 'DENY',
+        detail: { reason: 'past_frozen', weekStartDate, eventType },
+      });
       throw new ConflictException(
         'This meeting has already taken place; its duties are part of the record and can no longer be changed.',
       );
@@ -399,9 +411,19 @@ export class DutiesService {
       duty.weekStartDate,
       duty.eventType,
     );
+    const previousPublisherId = duty.publisherId ?? null;
     duty.publisherId = dto.publisherId ?? null;
     if (dto.notes !== undefined) duty.notes = dto.notes;
     const saved = await this.repo.save(duty);
+    await this.auditLog.logUpdate({
+      tenantId: congregationId,
+      entityType: 'duty',
+      entityId: saved.id,
+      subjectId: saved.publisherId ?? previousPublisherId,
+      before: { publisherId: previousPublisherId },
+      after: { publisherId: saved.publisherId ?? null },
+      fields: ['publisherId'],
+    });
     const warnings = duty.publisherId
       ? await this.conflicts(congregationId, saved, duty.publisherId)
       : [];
@@ -450,5 +472,17 @@ export class DutiesService {
       duty.eventType,
     );
     await this.repo.remove(duty);
+    await this.auditLog.logEvent({
+      tenantId: congregationId,
+      entityType: 'duty',
+      entityId: id,
+      action: 'DELETE',
+      subjectId: duty.publisherId ?? null,
+      detail: {
+        weekStartDate: duty.weekStartDate,
+        eventType: duty.eventType,
+        label: duty.customLabel ?? null,
+      },
+    });
   }
 }

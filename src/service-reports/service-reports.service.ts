@@ -947,6 +947,18 @@ export class ServiceReportsService {
         `${serviceYear}-08`,
       );
 
+    // Seeing another person's record card is a granted privilege
+    // (canViewPrivateData), and a privilege that leaves no trace cannot be
+    // answered for. The card itself is not recorded — only that it was opened.
+    await this.auditLogService.logEvent({
+      tenantId,
+      entityType: 'publisher',
+      entityId: publisherId,
+      action: 'VIEW',
+      subjectId: publisher.userId ?? null,
+      detail: { document: 'S-21', serviceYear },
+    });
+
     const months: S21MonthRow[] = reports.map((r) => ({
       reportMonth: r.reportMonth,
       servedThisMonth: r.servedThisMonth,

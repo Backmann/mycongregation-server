@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
@@ -34,6 +35,7 @@ export class CleaningService {
     private readonly publisherRepo: Repository<Publisher>,
     @InjectRepository(Responsibility)
     private readonly responsibilityRepo: Repository<Responsibility>,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   async getWeek(
@@ -119,9 +121,19 @@ export class CleaningService {
       if (isThorough && existing.serviceGroupId !== serviceGroupId) {
         existing.thoroughPlannedAt = null;
       }
+      const previousGroupId = existing.serviceGroupId ?? null;
       existing.serviceGroupId = serviceGroupId;
       existing.windows = windows;
-      return this.repo.save(existing);
+      const updated = await this.repo.save(existing);
+      await this.auditLog.logUpdate({
+        tenantId: congregationId,
+        entityType: 'cleaning',
+        entityId: updated.id,
+        before: { serviceGroupId: previousGroupId },
+        after: { serviceGroupId: updated.serviceGroupId ?? null },
+        fields: ['serviceGroupId'],
+      });
+      return updated;
     }
 
     const row = this.repo.create({
@@ -131,7 +143,18 @@ export class CleaningService {
       serviceGroupId,
       windows,
     });
-    return this.repo.save(row);
+    const created = await this.repo.save(row);
+    await this.auditLog.logCreate({
+      tenantId: congregationId,
+      entityType: 'cleaning',
+      entityId: created.id,
+      after: {
+        weekStartDate: created.weekStartDate,
+        slotType: created.slotType,
+        serviceGroupId: created.serviceGroupId ?? null,
+      },
+    });
+    return created;
   }
 
   /**

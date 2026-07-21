@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { AssignmentsService } from './assignments.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { Assignment } from '../entities/assignment.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
@@ -43,6 +44,15 @@ describe('AssignmentsService — journal sync coverage and public-talk swap', ()
     const moduleRef = await Test.createTestingModule({
       providers: [
         AssignmentsService,
+        {
+          provide: AuditLogService,
+          useValue: {
+            logCreate: jest.fn(),
+            logUpdate: jest.fn(),
+            logEvent: jest.fn(),
+            logFieldsChanged: jest.fn(),
+          },
+        },
         { provide: getRepositoryToken(Assignment), useValue: repo },
         {
           provide: getRepositoryToken(Responsibility),

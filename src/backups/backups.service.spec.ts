@@ -1,4 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { mkdtempSync, writeFileSync, rmSync, utimesSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';

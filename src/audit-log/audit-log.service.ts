@@ -72,7 +72,7 @@ export class AuditLogService {
     tenantId: string;
     entityType: string;
     entityId: string;
-    actorUserId: string;
+    actorUserId?: string | null;
     subjectId?: string | null;
     before: T;
     after: T;
@@ -99,7 +99,8 @@ export class AuditLogService {
         entityType: opts.entityType,
         entityId: opts.entityId,
         action: 'UPDATE',
-        actorUserId: opts.actorUserId,
+        ...this.actorOf(opts.actorUserId),
+        subjectId: opts.subjectId ?? null,
         beforeJson: JSON.stringify(beforeChanged),
         afterJson: JSON.stringify(afterChanged),
         changedFields: changed,
@@ -118,7 +119,8 @@ export class AuditLogService {
     tenantId: string;
     entityType: string;
     entityId: string;
-    actorUserId: string;
+    actorUserId?: string | null;
+    subjectId?: string | null;
     after: Record<string, any>;
   }): Promise<void> {
     await this.auditRepo.save(
@@ -127,7 +129,8 @@ export class AuditLogService {
         entityType: opts.entityType,
         entityId: opts.entityId,
         action: 'CREATE',
-        actorUserId: opts.actorUserId,
+        ...this.actorOf(opts.actorUserId),
+        subjectId: opts.subjectId ?? null,
         beforeJson: null,
         afterJson: JSON.stringify(opts.after),
         changedFields: Object.keys(opts.after),
@@ -149,7 +152,8 @@ export class AuditLogService {
     tenantId: string;
     entityType: string;
     entityId: string;
-    actorUserId: string;
+    actorUserId?: string | null;
+    subjectId?: string | null;
     changedFields: string[];
     before: Record<string, any>;
     after: Record<string, any>;
@@ -162,7 +166,8 @@ export class AuditLogService {
         entityType: opts.entityType,
         entityId: opts.entityId,
         action: 'UPDATE',
-        actorUserId: opts.actorUserId,
+        ...this.actorOf(opts.actorUserId),
+        subjectId: opts.subjectId ?? null,
         beforeJson: JSON.stringify(opts.before),
         afterJson: JSON.stringify(opts.after),
         changedFields: opts.changedFields,

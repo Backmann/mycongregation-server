@@ -7,6 +7,7 @@ import { Congregation } from '../entities/congregation.entity';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
 import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
 import { DutiesModule } from '../duties/duties.module';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 import { AssignmentSectionGuard } from '../common/guards/assignment-section.guard';
 import { AssignmentsService } from './assignments.service';
 import { AssignmentsController } from './assignments.controller';
@@ -22,6 +23,7 @@ import { AssignmentsController } from './assignments.controller';
     PushNotificationsModule,
     TalkExchangeModule,
     DutiesModule,
+    AuditLogModule,
   ],
   controllers: [AssignmentsController],
   providers: [AssignmentsService, AssignmentSectionGuard],

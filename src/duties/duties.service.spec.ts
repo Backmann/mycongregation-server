@@ -4,6 +4,7 @@ import { Congregation } from '../entities/congregation.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { DutiesService } from './duties.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { Duty } from '../entities/duty.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Publisher } from '../entities/publisher.entity';
@@ -72,6 +73,15 @@ describe('DutiesService', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         DutiesService,
+        {
+          provide: AuditLogService,
+          useValue: {
+            logCreate: jest.fn(),
+            logUpdate: jest.fn(),
+            logEvent: jest.fn(),
+            logFieldsChanged: jest.fn(),
+          },
+        },
         { provide: getRepositoryToken(Duty), useValue: repo },
         { provide: getRepositoryToken(Assignment), useValue: assignmentRepo },
         { provide: getRepositoryToken(Publisher), useValue: publisherRepo },

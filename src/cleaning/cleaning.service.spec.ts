@@ -13,12 +13,19 @@ function svcWith(
   groupRepo: any,
   publisherRepo: any = { findOne: jest.fn(async () => null) },
   responsibilityRepo: any = { count: jest.fn(async () => 0) },
+  auditLog: any = {
+    logCreate: jest.fn(),
+    logUpdate: jest.fn(),
+    logEvent: jest.fn(),
+    logFieldsChanged: jest.fn(),
+  },
 ) {
   return new CleaningService(
     repo,
     groupRepo,
     publisherRepo,
     responsibilityRepo,
+    auditLog,
   );
 }
 

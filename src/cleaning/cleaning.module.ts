@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CleaningController } from './cleaning.controller';
 import { CleaningService } from './cleaning.service';
@@ -15,6 +16,7 @@ import { PushNotificationsModule } from '../push-notifications/push-notification
 
 @Module({
   imports: [
+    AuditLogModule,
     TypeOrmModule.forFeature([
       CleaningAssignment,
       ServiceGroup,

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DutiesController } from './duties.controller';
 import { DutiesService } from './duties.service';
@@ -13,6 +14,7 @@ import { Responsibility } from '../entities/responsibility.entity';
 
 @Module({
   imports: [
+    AuditLogModule,
     TypeOrmModule.forFeature([
       Duty,
       Assignment,

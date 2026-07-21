@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { MeetingSettingsService } from './meeting-settings.service';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
@@ -30,6 +31,15 @@ describe('MeetingSettingsService', () => {
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        {
+          provide: AuditLogService,
+          useValue: {
+            logCreate: jest.fn(),
+            logUpdate: jest.fn(),
+            logEvent: jest.fn(),
+            logFieldsChanged: jest.fn(),
+          },
+        },
         MeetingSettingsService,
         { provide: getRepositoryToken(MeetingSettings), useValue: repo },
         { provide: getRepositoryToken(Congregation), useValue: congRepo },

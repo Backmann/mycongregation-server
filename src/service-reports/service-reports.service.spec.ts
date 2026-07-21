@@ -97,7 +97,11 @@ describe('ServiceReportsService', () => {
   let serviceGroupsRepo: jest.Mocked<Repository<ServiceGroup>>;
   let responsibilitiesRepo: jest.Mocked<Repository<Responsibility>>;
   let closuresRepo: jest.Mocked<Repository<ReportMonthClosure>>;
-  let auditLogService: { logUpdate: jest.Mock; findForEntity: jest.Mock };
+  let auditLogService: {
+    logUpdate: jest.Mock;
+    logEvent: jest.Mock;
+    findForEntity: jest.Mock;
+  };
   let publishersService: { recomputeStatus: jest.Mock };
   let auxiliaryPioneersService: {
     isActiveAuxiliaryPioneer: jest.Mock;
@@ -139,6 +143,7 @@ describe('ServiceReportsService', () => {
     } as unknown as jest.Mocked<Repository<ReportMonthClosure>>;
 
     auditLogService = {
+      logEvent: jest.fn(),
       logUpdate: jest.fn(),
       findForEntity: jest.fn(),
     };

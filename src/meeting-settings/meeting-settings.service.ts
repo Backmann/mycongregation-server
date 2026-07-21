@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, Repository } from 'typeorm';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
@@ -13,6 +14,7 @@ export class MeetingSettingsService {
     private readonly repo: Repository<MeetingSettings>,
     @InjectRepository(Congregation)
     private readonly congRepo: Repository<Congregation>,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   private async getCongregation(tenantId: string): Promise<Congregation> {
@@ -30,12 +32,30 @@ export class MeetingSettingsService {
     dto: UpdateCongregationDto,
   ): Promise<Congregation> {
     const congregation = await this.getCongregation(tenantId);
+    const before = {
+      name: congregation.name,
+      timezone: congregation.timezone,
+      assignmentAutomationEnabled: congregation.assignmentAutomationEnabled,
+    };
     if (dto.name !== undefined) congregation.name = dto.name;
     if (dto.timezone !== undefined) congregation.timezone = dto.timezone;
     if (dto.assignmentAutomationEnabled !== undefined)
       congregation.assignmentAutomationEnabled =
         dto.assignmentAutomationEnabled;
-    return this.congRepo.save(congregation);
+    const saved = await this.congRepo.save(congregation);
+    await this.auditLog.logUpdate({
+      tenantId,
+      entityType: 'congregation',
+      entityId: saved.id,
+      before,
+      after: {
+        name: saved.name,
+        timezone: saved.timezone,
+        assignmentAutomationEnabled: saved.assignmentAutomationEnabled,
+      },
+      fields: ['name', 'timezone', 'assignmentAutomationEnabled'],
+    });
+    return saved;
   }
 
   listVersions(tenantId: string): Promise<MeetingSettings[]> {

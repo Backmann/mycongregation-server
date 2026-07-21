@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, IsNull, Not, In } from 'typeorm';
 import { Assignment } from '../entities/assignment.entity';
@@ -74,6 +75,7 @@ export class AssignmentsService {
     private readonly congregationsRepo: Repository<Congregation>,
     private readonly pushNotifications: PushNotificationsService,
     private readonly talkExchange: TalkExchangeService,
+    private readonly auditLog: AuditLogService,
     private readonly dutiesService: DutiesService,
   ) {}
 
@@ -230,6 +232,17 @@ export class AssignmentsService {
       congregationId,
     });
     const saved = await this.repo.save(assignment);
+    await this.auditLog.logCreate({
+      tenantId: congregationId,
+      entityType: 'assignment',
+      entityId: saved.id,
+      subjectId: saved.publisherId ?? null,
+      after: {
+        weekStartDate: saved.weekStartDate,
+        partKey: saved.partKey,
+        publisherId: saved.publisherId ?? null,
+      },
+    });
     // Keep the "К нам" journal in sync when the weekend public-talk slot is
     // created directly with a speaker (not only via update).
     if (saved.partKey === PUBLIC_TALK_PART_KEY) {
@@ -249,6 +262,22 @@ export class AssignmentsService {
       this.repo.create({ ...dto, congregationId }),
     );
     const saved = await this.repo.save(entities);
+    // One entry for the whole operation. An import can create a hundred
+    // assignments at once; a hundred lines would bury the journal in the very
+    // noise that makes people stop reading it.
+    if (saved.length > 0) {
+      await this.auditLog.logEvent({
+        tenantId: congregationId,
+        entityType: 'assignment',
+        entityId: saved[0].id,
+        action: 'CREATE' as never,
+        detail: {
+          bulk: true,
+          count: saved.length,
+          weeks: [...new Set(saved.map((a) => a.weekStartDate))].sort(),
+        },
+      });
+    }
     const talkWeeks = new Set(
       saved
         .filter((a) => a.partKey === PUBLIC_TALK_PART_KEY)
@@ -284,9 +313,29 @@ export class AssignmentsService {
           dto.speakerName !== existing.speakerName) ||
         (dto.speakerCongregation !== undefined &&
           dto.speakerCongregation !== existing.speakerCongregation));
+    const beforeSnapshot = {
+      publisherId: prevPublisherId ?? null,
+      assistantPublisherId: existing.assistantPublisherId ?? null,
+      speakerName: existing.speakerName ?? null,
+      status: existing.status,
+    };
     Object.assign(existing, dto);
     if (changed) existing.changedSincePublish = true;
     const saved = await this.repo.save(existing);
+    await this.auditLog.logUpdate({
+      tenantId: congregationId,
+      entityType: 'assignment',
+      entityId: saved.id,
+      subjectId: saved.publisherId ?? prevPublisherId ?? null,
+      before: beforeSnapshot,
+      after: {
+        publisherId: saved.publisherId ?? null,
+        assistantPublisherId: saved.assistantPublisherId ?? null,
+        speakerName: saved.speakerName ?? null,
+        status: saved.status,
+      },
+      fields: ['publisherId', 'assistantPublisherId', 'speakerName', 'status'],
+    });
     // Keep the "К нам" journal in sync with the weekend public-talk slot.
     if (saved.partKey === PUBLIC_TALK_PART_KEY) {
       await this.talkExchange.syncProgramToJournal(
@@ -578,6 +627,17 @@ export class AssignmentsService {
     await this.repo.softDelete({
       id,
       congregationId,
+    });
+    await this.auditLog.logEvent({
+      tenantId: congregationId,
+      entityType: 'assignment',
+      entityId: id,
+      action: 'DELETE',
+      subjectId: existing.publisherId ?? null,
+      detail: {
+        weekStartDate: existing.weekStartDate,
+        partKey: existing.partKey,
+      },
     });
     // Deleting the weekend public-talk slot must also clear the "К нам"
     // journal entry — otherwise an accidental pick leaves a ghost record.
