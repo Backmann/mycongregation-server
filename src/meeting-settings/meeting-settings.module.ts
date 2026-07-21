@@ -7,7 +7,10 @@ import { MeetingSettingsService } from './meeting-settings.service';
 import { MeetingSettingsController } from './meeting-settings.controller';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([MeetingSettings, Congregation])],
+  imports: [
+    TypeOrmModule.forFeature([MeetingSettings, Congregation]),
+    AuditLogModule,
+  ],
   controllers: [MeetingSettingsController],
   providers: [MeetingSettingsService],
   exports: [MeetingSettingsService],
