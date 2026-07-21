@@ -567,7 +567,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       publishersRepo.save.mockImplementation(async (x: any) => x);
       jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
 
-      const summary = await service.recomputeAllStatuses();
+      const summary = await service.recomputeForCongregation('cong-1');
       expect(summary.processed).toBe(3);
       expect(summary.updated).toBe(1); // 'a': inactive → irregular
       expect(summary.unchanged).toBe(1); // 'c': stays inactive
@@ -581,7 +581,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       ]);
       publishersRepo.findOne.mockRejectedValue(new Error('boom'));
 
-      const summary = await service.recomputeAllStatuses();
+      const summary = await service.recomputeForCongregation('cong-1');
       expect(summary.processed).toBe(1);
       expect(summary.errors).toBe(1);
       expect(summary.updated).toBe(0);

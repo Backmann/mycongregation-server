@@ -11,6 +11,7 @@ import type { Response } from 'express';
 import { BackupsService } from './backups.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { PlatformOwnerGuard } from '../common/guards/platform-owner.guard';
 import { UserRole } from '../common/enums/user-role.enum';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -29,8 +30,13 @@ import { AuditLogService } from '../audit-log/audit-log.service';
  * with the filename in the detail, which is how the other event entries with
  * no single record behind them are written too.
  */
+/**
+ * The dump covers the whole database — every congregation at once — so there
+ * is no version of this a single congregation's administrator can be given.
+ * It belongs to whoever runs the platform, and to nobody else.
+ */
 @Controller('admin/backups')
-@UseGuards(RolesGuard)
+@UseGuards(RolesGuard, PlatformOwnerGuard)
 @Roles(UserRole.ADMIN)
 export class BackupsController {
   private readonly logger = new Logger(BackupsController.name);

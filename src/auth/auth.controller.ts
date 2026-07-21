@@ -138,7 +138,16 @@ export class AuthController {
       user.id,
       user.congregationId,
     );
-    return { ...user, canViewPrivateData: account.canViewPrivateData };
+    // A capability, not the flag. The owner marker is deliberately invisible
+    // everywhere; what the interface actually needs is whether to show the
+    // backups row, and that can be answered without telling anyone that a
+    // notion of platform owner exists at all.
+    const { isOwner, ...rest } = user;
+    return {
+      ...rest,
+      canViewPrivateData: account.canViewPrivateData,
+      canManageBackups: isOwner === true,
+    };
   }
 
   @Patch('me')

@@ -139,6 +139,20 @@ export class DataRightsService {
       throw new BadRequestException('Account cannot be erased.');
     }
 
+    // Not "the owner may not leave" — that would be a loss of rights, and a
+    // questionable one where erasure is a protected right. What must not
+    // happen is the LAST owner leaving: with none, nobody can reach the
+    // platform endpoints and the backups become unreachable. Appoint another
+    // and this door opens.
+    if (user.isOwner) {
+      const owners = await usersRepo.count({ where: { isOwner: true } });
+      if (owners <= 1) {
+        throw new BadRequestException(
+          'The last platform owner cannot be removed. Appoint another owner first.',
+        );
+      }
+    }
+
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) {
       throw new BadRequestException('Invalid password.');

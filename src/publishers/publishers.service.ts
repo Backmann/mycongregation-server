@@ -312,7 +312,65 @@ export class PublishersService {
    * Per-publisher errors are caught and counted — one bad row does not
    * fail the run.
    */
-  async recomputeAllStatuses(): Promise<{
+  /**
+   * Recompute statuses for ONE congregation.
+   *
+   * It used to walk every active publisher in the database regardless of who
+   * asked, so an administrator of one congregation silently rewrote statuses
+   * in all the others. That was a bug wearing the clothes of a feature. The
+   * fix is to scope it rather than to guard it: a road that does not exist
+   * cannot be taken by mistake, and the operation stays useful to every
+   * administrator within their own congregation.
+   */
+  /**
+   * Every congregation, for the nightly job ONLY.
+   *
+   * It is a separate, plainly named method rather than an optional parameter
+   * on the scoped one. An optional parameter is an invitation: someone wires
+   * the endpoint to it, forgets the argument, and the whole platform is
+   * rewritten by one congregation's administrator — which is exactly what used
+   * to happen here. A name like this cannot be reached by forgetting.
+   */
+  async recomputeEveryCongregation(): Promise<{
+    processed: number;
+    updated: number;
+    unchanged: number;
+    skipped: number;
+    errors: number;
+    durationMs: number;
+  }> {
+    const startedAt = Date.now();
+    // Taken from the publishers themselves rather than from a congregations
+    // repository: a congregation with nobody in it has nothing to recompute,
+    // and this avoids giving the publishers service a dependency it would
+    // otherwise never use.
+    const rows = await this.publishersRepo
+      .createQueryBuilder('p')
+      .select('DISTINCT p.congregation_id', 'congregationId')
+      .where('p.removed_at IS NULL')
+      .getRawMany<{ congregationId: string }>();
+    const congregations = rows.map((r) => ({ id: r.congregationId }));
+    const total = {
+      processed: 0,
+      updated: 0,
+      unchanged: 0,
+      skipped: 0,
+      errors: 0,
+      durationMs: 0,
+    };
+    for (const congregation of congregations) {
+      const one = await this.recomputeForCongregation(congregation.id);
+      total.processed += one.processed;
+      total.updated += one.updated;
+      total.unchanged += one.unchanged;
+      total.skipped += one.skipped;
+      total.errors += one.errors;
+    }
+    total.durationMs = Date.now() - startedAt;
+    return total;
+  }
+
+  async recomputeForCongregation(congregationId: string): Promise<{
     processed: number;
     updated: number;
     unchanged: number;
@@ -322,7 +380,7 @@ export class PublishersService {
   }> {
     const startedAt = Date.now();
     const publishers = await this.publishersRepo.find({
-      where: { removedAt: IsNull() },
+      where: { congregationId, removedAt: IsNull() },
     });
 
     let updated = 0;

@@ -20,13 +20,13 @@ import type { PushNotificationsService } from '../push-notifications/push-notifi
 
 describe('ScheduledJobsService', () => {
   let service: ScheduledJobsService;
-  let publishersService: { recomputeAllStatuses: jest.Mock };
+  let publishersService: { recomputeEveryCongregation: jest.Mock };
   let pushNotificationsService: jest.Mocked<PushNotificationsService>;
   let auditLogService: { cleanupOldAuditLogs: jest.Mock };
 
   beforeEach(() => {
     publishersService = {
-      recomputeAllStatuses: jest.fn().mockResolvedValue({
+      recomputeEveryCongregation: jest.fn().mockResolvedValue({
         processed: 5,
         updated: 2,
         unchanged: 1,
@@ -52,13 +52,17 @@ describe('ScheduledJobsService', () => {
     );
   });
 
-  it('handleNightlyStatusRecompute delegates to recomputeAllStatuses', async () => {
+  it('handleNightlyStatusRecompute delegates to recomputeEveryCongregation', async () => {
     await service.handleNightlyStatusRecompute();
-    expect(publishersService.recomputeAllStatuses).toHaveBeenCalledTimes(1);
+    expect(publishersService.recomputeEveryCongregation).toHaveBeenCalledTimes(
+      1,
+    );
   });
 
   it('swallows errors without re-throwing so the cron host stays alive', async () => {
-    publishersService.recomputeAllStatuses.mockRejectedValue(new Error('boom'));
+    publishersService.recomputeEveryCongregation.mockRejectedValue(
+      new Error('boom'),
+    );
     await expect(
       service.handleNightlyStatusRecompute(),
     ).resolves.toBeUndefined();

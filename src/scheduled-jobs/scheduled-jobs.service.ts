@@ -65,7 +65,7 @@ export class ScheduledJobsService {
   async handleNightlyStatusRecompute(): Promise<void> {
     this.logger.log('[StatusRecompute] starting nightly run...');
     try {
-      const summary = await this.publishersService.recomputeAllStatuses();
+      const summary = await this.publishersService.recomputeEveryCongregation();
       this.logger.log(
         `[StatusRecompute] done — processed=${summary.processed} ` +
           `updated=${summary.updated} unchanged=${summary.unchanged} ` +
