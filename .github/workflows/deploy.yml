@@ -30,9 +30,105 @@ jobs:
       - name: Run tests
         run: npm test
 
+
+  # Does the application actually START?
+  #
+  # Nothing else here answers that. tsc and nest build know nothing about
+  # dependency injection, and the unit tests hand every service a stub instead
+  # of the real module graph. On 21 July a module was left out of an imports
+  # array: everything above passed, and production went into a restart loop.
+  # This job boots the built app against a throwaway database and waits for it
+  # to answer — half a minute that would have caught it.
+  boot:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Start the application and wait for it to answer
+        env:
+          NODE_ENV: test
+          PORT: 3000
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+          # Validated at boot but not connected to during it.
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          REDIS_PASSWORD: ci
+          JWT_SECRET: ci-only-secret-that-is-long-enough-x
+          JWT_REFRESH_SECRET: ci-only-refresh-secret-long-enough-x
+        run: |
+          set -euo pipefail
+          # 32 random bytes, base64 — the length the config insists on.
+          export KEK_BASE64="$(openssl rand -base64 32)"
+
+          # The build nests output under dist/src because tsconfig also covers
+          # scripts/, and the Dockerfile that production uses lives on the
+          # server rather than in this repository — so the entry point is found
+          # rather than assumed.
+          MAIN="$(find dist -name main.js -type f | head -1)"
+          if [ -z "$MAIN" ]; then
+            echo "No main.js under dist — did the build produce anything?"
+            find dist -maxdepth 2 -type d
+            exit 1
+          fi
+          echo "Entry point: $MAIN"
+
+          node "$MAIN" > boot.log 2>&1 &
+          APP_PID=$!
+
+          for i in $(seq 1 40); do
+            # If it died, stop waiting and show why.
+            if ! kill -0 "$APP_PID" 2>/dev/null; then
+              echo "The application exited before answering."
+              cat boot.log
+              exit 1
+            fi
+            if curl -fsS http://localhost:3000/api/health > /dev/null 2>&1; then
+              echo "Answered after ${i}s."
+              kill "$APP_PID" 2>/dev/null || true
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "No answer within 40s."
+          cat boot.log
+          kill "$APP_PID" 2>/dev/null || true
+          exit 1
+
   deploy:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, boot]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
