@@ -4,10 +4,35 @@ import { Between, FindOptionsWhere, In, LessThan, Repository } from 'typeorm';
 import { AuditLog } from '../entities/audit-log.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { User } from '../entities/user.entity';
+import { Assignment } from '../entities/assignment.entity';
+import { Duty } from '../entities/duty.entity';
+import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
+import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 
 export interface JournalPerson {
   id: string;
   name: string | null;
+}
+
+/**
+ * What a journal entry is ABOUT, beyond the values that changed: which meeting,
+ * which date, which part. "Assigned to: Peter → Andrew" is only half an answer
+ * without it — assigned to what?
+ *
+ * Resolved centrally from the entity id rather than threaded through the twenty
+ * places that write entries, for the same reason the acting user travels in a
+ * request context: one missed call site would silently record nothing, and
+ * nothing is exactly what this is meant to stop.
+ */
+export interface JournalContext {
+  /** ISO date — the week the item belongs to, or the meeting's own date. */
+  date?: string;
+  /** 'midweek' | 'weekend', where the item belongs to a meeting. */
+  eventType?: string;
+  /** A key the app already translates: part key, duty type, cleaning slot. */
+  kind?: string;
+  /** Free text that is already human: a part title, a label, an address. */
+  title?: string;
 }
 
 export interface JournalEntry {
@@ -32,6 +57,8 @@ export interface JournalEntry {
   detail: Record<string, unknown> | null;
   /** True when the values were cleared at the subject's request. */
   redacted: boolean;
+  /** Which item this entry concerns; null when it cannot be resolved. */
+  context: JournalContext | null;
 }
 
 export interface JournalPage {
@@ -82,6 +109,14 @@ export class JournalService {
     private readonly usersRepo: Repository<User>,
     @InjectRepository(Publisher)
     private readonly publishersRepo: Repository<Publisher>,
+    @InjectRepository(Assignment)
+    private readonly assignmentsRepo: Repository<Assignment>,
+    @InjectRepository(Duty)
+    private readonly dutiesRepo: Repository<Duty>,
+    @InjectRepository(CleaningAssignment)
+    private readonly cleaningRepo: Repository<CleaningAssignment>,
+    @InjectRepository(FieldServiceMeeting)
+    private readonly fieldServiceRepo: Repository<FieldServiceMeeting>,
   ) {}
 
   async find(tenantId: string, filters: JournalFilters): Promise<JournalPage> {
@@ -133,6 +168,7 @@ export class JournalService {
         : null;
 
     const names = await this.namesFor(tenantId, page);
+    const contexts = await this.contextsFor(tenantId, page);
 
     return {
       items: page.map((row) => ({
@@ -152,10 +188,92 @@ export class JournalService {
         before: parseDetail(row.beforeJson),
         detail: parseDetail(row.afterJson),
         redacted: row.redactedAt !== null,
+        context: contexts.get(row.id) ?? null,
       })),
       nextCursor,
       names: Object.fromEntries(names),
     };
+  }
+
+  /**
+   * "Which one" for every entry on the page, in one query per entity type
+   * rather than one per row. Entries whose item has since been deleted simply
+   * get no context — their DELETE entry already carries the identifying facts
+   * in its detail, so nothing is lost.
+   *
+   * Every lookup is scoped by congregation, like everything else here.
+   */
+  private async contextsFor(
+    tenantId: string,
+    rows: AuditLog[],
+  ): Promise<Map<string, JournalContext>> {
+    const byType = new Map<string, Set<string>>();
+    for (const row of rows) {
+      const set = byType.get(row.entityType) ?? new Set<string>();
+      set.add(row.entityId);
+      byType.set(row.entityType, set);
+    }
+    const out = new Map<string, JournalContext>();
+    const idsOf = (t: string) => [...(byType.get(t) ?? [])];
+
+    const [assignments, duties, cleaning, fieldService] = await Promise.all([
+      idsOf('assignment').length
+        ? this.assignmentsRepo.find({
+            where: { congregationId: tenantId, id: In(idsOf('assignment')) },
+          })
+        : Promise.resolve([]),
+      idsOf('duty').length
+        ? this.dutiesRepo.find({
+            where: { congregationId: tenantId, id: In(idsOf('duty')) },
+          })
+        : Promise.resolve([]),
+      idsOf('cleaning').length
+        ? this.cleaningRepo.find({
+            where: { congregationId: tenantId, id: In(idsOf('cleaning')) },
+          })
+        : Promise.resolve([]),
+      idsOf('field_service_meeting').length
+        ? this.fieldServiceRepo.find({
+            where: {
+              congregationId: tenantId,
+              id: In(idsOf('field_service_meeting')),
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const perEntity = new Map<string, JournalContext>();
+    for (const a of assignments) {
+      perEntity.set(a.id, {
+        date: a.weekStartDate,
+        eventType: a.eventType,
+        kind: a.partKey,
+        title: a.partTitle ?? undefined,
+      });
+    }
+    for (const d of duties) {
+      perEntity.set(d.id, {
+        date: d.weekStartDate,
+        eventType: d.eventType,
+        kind: d.dutyType,
+        title: d.customLabel ?? undefined,
+      });
+    }
+    for (const c of cleaning) {
+      perEntity.set(c.id, { date: c.weekStartDate, kind: c.slotType });
+    }
+    for (const m of fieldService) {
+      perEntity.set(m.id, {
+        date: m.weekStartDate,
+        title: m.address ?? undefined,
+      });
+    }
+
+    for (const row of rows) {
+      const ctx = perEntity.get(row.entityId);
+      if (ctx) out.set(row.id, ctx);
+    }
+    return out;
   }
 
   /**

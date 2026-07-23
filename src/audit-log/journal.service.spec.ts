@@ -2,6 +2,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { AuditLog } from '../entities/audit-log.entity';
 import { Publisher } from '../entities/publisher.entity';
+import { Assignment } from '../entities/assignment.entity';
+import { Duty } from '../entities/duty.entity';
+import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
+import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { User } from '../entities/user.entity';
 import { JournalService } from './journal.service';
 
@@ -28,11 +32,19 @@ describe('JournalService', () => {
   let auditRepo: { find: jest.Mock };
   let usersRepo: { find: jest.Mock };
   let publishersRepo: { find: jest.Mock };
+  let assignmentsRepo: { find: jest.Mock };
+  let dutiesRepo: { find: jest.Mock };
+  let cleaningRepo: { find: jest.Mock };
+  let fieldServiceRepo: { find: jest.Mock };
 
   beforeEach(async () => {
     auditRepo = { find: jest.fn().mockResolvedValue([]) };
     usersRepo = { find: jest.fn().mockResolvedValue([]) };
     publishersRepo = { find: jest.fn().mockResolvedValue([]) };
+    assignmentsRepo = { find: jest.fn().mockResolvedValue([]) };
+    dutiesRepo = { find: jest.fn().mockResolvedValue([]) };
+    cleaningRepo = { find: jest.fn().mockResolvedValue([]) };
+    fieldServiceRepo = { find: jest.fn().mockResolvedValue([]) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -40,6 +52,16 @@ describe('JournalService', () => {
         { provide: getRepositoryToken(AuditLog), useValue: auditRepo },
         { provide: getRepositoryToken(User), useValue: usersRepo },
         { provide: getRepositoryToken(Publisher), useValue: publishersRepo },
+        { provide: getRepositoryToken(Assignment), useValue: assignmentsRepo },
+        { provide: getRepositoryToken(Duty), useValue: dutiesRepo },
+        {
+          provide: getRepositoryToken(CleaningAssignment),
+          useValue: cleaningRepo,
+        },
+        {
+          provide: getRepositoryToken(FieldServiceMeeting),
+          useValue: fieldServiceRepo,
+        },
       ],
     }).compile();
 
@@ -214,6 +236,69 @@ describe('JournalService', () => {
 
     expect(page.items[0].before).toBeNull();
     expect(page.items[0].detail).toEqual({ ok: 1 });
+  });
+
+  it('says WHICH assignment a change was about, not just what changed', async () => {
+    // "Assigned to: Peter → Andrew" is half an answer without the part and the
+    // week it belongs to.
+    auditRepo.find.mockResolvedValue([
+      row({ entityType: 'assignment', entityId: 'as-1', action: 'UPDATE' }),
+    ]);
+    assignmentsRepo.find.mockResolvedValue([
+      {
+        id: 'as-1',
+        weekStartDate: '2026-07-20',
+        eventType: 'midweek',
+        partKey: 'treasures_talk',
+        partTitle: 'Сокровища из Слова Бога',
+      },
+    ]);
+
+    const page = await service.find('cong-1', {});
+
+    expect(page.items[0].context).toEqual({
+      date: '2026-07-20',
+      eventType: 'midweek',
+      kind: 'treasures_talk',
+      title: 'Сокровища из Слова Бога',
+    });
+  });
+
+  it('scopes the lookup to the congregation like everything else', async () => {
+    auditRepo.find.mockResolvedValue([
+      row({ entityType: 'duty', entityId: 'd-1' }),
+    ]);
+    dutiesRepo.find.mockResolvedValue([]);
+
+    await service.find('cong-1', {});
+
+    expect(whereOf(dutiesRepo.find.mock.calls[0])).toMatchObject({
+      congregationId: 'cong-1',
+    });
+  });
+
+  it('asks nothing for entity types that carry no context', async () => {
+    auditRepo.find.mockResolvedValue([
+      row({ entityType: 'hall', entityId: 'h-1' }),
+    ]);
+
+    await service.find('cong-1', {});
+
+    // No pointless queries for the types that have nothing to resolve.
+    expect(assignmentsRepo.find).not.toHaveBeenCalled();
+    expect(dutiesRepo.find).not.toHaveBeenCalled();
+  });
+
+  it('leaves context empty when the item has since been deleted', async () => {
+    auditRepo.find.mockResolvedValue([
+      row({ entityType: 'assignment', entityId: 'gone' }),
+    ]);
+    assignmentsRepo.find.mockResolvedValue([]);
+
+    const page = await service.find('cong-1', {});
+
+    // Nothing is lost: a DELETE entry carries the identifying facts itself.
+    expect(page.items[0].context).toBeNull();
   });
 
   it('marks a redacted entry so the screen can say why it is empty', async () => {
