@@ -3,6 +3,12 @@ import { Repository } from 'typeorm';
 import { CartLocation } from '../entities/cart-location.entity';
 import { CartLocationsService } from './cart-locations.service';
 
+const auditMock = {
+  logCreate: jest.fn(),
+  logUpdate: jest.fn(),
+  logEvent: jest.fn(),
+} as any;
+
 describe('CartLocationsService', () => {
   let svc: CartLocationsService;
   let repo: jest.Mocked<
@@ -22,7 +28,7 @@ describe('CartLocationsService', () => {
       ),
       remove: jest.fn(() => Promise.resolve({} as CartLocation)),
     } as never;
-    svc = new CartLocationsService(repo as never);
+    svc = new CartLocationsService(repo as never, auditMock);
   });
 
   it('lists active points by default', async () => {

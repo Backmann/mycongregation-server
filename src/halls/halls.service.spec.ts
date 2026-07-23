@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { NotFoundException } from '@nestjs/common';
 import { HallsService } from './halls.service';
 import { Hall } from '../entities/hall.entity';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 describe('HallsService', () => {
   let service: HallsService;
@@ -30,6 +31,14 @@ describe('HallsService', () => {
       providers: [
         HallsService,
         { provide: getRepositoryToken(Hall), useValue: repo },
+        {
+          provide: AuditLogService,
+          useValue: {
+            logCreate: jest.fn(),
+            logUpdate: jest.fn(),
+            logEvent: jest.fn(),
+          },
+        },
       ],
     }).compile();
     service = moduleRef.get(HallsService);

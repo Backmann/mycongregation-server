@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { Repository } from 'typeorm';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { CreateSpecialEventDto } from './dto/create-special-event.dto';
@@ -13,6 +14,7 @@ export class SpecialEventsService {
     @InjectRepository(SpecialEvent)
     private readonly specialEventsRepo: Repository<SpecialEvent>,
     private readonly coVisitTemplate: CoVisitTemplateService,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   /**
@@ -68,6 +70,19 @@ export class SpecialEventsService {
       congregationId: tenantId,
     });
     const saved = await this.specialEventsRepo.save(event);
+    await this.auditLog.logCreate({
+      tenantId,
+      entityType: 'special_event',
+      entityId: saved.id,
+      after: {
+        title: saved.title,
+        type: saved.type,
+        date: saved.date,
+        endDate: saved.endDate,
+        time: saved.time,
+        address: saved.address,
+      },
+    });
     return this.coVisitTemplate.apply(saved);
   }
 
@@ -78,8 +93,31 @@ export class SpecialEventsService {
   ): Promise<SpecialEvent> {
     const event = await this.findOne(tenantId, id);
     const prevName = this.coVisitTemplate.displayName(event);
+    const before = {
+      title: event.title,
+      type: event.type,
+      date: event.date,
+      endDate: event.endDate,
+      time: event.time,
+      address: event.address,
+    };
     Object.assign(event, dto);
     const saved = await this.specialEventsRepo.save(event);
+    await this.auditLog.logUpdate({
+      tenantId,
+      entityType: 'special_event',
+      entityId: saved.id,
+      before,
+      after: {
+        title: saved.title,
+        type: saved.type,
+        date: saved.date,
+        endDate: saved.endDate,
+        time: saved.time,
+        address: saved.address,
+      },
+      fields: ['title', 'type', 'date', 'endDate', 'time', 'address'],
+    });
     await this.coVisitTemplate.syncSpeaker(saved, prevName);
     return saved;
   }
@@ -87,6 +125,13 @@ export class SpecialEventsService {
   async remove(tenantId: string, id: string): Promise<void> {
     const event = await this.findOne(tenantId, id);
     await this.coVisitTemplate.revert(event);
+    await this.auditLog.logEvent({
+      tenantId,
+      entityType: 'special_event',
+      entityId: id,
+      action: 'DELETE',
+      detail: { title: event.title, date: event.date },
+    });
     await this.specialEventsRepo.softDelete({ id, congregationId: tenantId });
   }
 

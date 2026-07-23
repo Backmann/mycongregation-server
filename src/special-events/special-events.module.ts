@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { Responsibility } from '../entities/responsibility.entity';
@@ -11,6 +12,7 @@ import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 @Module({
   imports: [
     TypeOrmModule.forFeature([SpecialEvent, Responsibility, Assignment]),
+    AuditLogModule,
   ],
   controllers: [SpecialEventsController],
   providers: [

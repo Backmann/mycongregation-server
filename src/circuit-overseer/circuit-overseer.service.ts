@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { Repository } from 'typeorm';
 import { CircuitOverseer } from '../entities/circuit-overseer.entity';
 import {
@@ -12,6 +13,7 @@ export class CircuitOverseerService {
   constructor(
     @InjectRepository(CircuitOverseer)
     private readonly repo: Repository<CircuitOverseer>,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   /** All circuit overseers for the congregation, primary first. */
@@ -50,7 +52,20 @@ export class CircuitOverseerService {
       role: dto.role ?? 'overseer',
       isPrimary: makePrimary,
     });
-    return this.repo.save(created);
+    const saved = await this.repo.save(created);
+    await this.auditLog.logCreate({
+      tenantId,
+      entityType: 'circuit_overseer',
+      entityId: saved.id,
+      after: {
+        firstName: saved.firstName,
+        lastName: saved.lastName,
+        wifeName: saved.wifeName,
+        role: saved.role,
+        isPrimary: saved.isPrimary,
+      },
+    });
+    return saved;
   }
 
   /** Update a record; setting isPrimary demotes the previous primary. */
@@ -65,6 +80,13 @@ export class CircuitOverseerService {
     if (!existing) {
       throw new NotFoundException('Circuit overseer not found');
     }
+    const before = {
+      firstName: existing.firstName,
+      lastName: existing.lastName,
+      wifeName: existing.wifeName,
+      role: existing.role,
+      isPrimary: existing.isPrimary,
+    };
     if (dto.isPrimary === true && !existing.isPrimary) {
       await this.repo.update(
         { congregationId: tenantId },
@@ -76,7 +98,22 @@ export class CircuitOverseerService {
     if (dto.lastName !== undefined) existing.lastName = dto.lastName;
     if (dto.wifeName !== undefined) existing.wifeName = dto.wifeName ?? null;
     if (dto.role !== undefined) existing.role = dto.role;
-    return this.repo.save(existing);
+    const saved = await this.repo.save(existing);
+    await this.auditLog.logUpdate({
+      tenantId,
+      entityType: 'circuit_overseer',
+      entityId: saved.id,
+      before,
+      after: {
+        firstName: saved.firstName,
+        lastName: saved.lastName,
+        wifeName: saved.wifeName,
+        role: saved.role,
+        isPrimary: saved.isPrimary,
+      },
+      fields: ['firstName', 'lastName', 'wifeName', 'role', 'isPrimary'],
+    });
+    return saved;
   }
 
   /** Remove a record; if it was primary, promote the oldest remaining one. */
@@ -88,6 +125,13 @@ export class CircuitOverseerService {
       throw new NotFoundException('Circuit overseer not found');
     }
     const wasPrimary = existing.isPrimary;
+    await this.auditLog.logEvent({
+      tenantId,
+      entityType: 'circuit_overseer',
+      entityId: existing.id,
+      action: 'DELETE',
+      detail: { firstName: existing.firstName, lastName: existing.lastName },
+    });
     await this.repo.remove(existing);
     if (wasPrimary) {
       const next = await this.repo.findOne({

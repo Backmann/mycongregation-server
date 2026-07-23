@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { In, Repository } from 'typeorm';
 import { LocalNeedsTopic } from '../entities/local-needs-topic.entity';
 import { Responsibility } from '../entities/responsibility.entity';
@@ -21,6 +22,7 @@ export class LocalNeedsService {
     private readonly repo: Repository<LocalNeedsTopic>,
     @InjectRepository(Responsibility)
     private readonly responsibilitiesRepo: Repository<Responsibility>,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   /**
@@ -118,7 +120,20 @@ export class LocalNeedsService {
       congregationId: tenantId,
       createdById: user.id,
     });
-    return this.repo.save(entity);
+    const saved = await this.repo.save(entity);
+    await this.auditLog.logCreate({
+      tenantId,
+      entityType: 'local_need',
+      entityId: saved.id,
+      subjectId: saved.speakerPublisherId,
+      after: {
+        title: saved.title,
+        notes: saved.notes,
+        speakerPublisherId: saved.speakerPublisherId,
+        usedWeek: saved.usedWeek,
+      },
+    });
+    return saved;
   }
 
   async update(
@@ -134,8 +149,29 @@ export class LocalNeedsService {
     if (!found) {
       throw new NotFoundException('Local needs topic not found');
     }
+    const before = {
+      title: found.title,
+      notes: found.notes,
+      speakerPublisherId: found.speakerPublisherId,
+      usedWeek: found.usedWeek,
+    };
     Object.assign(found, dto);
-    return this.repo.save(found);
+    const saved = await this.repo.save(found);
+    await this.auditLog.logUpdate({
+      tenantId,
+      entityType: 'local_need',
+      entityId: saved.id,
+      subjectId: saved.speakerPublisherId,
+      before,
+      after: {
+        title: saved.title,
+        notes: saved.notes,
+        speakerPublisherId: saved.speakerPublisherId,
+        usedWeek: saved.usedWeek,
+      },
+      fields: ['title', 'notes', 'speakerPublisherId', 'usedWeek'],
+    });
+    return saved;
   }
 
   async remove(
@@ -150,6 +186,14 @@ export class LocalNeedsService {
     if (!found) {
       throw new NotFoundException('Local needs topic not found');
     }
+    await this.auditLog.logEvent({
+      tenantId,
+      entityType: 'local_need',
+      entityId: id,
+      action: 'DELETE',
+      subjectId: found.speakerPublisherId,
+      detail: { title: found.title },
+    });
     await this.repo.softDelete(id);
   }
 
