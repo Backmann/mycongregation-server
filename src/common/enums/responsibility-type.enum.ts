@@ -28,4 +28,6 @@ export enum ResponsibilityType {
   CLEANING_COORDINATOR = 'cleaning_coordinator',
   /** Координатор обязанностей на встречах — meeting duties (security, mics, A/V, …). */
   DUTIES_COORDINATOR = 'duties_coordinator',
+  /** Учёт посещаемости встреч — records the S-3 attendance figures. */
+  ATTENDANCE_RECORDER = 'attendance_recorder',
 }

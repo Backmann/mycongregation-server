@@ -44,6 +44,7 @@ import { ResponsibilitiesModule } from './responsibilities/responsibilities.modu
 import { MeetingSettingsModule } from './meeting-settings/meeting-settings.module';
 import { CircuitOverseerModule } from './circuit-overseer/circuit-overseer.module';
 import { DutiesModule } from './duties/duties.module';
+import { MeetingAttendanceModule } from './meeting-attendance/meeting-attendance.module';
 import { FieldServiceMeetingsModule } from './field-service-meetings/field-service-meetings.module';
 import { CoVisitItemsModule } from './co-visit-items/co-visit-items.module';
 import { AuxiliaryPioneersModule } from './auxiliary-pioneers/auxiliary-pioneers.module';
@@ -122,6 +123,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     MeetingSettingsModule,
     CircuitOverseerModule,
     DutiesModule,
+    MeetingAttendanceModule,
     FieldServiceMeetingsModule,
     CoVisitItemsModule,
     AuxiliaryPioneersModule,
