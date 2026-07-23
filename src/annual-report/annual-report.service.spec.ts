@@ -1,0 +1,163 @@
+import { AnnualReportService } from './annual-report.service';
+
+const TENANT = 'cong-1';
+
+/** A publisher who reported ministry in exactly these months (YYYY-MM). */
+function reportsFor(pubId: string, months: string[]) {
+  return months.map((m) => ({
+    publisherId: pubId,
+    reportMonth: `${m}-01`,
+    servedThisMonth: true,
+    hoursReported: null,
+    bibleStudies: 0,
+  }));
+}
+
+function build(reports: unknown[], publishers: unknown[]) {
+  const reportsRepo = { find: jest.fn().mockResolvedValue(reports) } as never;
+  const publishersRepo = {
+    find: jest.fn().mockResolvedValue(publishers),
+  } as never;
+  return new AnnualReportService(reportsRepo, publishersRepo);
+}
+
+const pub = (id: string, extra: Record<string, unknown> = {}) => ({
+  id,
+  firstName: 'Иван',
+  lastName: `Т${id}`,
+  removedAt: null,
+  isDeaf: false,
+  isBlind: false,
+  isImprisoned: false,
+  ...extra,
+});
+
+describe('AnnualReportService — service year 2026/27', () => {
+  it('counts as active anyone who reported at least once March–August', async () => {
+    const svc = build(reportsFor('p1', ['2027-05']), [pub('p1')]);
+
+    const out = await svc.figures(TENANT, 2026);
+
+    expect(out.active.map((x) => x.id)).toEqual(['p1']);
+  });
+
+  it('does NOT count someone whose only months were before March', async () => {
+    // THE DIVERGENCE THAT MATTERS. Reported faithfully September–February and
+    // fell silent from March. The app's rolling status may well still call him
+    // active; the annual report asks only about March–August, and there he is
+    // absent. If this code ever reached for the status field instead of the
+    // reports, this test would fail — which is exactly its job.
+    const svc = build(
+      reportsFor('p1', [
+        '2026-09',
+        '2026-10',
+        '2026-11',
+        '2026-12',
+        '2027-01',
+        '2027-02',
+      ]),
+      [pub('p1')],
+    );
+
+    const out = await svc.figures(TENANT, 2026);
+
+    expect(out.active).toHaveLength(0);
+  });
+
+  it('counts becoming inactive when the sixth silent month falls in the year', async () => {
+    // Last report February 2027; six silent months March–August, so the run
+    // completes in August, inside the year.
+    const svc = build(reportsFor('p1', ['2027-02']), [pub('p1')]);
+
+    const out = await svc.figures(TENANT, 2026);
+
+    expect(out.becameInactive.map((x) => x.id)).toEqual(['p1']);
+    expect(out.becameInactive[0].month).toBe('2027-08');
+  });
+
+  it('does NOT count someone who lapsed in an earlier year and never returned', async () => {
+    // The form says so in as many words, and it is the difference between a
+    // true figure and counting the same person every September for years.
+    const svc = build([], [pub('p1')]);
+
+    const out = await svc.figures(TENANT, 2026);
+
+    expect(out.becameInactive).toHaveLength(0);
+  });
+
+  it('counts someone who was inactive and reported again in the year', async () => {
+    // Silent for a long stretch, then reported in January.
+    const svc = build(reportsFor('p1', ['2027-01']), [pub('p1')]);
+
+    const out = await svc.figures(TENANT, 2026);
+
+    expect(out.reactivated.map((x) => x.id)).toEqual(['p1']);
+    expect(out.reactivated[0].month).toBe('2027-01');
+  });
+
+  it('does not call it a return when the gap was shorter than six months', async () => {
+    // Missed three months and came back. That is irregular, not a return from
+    // inactivity, and counting it would inflate the figure.
+    //
+    // The run-up months matter here and the first draft of this test forgot
+    // them: with nothing before September the publisher was, by the data,
+    // silent for six months already, and the code was right to call February a
+    // return. Reporting steadily into the year is what makes the gap a gap.
+    const svc = build(
+      reportsFor('p1', [
+        '2026-03',
+        '2026-04',
+        '2026-05',
+        '2026-06',
+        '2026-07',
+        '2026-08',
+        '2026-09',
+        '2026-10',
+        // silent November, December, January — three months, not six
+        '2027-02',
+        '2027-03',
+      ]),
+      [pub('p1')],
+    );
+
+    const out = await svc.figures(TENANT, 2026);
+
+    expect(out.reactivated).toHaveLength(0);
+  });
+
+  it('names the people behind every figure, not just how many', async () => {
+    // A number a secretary cannot look into is a number they must take on
+    // trust, and they are the one signing it.
+    const svc = build(reportsFor('p1', ['2027-05']), [pub('p1')]);
+
+    const out = await svc.figures(TENANT, 2026);
+
+    expect(out.active[0].name).toBe('Тp1 Иван');
+  });
+
+  it('leaves out publishers who are no longer in the congregation', async () => {
+    const svc = build(reportsFor('p1', ['2027-05']), [
+      pub('p1', { removedAt: new Date('2027-06-01') }),
+    ]);
+
+    const out = await svc.figures(TENANT, 2026);
+
+    expect(out.active).toHaveLength(0);
+  });
+
+  it('carries the circumstances the form asks about', async () => {
+    const svc = build(
+      [],
+      [
+        pub('p1', { isDeaf: true }),
+        pub('p2', { isBlind: true, isImprisoned: true }),
+      ],
+    );
+
+    const out = await svc.figures(TENANT, 2026);
+
+    expect(out.deaf.map((x) => x.id)).toEqual(['p1']);
+    expect(out.blind.map((x) => x.id)).toEqual(['p2']);
+    expect(out.imprisoned.map((x) => x.id)).toEqual(['p2']);
+  });
+});

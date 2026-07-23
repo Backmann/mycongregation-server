@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { reportedMinistry } from '../common/reported-ministry';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, MoreThanOrEqual, Not, Repository } from 'typeorm';
 import { ServiceReport } from '../entities/service-report.entity';
@@ -1128,9 +1129,7 @@ export class ServiceReportsService {
     for (const report of reports) {
       const category = categoryByPubId.get(report.publisherId);
       if (category === undefined) continue;
-      const shared =
-        report.servedThisMonth === true ||
-        (report.hoursReported != null && report.hoursReported > 0);
+      const shared = reportedMinistry(report);
       if (shared) {
         reportedCount += 1;
         studiesSum += report.bibleStudies ?? 0;
@@ -1232,9 +1231,7 @@ export class ServiceReportsService {
       const bucket = monthAcc.get(key);
       if (!bucket) continue;
       const type = typeByPubId.get(r.publisherId);
-      const shared =
-        r.servedThisMonth === true ||
-        (r.hoursReported != null && r.hoursReported > 0);
+      const shared = reportedMinistry(r);
       if (shared) {
         bucket.reporters += 1;
         bucket.studies += r.bibleStudies ?? 0;

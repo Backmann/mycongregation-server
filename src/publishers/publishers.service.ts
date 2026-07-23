@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { reportedMinistry } from '../common/reported-ministry';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, IsNull, MoreThanOrEqual, Repository } from 'typeorm';
 import { Publisher } from '../entities/publisher.entity';
@@ -93,9 +94,7 @@ export function computeStatusFromReports(
     ) {
       continue;
     }
-    const served =
-      r.servedThisMonth === true ||
-      (r.hoursReported !== null && r.hoursReported > 0);
+    const served = reportedMinistry(r);
     if (served) servedMonths.add(ymd.slice(0, 7));
   }
 
