@@ -167,6 +167,55 @@ describe('MeetingAttendanceService', () => {
     expect(out).toHaveLength(0);
   });
 
+  it('lets the Memorial take the midweek meeting when it falls on a weekday', async () => {
+    // Nisan 14 lands on a Wednesday; the midweek meeting gives way, and it is
+    // the midweek one even though the meeting itself is a Thursday.
+    const { repo, settingsRepo } = build([]);
+    (settingsRepo as unknown as { find: jest.Mock }).find.mockResolvedValue([
+      { effectiveFrom: '2020-01-01', midweekDow: 4, weekendDow: 7 },
+    ]);
+    const eventsFind = jest.fn(async (opts: unknown) => {
+      const where = (opts as { where: unknown }).where;
+      const type = Array.isArray(where) ? '' : (where as { type: string }).type;
+      // Wednesday, inside the week beginning Monday 2026-04-06.
+      return type === 'memorial' ? [{ date: '2026-04-08', endDate: null }] : [];
+    });
+    const svc = new MeetingAttendanceService(
+      repo,
+      settingsRepo,
+      { find: eventsFind } as never,
+      { logCreate: jest.fn(), logUpdate: jest.fn() } as never,
+    );
+
+    const out = await svc.pendingForWeek('cong-1', '2026-04-06');
+
+    expect(out.map((m) => m.eventType)).toEqual(['weekend']);
+  });
+
+  it('lets the Memorial take the weekend meeting when it falls at the weekend', async () => {
+    const { repo, settingsRepo } = build([]);
+    (settingsRepo as unknown as { find: jest.Mock }).find.mockResolvedValue([
+      { effectiveFrom: '2020-01-01', midweekDow: 4, weekendDow: 7 },
+    ]);
+    const eventsFind = jest.fn(async (opts: unknown) => {
+      const where = (opts as { where: unknown }).where;
+      const type = Array.isArray(where) ? '' : (where as { type: string }).type;
+      // Saturday of the same week.
+      return type === 'memorial' ? [{ date: '2026-04-11', endDate: null }] : [];
+    });
+    const svc = new MeetingAttendanceService(
+      repo,
+      settingsRepo,
+      { find: eventsFind } as never,
+      { logCreate: jest.fn(), logUpdate: jest.fn() } as never,
+    );
+
+    const out = await svc.pendingForWeek('cong-1', '2026-04-06');
+
+    // The OTHER meeting of that week still happened and is still asked about.
+    expect(out.map((m) => m.eventType)).toEqual(['midweek']);
+  });
+
   it('refuses a held meeting with no figure', async () => {
     const { service } = build();
 

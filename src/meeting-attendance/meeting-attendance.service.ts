@@ -33,6 +33,13 @@ export interface AttendanceYear {
   months: AttendanceMonth[];
 }
 
+interface WeekContext {
+  versions: MeetingSettings[];
+  visits: SpecialEvent[];
+  cancelling: SpecialEvent[];
+  memorials: SpecialEvent[];
+}
+
 @Injectable()
 export class MeetingAttendanceService {
   constructor(
@@ -141,11 +148,46 @@ export class MeetingAttendanceService {
     tenantId: string,
     weeksBack = 8,
   ): Promise<{ date: string; eventType: EventType }[]> {
+    const ctx = await this.weekContext(tenantId);
+    if (!ctx) return [];
+
+    const today = berlinToday();
+    const thisMonday = mondayOfISO(today);
+    const wanted: { date: string; eventType: EventType }[] = [];
+
+    for (let back = 0; back < weeksBack; back++) {
+      const weekStart = addDaysISO(thisMonday, -7 * back);
+      for (const m of this.meetingsOfWeek(weekStart, ctx)) {
+        // Only meetings whose own day has passed. The day of the meeting
+        // itself is left alone: it is not over yet.
+        if (m.date >= today) continue;
+        wanted.push(m);
+      }
+    }
+
+    return this.dropAlreadyRecorded(tenantId, wanted);
+  }
+
+  /**
+   * The meetings of ONE week that actually took place, ignoring today — the
+   * piece worth testing on its own, since every rule about which meetings
+   * exist lives here.
+   */
+  async pendingForWeek(
+    tenantId: string,
+    weekStart: string,
+  ): Promise<{ date: string; eventType: EventType }[]> {
+    const ctx = await this.weekContext(tenantId);
+    if (!ctx) return [];
+    return this.meetingsOfWeek(weekStart, ctx);
+  }
+
+  private async weekContext(tenantId: string): Promise<WeekContext | null> {
     const versions = await this.settingsRepo.find({
       where: { congregationId: tenantId },
       order: { effectiveFrom: 'ASC' },
     });
-    if (versions.length === 0) return [];
+    if (versions.length === 0) return null;
 
     const visits = await this.eventsRepo.find({
       where: { congregationId: tenantId, type: 'circuit_overseer_visit' },
@@ -160,13 +202,25 @@ export class MeetingAttendanceService {
         { congregationId: tenantId, type: 'circuit_assembly' },
       ],
     });
+    // The Memorial replaces ONE of that week's meetings, chosen by the kind of
+    // day it falls on: on a weekday the midweek meeting gives way, at the
+    // weekend the weekend meeting does. Not "the meeting on the same day" —
+    // the Memorial can fall on a Tuesday while the midweek meeting is a
+    // Thursday, and it is still the midweek meeting that goes.
+    const memorials = await this.eventsRepo.find({
+      where: { congregationId: tenantId, type: 'memorial' },
+    });
+    return { versions, visits, cancelling, memorials };
+  }
 
-    const today = berlinToday();
-    const thisMonday = mondayOfISO(today);
-    const wanted: { date: string; eventType: EventType }[] = [];
-
-    for (let back = 0; back < weeksBack; back++) {
-      const weekStart = addDaysISO(thisMonday, -7 * back);
+  /** Which meetings that week held, and on which dates. */
+  private meetingsOfWeek(
+    weekStart: string,
+    ctx: WeekContext,
+  ): { date: string; eventType: EventType }[] {
+    const { versions, visits, cancelling, memorials } = ctx;
+    const out: { date: string; eventType: EventType }[] = [];
+    {
       let version: MeetingSettings | null = null;
       for (const v of versions) {
         if (v.effectiveFrom <= weekStart) version = v;
@@ -185,9 +239,6 @@ export class MeetingAttendanceService {
         }
         if (!dow) continue;
         const date = addDaysISO(weekStart, dow - 1);
-        // Only meetings whose own day has passed. The day of the meeting
-        // itself is left alone: it is not over yet.
-        if (date >= today) continue;
         // A meeting that an assembly or convention replaced never happened,
         // so there is nothing to ask about. Nothing is stored either: the
         // monthly average counts only meetings that WERE held, so an absent
@@ -196,10 +247,28 @@ export class MeetingAttendanceService {
           (e) => e.date <= date && (e.endDate ?? e.date) >= date,
         );
         if (replaced) continue;
-        wanted.push({ date, eventType: kind });
+
+        const weekEndDate = addDaysISO(weekStart, 6);
+        const memorialThisWeek = memorials.find(
+          (e) => e.date >= weekStart && e.date <= weekEndDate,
+        );
+        if (memorialThisWeek) {
+          const memorialDow = isoDowOf(memorialThisWeek.date);
+          const givesWay =
+            memorialDow >= 6 ? EventType.WEEKEND : EventType.MIDWEEK;
+          if (kind === givesWay) continue;
+        }
+        out.push({ date, eventType: kind });
       }
     }
+    return out;
+  }
 
+  /** Drop the ones already recorded, newest first. */
+  private async dropAlreadyRecorded(
+    tenantId: string,
+    wanted: { date: string; eventType: EventType }[],
+  ): Promise<{ date: string; eventType: EventType }[]> {
     if (wanted.length === 0) return [];
     const recorded = await this.repo.find({
       where: {
@@ -280,6 +349,12 @@ function addDaysISO(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
+}
+
+/** ISO day of week: 1 = Monday … 7 = Sunday. */
+function isoDowOf(iso: string): number {
+  const d = new Date(`${iso}T00:00:00Z`).getUTCDay();
+  return d === 0 ? 7 : d;
 }
 
 /** Monday of the ISO week a date falls in. */
