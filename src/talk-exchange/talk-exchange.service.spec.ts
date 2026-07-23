@@ -260,6 +260,86 @@ describe('TalkExchangeService', () => {
     expect(result.linkedAbsenceId).toBe('abs-1');
   });
 
+  it('clears our own brother from the programme when this entry put him there', async () => {
+    // The reported bug: the entry was deleted from the coordinator's journal
+    // but the brother stayed on the weekend programme.
+    repo.findOne.mockResolvedValue({
+      id: 'tx-1',
+      congregationId: TENANT,
+      direction: 'incoming',
+      date: '2026-08-23',
+      publisherId: 'pub-7',
+      publicTalkId: 'talk-1',
+    });
+    const slot = {
+      id: 'as-1',
+      publisherId: 'pub-7',
+      publicTalkId: 'talk-1',
+      speakerName: null,
+      partTitle: '№114. Ценить чудеса',
+      status: 'draft',
+    };
+    assignmentRepo.findOne.mockResolvedValue(slot);
+
+    await service.remove(TENANT, 'tx-1', user());
+
+    expect(assignmentRepo.save).toHaveBeenCalled();
+    expect(slot.publisherId).toBeNull();
+    expect(slot.publicTalkId).toBeNull();
+    expect(slot.partTitle).toBeNull();
+  });
+
+  it('leaves a brother alone when somebody else assigned him', async () => {
+    // The guard this replaced existed for exactly this case, and it still holds.
+    repo.findOne.mockResolvedValue({
+      id: 'tx-1',
+      congregationId: TENANT,
+      direction: 'incoming',
+      date: '2026-08-23',
+      publisherId: 'pub-7',
+      publicTalkId: 'talk-1',
+    });
+    const slot = {
+      id: 'as-1',
+      publisherId: 'someone-else',
+      publicTalkId: 'talk-9',
+      speakerName: null,
+      partTitle: 'чужое',
+      status: 'draft',
+    };
+    assignmentRepo.findOne.mockResolvedValue(slot);
+
+    await service.remove(TENANT, 'tx-1', user());
+
+    expect(assignmentRepo.save).not.toHaveBeenCalled();
+    expect(slot.publisherId).toBe('someone-else');
+  });
+
+  it('still clears an invited speaker, as it always did', async () => {
+    repo.findOne.mockResolvedValue({
+      id: 'tx-1',
+      congregationId: TENANT,
+      direction: 'incoming',
+      date: '2026-08-23',
+      publisherId: null,
+      publicTalkId: 'talk-1',
+    });
+    const slot = {
+      id: 'as-1',
+      publisherId: null,
+      publicTalkId: 'talk-1',
+      speakerName: 'Гость',
+      partTitle: 'что-то',
+      status: 'draft',
+    };
+    assignmentRepo.findOne.mockResolvedValue(slot);
+
+    await service.remove(TENANT, 'tx-1', user());
+
+    expect(slot.speakerName).toBeNull();
+    expect(slot.publicTalkId).toBeNull();
+  });
+
   it('removes the linked absence on delete', async () => {
     repo.findOne.mockResolvedValue({
       id: 'tx-1',

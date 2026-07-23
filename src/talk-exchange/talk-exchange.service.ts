@@ -213,9 +213,20 @@ export class TalkExchangeService {
       },
     });
     if (!slot) return;
-    // A local-brother slot isn't ours to wipe; only clear an invited/empty slot.
-    if (slot.publisherId) return;
-    if (!slot.speakerName && !slot.publicTalkId) return;
+
+    // A local brother in the slot used to stop this outright, on the reasoning
+    // that he was not ours to wipe. That is right when SOMEONE ELSE put him
+    // there — and wrong when this very entry did, which is what happens
+    // whenever "our brother" is chosen: the entry writes slot.publisherId, and
+    // then deleting the entry left him behind, still on the weekend programme.
+    // So the test is not "is a brother assigned" but "is he the one this entry
+    // assigned".
+    const putHereByThisEntry =
+      entry.publisherId != null && slot.publisherId === entry.publisherId;
+    if (slot.publisherId && !putHereByThisEntry) return;
+    if (!slot.publisherId && !slot.speakerName && !slot.publicTalkId) return;
+
+    slot.publisherId = null;
     slot.speakerName = null;
     slot.speakerCongregation = null;
     slot.publicTalkId = null;
