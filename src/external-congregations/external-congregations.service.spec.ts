@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ExternalCongregationsService } from './external-congregations.service';
@@ -48,6 +49,15 @@ describe('ExternalCongregationsService', () => {
         {
           provide: getRepositoryToken(Responsibility),
           useValue: responsibilityRepo,
+        },
+        {
+          provide: AuditLogService,
+          useValue: {
+            logCreate: jest.fn(),
+            logUpdate: jest.fn(),
+            logRawUpdate: jest.fn(),
+            logEvent: jest.fn(),
+          },
         },
       ],
     }).compile();

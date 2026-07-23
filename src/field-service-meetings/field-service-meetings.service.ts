@@ -7,6 +7,7 @@ import { UpdateFieldServiceMeetingDto } from './dto/update-field-service-meeting
 import { QueryFieldServiceMeetingsDto } from './dto/query-field-service-meetings.dto';
 import { Publisher } from '../entities/publisher.entity';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 /** Add n days to an ISO 'YYYY-MM-DD' date (UTC, calendar-safe). */
 function addDaysISO(iso: string, n: number): string {
@@ -74,6 +75,7 @@ export class FieldServiceMeetingsService {
     @InjectRepository(Publisher)
     private readonly publishersRepo: Repository<Publisher>,
     private readonly push: PushNotificationsService,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   /**
@@ -156,6 +158,23 @@ export class FieldServiceMeetingsService {
       isGeneral: dto.isGeneral ?? false,
     });
     const saved = await this.repo.save(entity);
+    await this.auditLog.logCreate({
+      tenantId: congregationId,
+      entityType: 'field_service_meeting',
+      entityId: saved.id,
+      // The conductor is who the entry is ABOUT — that is the name a reader
+      // looks for when asking who was put on which meeting.
+      subjectId: saved.conductorPublisherId,
+      after: {
+        weekStartDate: saved.weekStartDate,
+        dayOfWeek: saved.dayOfWeek,
+        startTime: saved.startTime,
+        address: saved.address,
+        conductorPublisherId: saved.conductorPublisherId,
+        topic: saved.topic,
+        isGeneral: saved.isGeneral,
+      },
+    });
     if (saved.conductorPublisherId && dto.notifyConductor !== false) {
       await this.notifyConductor(
         congregationId,
@@ -179,6 +198,16 @@ export class FieldServiceMeetingsService {
       throw new NotFoundException('Field service meeting not found');
     }
     const prevConductorId = entity.conductorPublisherId;
+    // Snapshot taken BEFORE the mutations below — the entity is edited in
+    // place, so reading it afterwards would compare a value with itself.
+    const before = {
+      dayOfWeek: entity.dayOfWeek,
+      startTime: entity.startTime,
+      address: entity.address,
+      conductorPublisherId: entity.conductorPublisherId,
+      topic: entity.topic,
+      isGeneral: entity.isGeneral,
+    };
     if (dto.dayOfWeek !== undefined) entity.dayOfWeek = dto.dayOfWeek;
     if (dto.startTime !== undefined) entity.startTime = dto.startTime;
     if (dto.address !== undefined) entity.address = dto.address;
@@ -189,6 +218,29 @@ export class FieldServiceMeetingsService {
     if (dto.sourceUrl !== undefined) entity.sourceUrl = dto.sourceUrl ?? null;
     if (dto.isGeneral !== undefined) entity.isGeneral = dto.isGeneral;
     const saved = await this.repo.save(entity);
+    await this.auditLog.logUpdate({
+      tenantId: congregationId,
+      entityType: 'field_service_meeting',
+      entityId: saved.id,
+      subjectId: saved.conductorPublisherId ?? prevConductorId,
+      before,
+      after: {
+        dayOfWeek: saved.dayOfWeek,
+        startTime: saved.startTime,
+        address: saved.address,
+        conductorPublisherId: saved.conductorPublisherId,
+        topic: saved.topic,
+        isGeneral: saved.isGeneral,
+      },
+      fields: [
+        'dayOfWeek',
+        'startTime',
+        'address',
+        'conductorPublisherId',
+        'topic',
+        'isGeneral',
+      ],
+    });
     if (
       dto.notifyConductor !== false &&
       prevConductorId !== saved.conductorPublisherId
@@ -219,6 +271,19 @@ export class FieldServiceMeetingsService {
       throw new NotFoundException('Field service meeting not found');
     }
     await this.repo.delete({ id, congregationId });
+    await this.auditLog.logEvent({
+      tenantId: congregationId,
+      entityType: 'field_service_meeting',
+      entityId: id,
+      action: 'DELETE',
+      subjectId: entity.conductorPublisherId,
+      // Enough to recognise WHICH meeting vanished: the row itself is gone.
+      detail: {
+        weekStartDate: entity.weekStartDate,
+        startTime: entity.startTime,
+        address: entity.address,
+      },
+    });
     if (entity.conductorPublisherId) {
       await this.notifyConductor(
         congregationId,

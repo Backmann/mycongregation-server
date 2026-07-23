@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { Between, In, Repository } from 'typeorm';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { Assignment } from '../entities/assignment.entity';
@@ -48,6 +49,27 @@ function speakerFullName(s: {
 
 export type TalkExchangeResult = TalkExchange & { programConflict?: boolean };
 
+/**
+ * The fields of a talk-exchange entry worth remembering in the journal — who
+ * speaks, when, on what, who hosts, and how it stands. Deliberately not the
+ * whole row: linked ids and timestamps say nothing to a reader.
+ */
+function snapshot(row: TalkExchange): Record<string, unknown> {
+  return {
+    direction: row.direction,
+    date: row.date,
+    status: row.status,
+    publicTalkId: row.publicTalkId,
+    visitingSpeakerId: row.visitingSpeakerId,
+    speakerName: row.speakerName,
+    speakerCongregation: row.speakerCongregation,
+    hospitalityPublisherId: row.hospitalityPublisherId,
+    publisherId: row.publisherId,
+    hostCongregationId: row.hostCongregationId,
+    note: row.note,
+  };
+}
+
 @Injectable()
 export class TalkExchangeService {
   constructor(
@@ -67,6 +89,7 @@ export class TalkExchangeService {
     private readonly responsibilitiesRepo: Repository<Responsibility>,
     @InjectRepository(MeetingSettings)
     private readonly meetingSettingsRepo: Repository<MeetingSettings>,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   private static readonly MANAGER_RESPONSIBILITIES = [
@@ -113,6 +136,15 @@ export class TalkExchangeService {
     const { overwriteProgram, ...fields } = dto;
     const row = this.repo.create({ ...fields, congregationId: tenantId });
     const saved = await this.repo.save(row);
+    await this.auditLog.logCreate({
+      tenantId,
+      entityType: 'talk_exchange',
+      entityId: saved.id,
+      // Whom the entry concerns: our own speaker going out, or the publisher
+      // hosting a visitor.
+      subjectId: saved.publisherId ?? saved.hospitalityPublisherId,
+      after: snapshot(saved),
+    });
     return this.applySideEffects(tenantId, saved, overwriteProgram);
   }
 
@@ -125,8 +157,19 @@ export class TalkExchangeService {
     await this.assertCanWrite(user);
     const { overwriteProgram, ...fields } = dto;
     const row = await this.findOne(tenantId, id);
+    // Snapshot BEFORE Object.assign — the row is mutated in place.
+    const before = snapshot(row);
     Object.assign(row, fields);
     const saved = await this.repo.save(row);
+    await this.auditLog.logUpdate({
+      tenantId,
+      entityType: 'talk_exchange',
+      entityId: saved.id,
+      subjectId: saved.publisherId ?? saved.hospitalityPublisherId,
+      before,
+      after: snapshot(saved),
+      fields: Object.keys(before),
+    });
     return this.applySideEffects(tenantId, saved, overwriteProgram);
   }
 
@@ -137,6 +180,14 @@ export class TalkExchangeService {
   ): Promise<void> {
     await this.assertCanWrite(user);
     const row = await this.findOne(tenantId, id);
+    await this.auditLog.logEvent({
+      tenantId,
+      entityType: 'talk_exchange',
+      entityId: id,
+      action: 'DELETE',
+      subjectId: row.publisherId ?? row.hospitalityPublisherId,
+      detail: snapshot(row),
+    });
     // Remove the auto-created outgoing absence.
     if (row.linkedAbsenceId) {
       await this.absenceRepo.softDelete(row.linkedAbsenceId);

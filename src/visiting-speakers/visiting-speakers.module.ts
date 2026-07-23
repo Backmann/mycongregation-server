@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { Responsibility } from '../entities/responsibility.entity';
@@ -6,7 +7,10 @@ import { VisitingSpeakersService } from './visiting-speakers.service';
 import { VisitingSpeakersController } from './visiting-speakers.controller';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([VisitingSpeaker, Responsibility])],
+  imports: [
+    TypeOrmModule.forFeature([VisitingSpeaker, Responsibility]),
+    AuditLogModule,
+  ],
   controllers: [VisitingSpeakersController],
   providers: [VisitingSpeakersService],
   exports: [VisitingSpeakersService],

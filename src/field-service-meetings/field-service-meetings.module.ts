@@ -13,6 +13,7 @@ import { FieldServiceTemplateSlot } from '../entities/field-service-template-slo
 import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { PushNotificationsModule } from '../push-notifications/push-notification
       Publisher,
     ]),
     PushNotificationsModule,
+    AuditLogModule,
   ],
   controllers: [
     FieldServiceMeetingsController,

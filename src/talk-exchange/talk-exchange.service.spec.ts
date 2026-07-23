@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException } from '@nestjs/common';
 import { TalkExchangeService } from './talk-exchange.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Absence } from '../entities/absence.entity';
@@ -79,6 +80,14 @@ describe('TalkExchangeService', () => {
         {
           provide: getRepositoryToken(MeetingSettings),
           useValue: { findOne: jest.fn().mockResolvedValue({ weekendDow: 7 }) },
+        },
+        {
+          provide: AuditLogService,
+          useValue: {
+            logCreate: jest.fn(),
+            logUpdate: jest.fn(),
+            logEvent: jest.fn(),
+          },
         },
       ],
     }).compile();

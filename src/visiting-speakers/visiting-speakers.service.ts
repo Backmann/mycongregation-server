@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { In, Repository } from 'typeorm';
 import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { Responsibility } from '../entities/responsibility.entity';
@@ -13,6 +14,29 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { CreateVisitingSpeakerDto } from './dto/create-visiting-speaker.dto';
 import { UpdateVisitingSpeakerDto } from './dto/update-visiting-speaker.dto';
 
+/**
+ * What the journal remembers about a visiting speaker. The phone is a person's
+ * contact detail, so it is recorded as the FACT that it changed and never as
+ * the number itself — the same rule the publisher card follows.
+ */
+const SPEAKER_FIELDS = [
+  'firstName',
+  'lastName',
+  'externalCongregationId',
+  'note',
+  'talkNumbers',
+] as const;
+
+function speakerSnapshot(row: VisitingSpeaker): Record<string, unknown> {
+  return {
+    firstName: row.firstName,
+    lastName: row.lastName,
+    externalCongregationId: row.externalCongregationId,
+    note: row.note,
+    talkNumbers: row.talkNumbers,
+  };
+}
+
 @Injectable()
 export class VisitingSpeakersService {
   constructor(
@@ -20,6 +44,7 @@ export class VisitingSpeakersService {
     private readonly repo: Repository<VisitingSpeaker>,
     @InjectRepository(Responsibility)
     private readonly responsibilitiesRepo: Repository<Responsibility>,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   private static readonly MANAGER_RESPONSIBILITIES = [
@@ -67,7 +92,14 @@ export class VisitingSpeakersService {
   ): Promise<VisitingSpeaker> {
     await this.assertCanWrite(user);
     const row = this.repo.create({ ...dto, congregationId: tenantId });
-    return this.repo.save(row);
+    const saved = await this.repo.save(row);
+    await this.auditLog.logCreate({
+      tenantId,
+      entityType: 'visiting_speaker',
+      entityId: saved.id,
+      after: speakerSnapshot(saved),
+    });
+    return saved;
   }
 
   async update(
@@ -78,8 +110,30 @@ export class VisitingSpeakersService {
   ): Promise<VisitingSpeaker> {
     await this.assertCanWrite(user);
     const row = await this.findOne(tenantId, id);
+    const before = speakerSnapshot(row);
+    const phoneBefore = row.phone;
     Object.assign(row, dto);
-    return this.repo.save(row);
+    const saved = await this.repo.save(row);
+    await this.auditLog.logUpdate({
+      tenantId,
+      entityType: 'visiting_speaker',
+      entityId: saved.id,
+      before,
+      after: speakerSnapshot(saved),
+      fields: [...SPEAKER_FIELDS],
+    });
+    if (phoneBefore !== saved.phone) {
+      // The number itself never enters the journal — only that it moved.
+      await this.auditLog.logRawUpdate({
+        tenantId,
+        entityType: 'visiting_speaker',
+        entityId: saved.id,
+        changedFields: ['phone'],
+        before: { phone: '<скрыто>' },
+        after: { phone: '<скрыто>' },
+      });
+    }
+    return saved;
   }
 
   async remove(
@@ -89,6 +143,13 @@ export class VisitingSpeakersService {
   ): Promise<void> {
     await this.assertCanWrite(user);
     const row = await this.findOne(tenantId, id);
+    await this.auditLog.logEvent({
+      tenantId,
+      entityType: 'visiting_speaker',
+      entityId: row.id,
+      action: 'DELETE',
+      detail: { firstName: row.firstName, lastName: row.lastName },
+    });
     await this.repo.softDelete(row.id);
   }
 }

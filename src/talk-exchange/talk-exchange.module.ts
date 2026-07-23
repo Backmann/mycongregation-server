@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { Assignment } from '../entities/assignment.entity';
@@ -23,6 +24,7 @@ import { TalkExchangeController } from './talk-exchange.controller';
       Responsibility,
       MeetingSettings,
     ]),
+    AuditLogModule,
   ],
   controllers: [TalkExchangeController],
   providers: [TalkExchangeService],
