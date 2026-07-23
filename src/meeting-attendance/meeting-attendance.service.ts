@@ -150,6 +150,16 @@ export class MeetingAttendanceService {
     const visits = await this.eventsRepo.find({
       where: { congregationId: tenantId, type: 'circuit_overseer_visit' },
     });
+    // Events that REPLACE the congregation's own meetings. A circuit visit is
+    // deliberately not among them: it moves a meeting, it does not cancel one.
+    // Nobody should be asked to record attendance at a meeting the whole
+    // congregation was away at an assembly for.
+    const cancelling = await this.eventsRepo.find({
+      where: [
+        { congregationId: tenantId, type: 'regional_convention' },
+        { congregationId: tenantId, type: 'circuit_assembly' },
+      ],
+    });
 
     const today = berlinToday();
     const thisMonday = mondayOfISO(today);
@@ -178,6 +188,14 @@ export class MeetingAttendanceService {
         // Only meetings whose own day has passed. The day of the meeting
         // itself is left alone: it is not over yet.
         if (date >= today) continue;
+        // A meeting that an assembly or convention replaced never happened,
+        // so there is nothing to ask about. Nothing is stored either: the
+        // monthly average counts only meetings that WERE held, so an absent
+        // row is already the right answer.
+        const replaced = cancelling.some(
+          (e) => e.date <= date && (e.endDate ?? e.date) >= date,
+        );
+        if (replaced) continue;
         wanted.push({ date, eventType: kind });
       }
     }

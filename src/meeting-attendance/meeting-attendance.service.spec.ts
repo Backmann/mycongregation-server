@@ -136,6 +136,37 @@ describe('MeetingAttendanceService', () => {
     }
   });
 
+  it('does not ask about a meeting an assembly replaced', async () => {
+    // The congregation was at a convention; there was no meeting to count, and
+    // nagging for a figure would invite a wrong one.
+    const { repo, settingsRepo } = build([]);
+    (settingsRepo as unknown as { find: jest.Mock }).find.mockResolvedValue([
+      { effectiveFrom: '2020-01-01', midweekDow: 4, weekendDow: 7 },
+    ]);
+    const eventsFind = jest.fn(async (opts: unknown) => {
+      const where = (opts as { where: unknown }).where;
+      const types = Array.isArray(where)
+        ? (where as { type: string }[]).map((w) => w.type)
+        : [(where as { type: string }).type];
+      // The circuit-visit lookup gets nothing; the cancelling one gets the
+      // convention that covered the whole week.
+      if (types.includes('regional_convention')) {
+        return [{ date: '2026-07-01', endDate: '2027-08-31' }];
+      }
+      return [];
+    });
+    const svc = new MeetingAttendanceService(
+      repo,
+      settingsRepo,
+      { find: eventsFind } as never,
+      { logCreate: jest.fn(), logUpdate: jest.fn() } as never,
+    );
+
+    const out = await svc.pending('cong-1', 4);
+
+    expect(out).toHaveLength(0);
+  });
+
   it('refuses a held meeting with no figure', async () => {
     const { service } = build();
 
