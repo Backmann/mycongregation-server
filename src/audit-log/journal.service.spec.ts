@@ -6,6 +6,7 @@ import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
+import { PublicTalk } from '../entities/public-talk.entity';
 import { User } from '../entities/user.entity';
 import { JournalService } from './journal.service';
 
@@ -36,6 +37,7 @@ describe('JournalService', () => {
   let dutiesRepo: { find: jest.Mock };
   let cleaningRepo: { find: jest.Mock };
   let fieldServiceRepo: { find: jest.Mock };
+  let publicTalksRepo: { find: jest.Mock };
 
   beforeEach(async () => {
     auditRepo = { find: jest.fn().mockResolvedValue([]) };
@@ -45,6 +47,7 @@ describe('JournalService', () => {
     dutiesRepo = { find: jest.fn().mockResolvedValue([]) };
     cleaningRepo = { find: jest.fn().mockResolvedValue([]) };
     fieldServiceRepo = { find: jest.fn().mockResolvedValue([]) };
+    publicTalksRepo = { find: jest.fn().mockResolvedValue([]) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -62,6 +65,7 @@ describe('JournalService', () => {
           provide: getRepositoryToken(FieldServiceMeeting),
           useValue: fieldServiceRepo,
         },
+        { provide: getRepositoryToken(PublicTalk), useValue: publicTalksRepo },
       ],
     }).compile();
 
@@ -299,6 +303,24 @@ describe('JournalService', () => {
 
     // Nothing is lost: a DELETE entry carries the identifying facts itself.
     expect(page.items[0].context).toBeNull();
+  });
+
+  it('names a public talk instead of showing its bare id', async () => {
+    const talkId = '33333333-3333-3333-3333-333333333333';
+    auditRepo.find.mockResolvedValue([
+      row({
+        action: 'CREATE',
+        changedFields: ['publicTalkId'],
+        afterJson: `{"publicTalkId":"${talkId}"}`,
+      }),
+    ]);
+    publicTalksRepo.find.mockResolvedValue([
+      { id: talkId, number: 114, title: 'Ценить чудеса Божьего творения' },
+    ]);
+
+    const page = await service.find('cong-1', {});
+
+    expect(page.names[talkId]).toBe('№114. Ценить чудеса Божьего творения');
   });
 
   it('marks a redacted entry so the screen can say why it is empty', async () => {

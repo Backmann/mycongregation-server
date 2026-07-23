@@ -7,6 +7,7 @@ import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
+import { PublicTalk } from '../entities/public-talk.entity';
 import { AuditLogService } from './audit-log.service';
 import { JournalService } from './journal.service';
 import { JournalController } from './journal.controller';
@@ -22,6 +23,7 @@ import { JournalController } from './journal.controller';
       Duty,
       CleaningAssignment,
       FieldServiceMeeting,
+      PublicTalk,
     ]),
   ],
   controllers: [JournalController],

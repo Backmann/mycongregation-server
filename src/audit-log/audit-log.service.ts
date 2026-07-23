@@ -123,6 +123,11 @@ export class AuditLogService {
     subjectId?: string | null;
     after: Record<string, any>;
   }): Promise<void> {
+    const setValues = Object.fromEntries(
+      Object.entries(opts.after).filter(
+        ([, v]) => v !== null && v !== undefined && v !== '',
+      ),
+    );
     await this.auditRepo.save(
       this.auditRepo.create({
         congregationId: opts.tenantId,
@@ -132,8 +137,11 @@ export class AuditLogService {
         ...this.actorOf(opts.actorUserId),
         subjectId: opts.subjectId ?? null,
         beforeJson: null,
-        afterJson: JSON.stringify(opts.after),
-        changedFields: Object.keys(opts.after),
+        // Only what was actually SET. Listing every empty field turned a
+        // creation into a wall of "empty → empty", which says nothing and
+        // buries the handful of values that were really chosen.
+        afterJson: JSON.stringify(setValues),
+        changedFields: Object.keys(setValues),
       }),
     );
   }

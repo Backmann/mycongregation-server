@@ -8,6 +8,7 @@ import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
+import { PublicTalk } from '../entities/public-talk.entity';
 
 export interface JournalPerson {
   id: string;
@@ -117,6 +118,8 @@ export class JournalService {
     private readonly cleaningRepo: Repository<CleaningAssignment>,
     @InjectRepository(FieldServiceMeeting)
     private readonly fieldServiceRepo: Repository<FieldServiceMeeting>,
+    @InjectRepository(PublicTalk)
+    private readonly publicTalksRepo: Repository<PublicTalk>,
   ) {}
 
   async find(tenantId: string, filters: JournalFilters): Promise<JournalPage> {
@@ -302,6 +305,13 @@ export class JournalService {
     // was recorded, and a user account carries no name of its own — the name
     // lives on the publisher linked to it. So both are looked up: by publisher
     // id, and by the user id a publisher belongs to.
+    // A talk id sits in the recorded values just like a person's does, and a
+    // bare uuid says nothing to a reader. Public talks are shared across
+    // congregations, so this one is not tenant-scoped.
+    const talks = await this.publicTalksRepo.find({
+      where: { id: In(wanted) },
+    });
+
     const [byId, byUserId, users] = await Promise.all([
       this.publishersRepo.find({
         where: { congregationId: tenantId, id: In(wanted) },
@@ -315,6 +325,7 @@ export class JournalService {
     ]);
 
     const names = new Map<string, string>();
+    for (const t of talks) names.set(t.id, `№${t.number}. ${t.title}`);
     const fullName = (p: Publisher) =>
       [p.lastName, p.firstName].filter(Boolean).join(' ').trim();
 
