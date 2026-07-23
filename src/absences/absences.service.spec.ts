@@ -7,6 +7,7 @@ import { Publisher } from '../entities/publisher.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 const TENANT = 'cong-1';
 const MY_PUBLISHER = 'pub-mine';
@@ -56,6 +57,15 @@ describe('AbsencesService — self-absence authorization', () => {
         {
           provide: getRepositoryToken(Responsibility),
           useValue: responsibilityRepo,
+        },
+        {
+          provide: AuditLogService,
+          useValue: {
+            logCreate: jest.fn(),
+            logUpdate: jest.fn(),
+            logRawUpdate: jest.fn(),
+            logEvent: jest.fn(),
+          },
         },
       ],
     }).compile();

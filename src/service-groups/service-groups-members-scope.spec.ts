@@ -32,7 +32,16 @@ function makeSvc(pubOver: Partial<Record<string, any>> = {}) {
       offset: 0,
     })),
   } as any;
-  const svc = new ServiceGroupsService(groupsRepo, publishersService);
+  const auditMock = {
+    logCreate: jest.fn(),
+    logUpdate: jest.fn(),
+    logEvent: jest.fn(),
+  } as any;
+  const svc = new ServiceGroupsService(
+    groupsRepo,
+    publishersService,
+    auditMock,
+  );
   return { svc, publishersService };
 }
 

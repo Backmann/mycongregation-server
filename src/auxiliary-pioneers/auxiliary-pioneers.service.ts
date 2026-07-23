@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { In, Repository } from 'typeorm';
 import { AuxiliaryPioneer } from '../entities/auxiliary-pioneer.entity';
 import { Publisher } from '../entities/publisher.entity';
@@ -66,6 +67,7 @@ export class AuxiliaryPioneersService {
     private readonly responsibilityRepo: Repository<Responsibility>,
     @InjectRepository(SpecialEvent)
     private readonly eventRepo: Repository<SpecialEvent>,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   /** Managers: admins, body coordinator, secretary, service overseer. */
@@ -243,7 +245,19 @@ export class AuxiliaryPioneersService {
       note: dto.note ?? null,
       createdBy: user.id,
     });
-    return this.repo.save(row);
+    const saved = await this.repo.save(row);
+    await this.auditLog.logCreate({
+      tenantId: congregationId,
+      entityType: 'auxiliary_pioneer',
+      entityId: saved.id,
+      subjectId: saved.publisherId,
+      after: {
+        startMonth: saved.startMonth,
+        endMonth: saved.endMonth,
+        untilCancelled: saved.untilCancelled,
+      },
+    });
+    return saved;
   }
 
   /**
@@ -259,6 +273,11 @@ export class AuxiliaryPioneersService {
     await this.assertCanManage(congregationId, user);
     const row = await this.repo.findOne({ where: { id, congregationId } });
     if (!row) throw new NotFoundException('Record not found.');
+    const before = {
+      startMonth: row.startMonth,
+      endMonth: row.endMonth,
+      untilCancelled: row.untilCancelled,
+    };
 
     if (dto.startMonth !== undefined) {
       row.startMonth = this.normalizeMonth(dto.startMonth);
@@ -274,7 +293,21 @@ export class AuxiliaryPioneersService {
     if (row.endMonth && row.endMonth < row.startMonth) {
       throw new BadRequestException('End month cannot precede start month.');
     }
-    return this.repo.save(row);
+    const saved = await this.repo.save(row);
+    await this.auditLog.logUpdate({
+      tenantId: congregationId,
+      entityType: 'auxiliary_pioneer',
+      entityId: saved.id,
+      subjectId: saved.publisherId,
+      before,
+      after: {
+        startMonth: saved.startMonth,
+        endMonth: saved.endMonth,
+        untilCancelled: saved.untilCancelled,
+      },
+      fields: ['startMonth', 'endMonth', 'untilCancelled'],
+    });
+    return saved;
   }
 
   /** Stop a period: set an end month (defaults to the current month). */
@@ -293,9 +326,23 @@ export class AuxiliaryPioneersService {
     if (endMonth < row.startMonth) {
       throw new BadRequestException('End month cannot precede start month.');
     }
+    const beforeStop = {
+      endMonth: row.endMonth,
+      untilCancelled: row.untilCancelled,
+    };
     row.endMonth = endMonth;
     row.untilCancelled = false;
-    return this.repo.save(row);
+    const saved = await this.repo.save(row);
+    await this.auditLog.logUpdate({
+      tenantId: congregationId,
+      entityType: 'auxiliary_pioneer',
+      entityId: saved.id,
+      subjectId: saved.publisherId,
+      before: beforeStop,
+      after: { endMonth: saved.endMonth, untilCancelled: saved.untilCancelled },
+      fields: ['endMonth', 'untilCancelled'],
+    });
+    return saved;
   }
 
   async remove(
@@ -306,6 +353,14 @@ export class AuxiliaryPioneersService {
     await this.assertCanManage(congregationId, user);
     const row = await this.repo.findOne({ where: { id, congregationId } });
     if (!row) throw new NotFoundException('Record not found.');
+    await this.auditLog.logEvent({
+      tenantId: congregationId,
+      entityType: 'auxiliary_pioneer',
+      entityId: id,
+      action: 'DELETE',
+      subjectId: row.publisherId,
+      detail: { startMonth: row.startMonth, endMonth: row.endMonth },
+    });
     await this.repo.delete({ id, congregationId });
   }
 

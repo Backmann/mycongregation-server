@@ -5,6 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { Brackets, Repository } from 'typeorm';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { CreateServiceGroupDto } from './dto/create-service-group.dto';
@@ -34,6 +35,7 @@ export class ServiceGroupsService {
     @InjectRepository(ServiceGroup)
     private readonly serviceGroupsRepo: Repository<ServiceGroup>,
     private readonly publishersService: PublishersService,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   async findAll(tenantId: string, query: QueryServiceGroupsDto) {
@@ -133,6 +135,16 @@ export class ServiceGroupsService {
       congregationId: tenantId,
     });
     const saved = await this.serviceGroupsRepo.save(group);
+    await this.auditLog.logCreate({
+      tenantId,
+      entityType: 'service_group',
+      entityId: saved.id,
+      after: {
+        name: saved.name,
+        overseerPublisherId: saved.overseerPublisherId,
+        assistantPublisherId: saved.assistantPublisherId,
+      },
+    });
     await this.addLeadersToGroup(tenantId, saved);
     return this.attachLeaders(tenantId, saved);
   }
@@ -149,8 +161,26 @@ export class ServiceGroupsService {
     if (dto.assistantPublisherId) {
       await this.ensurePublisherInTenant(tenantId, dto.assistantPublisherId);
     }
+    // Snapshot before the in-place assign, or both sides would match.
+    const before = {
+      name: group.name,
+      overseerPublisherId: group.overseerPublisherId,
+      assistantPublisherId: group.assistantPublisherId,
+    };
     Object.assign(group, dto);
     const saved = await this.serviceGroupsRepo.save(group);
+    await this.auditLog.logUpdate({
+      tenantId,
+      entityType: 'service_group',
+      entityId: saved.id,
+      before,
+      after: {
+        name: saved.name,
+        overseerPublisherId: saved.overseerPublisherId,
+        assistantPublisherId: saved.assistantPublisherId,
+      },
+      fields: ['name', 'overseerPublisherId', 'assistantPublisherId'],
+    });
     await this.addLeadersToGroup(tenantId, saved);
     return this.attachLeaders(tenantId, saved);
   }
@@ -160,6 +190,13 @@ export class ServiceGroupsService {
     if (group.deletedAt) {
       throw new BadRequestException('Service group already removed');
     }
+    await this.auditLog.logEvent({
+      tenantId,
+      entityType: 'service_group',
+      entityId: id,
+      action: 'DELETE',
+      detail: { name: group.name },
+    });
     await this.serviceGroupsRepo.softDelete(id);
   }
 

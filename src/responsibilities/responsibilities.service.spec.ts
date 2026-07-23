@@ -5,6 +5,7 @@ import { ResponsibilitiesService } from './responsibilities.service';
 import { Responsibility } from '../entities/responsibility.entity';
 import { User } from '../entities/user.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 describe('ResponsibilitiesService', () => {
   let service: ResponsibilitiesService;
@@ -35,6 +36,15 @@ describe('ResponsibilitiesService', () => {
           useValue: responsibilitiesRepo,
         },
         { provide: getRepositoryToken(User), useValue: usersRepo },
+        {
+          provide: AuditLogService,
+          useValue: {
+            logCreate: jest.fn(),
+            logUpdate: jest.fn(),
+            logRawUpdate: jest.fn(),
+            logEvent: jest.fn(),
+          },
+        },
       ],
     }).compile();
 

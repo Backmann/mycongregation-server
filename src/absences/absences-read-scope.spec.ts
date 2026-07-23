@@ -1,6 +1,12 @@
 import { ForbiddenException } from '@nestjs/common';
 import { AbsencesService } from './absences.service';
 
+const auditMock = {
+  logCreate: jest.fn(),
+  logUpdate: jest.fn(),
+  logEvent: jest.fn(),
+} as any;
+
 const TENANT = 'cong-1';
 const elder = {
   id: 'u-elder',
@@ -38,6 +44,7 @@ function makeSvc(over: Partial<Record<string, any>> = {}) {
     over.publishersRepo ??
       ({ findOne: jest.fn(async () => ({ id: 'pub-me' })) } as any),
     over.responsibilitiesRepo ?? ({ count: jest.fn(async () => 0) } as any),
+    auditMock,
   );
   return { svc, qb };
 }

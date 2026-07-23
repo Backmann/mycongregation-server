@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { In, Repository } from 'typeorm';
 import { Absence } from '../entities/absence.entity';
 import { Publisher } from '../entities/publisher.entity';
@@ -31,6 +32,7 @@ export class AbsencesService {
     private readonly publishersRepo: Repository<Publisher>,
     @InjectRepository(Responsibility)
     private readonly responsibilitiesRepo: Repository<Responsibility>,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   /** Responsibilities that may manage ANY publisher's absences. */
@@ -159,7 +161,19 @@ export class AbsencesService {
   ): Promise<Absence> {
     await this.assertCanWrite(user, dto.publisherId);
     const entity = this.repo.create({ ...dto, congregationId: tenantId });
-    return this.repo.save(entity);
+    const saved = await this.repo.save(entity);
+    await this.auditLog.logCreate({
+      tenantId,
+      entityType: 'absence',
+      entityId: saved.id,
+      subjectId: saved.publisherId,
+      after: {
+        publisherId: saved.publisherId,
+        startDate: saved.startDate,
+        endDate: saved.endDate,
+      },
+    });
+    return saved;
   }
 
   async update(
@@ -180,8 +194,27 @@ export class AbsencesService {
     if (dto.publisherId && dto.publisherId !== found.publisherId) {
       await this.assertCanWrite(user, dto.publisherId);
     }
+    const before = {
+      publisherId: found.publisherId,
+      startDate: found.startDate,
+      endDate: found.endDate,
+    };
     Object.assign(found, dto);
-    return this.repo.save(found);
+    const saved = await this.repo.save(found);
+    await this.auditLog.logUpdate({
+      tenantId,
+      entityType: 'absence',
+      entityId: saved.id,
+      subjectId: saved.publisherId,
+      before,
+      after: {
+        publisherId: saved.publisherId,
+        startDate: saved.startDate,
+        endDate: saved.endDate,
+      },
+      fields: ['publisherId', 'startDate', 'endDate'],
+    });
+    return saved;
   }
 
   async remove(
@@ -196,6 +229,14 @@ export class AbsencesService {
       throw new NotFoundException('Absence not found');
     }
     await this.assertCanWrite(user, found.publisherId);
+    await this.auditLog.logEvent({
+      tenantId,
+      entityType: 'absence',
+      entityId: id,
+      action: 'DELETE',
+      subjectId: found.publisherId,
+      detail: { startDate: found.startDate, endDate: found.endDate },
+    });
     await this.repo.softDelete(id);
   }
 

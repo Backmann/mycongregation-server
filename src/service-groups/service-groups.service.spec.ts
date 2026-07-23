@@ -4,6 +4,7 @@ import { NotFoundException } from '@nestjs/common';
 import { ServiceGroupsService } from './service-groups.service';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { PublishersService } from '../publishers/publishers.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 // ServiceGroupsService imports PublishersService, which transitively imports
 // push-notifications.service -> expo-server-sdk. That package ships ESM that
@@ -67,6 +68,15 @@ describe('ServiceGroupsService', () => {
           useValue: serviceGroupsRepo,
         },
         { provide: PublishersService, useValue: publishersService },
+        {
+          provide: AuditLogService,
+          useValue: {
+            logCreate: jest.fn(),
+            logUpdate: jest.fn(),
+            logRawUpdate: jest.fn(),
+            logEvent: jest.fn(),
+          },
+        },
       ],
     }).compile();
 

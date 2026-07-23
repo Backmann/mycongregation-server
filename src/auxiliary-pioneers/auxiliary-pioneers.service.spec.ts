@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import {
   BadRequestException,
   ForbiddenException,
@@ -57,6 +58,15 @@ describe('AuxiliaryPioneersService', () => {
           useValue: responsibilityRepo,
         },
         { provide: getRepositoryToken(SpecialEvent), useValue: eventRepo },
+        {
+          provide: AuditLogService,
+          useValue: {
+            logCreate: jest.fn(),
+            logUpdate: jest.fn(),
+            logRawUpdate: jest.fn(),
+            logEvent: jest.fn(),
+          },
+        },
       ],
     }).compile();
     service = moduleRef.get(AuxiliaryPioneersService);

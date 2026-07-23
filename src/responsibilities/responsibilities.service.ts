@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { Repository } from 'typeorm';
 import { Responsibility } from '../entities/responsibility.entity';
 import { User } from '../entities/user.entity';
@@ -13,6 +14,7 @@ export class ResponsibilitiesService {
     private readonly responsibilitiesRepo: Repository<Responsibility>,
     @InjectRepository(User)
     private readonly usersRepo: Repository<User>,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   /** All responsibilities currently assigned in the congregation. */
@@ -54,7 +56,17 @@ export class ResponsibilitiesService {
       userId: dto.userId,
       assignedBy,
     });
-    return this.responsibilitiesRepo.save(created);
+    const saved = await this.responsibilitiesRepo.save(created);
+    // A responsibility is a privilege in the congregation, so who granted it
+    // and to whom is exactly what a journal exists to answer.
+    await this.auditLog.logCreate({
+      tenantId,
+      entityType: 'responsibility',
+      entityId: saved.id,
+      subjectId: dto.userId,
+      after: { type: saved.type, userId: saved.userId },
+    });
+    return saved;
   }
 
   /** Removes one person's responsibility assignment. */
@@ -69,6 +81,14 @@ export class ResponsibilitiesService {
     if (!existing) {
       throw new NotFoundException('Responsibility is not assigned');
     }
+    await this.auditLog.logEvent({
+      tenantId,
+      entityType: 'responsibility',
+      entityId: existing.id,
+      action: 'DELETE',
+      subjectId: userId,
+      detail: { type, userId },
+    });
     await this.responsibilitiesRepo.remove(existing);
   }
 }

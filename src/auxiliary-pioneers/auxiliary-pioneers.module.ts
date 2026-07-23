@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuxiliaryPioneersController } from './auxiliary-pioneers.controller';
 import { AuxiliaryPioneersService } from './auxiliary-pioneers.service';
@@ -15,6 +16,7 @@ import { SpecialEvent } from '../entities/special-event.entity';
       Responsibility,
       SpecialEvent,
     ]),
+    AuditLogModule,
   ],
   controllers: [AuxiliaryPioneersController],
   providers: [AuxiliaryPioneersService],
