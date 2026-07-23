@@ -45,6 +45,12 @@ export class MeetingAttendanceController {
     return this.service.serviceYear(congregationId, year);
   }
 
+  /** Meetings already held with no figure yet — what the home card offers. */
+  @Get('pending')
+  pending(@TenantId() congregationId: string) {
+    return this.service.pending(congregationId);
+  }
+
   @Post()
   @UseGuards(ResponsibilityGuard)
   @RequireResponsibility(

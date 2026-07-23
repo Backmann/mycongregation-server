@@ -30,7 +30,19 @@ function build(rows: unknown[] = []) {
     logUpdate: jest.fn(),
     logEvent: jest.fn(),
   } as never;
-  return { service: new MeetingAttendanceService(repo, audit), repo, audit };
+  const settingsRepo = { find: jest.fn().mockResolvedValue([]) } as never;
+  const eventsRepo = { find: jest.fn().mockResolvedValue([]) } as never;
+  return {
+    service: new MeetingAttendanceService(
+      repo,
+      settingsRepo,
+      eventsRepo,
+      audit,
+    ),
+    repo,
+    audit,
+    settingsRepo,
+  };
 }
 
 describe('MeetingAttendanceService', () => {
@@ -84,6 +96,44 @@ describe('MeetingAttendanceService', () => {
 
     expect(year.months[0].midweekTotal).toBe(100);
     expect(year.months[0].weekendTotal).toBe(140);
+  });
+
+  it('follows the circuit visit when it moves the midweek meeting', async () => {
+    // The visit shifts the midweek meeting to another weekday. Offering the
+    // usual day would invite a figure filed against a meeting that never
+    // happened then.
+    const { service, settingsRepo, repo } = build([]);
+    (settingsRepo as unknown as { find: jest.Mock }).find.mockResolvedValue([
+      { effectiveFrom: '2020-01-01', midweekDow: 4, weekendDow: 7 },
+    ]);
+    const eventsFind = jest.fn().mockResolvedValue([
+      {
+        type: 'circuit_overseer_visit',
+        date: '2026-07-20',
+        endDate: '2026-07-26',
+        coMidweekDow: 2,
+      },
+    ]);
+    // Rebuild with the visit in place.
+    const svc = new (service.constructor as new (
+      ...a: unknown[]
+    ) => typeof service)(
+      repo,
+      settingsRepo,
+      { find: eventsFind },
+      { logCreate: jest.fn(), logUpdate: jest.fn() },
+    );
+
+    const out = await svc.pending('cong-1', 2);
+
+    // Whatever it offers for that week's midweek meeting, it must not be the
+    // ordinary Thursday.
+    const thatWeek = out.filter(
+      (m) => m.date >= '2026-07-20' && m.date <= '2026-07-26',
+    );
+    for (const m of thatWeek) {
+      if (m.eventType === 'midweek') expect(m.date).not.toBe('2026-07-23');
+    }
   });
 
   it('refuses a held meeting with no figure', async () => {
