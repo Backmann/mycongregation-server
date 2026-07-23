@@ -21,6 +21,13 @@ export interface JournalEntry {
   actor: JournalPerson | null;
   subject: JournalPerson | null;
   changedFields: string[];
+  /**
+   * Values as they were before the change. Present for edits recorded through
+   * logUpdate; null for events that have no previous state. Without this the
+   * journal can only say what a field became, never what it was — so
+   * "replaced Peter with Andrew" was unsayable.
+   */
+  before: Record<string, unknown> | null;
   /** Free-form facts for events that have no before/after. */
   detail: Record<string, unknown> | null;
   /** True when the values were cleared at the subject's request. */
@@ -30,6 +37,13 @@ export interface JournalEntry {
 export interface JournalPage {
   items: JournalEntry[];
   nextCursor: string | null;
+  /**
+   * Every id mentioned anywhere on this page that could be resolved, mapped to
+   * a readable name. Values inside before/after are bare ids — a publisher id
+   * says nothing to a reader — and resolving them here keeps the entry itself
+   * unmangled while letting the screen show names.
+   */
+  names: Record<string, string>;
 }
 
 export interface JournalFilters {
@@ -135,10 +149,12 @@ export class JournalService {
           ? { id: row.subjectId, name: names.get(row.subjectId) ?? null }
           : null,
         changedFields: row.changedFields ?? [],
+        before: parseDetail(row.beforeJson),
         detail: parseDetail(row.afterJson),
         redacted: row.redactedAt !== null,
       })),
       nextCursor,
+      names: Object.fromEntries(names),
     };
   }
 
@@ -155,6 +171,11 @@ export class JournalService {
     for (const row of rows) {
       if (row.actorUserId) ids.add(row.actorUserId);
       if (row.subjectId) ids.add(row.subjectId);
+      // Ids also hide INSIDE the recorded values: a swapped microphone reads
+      // as publisherId "old-uuid" → "new-uuid", and neither means anything to
+      // a reader. Collect them too so both sides of a change can be named.
+      collectIds(row.beforeJson, ids);
+      collectIds(row.afterJson, ids);
     }
     if (ids.size === 0) return new Map();
 
@@ -192,6 +213,37 @@ export class JournalService {
     }
     return names;
   }
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Pull every id-looking string out of a recorded value map, at any depth, so
+ * the values inside a change can be given names alongside the actor.
+ */
+function collectIds(json: string | null, into: Set<string>): void {
+  if (!json) return;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return;
+  }
+  const walk = (v: unknown): void => {
+    if (typeof v === 'string') {
+      if (UUID_RE.test(v)) into.add(v);
+      return;
+    }
+    if (Array.isArray(v)) {
+      for (const item of v) walk(item);
+      return;
+    }
+    if (v && typeof v === 'object') {
+      for (const item of Object.values(v)) walk(item);
+    }
+  };
+  walk(parsed);
 }
 
 function parseDetail(json: string | null): Record<string, unknown> | null {

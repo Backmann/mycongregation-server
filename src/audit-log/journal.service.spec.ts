@@ -152,6 +152,70 @@ describe('JournalService', () => {
     expect(page.items[1].detail).toBeNull();
   });
 
+  it('returns what a field WAS, not only what it became', async () => {
+    // Without the before side the journal could say "now Andrew" but never
+    // "Peter was replaced by Andrew", which is the question people open it for.
+    auditRepo.find.mockResolvedValue([
+      row({
+        action: 'UPDATE',
+        changedFields: ['publisherId'],
+        beforeJson: '{"publisherId":"11111111-1111-1111-1111-111111111111"}',
+        afterJson: '{"publisherId":"22222222-2222-2222-2222-222222222222"}',
+      }),
+    ]);
+
+    const page = await service.find('cong-1', {});
+
+    expect(page.items[0].before).toEqual({
+      publisherId: '11111111-1111-1111-1111-111111111111',
+    });
+    expect(page.items[0].detail).toEqual({
+      publisherId: '22222222-2222-2222-2222-222222222222',
+    });
+  });
+
+  it('names the people hidden inside a change, on both sides', async () => {
+    const wasId = '11111111-1111-1111-1111-111111111111';
+    const nowId = '22222222-2222-2222-2222-222222222222';
+    auditRepo.find.mockResolvedValue([
+      row({
+        action: 'UPDATE',
+        changedFields: ['publisherId'],
+        beforeJson: `{"publisherId":"${wasId}"}`,
+        afterJson: `{"publisherId":"${nowId}"}`,
+      }),
+    ]);
+    usersRepo.find.mockResolvedValue([]);
+    publishersRepo.find.mockImplementation(({ where }: any) =>
+      Promise.resolve(
+        where.userId
+          ? []
+          : [
+              { id: wasId, firstName: 'Пётр', lastName: 'Сидоров' },
+              { id: nowId, firstName: 'Андрей', lastName: 'Ковалёв' },
+            ],
+      ),
+    );
+
+    const page = await service.find('cong-1', {});
+
+    // A bare id means nothing to a reader; the page carries the names so the
+    // screen can render "Сидоров Пётр → Ковалёв Андрей".
+    expect(page.names[wasId]).toBe('Сидоров Пётр');
+    expect(page.names[nowId]).toBe('Ковалёв Андрей');
+  });
+
+  it('survives nonsense in the before side as well', async () => {
+    auditRepo.find.mockResolvedValue([
+      row({ beforeJson: 'not json either', afterJson: '{"ok":1}' }),
+    ]);
+
+    const page = await service.find('cong-1', {});
+
+    expect(page.items[0].before).toBeNull();
+    expect(page.items[0].detail).toEqual({ ok: 1 });
+  });
+
   it('marks a redacted entry so the screen can say why it is empty', async () => {
     auditRepo.find.mockResolvedValue([
       row({ redactedAt: new Date(), changedFields: [] }),
