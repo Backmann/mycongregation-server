@@ -50,4 +50,20 @@ describe('redactPrivateFields', () => {
     expect(full.removalReason).toBe('disfellowshipped');
     expect(redacted).not.toBe(full);
   });
+  it('hides the circumstances the annual report asks about', () => {
+    // Whether someone is deaf, blind or in prison is more personal than a
+    // phone number, and the roster must not become a way to find out.
+    const out = redactPrivateFields({
+      id: 'p1',
+      firstName: 'Иван',
+      isDeaf: true,
+      isBlind: false,
+      isImprisoned: true,
+    } as never) as Record<string, unknown>;
+
+    expect(out.firstName).toBe('Иван');
+    expect('isDeaf' in out).toBe(false);
+    expect('isBlind' in out).toBe(false);
+    expect('isImprisoned' in out).toBe(false);
+  });
 });

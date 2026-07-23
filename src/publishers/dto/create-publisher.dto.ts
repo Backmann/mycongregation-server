@@ -60,6 +60,19 @@ export class CreatePublisherDto {
   @IsString()
   address?: string;
 
+  // ---- Circumstances the annual report asks about ----
+  @IsOptional()
+  @IsBoolean()
+  isDeaf?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isBlind?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isImprisoned?: boolean;
+
   // ---- Relations ----
   @IsOptional()
   @IsUUID()

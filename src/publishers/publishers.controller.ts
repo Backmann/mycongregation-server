@@ -159,6 +159,14 @@ export class PublishersController {
     const result = { ...publisher, lastEditedByName, contactsConfirmedByName };
     if (!canSeeStatus) {
       delete (result as { status?: unknown }).status;
+      // The circumstances the annual report asks about are pastoral too, and
+      // a good deal more personal than a service status: whether someone is
+      // deaf, blind or in prison is nobody's business but the elders'. Absent
+      // from the response entirely rather than sent as false, so no reader can
+      // tell "not flagged" from "not allowed to know".
+      delete (result as { isDeaf?: unknown }).isDeaf;
+      delete (result as { isBlind?: unknown }).isBlind;
+      delete (result as { isImprisoned?: unknown }).isImprisoned;
     }
     // Flag whether the publisher serves as an auxiliary pioneer this month, so
     // the card can show an elder a badge. No hour goal is exposed here.

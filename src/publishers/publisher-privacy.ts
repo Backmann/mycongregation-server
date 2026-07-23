@@ -1,6 +1,7 @@
 /**
  * Fields on a Publisher that are private (encrypted contacts, free-text notes,
- * personal dates, and removal details such as the disfellowshipping reason).
+ * personal dates, removal details such as the disfellowshipping reason, and
+ * the circumstances the annual report asks about).
  * They are visible only to admins and elders (and, in future, a ministerial
  * servant explicitly granted access). For everyone else the roster is
  * name-and-scheduling only, so the directory cannot be used to harvest
@@ -18,6 +19,12 @@ export const PRIVATE_PUBLISHER_FIELDS = [
   'pioneerSince',
   'removalReason',
   'removedAt',
+  // The circumstances the annual report asks about. More personal than a
+  // phone number, and needed only by the elders who care for the person and
+  // by whoever fills in the yearly figures.
+  'isDeaf',
+  'isBlind',
+  'isImprisoned',
 ] as const;
 
 /**

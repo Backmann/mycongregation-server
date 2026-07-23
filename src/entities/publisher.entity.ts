@@ -86,6 +86,23 @@ export class Publisher {
   @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   address!: string | null;
 
+  // ---- Circumstances the annual report (S-10) asks about ----
+  //
+  // Pastoral information: plain columns, but stripped from any response that
+  // is not for an administrator or an elder. On the card rather than typed
+  // once a year, so the yearly figures come out right by themselves.
+
+  /** Deaf, and needs sign-language interpretation. */
+  @Column({ type: 'boolean', name: 'is_deaf', default: false })
+  isDeaf!: boolean;
+
+  @Column({ type: 'boolean', name: 'is_blind', default: false })
+  isBlind!: boolean;
+
+  /** In a penal institution or prison. */
+  @Column({ type: 'boolean', name: 'is_imprisoned', default: false })
+  isImprisoned!: boolean;
+
   /**
    * When the publisher last confirmed their contacts are current, and who did
    * it — themselves, or the secretary on behalf of someone without an account.
