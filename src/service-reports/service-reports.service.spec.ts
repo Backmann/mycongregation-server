@@ -309,6 +309,88 @@ describe('ServiceReportsService', () => {
   // submitOwnReport
   // =========================================================
 
+  describe('myReportStanding', () => {
+    const user = { id: 'user-self' } as any;
+
+    // Freeze "now" so the previous-month maths is stable regardless of when
+    // the suite runs.
+    beforeEach(() => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-05-15T09:00:00'));
+    });
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('not applicable when the user has no linked publisher', async () => {
+      publishersRepo.findOne.mockResolvedValue(null);
+      await expect(service.myReportStanding('cong-1', user)).resolves.toEqual({
+        applicable: false,
+        reportMonth: null,
+        submitted: false,
+        reportId: null,
+      });
+    });
+
+    it('not applicable for a student', async () => {
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ appointment: PublisherAppointment.STUDENT }),
+      );
+      const r = await service.myReportStanding('cong-1', user);
+      expect(r.applicable).toBe(false);
+    });
+
+    it('not applicable for an explicitly inactivated publisher', async () => {
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ isActive: false }),
+      );
+      const r = await service.myReportStanding('cong-1', user);
+      expect(r.applicable).toBe(false);
+    });
+
+    it('not applicable before the publisher began reporting', async () => {
+      // Baptised in June 2026; the previous month (April 2026) predates it.
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ baptismDate: '2026-06-01' }),
+      );
+      const r = await service.myReportStanding('cong-1', user);
+      expect(r.applicable).toBe(false);
+    });
+
+    it('outstanding when no report exists for the previous month', async () => {
+      publishersRepo.findOne.mockResolvedValue(makePublisher());
+      reportsRepo.findOne.mockResolvedValue(null);
+      const r = await service.myReportStanding('cong-1', user);
+      expect(r).toEqual({
+        applicable: true,
+        reportMonth: '2026-04-01',
+        submitted: false,
+        reportId: null,
+      });
+    });
+
+    it('submitted when a report exists for the previous month', async () => {
+      publishersRepo.findOne.mockResolvedValue(makePublisher());
+      reportsRepo.findOne.mockResolvedValue(
+        makeReport({ id: 'r-april', reportMonth: '2026-04-01' }),
+      );
+      const r = await service.myReportStanding('cong-1', user);
+      expect(r).toEqual({
+        applicable: true,
+        reportMonth: '2026-04-01',
+        submitted: true,
+        reportId: 'r-april',
+      });
+    });
+
+    it('the previous month rolls across the year boundary', async () => {
+      jest.setSystemTime(new Date('2026-01-10T09:00:00'));
+      publishersRepo.findOne.mockResolvedValue(makePublisher());
+      reportsRepo.findOne.mockResolvedValue(null);
+      const r = await service.myReportStanding('cong-1', user);
+      expect(r.reportMonth).toBe('2025-12-01');
+    });
+  });
+
   describe('submitOwnReport', () => {
     it('rejects a report for the current (unfinished) month', async () => {
       publishersRepo.findOne.mockResolvedValue(

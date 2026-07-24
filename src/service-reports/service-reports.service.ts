@@ -28,6 +28,19 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { SubmitReportDto } from './dto/submit-report.dto';
 import { UpdateReportDto } from './dto/update-report.dto';
 
+/**
+ * The signed-in publisher's own standing for the month they should be
+ * reporting now (the previous calendar month). `applicable` is false for
+ * anyone who does not submit reports, in which case the other fields are
+ * empty and the home screen shows nothing.
+ */
+export interface MyReportStanding {
+  applicable: boolean;
+  reportMonth: string | null;
+  submitted: boolean;
+  reportId: string | null;
+}
+
 export interface GroupReportsResponse {
   reportMonth: string;
   scopeLabel: string;
@@ -370,6 +383,73 @@ export class ServiceReportsService {
    * boolean indicating whether the current user may PATCH it now.
    * Optional ?year filter.
    */
+  /** First day of the previous calendar month, local server time. */
+  private previousReportMonthStart(now = new Date()): string {
+    // `new Date(y, m - 1, 1)` normalises January back to December of y-1.
+    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(
+      2,
+      '0',
+    )}-01`;
+  }
+
+  /**
+   * The month (YYYY-MM) a publisher began reporting: ministry start for an
+   * unbaptised publisher, baptism otherwise. Months before it are not owed.
+   */
+  private reportingStartMonthOf(p: Publisher): string | null {
+    const raw =
+      p.appointment === PublisherAppointment.UNBAPTIZED_PUBLISHER
+        ? p.ministryStartDate
+        : p.baptismDate;
+    return raw ? raw.slice(0, 7) : null;
+  }
+
+  /**
+   * Whether the signed-in publisher still owes a report for the previous
+   * calendar month. Never the roster — the caller's own standing only.
+   */
+  async myReportStanding(
+    tenantId: string,
+    user: AuthenticatedUser,
+  ): Promise<MyReportStanding> {
+    const none: MyReportStanding = {
+      applicable: false,
+      reportMonth: null,
+      submitted: false,
+      reportId: null,
+    };
+
+    const publisher = await this.publishersRepo.findOne({
+      where: { congregationId: tenantId, userId: user.id },
+    });
+    // No linked publisher — and a departed one is soft-deleted, so findOne
+    // never returns it. Students do not report; an explicitly inactivated
+    // publisher is not nagged.
+    if (!publisher) return none;
+    if (publisher.appointment === PublisherAppointment.STUDENT) return none;
+    if (publisher.isActive === false) return none;
+
+    const reportMonth = this.previousReportMonthStart();
+    const startMonth = this.reportingStartMonthOf(publisher);
+    if (startMonth && reportMonth.slice(0, 7) < startMonth) return none;
+
+    const report = await this.reportsRepo.findOne({
+      where: {
+        congregationId: tenantId,
+        publisherId: publisher.id,
+        reportMonth,
+      },
+    });
+
+    return {
+      applicable: true,
+      reportMonth,
+      submitted: !!report,
+      reportId: report?.id ?? null,
+    };
+  }
+
   async findMyReports(
     tenantId: string,
     user: AuthenticatedUser,
@@ -713,13 +793,8 @@ export class ServiceReportsService {
     // Reporting start month per publisher (ministry start / baptism): months
     // before it are not counted as missed — a newcomer isn't penalised for
     // months before they began reporting.
-    const startMonthOf = (p: Publisher): string | null => {
-      const raw =
-        p.appointment === PublisherAppointment.UNBAPTIZED_PUBLISHER
-          ? p.ministryStartDate
-          : p.baptismDate;
-      return raw ? raw.slice(0, 7) : null;
-    };
+    const startMonthOf = (p: Publisher): string | null =>
+      this.reportingStartMonthOf(p);
     const startByPubId = new Map<string, string | null>(
       publisherScope.map((p) => [p.id, startMonthOf(p)]),
     );

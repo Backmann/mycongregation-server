@@ -93,6 +93,14 @@ export class ServiceReportsController {
     return this.serviceReportsService.findMyReports(tenantId, user, year);
   }
 
+  @Get('my-standing')
+  myStanding(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.serviceReportsService.myReportStanding(tenantId, user);
+  }
+
   @Get('group')
   findGroup(
     @TenantId() tenantId: string,
