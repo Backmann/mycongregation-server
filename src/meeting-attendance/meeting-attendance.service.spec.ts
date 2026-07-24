@@ -14,6 +14,8 @@ function row(partial: Record<string, unknown>) {
     notHeld: false,
     note: null,
     recordedBy: null,
+    createdAt: new Date('2025-09-05T10:00:00Z'),
+    updatedAt: new Date('2025-09-05T10:00:00Z'),
     ...partial,
   } as never;
 }
@@ -32,16 +34,19 @@ function build(rows: unknown[] = []) {
   } as never;
   const settingsRepo = { find: jest.fn().mockResolvedValue([]) } as never;
   const eventsRepo = { find: jest.fn().mockResolvedValue([]) } as never;
+  const publishersRepo = { find: jest.fn().mockResolvedValue([]) } as never;
   return {
     service: new MeetingAttendanceService(
       repo,
       settingsRepo,
       eventsRepo,
+      publishersRepo,
       audit,
     ),
     repo,
     audit,
     settingsRepo,
+    publishersRepo,
   };
 }
 
@@ -111,6 +116,45 @@ describe('MeetingAttendanceService', () => {
     expect(gap?.recorded).toBe(false);
     // And it takes no part in the average, which counts only what was counted.
     expect(year.months[0].midweekAverage).toBe(95);
+  });
+
+  it('signs a figure with who entered it and marks a later correction', async () => {
+    // A sheet handed to the circuit overseer should carry its own account of
+    // itself. A correction is proper and expected — but it should say so on
+    // the face of the sheet, not only in the journal.
+    const { service, settingsRepo, publishersRepo } = build([
+      row({
+        date: '2025-09-04',
+        count: 100,
+        recordedBy: 'user-1',
+        createdAt: new Date('2025-09-04T20:00:00Z'),
+        updatedAt: new Date('2025-09-04T20:00:00Z'),
+      }),
+      row({
+        date: '2025-09-11',
+        count: 96,
+        recordedBy: 'user-1',
+        createdAt: new Date('2025-09-11T20:00:00Z'),
+        updatedAt: new Date('2025-09-13T09:15:00Z'),
+      }),
+    ]);
+    (settingsRepo as unknown as { find: jest.Mock }).find.mockResolvedValue([
+      { effectiveFrom: '2020-01-01', midweekDow: 4, weekendDow: 7 },
+    ]);
+    (publishersRepo as unknown as { find: jest.Mock }).find.mockResolvedValue([
+      { userId: 'user-1', firstName: 'Лионель', lastName: 'Бакманн' },
+    ]);
+
+    const year = await service.serviceYear(TENANT, 2025);
+    const midweek = year.months[0].midweek;
+
+    const first = midweek.find((m) => m.date === '2025-09-04');
+    expect(first?.recordedByName).toBe('Бакманн Лионель');
+    expect(first?.corrected).toBe(false);
+
+    const revised = midweek.find((m) => m.date === '2025-09-11');
+    expect(revised?.corrected).toBe(true);
+    expect(revised?.recordedAt).toBe('2025-09-13T09:15:00.000Z');
   });
 
   it('keeps the two meeting kinds apart', async () => {
@@ -189,6 +233,7 @@ describe('MeetingAttendanceService', () => {
       repo,
       settingsRepo,
       { find: eventsFind } as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
       { logCreate: jest.fn(), logUpdate: jest.fn() } as never,
     );
 
@@ -214,6 +259,7 @@ describe('MeetingAttendanceService', () => {
       repo,
       settingsRepo,
       { find: eventsFind } as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
       { logCreate: jest.fn(), logUpdate: jest.fn() } as never,
     );
 
@@ -237,6 +283,7 @@ describe('MeetingAttendanceService', () => {
       repo,
       settingsRepo,
       { find: eventsFind } as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
       { logCreate: jest.fn(), logUpdate: jest.fn() } as never,
     );
 

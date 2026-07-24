@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, Repository } from 'typeorm';
+import { Between, In, Repository } from 'typeorm';
 import { MeetingAttendance } from '../entities/meeting-attendance.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
+import { Publisher } from '../entities/publisher.entity';
 import { EventType } from '../common/enums/event-type.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
 
@@ -13,6 +14,16 @@ export interface AttendanceRow {
   eventType: EventType;
   count: number | null;
   notHeld: boolean;
+  /** Who put the figure there, and when — a report handed on should say. */
+  recordedByName?: string | null;
+  recordedAt?: string | null;
+  /**
+   * True when the figure was changed after it was first entered. Not a
+   * reproach: a correction is proper and expected. But a number that was
+   * revised should say so on the face of the sheet rather than only in the
+   * journal, because the person signing it is the one who has to answer for it.
+   */
+  corrected?: boolean;
   /**
    * False when the meeting took place but nobody has entered a figure yet.
    * The sheet lists the year's MEETINGS, not the year's records: a week with
@@ -57,6 +68,8 @@ export class MeetingAttendanceService {
     private readonly settingsRepo: Repository<MeetingSettings>,
     @InjectRepository(SpecialEvent)
     private readonly eventsRepo: Repository<SpecialEvent>,
+    @InjectRepository(Publisher)
+    private readonly publishersRepo: Repository<Publisher>,
     private readonly auditLog: AuditLogService,
   ) {}
 
@@ -293,6 +306,30 @@ export class MeetingAttendanceService {
       .sort((a, b) => (a.date < b.date ? 1 : -1));
   }
 
+  /**
+   * Names for whoever entered the figures, through the publisher card linked
+   * to the account — the same path the journal uses, so a person reads the
+   * same way wherever the app names them.
+   */
+  private async namesOfRecorders(
+    rows: MeetingAttendance[],
+  ): Promise<Map<string, string>> {
+    const ids = [...new Set(rows.map((r) => r.recordedBy).filter(Boolean))];
+    const out = new Map<string, string>();
+    if (ids.length === 0) return out;
+    const cards = await this.publishersRepo.find({
+      where: { userId: In(ids as string[]) },
+    });
+    for (const c of cards) {
+      if (!c.userId) continue;
+      out.set(
+        c.userId,
+        [c.lastName, c.firstName].filter(Boolean).join(' ').trim(),
+      );
+    }
+    return out;
+  }
+
   /** Everything recorded between two dates, oldest first. */
   async range(
     tenantId: string,
@@ -324,6 +361,7 @@ export class MeetingAttendanceService {
 
     // Every meeting the year should have held, worked out from the same rules
     // the home card uses — so a week nobody entered still appears, as a hole.
+    const names = await this.namesOfRecorders(rows);
     const ctx = await this.weekContext(tenantId);
     const today = berlinToday();
     const expected: AttendanceRow[] = [];
@@ -342,6 +380,20 @@ export class MeetingAttendanceService {
             count: saved?.count ?? null,
             notHeld: saved?.notHeld ?? false,
             recorded: saved !== undefined,
+            recordedByName: saved
+              ? (names.get(saved.recordedBy ?? '') ?? null)
+              : null,
+            recordedAt: saved?.updatedAt
+              ? new Date(saved.updatedAt).toISOString()
+              : null,
+            // A second's grace: the same save writes both stamps, and they can
+            // differ by a hair without anything having been revised.
+            corrected:
+              saved?.updatedAt && saved?.createdAt
+                ? new Date(saved.updatedAt).getTime() -
+                    new Date(saved.createdAt).getTime() >
+                  1000
+                : false,
           });
         }
         week = addDaysISO(week, 7);
