@@ -18,7 +18,10 @@ function build(reports: unknown[], publishers: unknown[]) {
   const publishersRepo = {
     find: jest.fn().mockResolvedValue(publishers),
   } as never;
-  return new AnnualReportService(reportsRepo, publishersRepo);
+  const service = new AnnualReportService(reportsRepo, publishersRepo);
+  return Object.assign(service, {
+    __reportsRepo: reportsRepo,
+  }) as AnnualReportService & { __reportsRepo: { find: jest.Mock } };
 }
 
 const pub = (id: string, extra: Record<string, unknown> = {}) => ({
@@ -33,6 +36,24 @@ const pub = (id: string, extra: Record<string, unknown> = {}) => ({
 });
 
 describe('AnnualReportService — service year 2026/27', () => {
+  it('asks the database for real dates, not bare months', async () => {
+    // The months are handled as YYYY-MM throughout, but reportMonth is a date
+    // column and Postgres cannot parse "2026-02" — the endpoint answered with
+    // an error and the screen, which blamed permissions for anything that went
+    // wrong, said the report was not available. A mocked repository could not
+    // have shown it, so the query itself is checked here.
+    const svc = build([], []);
+
+    await svc.figures(TENANT, 2026);
+
+    const where = svc.__reportsRepo.find.mock.calls[0][0].where;
+    const bounds = (where.reportMonth as { value: string[] }).value;
+    for (const b of bounds) {
+      // A full calendar date, not a bare month.
+      expect(b).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+  });
+
   it('counts as active anyone who reported at least once March–August', async () => {
     const svc = build(reportsFor('p1', ['2027-05']), [pub('p1')]);
 

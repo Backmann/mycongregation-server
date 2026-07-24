@@ -73,8 +73,12 @@ export class AnnualReportService {
     // Six months of run-up as well: deciding whether somebody BECAME inactive
     // in September means looking at the six months before it, and telling that
     // apart from "was already inactive coming in" needs one month more still.
-    const from = addMonths(yearMonths[0], -7);
-    const to = yearMonths[11];
+    // Bounds must be real dates: reportMonth is a date column, and Postgres
+    // cannot parse "2026-02". The months here are YYYY-MM, so the day is added
+    // for the query — the mistake the mocked repository in the tests could
+    // never have shown, because the query was never actually run.
+    const from = `${addMonths(yearMonths[0], -7)}-01`;
+    const to = `${yearMonths[11]}-01`;
 
     const [reports, publishers] = await Promise.all([
       this.reportsRepo.find({
