@@ -89,9 +89,24 @@ export class AnnualReportService {
 
     // publisher → the set of months they reported ministry in
     const reportedBy = new Map<string, Set<string>>();
+    // publisher → the earliest month we hold ANY record for.
+    //
+    // Silence and ignorance look identical in this data, and telling them
+    // apart is the whole of two bugs Lionel found. Before this, a publisher
+    // whose history in the app began in March read as inactive for every month
+    // before it, so his first report counted as a return from inactivity —
+    // and eighty-two brothers who had served faithfully for years were listed
+    // as having come back. A publisher who transferred in from another
+    // congregation looked the same way, though he had never stopped.
+    //
+    // So a status change is only asserted where the months it rests on are
+    // actually covered. Where they are not, nothing is claimed.
+    const firstKnown = new Map<string, string>();
     for (const r of reports) {
-      if (!reportedMinistry(r)) continue;
       const key = r.reportMonth.slice(0, 7);
+      const seen = firstKnown.get(r.publisherId);
+      if (!seen || key < seen) firstKnown.set(r.publisherId, key);
+      if (!reportedMinistry(r)) continue;
       const set = reportedBy.get(r.publisherId) ?? new Set<string>();
       set.add(key);
       reportedBy.set(r.publisherId, set);
@@ -125,10 +140,19 @@ export class AnnualReportService {
       const inactiveAt = (m: string) =>
         lastSixMonths(m).every((x) => !months.has(x));
 
+      // Do we hold enough history to say anything about month M at all? The
+      // six months it looks back over must be covered, and so must the month
+      // before them — that is what separates "became inactive here" from "was
+      // already inactive when our records begin".
+      const horizon = firstKnown.get(p.id);
+      const knowable = (m: string) =>
+        horizon !== undefined && addMonths(m, -6) >= horizon;
+
       for (const m of yearMonths) {
         // Became inactive here: inactive now, not inactive a month ago. That
         // second half is what keeps out someone who lapsed years ago and never
         // returned — their run completed long before this year.
+        if (!knowable(m)) continue;
         if (inactiveAt(m) && !inactiveAt(addMonths(m, -1))) {
           becameInactive.push({ ...who, month: m });
           break;
@@ -136,7 +160,10 @@ export class AnnualReportService {
       }
 
       for (const m of yearMonths) {
-        // Resumed here: reported this month, having been inactive last month.
+        // Resumed here: reported this month, having been inactive last month —
+        // and only where the silence before it is something we actually
+        // recorded rather than merely failed to have.
+        if (!knowable(m)) continue;
         if (months.has(m) && inactiveAt(addMonths(m, -1))) {
           reactivated.push({ ...who, month: m });
           break;

@@ -107,13 +107,41 @@ describe('AnnualReportService — service year 2026/27', () => {
   });
 
   it('counts someone who was inactive and reported again in the year', async () => {
-    // Silent for a long stretch, then reported in January.
-    const svc = build(reportsFor('p1', ['2027-01']), [pub('p1')]);
+    // Reported in February, fell silent for the best part of a year, and came
+    // back in January. The February report matters: without a record BEFORE
+    // the silence there is no silence to speak of, only a gap in what we hold.
+    const svc = build(reportsFor('p1', ['2026-02', '2027-01']), [pub('p1')]);
 
     const out = await svc.figures(TENANT, 2026);
 
     expect(out.reactivated.map((x) => x.id)).toEqual(['p1']);
     expect(out.reactivated[0].month).toBe('2027-01');
+  });
+
+  it('does not call a first report a return from inactivity', async () => {
+    // The bug Lionel found in production: eighty-two brothers who had served
+    // for years were listed as having come back, because the app's records
+    // begin where they do and everything before read as silence.
+    const svc = build(reportsFor('p1', ['2027-03', '2027-04']), [pub('p1')]);
+
+    const out = await svc.figures(TENANT, 2026);
+
+    expect(out.reactivated).toHaveLength(0);
+    // He is active all the same — that much the reports do say.
+    expect(out.active.map((x) => x.id)).toEqual(['p1']);
+  });
+
+  it('does not call a publisher who transferred in a returning one', async () => {
+    // He never stopped; he served in another congregation and moved here in
+    // May. Our records start in May, and that is a fact about us, not him.
+    const svc = build(reportsFor('p1', ['2027-05', '2027-06', '2027-07']), [
+      pub('p1'),
+    ]);
+
+    const out = await svc.figures(TENANT, 2026);
+
+    expect(out.reactivated).toHaveLength(0);
+    expect(out.becameInactive).toHaveLength(0);
   });
 
   it('does not call it a return when the gap was shorter than six months', async () => {
