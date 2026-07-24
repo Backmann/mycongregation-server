@@ -13,6 +13,14 @@ export interface AttendanceRow {
   eventType: EventType;
   count: number | null;
   notHeld: boolean;
+  /**
+   * False when the meeting took place but nobody has entered a figure yet.
+   * The sheet lists the year's MEETINGS, not the year's records: a week with
+   * no entry has to be visible as a hole, or a reader cannot see that the
+   * figures run week after week — and a gap that shows as nothing at all is a
+   * gap nobody notices.
+   */
+  recorded: boolean;
 }
 
 /** A month of the service year, per meeting kind. */
@@ -311,21 +319,49 @@ export class MeetingAttendanceService {
     const from = `${startYear}-09-01`;
     const to = `${startYear + 1}-08-31`;
     const rows = await this.range(tenantId, from, to);
+    const byMeeting = new Map<string, MeetingAttendance>();
+    for (const r of rows) byMeeting.set(`${r.date}|${r.eventType}`, r);
+
+    // Every meeting the year should have held, worked out from the same rules
+    // the home card uses — so a week nobody entered still appears, as a hole.
+    const ctx = await this.weekContext(tenantId);
+    const today = berlinToday();
+    const expected: AttendanceRow[] = [];
+    if (ctx) {
+      let week = mondayOfISO(from);
+      const lastWeek = mondayOfISO(to);
+      while (week <= lastWeek) {
+        for (const m of this.meetingsOfWeek(week, ctx)) {
+          // Meetings still ahead are not gaps; they simply have not happened.
+          if (m.date > today) continue;
+          if (m.date < from || m.date > to) continue;
+          const saved = byMeeting.get(`${m.date}|${m.eventType}`);
+          expected.push({
+            date: m.date,
+            eventType: m.eventType,
+            count: saved?.count ?? null,
+            notHeld: saved?.notHeld ?? false,
+            recorded: saved !== undefined,
+          });
+        }
+        week = addDaysISO(week, 7);
+      }
+    }
 
     const months: AttendanceMonth[] = [];
     for (let i = 0; i < 12; i++) {
       const y = startYear + (i < 4 ? 0 : 1);
       const m = ((8 + i) % 12) + 1;
       const key = `${y}-${String(m).padStart(2, '0')}`;
-      const inMonth = rows.filter((r) => r.date.slice(0, 7) === key);
+      const inMonth = expected.filter((r) => r.date.slice(0, 7) === key);
       const midweek = inMonth.filter((r) => r.eventType === EventType.MIDWEEK);
       const weekend = inMonth.filter((r) => r.eventType === EventType.WEEKEND);
       const mw = summarise(midweek);
       const we = summarise(weekend);
       months.push({
         month: `${key}-01`,
-        midweek: midweek.map(toRow),
-        weekend: weekend.map(toRow),
+        midweek,
+        weekend,
         midweekTotal: mw.total,
         midweekAverage: mw.average,
         weekendTotal: we.total,
@@ -364,21 +400,12 @@ function mondayOfISO(iso: string): string {
   return addDaysISO(iso, 1 - dow);
 }
 
-function toRow(r: MeetingAttendance): AttendanceRow {
-  return {
-    date: r.date,
-    eventType: r.eventType,
-    count: r.count,
-    notHeld: r.notHeld,
-  };
-}
-
 /**
  * Total and average for one kind of meeting in one month. Only meetings that
  * were held and counted take part — a meeting not held is not a zero, and an
  * entry nobody has made yet is not a zero either.
  */
-function summarise(rows: MeetingAttendance[]): {
+function summarise(rows: AttendanceRow[]): {
   total: number;
   average: number | null;
 } {

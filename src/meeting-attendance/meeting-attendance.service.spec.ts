@@ -47,16 +47,20 @@ function build(rows: unknown[] = []) {
 
 describe('MeetingAttendanceService', () => {
   it('divides by the meetings actually held, not by the calendar', async () => {
-    // Four midweek meetings fall in the month, but one week was an assembly.
-    // Dividing 300 by four would understate every such month.
-    const { service } = build([
-      row({ date: '2026-09-03', count: 100 }),
-      row({ date: '2026-09-10', count: 110 }),
-      row({ date: '2026-09-17', count: 90 }),
-      row({ date: '2026-09-24', count: null, notHeld: true }),
+    // Four midweek meetings fall in the month, but one week the congregation
+    // was at an assembly. Dividing 300 by four would understate every such
+    // month. A past service year, because meetings still ahead are not listed.
+    const { service, settingsRepo } = build([
+      row({ date: '2025-09-04', count: 100 }),
+      row({ date: '2025-09-11', count: 110 }),
+      row({ date: '2025-09-18', count: 90 }),
+      row({ date: '2025-09-25', count: null, notHeld: true }),
+    ]);
+    (settingsRepo as unknown as { find: jest.Mock }).find.mockResolvedValue([
+      { effectiveFrom: '2020-01-01', midweekDow: 4, weekendDow: 7 },
     ]);
 
-    const year = await service.serviceYear(TENANT, 2026);
+    const year = await service.serviceYear(TENANT, 2025);
     const september = year.months[0];
 
     expect(september.midweekTotal).toBe(300);
@@ -86,13 +90,39 @@ describe('MeetingAttendanceService', () => {
     expect(where.congregationId).toBe(TENANT);
   });
 
-  it('keeps the two meeting kinds apart', async () => {
-    const { service } = build([
-      row({ date: '2026-09-03', eventType: EventType.MIDWEEK, count: 100 }),
-      row({ date: '2026-09-06', eventType: EventType.WEEKEND, count: 140 }),
+  it('shows a week nobody entered as a hole, not as nothing at all', async () => {
+    // The sheet lists the year's MEETINGS, not its records. A missing week
+    // that simply vanishes from the list cannot be noticed, and noticing is
+    // the whole point of reading the sheet before handing it over.
+    const { service, settingsRepo } = build([
+      row({ date: '2025-09-04', count: 100 }),
+      // 11 September deliberately absent
+      row({ date: '2025-09-18', count: 90 }),
+    ]);
+    (settingsRepo as unknown as { find: jest.Mock }).find.mockResolvedValue([
+      { effectiveFrom: '2020-01-01', midweekDow: 4, weekendDow: 7 },
     ]);
 
-    const year = await service.serviceYear(TENANT, 2026);
+    const year = await service.serviceYear(TENANT, 2025);
+    const midweek = year.months[0].midweek;
+
+    const gap = midweek.find((m) => m.date === '2025-09-11');
+    expect(gap).toBeDefined();
+    expect(gap?.recorded).toBe(false);
+    // And it takes no part in the average, which counts only what was counted.
+    expect(year.months[0].midweekAverage).toBe(95);
+  });
+
+  it('keeps the two meeting kinds apart', async () => {
+    const { service, settingsRepo } = build([
+      row({ date: '2025-09-04', eventType: EventType.MIDWEEK, count: 100 }),
+      row({ date: '2025-09-07', eventType: EventType.WEEKEND, count: 140 }),
+    ]);
+    (settingsRepo as unknown as { find: jest.Mock }).find.mockResolvedValue([
+      { effectiveFrom: '2020-01-01', midweekDow: 4, weekendDow: 7 },
+    ]);
+
+    const year = await service.serviceYear(TENANT, 2025);
 
     expect(year.months[0].midweekTotal).toBe(100);
     expect(year.months[0].weekendTotal).toBe(140);
