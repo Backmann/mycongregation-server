@@ -345,6 +345,93 @@ describe('AuxiliaryPioneersService', () => {
     });
   });
 
+  describe('myAuxiliaryPioneerStatus', () => {
+    it('empty standing when the user has no publisher record', async () => {
+      publisherRepo.findOne.mockResolvedValue(null);
+      await expect(
+        service.myAuxiliaryPioneerStatus(CONG, plain, '2026-07-01'),
+      ).resolves.toEqual({ serving: false, current: null, upcoming: null });
+    });
+
+    it('returns the period covering the month', async () => {
+      publisherRepo.findOne.mockResolvedValue({ id: 'p-self' });
+      repo.find.mockResolvedValue([
+        {
+          startMonth: '2026-07-01',
+          endMonth: '2026-09-01',
+          untilCancelled: false,
+        },
+      ]);
+      const status = await service.myAuxiliaryPioneerStatus(
+        CONG,
+        plain,
+        '2026-07-01',
+      );
+      expect(status.serving).toBe(true);
+      expect(status.current).toEqual({
+        startMonth: '2026-07-01',
+        endMonth: '2026-09-01',
+        untilCancelled: false,
+      });
+      expect(status.upcoming).toBeNull();
+    });
+
+    it('reports an enrolment that has not started yet', async () => {
+      publisherRepo.findOne.mockResolvedValue({ id: 'p-self' });
+      repo.find.mockResolvedValue([
+        {
+          startMonth: '2026-08-01',
+          endMonth: '2026-08-01',
+          untilCancelled: false,
+        },
+      ]);
+      const status = await service.myAuxiliaryPioneerStatus(
+        CONG,
+        plain,
+        '2026-07-01',
+      );
+      expect(status.serving).toBe(false);
+      expect(status.current).toBeNull();
+      expect(status.upcoming?.startMonth).toBe('2026-08-01');
+    });
+
+    it('picks the SOONEST of several future enrolments', async () => {
+      publisherRepo.findOne.mockResolvedValue({ id: 'p-self' });
+      repo.find.mockResolvedValue([
+        {
+          startMonth: '2026-12-01',
+          endMonth: '2026-12-01',
+          untilCancelled: false,
+        },
+        {
+          startMonth: '2026-09-01',
+          endMonth: '2026-09-01',
+          untilCancelled: false,
+        },
+      ]);
+      const status = await service.myAuxiliaryPioneerStatus(
+        CONG,
+        plain,
+        '2026-07-01',
+      );
+      expect(status.upcoming?.startMonth).toBe('2026-09-01');
+    });
+
+    it('a finished period is neither current nor upcoming', async () => {
+      publisherRepo.findOne.mockResolvedValue({ id: 'p-self' });
+      repo.find.mockResolvedValue([
+        {
+          startMonth: '2026-03-01',
+          endMonth: '2026-04-01',
+          untilCancelled: false,
+        },
+      ]);
+      await expect(
+        service.myAuxiliaryPioneerStatus(CONG, plain, '2026-07-01'),
+      ).resolves.toEqual({ serving: false, current: null, upcoming: null });
+    });
+  });
+
   describe('isActiveAuxiliaryPioneer', () => {
     it('true when a period covers the month', async () => {
       repo.find.mockResolvedValue([

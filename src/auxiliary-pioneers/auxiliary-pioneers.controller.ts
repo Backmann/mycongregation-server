@@ -15,6 +15,7 @@ import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { AuxiliaryPioneersService } from './auxiliary-pioneers.service';
+import type { MyAuxPioneerStatus } from './auxiliary-pioneers.service';
 import { CreateAuxiliaryPioneerDto } from './dto/create-auxiliary-pioneer.dto';
 import { StopAuxiliaryPioneerDto } from './dto/stop-auxiliary-pioneer.dto';
 import { UpdateAuxiliaryPioneerDto } from './dto/update-auxiliary-pioneer.dto';
@@ -38,23 +39,23 @@ export class AuxiliaryPioneersController {
   }
 
   /**
-   * Whether the CURRENT user is an active auxiliary pioneer in a given month.
-   * Available to the publisher themselves (drives the report form + badges);
-   * returns just a boolean, never the roster.
+   * The CURRENT user's own auxiliary-pioneer standing around a given month:
+   * whether they serve in it, the period covering it, and the next period that
+   * has not started yet. Available to the publisher themselves (drives the
+   * report form and the home badge); never the roster.
    */
   @Get('mine')
-  async mine(
+  mine(
     @TenantId() congregationId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Query('month') month: string,
-  ): Promise<{ serving: boolean }> {
+  ): Promise<MyAuxPioneerStatus> {
     const monthIso = month || new Date().toISOString().slice(0, 10);
-    const serving = await this.service.isSelfActiveAuxiliaryPioneer(
+    return this.service.myAuxiliaryPioneerStatus(
       congregationId,
       user,
       monthIso,
     );
-    return { serving };
   }
 
   @Post()

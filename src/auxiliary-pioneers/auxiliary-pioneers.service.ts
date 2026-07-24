@@ -56,6 +56,24 @@ export interface AuxPioneerJournalRow {
   currentPioneerType: PioneerType;
 }
 
+/** Один собственный период — ровно то, что нужно назвать на главной. */
+export interface MyAuxPioneerPeriod {
+  startMonth: string;
+  endMonth: string | null;
+  untilCancelled: boolean;
+}
+
+/**
+ * Собственное положение вошедшего возвещателя вокруг месяца: период,
+ * покрывающий этот месяц, и ближайший ещё не начавшийся. Смысл `upcoming` в
+ * том, чтобы в июле было видно: август уже оформлен.
+ */
+export interface MyAuxPioneerStatus {
+  serving: boolean;
+  current: MyAuxPioneerPeriod | null;
+  upcoming: MyAuxPioneerPeriod | null;
+}
+
 @Injectable()
 export class AuxiliaryPioneersService {
   constructor(
@@ -369,21 +387,55 @@ export class AuxiliaryPioneersService {
    * pioneer in the given month. Used by the report form and the "you serve as
    * an auxiliary pioneer" badges — available to the publisher themselves.
    */
+  /**
+   * Собственное положение вызывающего — никогда не список собрания. Отдаёт
+   * период, покрывающий `monthIso`, и ближайший начинающийся после него.
+   */
+  async myAuxiliaryPioneerStatus(
+    congregationId: string,
+    user: AuthenticatedUser,
+    monthIso: string,
+  ): Promise<MyAuxPioneerStatus> {
+    const publisher = await this.publisherRepo.findOne({
+      where: { congregationId, userId: user.id },
+      select: ['id'],
+    });
+    if (!publisher) return { serving: false, current: null, upcoming: null };
+
+    const monthKey = monthKeyOf(monthIso);
+    const rows = await this.repo.find({
+      where: { congregationId, publisherId: publisher.id },
+    });
+    const shape = (p: AuxiliaryPioneer): MyAuxPioneerPeriod => ({
+      startMonth: p.startMonth,
+      endMonth: p.endMonth,
+      untilCancelled: p.untilCancelled,
+    });
+    const current = rows.find((p) => isActiveInMonth(shape(p), monthKey));
+    // Ближайший из ещё не начавшихся: их может быть несколько, нужен первый.
+    const upcoming = rows
+      .filter((p) => monthKeyOf(p.startMonth) > monthKey)
+      .sort((a, b) => a.startMonth.localeCompare(b.startMonth))[0];
+
+    return {
+      serving: !!current,
+      current: current ? shape(current) : null,
+      upcoming: upcoming ? shape(upcoming) : null,
+    };
+  }
+
   async isSelfActiveAuxiliaryPioneer(
     congregationId: string,
     user: AuthenticatedUser,
     monthIso: string,
   ): Promise<boolean> {
-    const publisher = await this.publisherRepo.findOne({
-      where: { congregationId, userId: user.id },
-      select: ['id'],
-    });
-    if (!publisher) return false;
-    return this.isActiveAuxiliaryPioneer(
+    // Один источник истины: «служу ли я» — это то же вычисление, что и период.
+    const status = await this.myAuxiliaryPioneerStatus(
       congregationId,
-      publisher.id,
+      user,
       monthIso,
     );
+    return status.serving;
   }
 
   /**
