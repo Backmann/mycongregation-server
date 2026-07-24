@@ -168,9 +168,23 @@ export class MeetingAttendanceService {
   async pending(
     tenantId: string,
     weeksBack = 8,
-  ): Promise<{ date: string; eventType: EventType }[]> {
+  ): Promise<{
+    meetings: { date: string; eventType: EventType }[];
+    /**
+     * Everything still unrecorded in the CURRENT service year, not just in the
+     * eight weeks the card offers.
+     *
+     * The card asks about a recent meeting because a figure is worth having
+     * while it is fresh. But a meeting missed nine weeks ago stopped being
+     * mentioned anywhere on the home screen, and the count beside it said
+     * "three" when the year held fourteen holes — understating exactly the
+     * thing it existed to surface. The offer stays recent; the count tells the
+     * truth about the year.
+     */
+    outstandingThisYear: number;
+  }> {
     const ctx = await this.weekContext(tenantId);
-    if (!ctx) return [];
+    if (!ctx) return { meetings: [], outstandingThisYear: 0 };
 
     const today = berlinToday();
     const thisMonday = mondayOfISO(today);
@@ -186,7 +200,36 @@ export class MeetingAttendanceService {
       }
     }
 
-    return this.dropAlreadyRecorded(tenantId, wanted);
+    return {
+      meetings: await this.dropAlreadyRecorded(tenantId, wanted),
+      outstandingThisYear: await this.outstandingThisYear(tenantId, ctx, today),
+    };
+  }
+
+  /** How many meetings of the current service year still have no figure. */
+  private async outstandingThisYear(
+    tenantId: string,
+    ctx: WeekContext,
+    today: string,
+  ): Promise<number> {
+    // Before September the year in progress began last autumn.
+    const y = Number(today.slice(0, 4));
+    const startYear = Number(today.slice(5, 7)) >= 9 ? y : y - 1;
+    const from = `${startYear}-09-01`;
+    const rows = await this.range(tenantId, from, today);
+    const done = new Set(rows.map((r) => `${r.date}|${r.eventType}`));
+
+    let count = 0;
+    let week = mondayOfISO(from);
+    const lastWeek = mondayOfISO(today);
+    while (week <= lastWeek) {
+      for (const m of this.meetingsOfWeek(week, ctx)) {
+        if (m.date > today || m.date < from) continue;
+        if (!done.has(`${m.date}|${m.eventType}`)) count += 1;
+      }
+      week = addDaysISO(week, 7);
+    }
+    return count;
   }
 
   /**

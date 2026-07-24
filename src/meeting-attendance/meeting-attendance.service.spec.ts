@@ -198,7 +198,7 @@ describe('MeetingAttendanceService', () => {
       { logCreate: jest.fn(), logUpdate: jest.fn() },
     );
 
-    const out = await svc.pending('cong-1', 2);
+    const out = (await svc.pending('cong-1', 2)).meetings;
 
     // Whatever it offers for that week's midweek meeting, it must not be the
     // ordinary Thursday.
@@ -237,7 +237,7 @@ describe('MeetingAttendanceService', () => {
       { logCreate: jest.fn(), logUpdate: jest.fn() } as never,
     );
 
-    const out = await svc.pending('cong-1', 4);
+    const out = (await svc.pending('cong-1', 4)).meetings;
 
     expect(out).toHaveLength(0);
   });
@@ -291,6 +291,32 @@ describe('MeetingAttendanceService', () => {
 
     // The OTHER meeting of that week still happened and is still asked about.
     expect(out.map((m) => m.eventType)).toEqual(['midweek']);
+  });
+
+  it('counts what is outstanding for the whole year, not just the weeks it offers', async () => {
+    // The card offers a recent meeting, but the count beside it has to be
+    // honest about the year: a meeting missed in October is still a hole in
+    // the sheet in July, and a count that stopped at eight weeks understated
+    // precisely the thing it existed to surface.
+    const { repo, settingsRepo } = build([]);
+    (settingsRepo as unknown as { find: jest.Mock }).find.mockResolvedValue([
+      { effectiveFrom: '2020-01-01', midweekDow: 4, weekendDow: 7 },
+    ]);
+    const svc = new MeetingAttendanceService(
+      repo,
+      settingsRepo,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      { logCreate: jest.fn(), logUpdate: jest.fn() } as never,
+    );
+
+    // Nothing recorded at all, and only two weeks are offered.
+    const out = await svc.pending('cong-1', 2);
+
+    expect(out.meetings.length).toBeLessThanOrEqual(4);
+    // Many weeks have passed since 1 September, so the year's tally is far
+    // larger than the handful the card offers.
+    expect(out.outstandingThisYear).toBeGreaterThan(out.meetings.length);
   });
 
   it('refuses a held meeting with no figure', async () => {
