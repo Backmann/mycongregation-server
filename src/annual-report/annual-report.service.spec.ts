@@ -160,4 +160,26 @@ describe('AnnualReportService — service year 2026/27', () => {
     expect(out.blind.map((x) => x.id)).toEqual(['p2']);
     expect(out.imprisoned.map((x) => x.id)).toEqual(['p2']);
   });
+  it('gives the reports-per-month figures rather than guessing who failed to report', () => {
+    // The app cannot tell "did not share" from "not collected yet", so it
+    // states the counts and lets the secretary read them. Filing on 2
+    // September, August standing far below the rest is the signal.
+    return (async () => {
+      const svc = build(
+        [
+          ...reportsFor('p1', ['2027-07', '2027-08']),
+          ...reportsFor('p2', ['2027-07']),
+        ],
+        [pub('p1'), pub('p2')],
+      );
+
+      const out = await svc.figures(TENANT, 2026);
+      const july = out.monthlyReporters.find((m) => m.month === '2027-07-01');
+      const august = out.monthlyReporters.find((m) => m.month === '2027-08-01');
+
+      expect(july?.count).toBe(2);
+      expect(august?.count).toBe(1);
+      expect(out.monthlyReporters).toHaveLength(12);
+    })();
+  });
 });

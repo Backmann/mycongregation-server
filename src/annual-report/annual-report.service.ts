@@ -29,8 +29,25 @@ export interface CountedPublisher {
   month?: string;
 }
 
+/** How many reports came in for a month — the shape of the year, plainly. */
+export interface MonthlyReporters {
+  month: string;
+  count: number;
+}
+
 export interface AnnualFigures {
   startYear: number;
+  /**
+   * Reports received per month, September through August.
+   *
+   * NOT a judgement about who failed to report: this app cannot tell "did not
+   * share" from "not collected yet", and a warning built on that guess would
+   * be an inference dressed as a fact — in a form that goes to the circuit
+   * overseer, the worst kind. The figures are given instead, so a secretary
+   * filing in early September sees for himself that August stands at twelve
+   * where every other month stands at forty, and knows the year is not in yet.
+   */
+  monthlyReporters: MonthlyReporters[];
   /** Reported at least one month between March and August. */
   active: CountedPublisher[];
   /** Completed six consecutive unreported months WITHIN this service year. */
@@ -75,6 +92,13 @@ export class AnnualReportService {
       set.add(key);
       reportedBy.set(r.publisherId, set);
     }
+
+    const monthlyReporters: MonthlyReporters[] = yearMonths.map((m) => ({
+      month: `${m}-01`,
+      count: reports.filter(
+        (r) => r.reportMonth.slice(0, 7) === m && reportedMinistry(r),
+      ).length,
+    }));
 
     const active: CountedPublisher[] = [];
     const becameInactive: CountedPublisher[] = [];
@@ -122,6 +146,7 @@ export class AnnualReportService {
 
     return {
       startYear,
+      monthlyReporters,
       active,
       becameInactive,
       reactivated,
