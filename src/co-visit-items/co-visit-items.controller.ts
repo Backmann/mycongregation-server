@@ -42,6 +42,16 @@ export class CoVisitItemsController {
     return this.service.mine(congregationId, user);
   }
 
+  /**
+   * The field-service meetings of upcoming visits — announced to everyone, so
+   * no role guard. Narrow by design: the full item list below stays
+   * elder-only because it also carries hosts, addresses and phone numbers.
+   */
+  @Get('field-service')
+  fieldService(@TenantId() congregationId: string) {
+    return this.service.fieldService(congregationId);
+  }
+
   /** Hosting rotation across all visits (for the host picker). */
   @Get('host-stats')
   @UseGuards(RolesGuard)

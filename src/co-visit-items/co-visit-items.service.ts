@@ -13,6 +13,32 @@ import { AuxiliaryPioneersService } from '../auxiliary-pioneers/auxiliary-pionee
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
+/**
+ * The field-service part of a circuit-overseer visit, as everyone may see it.
+ *
+ * The visit's own item list is elder-only, and rightly so: it also holds who
+ * hosts the overseer, home addresses and phone numbers. But the field-service
+ * meetings of that week are announced to the whole congregation like any
+ * other, and during a visit they live HERE rather than in the regular field
+ * service section — so without this the week looked empty to everybody.
+ *
+ * Only what an announcement would carry: when, where, and who leads. No
+ * assignee ids, no phones, no addresses, no notes.
+ */
+export interface CoVisitFieldServiceMeeting {
+  id: string;
+  itemDate: string;
+  startTime: string | null;
+  place: string | null;
+  conductorName: string | null;
+  forWife: boolean;
+}
+
+export interface CoVisitFieldServiceWeek {
+  visit: { id: string; title: string; date: string; endDate: string | null };
+  meetings: CoVisitFieldServiceMeeting[];
+}
+
 export interface CoVisitItemView {
   id: string;
   kind: string;
@@ -140,6 +166,59 @@ export class CoVisitItemsService {
       map.set(key, st);
     }
     return Array.from(map.values());
+  }
+
+  /**
+   * Field-service meetings of every upcoming visit, for any signed-in member.
+   * Deliberately narrow — see CoVisitFieldServiceMeeting for why the full item
+   * list cannot simply be opened up.
+   */
+  async fieldService(
+    congregationId: string,
+  ): Promise<CoVisitFieldServiceWeek[]> {
+    const today = new Date().toISOString().slice(0, 10);
+    const visits = (
+      await this.eventsRepo.find({
+        where: { congregationId, type: 'circuit_overseer_visit' },
+        order: { date: 'ASC' },
+      })
+    ).filter((e) => (e.endDate ?? e.date) >= today);
+
+    const out: CoVisitFieldServiceWeek[] = [];
+    for (const visit of visits) {
+      const items = await this.repo.find({
+        where: {
+          congregationId,
+          specialEventId: visit.id,
+          kind: 'field_service',
+        },
+        relations: { assignee: true, cartLocation: true },
+        order: { itemDate: 'ASC', startTime: 'ASC', sortOrder: 'ASC' },
+      });
+      if (items.length === 0) continue;
+      out.push({
+        visit: {
+          id: visit.id,
+          title: visit.title,
+          date: visit.date,
+          endDate: visit.endDate ?? null,
+        },
+        meetings: items.map((it) => ({
+          id: it.id,
+          itemDate: it.itemDate,
+          startTime: it.startTime ?? null,
+          place:
+            (it.placeKind === 'cart_location'
+              ? (it.cartLocation?.name ?? null)
+              : (it.placeText ?? null)) ?? null,
+          // Who leads it — the same fact a regular field-service meeting
+          // shows publicly. Never the phone or address stored alongside.
+          conductorName: it.assignee?.displayName ?? it.assigneeText ?? null,
+          forWife: it.forWife,
+        })),
+      });
+    }
+    return out;
   }
 
   async mine(

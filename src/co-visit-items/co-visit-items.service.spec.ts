@@ -366,3 +366,90 @@ describe('CoVisitItemsService.mine — accommodation host & legacy copies', () =
     expect(out[0].items[0].id).toBe('l1');
   });
 });
+
+describe('CoVisitItemsService.fieldService', () => {
+  const CONG = 'c1';
+  const visit = {
+    id: 'v1',
+    title: 'Посещение РН',
+    date: '2099-01-05',
+    endDate: '2099-01-11',
+    type: 'circuit_overseer_visit',
+  };
+
+  function build(items: any[]) {
+    const repo = { find: jest.fn(async () => items) } as any;
+    const eventsRepo = { find: jest.fn(async () => [visit]) } as any;
+    return new CoVisitItemsService(
+      repo,
+      eventsRepo,
+      {} as any,
+      {} as any,
+      {
+        isActiveAuxiliaryPioneer: jest.fn(async () => false),
+      } as any,
+    );
+  }
+
+  const fs = {
+    id: 'i1',
+    kind: 'field_service',
+    forWife: false,
+    itemDate: '2099-01-07',
+    startTime: '09:30',
+    placeKind: 'kingdom_hall',
+    placeText: 'Зал',
+    cartLocation: null,
+    assignee: { displayName: 'Брат А' },
+    assigneePhone: '+49 123',
+    assigneeAddress: 'Musterstr. 1',
+    note: 'частная пометка',
+    sortOrder: 0,
+  };
+
+  it('returns the visit and its field-service meetings', async () => {
+    const svc = build([fs]);
+    const out = await svc.fieldService(CONG);
+    expect(out).toHaveLength(1);
+    expect(out[0].visit.id).toBe('v1');
+    expect(out[0].meetings).toEqual([
+      {
+        id: 'i1',
+        itemDate: '2099-01-07',
+        startTime: '09:30',
+        place: 'Зал',
+        conductorName: 'Брат А',
+        forWife: false,
+      },
+    ]);
+  });
+
+  // The full item list is elder-only because of exactly these fields; the
+  // public view must not leak them back out.
+  it('never exposes phones, addresses or notes', async () => {
+    const svc = build([fs]);
+    const out = await svc.fieldService(CONG);
+    const asText = JSON.stringify(out);
+    expect(asText).not.toContain('+49 123');
+    expect(asText).not.toContain('Musterstr. 1');
+    expect(asText).not.toContain('частная пометка');
+  });
+
+  it('uses the cart location as the place when the item points at one', async () => {
+    const svc = build([
+      {
+        ...fs,
+        placeKind: 'cart_location',
+        cartLocation: { name: 'Rathaus' },
+        placeText: null,
+      },
+    ]);
+    const out = await svc.fieldService(CONG);
+    expect(out[0].meetings[0].place).toBe('Rathaus');
+  });
+
+  it('skips a visit that has no field-service meetings', async () => {
+    const svc = build([]);
+    await expect(svc.fieldService(CONG)).resolves.toEqual([]);
+  });
+});
