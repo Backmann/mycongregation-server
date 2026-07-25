@@ -418,7 +418,6 @@ describe('CoVisitItemsService.fieldService', () => {
         itemDate: '2099-01-07',
         startTime: '09:30',
         place: 'Зал',
-        conductorName: 'Брат А',
         forWife: false,
       },
     ]);
@@ -430,6 +429,9 @@ describe('CoVisitItemsService.fieldService', () => {
     const svc = build([fs]);
     const out = await svc.fieldService(CONG);
     const asText = JSON.stringify(out);
+    // The assignee on a visit item is the brother going out WITH the overseer,
+    // not a conductor — naming him publicly was both untrue and personal.
+    expect(asText).not.toContain('Брат А');
     expect(asText).not.toContain('+49 123');
     expect(asText).not.toContain('Musterstr. 1');
     expect(asText).not.toContain('частная пометка');

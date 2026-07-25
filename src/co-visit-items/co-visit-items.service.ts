@@ -22,15 +22,17 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
  * other, and during a visit they live HERE rather than in the regular field
  * service section — so without this the week looked empty to everybody.
  *
- * Only what an announcement would carry: when, where, and who leads. No
- * assignee ids, no phones, no addresses, no notes.
+ * Only what an announcement would carry: when and where. Deliberately NOT the
+ * assignee: on a visit item that field holds the brother going out in service
+ * WITH the overseer, not the one conducting the meeting — publishing it as a
+ * conductor stated something untrue and exposed a personal pairing to the
+ * whole congregation. No assignee, no ids, no phones, no addresses, no notes.
  */
 export interface CoVisitFieldServiceMeeting {
   id: string;
   itemDate: string;
   startTime: string | null;
   place: string | null;
-  conductorName: string | null;
   forWife: boolean;
 }
 
@@ -213,7 +215,6 @@ export class CoVisitItemsService {
               : (it.placeText ?? null)) ?? null,
           // Who leads it — the same fact a regular field-service meeting
           // shows publicly. Never the phone or address stored alongside.
-          conductorName: it.assignee?.displayName ?? it.assigneeText ?? null,
           forWife: it.forWife,
         })),
       });
