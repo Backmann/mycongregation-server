@@ -7,6 +7,7 @@ import { UpdateFieldServiceMeetingDto } from './dto/update-field-service-meeting
 import { QueryFieldServiceMeetingsDto } from './dto/query-field-service-meetings.dto';
 import { Publisher } from '../entities/publisher.entity';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 
 /** Add n days to an ISO 'YYYY-MM-DD' date (UTC, calendar-safe). */
@@ -75,6 +76,7 @@ export class FieldServiceMeetingsService {
     @InjectRepository(Publisher)
     private readonly publishersRepo: Repository<Publisher>,
     private readonly push: PushNotificationsService,
+    private readonly notifications: NotificationsService,
     private readonly auditLog: AuditLogService,
   ) {}
 
@@ -105,17 +107,20 @@ export class FieldServiceMeetingsService {
         .replace('{date}', fmtDate(meetingDateISO(meeting)))
         .replace('{time}', meeting.startTime)
         .replace('{address}', meeting.address);
-      await this.push.sendToUsers(
-        congregationId,
-        [pub.userId],
-        texts.title,
+      // No dedupe key: a meeting edited twice is two pieces of news, and the
+      // conductor should hear both.
+      await this.notifications.notify({
+        tenantId: congregationId,
+        userIds: [pub.userId],
+        title: texts.title,
         body,
-        {
+        kind: 'field_service_meeting',
+        data: {
           type: 'field_service_meeting',
           meetingId: meeting.id,
           date: meetingDateISO(meeting),
         },
-      );
+      });
     } catch (e) {
       this.logger.warn(
         `conductor push failed (${kind}): ${e instanceof Error ? e.message : String(e)}`,

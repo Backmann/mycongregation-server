@@ -4,6 +4,7 @@ import { FieldServiceMeetingsService } from './field-service-meetings.service';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 
 jest.mock('../push-notifications/push-notifications.service', () => ({
@@ -40,6 +41,10 @@ async function buildService(rows: FieldServiceMeeting[]) {
       {
         provide: PushNotificationsService,
         useValue: { sendToUsers: jest.fn().mockResolvedValue(undefined) },
+      },
+      {
+        provide: NotificationsService,
+        useValue: { notify: jest.fn().mockResolvedValue(undefined) },
       },
       {
         provide: AuditLogService,

@@ -7,6 +7,7 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { User } from '../entities/user.entity';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { ReportRemindersService } from './report-reminders.service';
 
 @Module({
@@ -20,6 +21,7 @@ import { ReportRemindersService } from './report-reminders.service';
       User,
     ]),
     PushNotificationsModule,
+    NotificationsModule,
   ],
   providers: [ReportRemindersService],
 })

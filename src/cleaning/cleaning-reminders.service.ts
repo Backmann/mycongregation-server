@@ -9,6 +9,7 @@ import { Publisher } from '../entities/publisher.entity';
 import { ReminderLog } from '../entities/reminder-log.entity';
 import { CleaningSlotType } from '../common/enums/cleaning-slot-type.enum';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   coerceLanguage,
   SupportedLanguage,
@@ -112,6 +113,7 @@ export class CleaningRemindersService {
     @InjectRepository(ReminderLog)
     private readonly logRepo: Repository<ReminderLog>,
     private readonly push: PushNotificationsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Wall-clock parts for `now` in the given IANA timezone. */
@@ -266,17 +268,18 @@ export class CleaningRemindersService {
               cong.id,
               afterSlot.serviceGroupId,
             );
-            await this.push.sendToUsers(
-              cong.id,
-              users,
-              s.afterTitle,
-              s.afterBody,
-              {
+            await this.notifications.notify({
+              tenantId: cong.id,
+              userIds: users,
+              title: s.afterTitle,
+              body: s.afterBody,
+              kind: 'cleaning_after_meeting',
+              data: {
                 type: 'cleaning_after_meeting',
                 weekStart,
                 meeting: meetingToday.name,
               },
-            );
+            });
           }
         }
       }
@@ -297,10 +300,17 @@ export class CleaningRemindersService {
             windows.length > 0
               ? s.weeklyBody(windows.join(', '))
               : s.weeklyBodyNoWindows;
-          await this.push.sendToUsers(cong.id, users, s.weeklyTitle, body, {
-            type: 'cleaning_weekly_monday',
-            weekStart,
-            windows,
+          await this.notifications.notify({
+            tenantId: cong.id,
+            userIds: users,
+            title: s.weeklyTitle,
+            body: body,
+            kind: 'cleaning_weekly_monday',
+            data: {
+              type: 'cleaning_weekly_monday',
+              weekStart,
+              windows,
+            },
           });
         }
       }
@@ -321,13 +331,14 @@ export class CleaningRemindersService {
               cong.id,
               thoroughSlot.serviceGroupId,
             );
-            await this.push.sendToUsers(
-              cong.id,
-              users,
-              s.plannedTitle,
-              s.plannedBody,
-              { type: 'cleaning_weekly_planned', weekStart },
-            );
+            await this.notifications.notify({
+              tenantId: cong.id,
+              userIds: users,
+              title: s.plannedTitle,
+              body: s.plannedBody,
+              kind: 'cleaning_weekly_planned',
+              data: { type: 'cleaning_weekly_planned', weekStart },
+            });
           }
         }
       }
@@ -351,13 +362,14 @@ export class CleaningRemindersService {
             const users = everyone
               .map((m) => m.userId)
               .filter((id): id is string => Boolean(id));
-            await this.push.sendToUsers(
-              cong.id,
-              users,
-              s.generalTitle,
-              s.generalBody,
-              { type: 'cleaning_general_planned', weekStart },
-            );
+            await this.notifications.notify({
+              tenantId: cong.id,
+              userIds: users,
+              title: s.generalTitle,
+              body: s.generalBody,
+              kind: 'cleaning_general_planned',
+              data: { type: 'cleaning_general_planned', weekStart },
+            });
           }
         }
       }

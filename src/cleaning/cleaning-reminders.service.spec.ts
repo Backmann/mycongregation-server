@@ -40,6 +40,27 @@ function makeSvc(over: Partial<Record<string, any>> = {}) {
     },
   );
 
+  // Reminders now go through the notifications gateway, which decides the
+  // hour and whether the thing was already said. The collector keeps the same
+  // shape so the expectations below still read as "what was sent to whom".
+  const notifications = {
+    notify: jest.fn(
+      async (input: {
+        userIds: string[];
+        title: string;
+        body: string;
+        data: any;
+      }) => {
+        sends.push({
+          users: input.userIds,
+          title: input.title,
+          body: input.body,
+          data: input.data,
+        });
+      },
+    ),
+  };
+
   const logRepo = {
     insert: jest.fn(async (row: { kind: string; key: string }) => {
       if (inserted.some((r) => r.kind === row.kind && r.key === row.key)) {
@@ -65,8 +86,9 @@ function makeSvc(over: Partial<Record<string, any>> = {}) {
       } as any),
     logRepo as any,
     push as any,
+    notifications as any,
   );
-  return { svc, sends, inserted, push, logRepo };
+  return { svc, sends, inserted, push, logRepo, notifications };
 }
 
 describe('CleaningRemindersService.localParts', () => {

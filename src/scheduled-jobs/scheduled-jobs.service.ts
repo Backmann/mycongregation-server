@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PublishersService } from '../publishers/publishers.service';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CleaningRemindersService } from '../cleaning/cleaning-reminders.service';
 
@@ -12,6 +13,7 @@ export class ScheduledJobsService {
   constructor(
     private readonly publishersService: PublishersService,
     private readonly pushNotificationsService: PushNotificationsService,
+    private readonly notifications: NotificationsService,
     private readonly auditLogService: AuditLogService,
     private readonly cleaningReminders: CleaningRemindersService,
   ) {}
@@ -33,6 +35,40 @@ export class ScheduledJobsService {
       await this.cleaningReminders.runTick();
     } catch (err) {
       this.logger.error('[CleaningReminders] tick failed', err as Error);
+    }
+  }
+
+  /**
+   * Deliver notifications whose hour has come — every 5 minutes.
+   *
+   * Anything raised outside the congregation's waking hours waits in the
+   * outbox with a `not_before`; this is what lets it out in the morning. A
+   * tick that finds nothing due does nothing, which is the usual case.
+   */
+  @Cron('*/5 * * * *', {
+    name: 'notification-outbox-deliver',
+    timeZone: 'UTC',
+  })
+  async handleNotificationOutbox(): Promise<void> {
+    try {
+      const { sent } = await this.notifications.deliverDue();
+      if (sent > 0) this.logger.log(`[Notifications] delivered=${sent}`);
+    } catch (err) {
+      this.logger.error('[Notifications] delivery tick failed', err as Error);
+    }
+  }
+
+  /** Prune the outbox nightly at 04:15 UTC — see NotificationsService. */
+  @Cron('15 4 * * *', {
+    name: 'notification-outbox-cleanup',
+    timeZone: 'UTC',
+  })
+  async handleNotificationOutboxCleanup(): Promise<void> {
+    try {
+      const deleted = await this.notifications.cleanupOld();
+      this.logger.log(`[Notifications] outbox cleanup — deleted=${deleted}`);
+    } catch (err) {
+      this.logger.error('[Notifications] outbox cleanup failed', err as Error);
     }
   }
 

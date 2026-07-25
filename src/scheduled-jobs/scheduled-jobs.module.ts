@@ -3,6 +3,7 @@ import { ScheduledJobsService } from './scheduled-jobs.service';
 import { AdminController } from './admin.controller';
 import { PublishersModule } from '../publishers/publishers.module';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { CleaningModule } from '../cleaning/cleaning.module';
 
@@ -10,6 +11,7 @@ import { CleaningModule } from '../cleaning/cleaning.module';
   imports: [
     PublishersModule,
     PushNotificationsModule,
+    NotificationsModule,
     AuditLogModule,
     CleaningModule,
   ],

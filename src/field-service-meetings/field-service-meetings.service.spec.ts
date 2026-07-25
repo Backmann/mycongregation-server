@@ -9,6 +9,11 @@ jest.mock('../push-notifications/push-notifications.service', () => ({
 
 const pubRepoMock = { findOne: jest.fn().mockResolvedValue(null) } as any;
 const pushMock = { sendToUsers: jest.fn().mockResolvedValue(undefined) } as any;
+// Sending now goes through the notifications gateway, which decides the hour
+// and whether the thing was already said; the service only hands it over.
+const notifyMock = { notify: jest.fn().mockResolvedValue(undefined) } as any;
+const makeNotify = () =>
+  ({ notify: jest.fn().mockResolvedValue(undefined) }) as any;
 // The journal is wired in but not the subject of these tests; a stub keeps
 // them about the behaviour they were written for.
 const auditMock = {
@@ -37,6 +42,7 @@ describe('FieldServiceMeetingsService', () => {
       repo,
       pubRepoMock,
       pushMock,
+      notifyMock,
       auditMock,
     );
 
@@ -64,6 +70,7 @@ describe('FieldServiceMeetingsService', () => {
       repo,
       pubRepoMock,
       pushMock,
+      notifyMock,
       auditMock,
     );
 
@@ -84,6 +91,7 @@ describe('FieldServiceMeetingsService', () => {
       repo,
       pubRepoMock,
       pushMock,
+      notifyMock,
       auditMock,
     );
 
@@ -111,6 +119,7 @@ describe('FieldServiceMeetingsService', () => {
       repo,
       pubRepoMock,
       pushMock,
+      notifyMock,
       auditMock,
     );
 
@@ -137,6 +146,7 @@ describe('FieldServiceMeetingsService', () => {
       repo,
       pubRepoMock,
       pushMock,
+      notifyMock,
       auditMock,
     );
 
@@ -159,6 +169,7 @@ describe('FieldServiceMeetingsService', () => {
       repo,
       pubRepoMock,
       pushMock,
+      notifyMock,
       auditMock,
     );
 
@@ -206,7 +217,14 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
     } as any;
     const pubRepo = makePubRepo();
     const push = makePush();
-    const svc = new FieldServiceMeetingsService(repo, pubRepo, push, auditMock);
+    const notify = makeNotify();
+    const svc = new FieldServiceMeetingsService(
+      repo,
+      pubRepo,
+      push,
+      notify,
+      auditMock,
+    );
 
     await svc.create(CONG, {
       weekStartDate: '2026-07-06',
@@ -216,8 +234,8 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       conductorPublisherId: 'p1',
     } as any);
 
-    expect(push.sendToUsers).toHaveBeenCalledTimes(1);
-    const [tenant, userIds, , body] = push.sendToUsers.mock.calls[0];
+    expect(notify.notify).toHaveBeenCalledTimes(1);
+    const { tenantId: tenant, userIds, body } = notify.notify.mock.calls[0][0];
     expect(tenant).toBe(CONG);
     expect(userIds).toEqual(['u1']);
     expect(body).toContain('11.07.2026');
@@ -246,6 +264,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       repo,
       makePubRepo(),
       makePush(),
+      makeNotify(),
       audit,
     );
 
@@ -279,6 +298,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       repo,
       makePubRepo(),
       makePush(),
+      makeNotify(),
       audit,
     );
 
@@ -297,10 +317,12 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       save: jest.fn(async (x: any) => ({ ...meetingRow, ...x })),
     } as any;
     const push = makePush();
+    const notify = makeNotify();
     const svc = new FieldServiceMeetingsService(
       repo,
       makePubRepo(),
       push,
+      notify,
       auditMock,
     );
 
@@ -313,7 +335,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       notifyConductor: false,
     } as any);
 
-    expect(push.sendToUsers).not.toHaveBeenCalled();
+    expect(notify.notify).not.toHaveBeenCalled();
   });
 
   it('notifies both the old and the new conductor on change', async () => {
@@ -330,12 +352,19 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       })),
     } as any;
     const push = makePush();
-    const svc = new FieldServiceMeetingsService(repo, pubRepo, push, auditMock);
+    const notify = makeNotify();
+    const svc = new FieldServiceMeetingsService(
+      repo,
+      pubRepo,
+      push,
+      notify,
+      auditMock,
+    );
 
     await svc.update(CONG, 'm1', { conductorPublisherId: 'p-new' } as any);
 
-    expect(push.sendToUsers).toHaveBeenCalledTimes(2);
-    const targets = push.sendToUsers.mock.calls.map((c: any[]) => c[1][0]);
+    expect(notify.notify).toHaveBeenCalledTimes(2);
+    const targets = notify.notify.mock.calls.map((c: any[]) => c[0].userIds[0]);
     expect(targets).toEqual(['u-p-old', 'u-p-new']);
   });
 
@@ -346,17 +375,19 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       delete: jest.fn(async () => ({ affected: 1 })),
     } as any;
     const push = makePush();
+    const notify = makeNotify();
     const svc = new FieldServiceMeetingsService(
       repo,
       makePubRepo(),
       push,
+      notify,
       auditMock,
     );
 
     await svc.remove(CONG, 'm1');
 
     expect(repo.delete).toHaveBeenCalled();
-    expect(push.sendToUsers).toHaveBeenCalledTimes(1);
+    expect(notify.notify).toHaveBeenCalledTimes(1);
   });
 
   it('skips the push silently when the publisher has no login', async () => {
@@ -368,7 +399,14 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       findOne: jest.fn(async () => ({ id: 'p1', userId: null, user: null })),
     } as any;
     const push = makePush();
-    const svc = new FieldServiceMeetingsService(repo, pubRepo, push, auditMock);
+    const notify = makeNotify();
+    const svc = new FieldServiceMeetingsService(
+      repo,
+      pubRepo,
+      push,
+      notify,
+      auditMock,
+    );
 
     await svc.create(CONG, {
       weekStartDate: '2026-07-06',
@@ -378,6 +416,6 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       conductorPublisherId: 'p1',
     } as any);
 
-    expect(push.sendToUsers).not.toHaveBeenCalled();
+    expect(notify.notify).not.toHaveBeenCalled();
   });
 });

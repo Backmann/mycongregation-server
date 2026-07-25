@@ -12,6 +12,7 @@ import { User } from '../entities/user.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const BERLIN_TZ = 'Europe/Berlin';
 
@@ -48,6 +49,7 @@ export class ReportRemindersService {
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     private readonly push: PushNotificationsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Previous calendar month in Berlin as 'YYYY-MM-01'. */
@@ -120,6 +122,16 @@ export class ReportRemindersService {
     }
   }
 
+  /** Today in Berlin — the reminder keys are per day, not per month. */
+  private today(): string {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: BERLIN_TZ,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  }
+
   @Cron('0 18 1-10 * *', {
     name: 'report-reminder-publishers',
     timeZone: BERLIN_TZ,
@@ -131,13 +143,18 @@ export class ReportRemindersService {
       let reached = 0;
       for (const p of missing) {
         if (!p.userId) continue;
-        await this.push.sendToUsers(
+        // One reminder per person per day: the job may tick twice after a
+        // restart, and being told twice in an evening is how people learn to
+        // switch notifications off.
+        await this.notifications.notify({
           tenantId,
-          [p.userId],
-          'Отчёт о служении',
-          `Вы ещё не подали отчёт за ${label}. Пожалуйста, заполните его в приложении.`,
-          { type: 'report_reminder', scope: 'publisher', reportMonth },
-        );
+          userIds: [p.userId],
+          title: 'Отчёт о служении',
+          body: `Вы ещё не подали отчёт за ${label}. Пожалуйста, заполните его в приложении.`,
+          kind: 'report_reminder',
+          key: `report:${reportMonth}:publisher:${this.today()}`,
+          data: { type: 'report_reminder', scope: 'publisher', reportMonth },
+        });
         reached += 1;
       }
       this.logger.log(
@@ -178,18 +195,20 @@ export class ReportRemindersService {
           ? userIdByPublisherId.get(g.overseerPublisherId)
           : null;
         if (!overseerUserId) continue;
-        await this.push.sendToUsers(
+        await this.notifications.notify({
           tenantId,
-          [overseerUserId],
-          'Несданные отчёты в группе',
-          `Группа «${g.name}», ${label}: не сдали — ${names.join(', ')}.`,
-          {
+          userIds: [overseerUserId],
+          title: 'Несданные отчёты в группе',
+          body: `Группа «${g.name}», ${label}: не сдали — ${names.join(', ')}.`,
+          kind: 'report_reminder',
+          key: `report:${reportMonth}:overseer:${g.id}:${this.today()}`,
+          data: {
             type: 'report_reminder',
             scope: 'overseer',
             reportMonth,
             serviceGroupId: g.id,
           },
-        );
+        });
       }
       this.logger.log(
         `[overseers] tenant=${tenantId} month=${reportMonth} groups=${groups.length}`,
@@ -245,13 +264,15 @@ export class ReportRemindersService {
       }
       if (recipientIds.length === 0) return;
 
-      await this.push.sendToUsers(
+      await this.notifications.notify({
         tenantId,
-        recipientIds,
-        'Несданные отчёты по общине',
-        `За ${label} не сдали (${missing.length}):\n${lines.join('\n')}`,
-        { type: 'report_reminder', scope: 'secretary', reportMonth },
-      );
+        userIds: recipientIds,
+        title: 'Несданные отчёты по общине',
+        body: `За ${label} не сдали (${missing.length}):\n${lines.join('\n')}`,
+        kind: 'report_reminder',
+        key: `report:${reportMonth}:secretary:${this.today()}`,
+        data: { type: 'report_reminder', scope: 'secretary', reportMonth },
+      });
       this.logger.log(
         `[secretary] tenant=${tenantId} month=${reportMonth} ` +
           `missing=${missing.length} recipients=${recipientIds.length}`,

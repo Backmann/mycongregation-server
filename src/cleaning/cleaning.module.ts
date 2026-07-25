@@ -13,6 +13,7 @@ import { Congregation } from '../entities/congregation.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { ReminderLog } from '../entities/reminder-log.entity';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { PushNotificationsModule } from '../push-notifications/push-notification
       ReminderLog,
     ]),
     PushNotificationsModule,
+    NotificationsModule,
   ],
   controllers: [CleaningController],
   providers: [CleaningService, CleaningRemindersService, ResponsibilityGuard],

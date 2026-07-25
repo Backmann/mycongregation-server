@@ -44,9 +44,14 @@ describe('ScheduledJobsService', () => {
     auditLogService = {
       cleanupOldAuditLogs: jest.fn().mockResolvedValue(0),
     };
+    const notificationsService = {
+      deliverDue: jest.fn().mockResolvedValue({ sent: 0 }),
+      cleanupOld: jest.fn().mockResolvedValue(0),
+    };
     service = new ScheduledJobsService(
       publishersService as any,
       pushNotificationsService,
+      notificationsService as any,
       auditLogService as any,
       { runDueReminders: jest.fn() } as any,
     );

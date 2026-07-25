@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CartWeek } from '../entities/cart-week.entity';
 import { CartSlot } from '../entities/cart-slot.entity';
 import { CartRequest } from '../entities/cart-request.entity';
@@ -199,6 +200,7 @@ export class CartWeeksService {
     @InjectRepository(Responsibility)
     private readonly responsibilitiesRepo: Repository<Responsibility>,
     private readonly push: PushNotificationsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async buildWeek(
@@ -721,7 +723,14 @@ export class CartWeeksService {
   ): Promise<void> {
     if (userIds.length === 0) return;
     try {
-      await this.push.sendToUsers(congregationId, userIds, title, body, data);
+      await this.notifications.notify({
+        tenantId: congregationId,
+        userIds,
+        title,
+        body,
+        kind: String((data as Record<string, unknown>).type ?? 'cart'),
+        data: data as Record<string, unknown>,
+      });
     } catch (e) {
       this.logger.warn(`cart push failed: ${String(e)}`);
     }
