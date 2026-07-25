@@ -157,10 +157,25 @@ export class PublishersService {
     return isNaN(d.getTime()) ? null : d;
   }
 
+  /**
+   * Recompute one publisher's service status from the last six months.
+   *
+   * `notify` exists for the nightly sweep. A status that changes because a
+   * month rolled out of the window is arithmetic, not something anyone did —
+   * and the sweep runs at 03:00 UTC, which is four or five in the morning
+   * here. Waking the group's overseer and the secretary to tell them that
+   * time has passed is the wrong trade every single night; on the turn of a
+   * month, when several people shift at once, it is a burst of them. Every
+   * other caller — a submitted report, a corrected report, a cleared
+   * override — is a real event with a person behind it, happens during the
+   * day, and still notifies.
+   */
   async recomputeStatus(
     tenantId: string,
     publisherId: string,
+    opts: { notify?: boolean } = {},
   ): Promise<RecomputeResult> {
+    const notify = opts.notify ?? true;
     const publisher = await this.publishersRepo.findOne({
       where: { id: publisherId, congregationId: tenantId },
     });
@@ -234,6 +249,7 @@ export class PublishersService {
     // reports) is sensitive and must not fan out to every elder or the whole
     // congregation. Best-effort: errors are swallowed so a push failure can
     // never break the status pipeline.
+    if (!notify) return 'updated';
     const recipientUserIds = await this.resolveStatusChangeRecipients(
       tenantId,
       publisher.serviceGroupId,
@@ -389,7 +405,9 @@ export class PublishersService {
 
     for (const p of publishers) {
       try {
-        const result = await this.recomputeStatus(p.congregationId, p.id);
+        const result = await this.recomputeStatus(p.congregationId, p.id, {
+          notify: false,
+        });
         if (result === 'updated') updated++;
         else if (result === 'unchanged') unchanged++;
         else if (result === 'skipped_override') skipped++;

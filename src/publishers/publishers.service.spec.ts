@@ -295,6 +295,41 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       expect(pushNotificationsService.sendStatusChange).not.toHaveBeenCalled();
     });
 
+    // The nightly sweep runs at 03:00 UTC — four or five in the morning here.
+    // A status that shifted because a month rolled out of the window is
+    // arithmetic, not something anyone did, and it is not worth waking the
+    // overseer and the secretary for. Every other caller still notifies.
+    it('stays silent when the caller asks it to (the nightly sweep)', async () => {
+      publishersRepo.findOne
+        .mockResolvedValueOnce(
+          makePublisher({ id: 'pub-1', status: PublisherStatus.INACTIVE }),
+        )
+        .mockResolvedValueOnce(
+          makePublisher({ id: 'ovr-1', userId: 'user-overseer' }),
+        );
+      (publishersRepo.manager.findOne as jest.Mock)
+        .mockResolvedValueOnce({ id: 'grp-9', overseerPublisherId: 'ovr-1' })
+        .mockResolvedValueOnce({ userId: 'user-secretary' });
+      (publishersRepo.manager.find as jest.Mock).mockResolvedValue([]);
+      reportsRepo.find.mockResolvedValue([
+        makeReport({ reportMonth: '2026-04-01', servedThisMonth: true }),
+      ]);
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
+
+      const result = await service.recomputeStatus('cong-1', 'pub-1', {
+        notify: false,
+      });
+      await new Promise((r) => setImmediate(r));
+
+      // The status is still recomputed and saved — only the push is withheld.
+      expect(result).toBe('updated');
+      expect(publishersRepo.save).toHaveBeenCalled();
+      expect(
+        pushNotificationsService.sendStatusChangeToUser,
+      ).not.toHaveBeenCalled();
+    });
+
     it('deduplicates when the overseer is also an admin', async () => {
       const pub = makePublisher({
         id: 'pub-1',
