@@ -127,7 +127,11 @@ function addDaysISO(iso: string, days: number): string {
   return fmtISO(d);
 }
 
-const HORIZON_DAYS = 56; // 8 weeks ahead
+// A year ahead. Public talks in other congregations are arranged months in
+// advance, and the home screen's «Дальше» zone is meant to answer "what is
+// coming that I must prepare for" — an eight-week cut silently hid those.
+// The volume is trivial: a few dozen rows per person per year.
+const HORIZON_DAYS = 365;
 
 @Injectable()
 export class MeService {

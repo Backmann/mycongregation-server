@@ -418,7 +418,6 @@ describe('CoVisitItemsService.fieldService', () => {
         itemDate: '2099-01-07',
         startTime: '09:30',
         place: 'Зал',
-        forWife: false,
       },
     ]);
   });
@@ -448,6 +447,25 @@ describe('CoVisitItemsService.fieldService', () => {
     ]);
     const out = await svc.fieldService(CONG);
     expect(out[0].meetings[0].place).toBe('Rathaus');
+  });
+
+  // The overseer's row and his wife's paired row describe ONE outing; two
+  // rows on the schedule must not become two announcements.
+  it('collapses the overseer and wife rows of the same outing', async () => {
+    const svc = build([
+      fs,
+      { ...fs, id: 'i2', forWife: true },
+      { ...fs, id: 'i3', startTime: '14:00' },
+      { ...fs, id: 'i4', startTime: '14:00', forWife: true },
+    ]);
+    const out = await svc.fieldService(CONG);
+    expect(out[0].meetings.map((m) => m.startTime)).toEqual(['09:30', '14:00']);
+  });
+
+  it('keeps a separate outing at another place apart', async () => {
+    const svc = build([fs, { ...fs, id: 'i5', placeText: 'Другое место' }]);
+    const out = await svc.fieldService(CONG);
+    expect(out[0].meetings).toHaveLength(2);
   });
 
   it('skips a visit that has no field-service meetings', async () => {

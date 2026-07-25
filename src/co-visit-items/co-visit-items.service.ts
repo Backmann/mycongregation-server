@@ -33,7 +33,42 @@ export interface CoVisitFieldServiceMeeting {
   itemDate: string;
   startTime: string | null;
   place: string | null;
-  forWife: boolean;
+}
+
+/**
+ * One session of field service is stored as more than one row: the overseer's
+ * row and a paired row for his wife, same day and time. The schedule screen
+ * folds that pair into a single line; the public view must too, or the same
+ * outing is announced twice. Rows that genuinely differ — a separate outing at
+ * another time or from another place — stay apart, because then they really
+ * are different meetings.
+ */
+function collapse(
+  items: {
+    id: string;
+    itemDate: string;
+    startTime: string | null;
+    placeKind: string | null;
+    placeText: string | null;
+    cartLocation?: { name: string } | null;
+  }[],
+): CoVisitFieldServiceMeeting[] {
+  const seen = new Map<string, CoVisitFieldServiceMeeting>();
+  for (const it of items) {
+    const place =
+      (it.placeKind === 'cart_location'
+        ? (it.cartLocation?.name ?? null)
+        : (it.placeText ?? null)) ?? null;
+    const key = `${it.itemDate}|${it.startTime ?? ''}|${place ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.set(key, {
+      id: it.id,
+      itemDate: it.itemDate,
+      startTime: it.startTime ?? null,
+      place,
+    });
+  }
+  return [...seen.values()];
 }
 
 export interface CoVisitFieldServiceWeek {
@@ -205,18 +240,7 @@ export class CoVisitItemsService {
           date: visit.date,
           endDate: visit.endDate ?? null,
         },
-        meetings: items.map((it) => ({
-          id: it.id,
-          itemDate: it.itemDate,
-          startTime: it.startTime ?? null,
-          place:
-            (it.placeKind === 'cart_location'
-              ? (it.cartLocation?.name ?? null)
-              : (it.placeText ?? null)) ?? null,
-          // Who leads it — the same fact a regular field-service meeting
-          // shows publicly. Never the phone or address stored alongside.
-          forWife: it.forWife,
-        })),
+        meetings: collapse(items),
       });
     }
     return out;
