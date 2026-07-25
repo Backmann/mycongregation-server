@@ -14,10 +14,10 @@ import { QueryServiceGroupsDto } from './dto/query-service-groups.dto';
 import { PublishersService } from '../publishers/publishers.service';
 import { QueryPublishersDto } from '../publishers/dto/query-publishers.dto';
 import {
+  publicRosterPage,
   publicRosterView,
   redactPrivateFields,
 } from '../publishers/publisher-privacy';
-import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
 type ResolvedPublisher = Awaited<ReturnType<PublishersService['findOne']>>;
@@ -295,17 +295,7 @@ export class ServiceGroupsService {
       serviceGroupId: id,
     });
     if (privileged) return result;
-    // Students are not publishers and do not belong in a group's composition
-    // as the congregation reads it; the elders who look after them still see
-    // them here. The total is adjusted so the count matches the list shown.
-    const visible = result.data.filter(
-      (p) => p.appointment !== PublisherAppointment.STUDENT,
-    );
-    return {
-      ...result,
-      total: result.total - (result.data.length - visible.length),
-      data: visible.map(publicRosterView),
-    };
+    return publicRosterPage(result);
   }
 
   /** Add (or move) publishers into this group. Tenant- and existence-checked. */

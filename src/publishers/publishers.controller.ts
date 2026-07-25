@@ -27,7 +27,7 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { OverrideStatusDto } from './dto/override-status.dto';
 import { GrantAccessDto } from './dto/grant-access.dto';
 import { UpdateAccessDto } from './dto/update-access.dto';
-import { publicRosterView } from './publisher-privacy';
+import { publicRosterPage } from './publisher-privacy';
 import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
@@ -110,7 +110,7 @@ export class PublishersController {
     if (privileged) {
       return result;
     }
-    return { ...result, data: result.data.map(publicRosterView) };
+    return publicRosterPage(result);
   }
 
   /**

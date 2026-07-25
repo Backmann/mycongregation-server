@@ -1,4 +1,5 @@
 import { PioneerType } from '../common/enums/pioneer-type.enum';
+import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { isActivePermanentPioneer } from '../common/pioneer-status';
 
 /**
@@ -60,6 +61,32 @@ export function redactPrivateFields<T extends object>(publisher: T): T {
  * guessed "already serving", so a publisher was shown as a regular pioneer
  * months early. The date stays private; the answer travels instead.
  */
+/**
+ * A whole roster page as everyone else sees it.
+ *
+ * Two rules travelled separately and drifted apart: the group endpoint left
+ * students out while the publishers list did not, so the same person was
+ * hidden in one place and shown in the other. They live together here now —
+ * one function, both call sites.
+ *
+ * Students are not publishers, so they are not part of a roster as the
+ * congregation reads it; the elders who look after them still see them. The
+ * total follows the list, or the count would contradict what is on screen.
+ */
+export function publicRosterPage<
+  P extends { data: T[]; total: number },
+  T extends { appointment?: unknown },
+>(page: P): P {
+  const visible = page.data.filter(
+    (p) => p.appointment !== PublisherAppointment.STUDENT,
+  );
+  return {
+    ...page,
+    total: page.total - (page.data.length - visible.length),
+    data: visible.map((p) => publicRosterView(p)),
+  };
+}
+
 export function publicRosterView<T extends object>(publisher: T): T {
   const source = publisher as Record<string, unknown>;
   const pioneerActive = isActivePermanentPioneer(
