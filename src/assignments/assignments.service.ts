@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -20,6 +21,18 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 import { EventType } from '../common/enums/event-type.enum';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { User } from '../entities/user.entity';
+import {
+  formatWeekRange,
+  MEETING_NAMES,
+  PART_NAMES,
+  PUSH_STRINGS,
+} from '../common/i18n/push-strings';
+import {
+  coerceLanguage,
+  DEFAULT_LANGUAGE,
+} from '../common/i18n/supported-languages';
 import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
 import { DutiesService } from '../duties/duties.service';
 
@@ -64,6 +77,8 @@ export interface PaginatedResult<T> {
 
 @Injectable()
 export class AssignmentsService {
+  private readonly logger = new Logger(AssignmentsService.name);
+
   constructor(
     @InjectRepository(Assignment)
     private readonly repo: Repository<Assignment>,
@@ -74,6 +89,7 @@ export class AssignmentsService {
     @InjectRepository(Congregation)
     private readonly congregationsRepo: Repository<Congregation>,
     private readonly pushNotifications: PushNotificationsService,
+    private readonly notifications: NotificationsService,
     private readonly talkExchange: TalkExchangeService,
     private readonly auditLog: AuditLogService,
     private readonly dutiesService: DutiesService,
@@ -711,11 +727,17 @@ export class AssignmentsService {
       .execute();
     const kind = String(eventType);
     if (notify && published > 0 && (kind === 'midweek' || kind === 'weekend')) {
-      // Fire-and-forget: the congregation learns the programme is out.
-      void this.pushNotifications.sendSchedulePublished(
+      // Fire-and-forget: each assignee learns what they were given.
+      const assigned = await this.repo.find({
+        where: { congregationId, weekStartDate, eventType },
+        order: { partOrder: 'ASC' },
+      });
+      void this.notifyAssignees(
         congregationId,
         kind,
         weekStartDate,
+        assigned,
+        'published',
       );
     }
     return { published };
@@ -761,13 +783,123 @@ export class AssignmentsService {
 
     const kind = String(eventType);
     if (kind === 'midweek' || kind === 'weekend') {
-      void this.pushNotifications.sendScheduleChanged(
+      void this.notifyAssignees(
         congregationId,
         kind,
         weekStartDate,
-        parts,
+        changedRows,
+        'changed',
       );
     }
     return { notified: changedRows.length };
+  }
+  /**
+   * Tell each person what THEY were given.
+   *
+   * The programme used to be announced to the whole congregation — everyone
+   * with a phone learned that a schedule existed, and then had to go and look
+   * whether any of it concerned them. Now the notification is the answer:
+   * whoever has a part hears their own parts, and whoever has none hears
+   * nothing at all. That single change is what turns a broadcast into
+   * something worth keeping switched on.
+   *
+   * An assistant counts as an assignee — being someone's reader or partner is
+   * an assignment too.
+   */
+  private async notifyAssignees(
+    congregationId: string,
+    eventType: 'midweek' | 'weekend',
+    weekStartDate: string,
+    rows: Assignment[],
+    mode: 'published' | 'changed',
+  ): Promise<void> {
+    try {
+      const partsByPublisher = new Map<
+        string,
+        { partKey: string; partTitle: string | null }[]
+      >();
+      const add = (publisherId: string | null, row: Assignment) => {
+        if (!publisherId) return;
+        const list = partsByPublisher.get(publisherId) ?? [];
+        list.push({ partKey: row.partKey, partTitle: row.partTitle });
+        partsByPublisher.set(publisherId, list);
+      };
+      for (const row of rows) {
+        add(row.publisherId, row);
+        add(row.assistantPublisherId, row);
+      }
+      if (partsByPublisher.size === 0) return;
+
+      const publishers = await this.publishersRepo.find({
+        where: {
+          congregationId,
+          id: In([...partsByPublisher.keys()]),
+        },
+        select: { id: true, userId: true },
+      });
+      const userIds = publishers
+        .map((p) => p.userId)
+        .filter((id): id is string => !!id);
+      if (userIds.length === 0) return;
+
+      const users = await this.repo.manager.find(User, {
+        where: { id: In(userIds) },
+        select: { id: true, uiLanguage: true },
+      });
+      const langByUserId = new Map(
+        users.map((u) => [u.id, coerceLanguage(u.uiLanguage)]),
+      );
+
+      // One notice per person per publication; a later change is separate news
+      // and carries the day, so a week that keeps changing is at most one
+      // message a day rather than one per edit.
+      const key =
+        mode === 'published'
+          ? `schedule:${weekStartDate}:${eventType}:published`
+          : `schedule:${weekStartDate}:${eventType}:changed:${new Date()
+              .toISOString()
+              .slice(0, 10)}`;
+
+      for (const publisher of publishers) {
+        if (!publisher.userId) continue;
+        const mine = partsByPublisher.get(publisher.id) ?? [];
+        if (mine.length === 0) continue;
+        const lang = langByUserId.get(publisher.userId) ?? DEFAULT_LANGUAGE;
+        const strings =
+          mode === 'published'
+            ? PUSH_STRINGS[lang].myAssignment
+            : PUSH_STRINGS[lang].myAssignmentChanged;
+        const meeting = MEETING_NAMES[eventType][lang];
+        const range = formatWeekRange(weekStartDate, lang);
+        const names = mine
+          .map((m) => m.partTitle?.trim() || PART_NAMES[lang][m.partKey])
+          .filter((n): n is string => !!n);
+        const body =
+          names.length > 0
+            ? strings.body({ meeting, range, parts: names.join(', ') })
+            : strings.count({ meeting, range, n: mine.length });
+
+        await this.notifications.notify({
+          tenantId: congregationId,
+          userIds: [publisher.userId],
+          title: strings.title,
+          body,
+          kind: 'schedule',
+          key: `${key}:${publisher.userId}`,
+          data: {
+            type:
+              mode === 'published' ? 'schedule_published' : 'schedule_changed',
+            eventType,
+            weekStartDate,
+          },
+        });
+      }
+    } catch (err: any) {
+      this.logger.warn(
+        `notifyAssignees failed for tenant=${congregationId}: ${
+          err?.message ?? err
+        }`,
+      );
+    }
   }
 }

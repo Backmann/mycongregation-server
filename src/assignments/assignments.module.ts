@@ -5,6 +5,7 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
 import { DutiesModule } from '../duties/duties.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
@@ -21,6 +22,7 @@ import { AssignmentsController } from './assignments.controller';
       Congregation,
     ]),
     PushNotificationsModule,
+    NotificationsModule,
     TalkExchangeModule,
     DutiesModule,
     AuditLogModule,

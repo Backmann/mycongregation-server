@@ -8,6 +8,7 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
 import { DutiesService } from '../duties/duties.service';
 
@@ -76,6 +77,10 @@ describe('AssignmentsService — journal sync coverage and public-talk swap', ()
             sendSchedulePublished: jest.fn(),
             sendScheduleChanged: jest.fn(),
           },
+        },
+        {
+          provide: NotificationsService,
+          useValue: { notify: jest.fn().mockResolvedValue(undefined) },
         },
         {
           provide: TalkExchangeService,

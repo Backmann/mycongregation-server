@@ -8,6 +8,7 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
 import { DutiesService } from '../duties/duties.service';
 
@@ -67,6 +68,10 @@ describe('AssignmentsService draft visibility', () => {
     sendSchedulePublished: jest.Mock;
     sendScheduleChanged: jest.Mock;
   };
+  // The programme is no longer announced to the congregation; each assignee is
+  // told their own parts, so what the tests check is that the gateway was
+  // handed something (or nothing) — not that a broadcast went out.
+  let notifyMock: { notify: jest.Mock };
   let qb: ReturnType<typeof makeQb>;
 
   beforeEach(async () => {
@@ -81,6 +86,7 @@ describe('AssignmentsService draft visibility', () => {
       sendSchedulePublished: jest.fn(),
       sendScheduleChanged: jest.fn(),
     };
+    notifyMock = { notify: jest.fn().mockResolvedValue(undefined) };
     const moduleRef = await Test.createTestingModule({
       providers: [
         AssignmentsService,
@@ -114,6 +120,10 @@ describe('AssignmentsService draft visibility', () => {
         {
           provide: TalkExchangeService,
           useValue: { syncProgramToJournal: jest.fn() },
+        },
+        {
+          provide: NotificationsService,
+          useValue: notifyMock,
         },
         {
           provide: DutiesService,
@@ -210,11 +220,9 @@ describe('AssignmentsService draft visibility', () => {
     expect(qb.set).toHaveBeenCalledWith({ status: 'published' });
     expect(qb.andWhere).toHaveBeenCalledWith("status = 'draft'");
     expect(qb.andWhere).toHaveBeenCalledWith('deletedAt IS NULL');
-    expect(pushMock.sendSchedulePublished).toHaveBeenCalledWith(
-      'c1',
-      'midweek',
-      '2026-06-08',
-    );
+    // Nobody is assigned in this fixture, so nobody is told — which is the
+    // whole point of the change: silence for those it does not concern.
+    expect(notifyMock.notify).not.toHaveBeenCalled();
   });
 
   it('reports zero when the meeting has no drafts', async () => {
@@ -225,7 +233,7 @@ describe('AssignmentsService draft visibility', () => {
       'weekend' as never,
     );
     expect(res).toEqual({ published: 0 });
-    expect(pushMock.sendSchedulePublished).not.toHaveBeenCalled();
+    expect(notifyMock.notify).not.toHaveBeenCalled();
   });
 
   it('does not push for non-meeting sections', async () => {
@@ -236,7 +244,7 @@ describe('AssignmentsService draft visibility', () => {
       'cleaning' as never,
     );
     expect(res).toEqual({ published: 2 });
-    expect(pushMock.sendSchedulePublished).not.toHaveBeenCalled();
+    expect(notifyMock.notify).not.toHaveBeenCalled();
   });
 
   it('notifies about changes, clears flags and lists changed part titles', async () => {
@@ -252,12 +260,9 @@ describe('AssignmentsService draft visibility', () => {
     );
     expect(res).toEqual({ notified: 2 });
     expect(qb.set).toHaveBeenCalledWith({ changedSincePublish: false });
-    expect(pushMock.sendScheduleChanged).toHaveBeenCalledWith(
-      'c1',
-      'weekend',
-      '2026-06-08',
-      'Начало разговора',
-    );
+    // The changed rows carry no publisher in this fixture, so there is nobody
+    // to tell; the flags are still cleared, which is what notifyChanges is for.
+    expect(notifyMock.notify).not.toHaveBeenCalled();
   });
 
   it('does nothing when no assignments are flagged as changed', async () => {
@@ -268,7 +273,7 @@ describe('AssignmentsService draft visibility', () => {
       'midweek' as never,
     );
     expect(res).toEqual({ notified: 0 });
-    expect(pushMock.sendScheduleChanged).not.toHaveBeenCalled();
+    expect(notifyMock.notify).not.toHaveBeenCalled();
   });
 
   it('listPublishedWeeks maps raw rows to week flags', async () => {
@@ -347,6 +352,10 @@ describe('AssignmentsService treasures <-> opening-prayer link', () => {
           },
         },
         { provide: PushNotificationsService, useValue: {} },
+        {
+          provide: NotificationsService,
+          useValue: { notify: jest.fn().mockResolvedValue(undefined) },
+        },
         {
           provide: TalkExchangeService,
           useValue: { syncProgramToJournal: jest.fn() },
