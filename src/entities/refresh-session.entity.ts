@@ -36,6 +36,16 @@ export class RefreshSession {
   @JoinColumn({ name: 'user_id' })
   user: User;
 
+  /**
+   * The chain this session belongs to: one device's sign-in and every session
+   * rotated out of it share a familyId. It exists so a token that looks stolen
+   * can be answered by ending THAT chain instead of signing the person out of
+   * every device they own. A fresh sign-in starts its own family.
+   */
+  @Index()
+  @Column({ type: 'uuid' })
+  familyId: string;
+
   /** SHA-256 hex digest of the refresh token this session was issued with. */
   @Column({ type: 'text' })
   tokenHash: string;

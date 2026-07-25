@@ -58,6 +58,9 @@ export function durationToMs(value: string | undefined): number {
  */
 const REFRESH_REPLAY_GRACE_MS = 60_000;
 
+/** Placeholder written for the split second before the row has its own id. */
+const EMPTY_UUID = '00000000-0000-0000-0000-000000000000';
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -283,13 +286,13 @@ export class AuthService {
     // A token that does not match this session is not a lost reply — it is a
     // different token claiming the session. That is theft, whatever the timing.
     if (session.tokenHash !== digest(refreshToken)) {
-      await this.revokeAllSessions(session.userId);
+      await this.revokeFamily(session.familyId);
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
     if (session.revokedAt) {
       const sinceRotationMs = Date.now() - session.revokedAt.getTime();
       if (sinceRotationMs > REFRESH_REPLAY_GRACE_MS) {
-        await this.revokeAllSessions(session.userId);
+        await this.revokeFamily(session.familyId);
         throw new UnauthorizedException('Refresh token was already used');
       }
       // Inside the window: the client never received the previous reply. Hand
@@ -313,7 +316,7 @@ export class AuthService {
     session.lastUsedAt = new Date();
     await sessions.save(session);
 
-    return this.issueTokens(user);
+    return this.issueTokens(user, session.familyId);
   }
 
   /**
@@ -341,7 +344,18 @@ export class AuthService {
     return { ok: true };
   }
 
-  /** Used on password reset and whenever a token looks stolen. */
+  /**
+   * Ends one chain: the device whose token was replayed or did not match, and
+   * nothing else. A suspicion attached to one device is not a reason to sign
+   * somebody out of the others.
+   */
+  private async revokeFamily(familyId: string): Promise<void> {
+    await this.dataSource
+      .getRepository(RefreshSession)
+      .update({ familyId, revokedAt: IsNull() }, { revokedAt: new Date() });
+  }
+
+  /** Used on password reset and when the account itself is no longer valid. */
   private async revokeAllSessions(userId: string): Promise<void> {
     await this.dataSource
       .getRepository(RefreshSession)
@@ -362,18 +376,26 @@ export class AuthService {
    * Creates the session row first, then signs a token that names it. The row
    * stores only a digest, so a database dump does not hand out live tokens.
    */
-  private async signRefreshToken(user: User): Promise<string> {
+  private async signRefreshToken(
+    user: User,
+    /** Continue an existing chain; a fresh sign-in starts its own. */
+    familyId?: string,
+  ): Promise<string> {
     const sessions = this.dataSource.getRepository(RefreshSession);
     const ttlMs = durationToMs(this.config.get<string>('jwt.refreshExpiresIn'));
     const session = await sessions.save(
       sessions.create({
         userId: user.id,
+        familyId: familyId ?? EMPTY_UUID,
         tokenHash: '',
         expiresAt: new Date(Date.now() + ttlMs),
         lastUsedAt: null,
         revokedAt: null,
       }),
     );
+    // A sign-in is the root of its own family, and the id only exists once the
+    // row is saved.
+    if (!familyId) session.familyId = session.id;
 
     const payload: RefreshTokenPayload = {
       sub: user.id,
@@ -394,10 +416,10 @@ export class AuthService {
     return token;
   }
 
-  private async issueTokens(user: User) {
+  private async issueTokens(user: User, familyId?: string) {
     return {
       accessToken: this.signAccessToken(user),
-      refreshToken: await this.signRefreshToken(user),
+      refreshToken: await this.signRefreshToken(user, familyId),
       user: {
         id: user.id,
         email: user.email,

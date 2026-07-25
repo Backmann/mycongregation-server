@@ -43,8 +43,11 @@ describe('AuthService — refresh sessions', () => {
       for (const row of Object.values(rows)) {
         const matchesUser = where.userId ? row.userId === where.userId : true;
         const matchesId = where.id ? row.id === where.id : true;
+        const matchesFamily = where.familyId
+          ? row.familyId === where.familyId
+          : true;
         const notRevoked = row.revokedAt == null;
-        if (matchesUser && matchesId && notRevoked) {
+        if (matchesUser && matchesId && matchesFamily && notRevoked) {
           Object.assign(row, patch);
           affected++;
         }
@@ -154,7 +157,34 @@ describe('AuthService — refresh sessions', () => {
     expect((rows[sid].revokedAt as Date).getTime()).toBe(rotatedAt.getTime());
   });
 
-  it('treats a replay after the grace window as theft and revokes every session', async () => {
+  it('a rotated session stays in the same family as the one it replaced', async () => {
+    const first = await issue();
+    const sidBefore = jwt.verify<{ sid: string }>(first.refreshToken, {
+      secret: REFRESH_SECRET,
+    }).sid;
+    const second = await service.refresh(first.refreshToken);
+    const sidAfter = jwt.verify<{ sid: string }>(second.refreshToken, {
+      secret: REFRESH_SECRET,
+    }).sid;
+
+    expect(rows[sidAfter].familyId).toBe(rows[sidBefore].familyId);
+  });
+
+  it('a fresh sign-in starts its own family', async () => {
+    const a = await issue();
+    const b = await issue();
+    const sidA = jwt.verify<{ sid: string }>(a.refreshToken, {
+      secret: REFRESH_SECRET,
+    }).sid;
+    const sidB = jwt.verify<{ sid: string }>(b.refreshToken, {
+      secret: REFRESH_SECRET,
+    }).sid;
+
+    expect(rows[sidA].familyId).toBe(sidA);
+    expect(rows[sidB].familyId).not.toBe(rows[sidA].familyId);
+  });
+
+  it('treats a replay after the grace window as theft and ends that chain only', async () => {
     const first = await issue();
     const other = await issue(); // a second device
     const firstSid = jwt.verify<{ sid: string }>(first.refreshToken, {
@@ -171,10 +201,12 @@ describe('AuthService — refresh sessions', () => {
     await expect(service.refresh(first.refreshToken)).rejects.toThrow(
       UnauthorizedException,
     );
-    expect(rows[otherSid].revokedAt).toBeInstanceOf(Date);
+    // Only the chain that was replayed ends — the other device is untouched.
+    expect(rows[firstSid].revokedAt).toBeInstanceOf(Date);
+    expect(rows[otherSid].revokedAt).toBeNull();
   });
 
-  it('treats a token that does not match its session as theft, whatever the timing', async () => {
+  it('treats a mismatched token as theft and ends that chain only', async () => {
     const first = await issue();
     const other = await issue();
     const firstSid = jwt.verify<{ sid: string }>(first.refreshToken, {
@@ -190,7 +222,8 @@ describe('AuthService — refresh sessions', () => {
     await expect(service.refresh(first.refreshToken)).rejects.toThrow(
       UnauthorizedException,
     );
-    expect(rows[otherSid].revokedAt).toBeInstanceOf(Date);
+    expect(rows[firstSid].revokedAt).toBeInstanceOf(Date);
+    expect(rows[otherSid].revokedAt).toBeNull();
   });
 
   it('refuses a token whose session is gone', async () => {
