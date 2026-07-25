@@ -50,6 +50,14 @@ export function durationToMs(value: string | undefined): number {
   return n * unit;
 }
 
+/**
+ * How long a just-rotated refresh token is still honoured as an honest retry
+ * rather than read as theft. Long enough to cover a lost reply, a timed-out
+ * request or two tabs refreshing together; far too short to be useful to
+ * someone replaying a stolen token days later.
+ */
+const REFRESH_REPLAY_GRACE_MS = 60_000;
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -232,10 +240,20 @@ export class AuthService {
    * rotates that session away.
    *
    * Rotation is what makes theft visible. If a token that was already spent
-   * comes back, either the thief or the rightful owner is replaying it — we
-   * cannot tell which, so every session of that user is revoked and both are
-   * sent back to the login screen. That is the intended behaviour, not an
-   * inconvenience to smooth over.
+   * comes back long after it was spent, either the thief or the rightful owner
+   * is replaying it — we cannot tell which, so every session of that user is
+   * revoked and both are sent back to the login screen.
+   *
+   * The exception is the moment right after rotation. An honest client loses
+   * the reply all the time: the phone is killed between our answer and the
+   * write to secure storage, a request times out and is retried, two browser
+   * tabs refresh at once. It then presents the token it still has — the spent
+   * one — through no fault of anyone. Without a grace window that ordinary
+   * mishap signs the person out of every device, which is what people were
+   * hitting. So a token replayed within REFRESH_REPLAY_GRACE_MS of its own
+   * rotation is served as a retry instead of being read as theft. A replay
+   * later than that, or one whose digest does not match the session at all,
+   * is still treated as theft.
    */
   async refresh(refreshToken: string) {
     let payload: RefreshTokenPayload;
@@ -262,13 +280,20 @@ export class AuthService {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
-    if (session.revokedAt) {
-      await this.revokeAllSessions(session.userId);
-      throw new UnauthorizedException('Refresh token was already used');
-    }
+    // A token that does not match this session is not a lost reply — it is a
+    // different token claiming the session. That is theft, whatever the timing.
     if (session.tokenHash !== digest(refreshToken)) {
       await this.revokeAllSessions(session.userId);
       throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+    if (session.revokedAt) {
+      const sinceRotationMs = Date.now() - session.revokedAt.getTime();
+      if (sinceRotationMs > REFRESH_REPLAY_GRACE_MS) {
+        await this.revokeAllSessions(session.userId);
+        throw new UnauthorizedException('Refresh token was already used');
+      }
+      // Inside the window: the client never received the previous reply. Hand
+      // it a fresh pair rather than signing the account out everywhere.
     }
     if (session.expiresAt.getTime() <= Date.now()) {
       throw new UnauthorizedException('Invalid or expired refresh token');
@@ -281,7 +306,10 @@ export class AuthService {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
-    session.revokedAt = new Date();
+    // Keep the original rotation time: the grace window is measured from when
+    // the token was first spent, not from the latest retry, so repeated
+    // retries cannot hold the window open indefinitely.
+    session.revokedAt = session.revokedAt ?? new Date();
     session.lastUsedAt = new Date();
     await sessions.save(session);
 

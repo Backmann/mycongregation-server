@@ -122,7 +122,10 @@ describe('AuthService — refresh sessions', () => {
     expect(rows[sidAfter].revokedAt).toBeNull();
   });
 
-  it('treats a replayed token as theft and revokes every session', async () => {
+  // A phone killed between our reply and its write to secure storage, a timed
+  // out request that is retried, two tabs refreshing at once — all present the
+  // token they still hold. That must not sign the person out everywhere.
+  it('serves a replay inside the grace window as an honest retry', async () => {
     const first = await issue();
     const other = await issue(); // a second device
     const otherSid = jwt.verify<{ sid: string }>(other.refreshToken, {
@@ -130,6 +133,59 @@ describe('AuthService — refresh sessions', () => {
     }).sid;
 
     await service.refresh(first.refreshToken);
+    const retry = await service.refresh(first.refreshToken);
+
+    expect(retry.accessToken).toBeTruthy();
+    expect(retry.refreshToken).toBeTruthy();
+    // The other device is untouched — this was never theft.
+    expect(rows[otherSid].revokedAt).toBeNull();
+  });
+
+  it('keeps the original rotation time so retries cannot hold the window open', async () => {
+    const first = await issue();
+    const sid = jwt.verify<{ sid: string }>(first.refreshToken, {
+      secret: REFRESH_SECRET,
+    }).sid;
+
+    await service.refresh(first.refreshToken);
+    const rotatedAt = rows[sid].revokedAt as Date;
+    await service.refresh(first.refreshToken);
+
+    expect((rows[sid].revokedAt as Date).getTime()).toBe(rotatedAt.getTime());
+  });
+
+  it('treats a replay after the grace window as theft and revokes every session', async () => {
+    const first = await issue();
+    const other = await issue(); // a second device
+    const firstSid = jwt.verify<{ sid: string }>(first.refreshToken, {
+      secret: REFRESH_SECRET,
+    }).sid;
+    const otherSid = jwt.verify<{ sid: string }>(other.refreshToken, {
+      secret: REFRESH_SECRET,
+    }).sid;
+
+    await service.refresh(first.refreshToken);
+    // Backdate the rotation so the replay lands well outside the window.
+    rows[firstSid].revokedAt = new Date(Date.now() - 10 * 60_000);
+
+    await expect(service.refresh(first.refreshToken)).rejects.toThrow(
+      UnauthorizedException,
+    );
+    expect(rows[otherSid].revokedAt).toBeInstanceOf(Date);
+  });
+
+  it('treats a token that does not match its session as theft, whatever the timing', async () => {
+    const first = await issue();
+    const other = await issue();
+    const firstSid = jwt.verify<{ sid: string }>(first.refreshToken, {
+      secret: REFRESH_SECRET,
+    }).sid;
+    const otherSid = jwt.verify<{ sid: string }>(other.refreshToken, {
+      secret: REFRESH_SECRET,
+    }).sid;
+
+    // Same session, a different token: not a lost reply.
+    rows[firstSid].tokenHash = 'a-different-digest';
 
     await expect(service.refresh(first.refreshToken)).rejects.toThrow(
       UnauthorizedException,
