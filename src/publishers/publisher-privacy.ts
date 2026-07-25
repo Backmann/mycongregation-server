@@ -25,6 +25,13 @@ export const PRIVATE_PUBLISHER_FIELDS = [
   'isDeaf',
   'isBlind',
   'isImprisoned',
+  // Secretarial bookkeeping, not roster information. Whether someone has
+  // confirmed their details this year — and whether they have a login at all —
+  // says nothing a fellow publisher needs and quietly exposes who is without
+  // an account. Hiding the badge in the app was not enough: the facts
+  // themselves should not travel.
+  'contactsConfirmedAt',
+  'userId',
 ] as const;
 
 /**

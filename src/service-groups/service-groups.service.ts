@@ -2,7 +2,6 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
-  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -14,6 +13,7 @@ import { QueryServiceGroupsDto } from './dto/query-service-groups.dto';
 import { PublishersService } from '../publishers/publishers.service';
 import { QueryPublishersDto } from '../publishers/dto/query-publishers.dto';
 import { redactPrivateFields } from '../publishers/publisher-privacy';
+import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
 type ResolvedPublisher = Awaited<ReturnType<PublishersService['findOne']>>;
@@ -215,9 +215,11 @@ export class ServiceGroupsService {
   /**
    * Group member list. Privileged callers (admins, elders, members granted
    * private-data access) get the full rows; a regular publisher may load ONLY
-   * their own group, redacted to a name-and-scheduling roster; any other
-   * group is Forbidden. Closes the leak where full publisher cards (phones,
-   * addresses, notes) were reachable through the group endpoint.
+   * every group, redacted to a name-and-scheduling roster: who serves with
+   * whom is what the composition is for, and the names are on the posted
+   * schedules anyway. What stays shut is the personal data — phones,
+   * addresses, notes and the rest of the card — which is what the earlier
+   * own-group-only rule was really protecting.
    */
   async findPublishers(
     tenantId: string,
@@ -231,15 +233,6 @@ export class ServiceGroupsService {
       user,
     );
     if (!privileged) {
-      const ownGroupId = await this.publishersService.findOwnServiceGroupId(
-        tenantId,
-        user.id,
-      );
-      if (ownGroupId !== id) {
-        throw new ForbiddenException(
-          'You may only view the members of your own service group',
-        );
-      }
       query.includeRemoved = false;
     }
     const result = await this.publishersService.findAll(tenantId, {
@@ -247,7 +240,17 @@ export class ServiceGroupsService {
       serviceGroupId: id,
     });
     if (privileged) return result;
-    return { ...result, data: result.data.map(redactPrivateFields) };
+    // Students are not publishers and do not belong in a group's composition
+    // as the congregation reads it; the elders who look after them still see
+    // them here. The total is adjusted so the count matches the list shown.
+    const visible = result.data.filter(
+      (p) => p.appointment !== PublisherAppointment.STUDENT,
+    );
+    return {
+      ...result,
+      total: result.total - (result.data.length - visible.length),
+      data: visible.map(redactPrivateFields),
+    };
   }
 
   /** Add (or move) publishers into this group. Tenant- and existence-checked. */
