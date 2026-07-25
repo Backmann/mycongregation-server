@@ -7,12 +7,16 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { Brackets, Repository } from 'typeorm';
 import { ServiceGroup } from '../entities/service-group.entity';
+import { Publisher } from '../entities/publisher.entity';
 import { CreateServiceGroupDto } from './dto/create-service-group.dto';
 import { UpdateServiceGroupDto } from './dto/update-service-group.dto';
 import { QueryServiceGroupsDto } from './dto/query-service-groups.dto';
 import { PublishersService } from '../publishers/publishers.service';
 import { QueryPublishersDto } from '../publishers/dto/query-publishers.dto';
-import { redactPrivateFields } from '../publishers/publisher-privacy';
+import {
+  publicRosterView,
+  redactPrivateFields,
+} from '../publishers/publisher-privacy';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
@@ -38,7 +42,11 @@ export class ServiceGroupsService {
     private readonly auditLog: AuditLogService,
   ) {}
 
-  async findAll(tenantId: string, query: QueryServiceGroupsDto) {
+  async findAll(
+    tenantId: string,
+    query: QueryServiceGroupsDto,
+    privileged = true,
+  ) {
     const qb = this.serviceGroupsRepo
       .createQueryBuilder('sg')
       .where('sg.congregation_id = :tenantId', { tenantId });
@@ -66,7 +74,18 @@ export class ServiceGroupsService {
     qb.skip(query.offset ?? 0);
 
     const [data, total] = await qb.getManyAndCount();
-    return { data, total, limit: query.limit ?? 50, offset: query.offset ?? 0 };
+    // The list carries the two leaders as well: the servant of a group and his
+    // assistant are the point of contact, and having to open every group to
+    // find out who they are is exactly what people complained about.
+    const withLeaders = await Promise.all(
+      data.map((g) => this.attachLeaders(tenantId, g, privileged)),
+    );
+    return {
+      data: withLeaders,
+      total,
+      limit: query.limit ?? 50,
+      offset: query.offset ?? 0,
+    };
   }
 
   /**
@@ -95,9 +114,17 @@ export class ServiceGroupsService {
    * behaviour) silently dropped non-member leaders. A leader whose publisher
    * record is missing or removed resolves to null rather than throwing.
    */
+  /**
+   * A group carries the two people it is organised around. They used to be
+   * attached as FULL publisher rows — phone, address, notes — and the group
+   * endpoints are open to every signed-in member, so that was a card handed
+   * out with the group. Now the unprivileged get the same name-and-service
+   * shape as the roster.
+   */
   private async attachLeaders(
     tenantId: string,
     group: ServiceGroup,
+    privileged: boolean,
   ): Promise<ServiceGroupWithLeaders> {
     const overseer = group.overseerPublisherId
       ? await this.publishersService
@@ -109,15 +136,43 @@ export class ServiceGroupsService {
           .findOne(tenantId, group.assistantPublisherId)
           .catch(() => null)
       : null;
-    return { ...group, overseer, assistant };
+    const shape = (p: Publisher | null) =>
+      p && !privileged ? publicRosterView(p) : p;
+    return { ...group, overseer: shape(overseer), assistant: shape(assistant) };
+  }
+
+  /** Resolves the caller's standing, then reads. Used by the HTTP layer. */
+  async findAllFor(
+    tenantId: string,
+    query: QueryServiceGroupsDto,
+    user: AuthenticatedUser,
+  ) {
+    const privileged = await this.publishersService.resolvePrivateAccess(
+      tenantId,
+      user,
+    );
+    return this.findAll(tenantId, query, privileged);
+  }
+
+  async findOneFor(
+    tenantId: string,
+    id: string,
+    user: AuthenticatedUser,
+  ): Promise<ServiceGroupWithLeaders> {
+    const privileged = await this.publishersService.resolvePrivateAccess(
+      tenantId,
+      user,
+    );
+    return this.findOne(tenantId, id, privileged);
   }
 
   async findOne(
     tenantId: string,
     id: string,
+    privileged = true,
   ): Promise<ServiceGroupWithLeaders> {
     const group = await this.findEntity(tenantId, id);
-    return this.attachLeaders(tenantId, group);
+    return this.attachLeaders(tenantId, group, privileged);
   }
 
   async create(
@@ -146,7 +201,7 @@ export class ServiceGroupsService {
       },
     });
     await this.addLeadersToGroup(tenantId, saved);
-    return this.attachLeaders(tenantId, saved);
+    return this.attachLeaders(tenantId, saved, true);
   }
 
   async update(
@@ -182,7 +237,7 @@ export class ServiceGroupsService {
       fields: ['name', 'overseerPublisherId', 'assistantPublisherId'],
     });
     await this.addLeadersToGroup(tenantId, saved);
-    return this.attachLeaders(tenantId, saved);
+    return this.attachLeaders(tenantId, saved, true);
   }
 
   async remove(tenantId: string, id: string): Promise<void> {
@@ -249,7 +304,7 @@ export class ServiceGroupsService {
     return {
       ...result,
       total: result.total - (result.data.length - visible.length),
-      data: visible.map(redactPrivateFields),
+      data: visible.map(publicRosterView),
     };
   }
 

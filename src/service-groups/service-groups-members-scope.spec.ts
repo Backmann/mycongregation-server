@@ -68,6 +68,30 @@ describe('ServiceGroupsService.findPublishers — scoping', () => {
     expect(res.data[0].mobilePhone).toBeUndefined();
   });
 
+  // pioneerSince is private, and a start month still ahead means the person is
+  // NOT yet a pioneer. Without the date the app guessed "already serving" and
+  // showed an auxiliary pioneer as a regular one months early.
+  it('answers the pioneer question instead of leaking the date', async () => {
+    const rows = [
+      {
+        id: 'p1',
+        displayName: 'A',
+        appointment: 'publisher',
+        pioneerType: 'regular',
+        pioneerSince: '2099-08-01',
+      },
+    ];
+    const { svc } = makeSvc({ ownGroup: 'g1', rows });
+    const res = (await svc.findPublishers(
+      TENANT,
+      'g1',
+      {} as any,
+      member,
+    )) as unknown as { data: Record<string, unknown>[] };
+    expect(res.data[0].pioneerSince).toBeUndefined();
+    expect(res.data[0].pioneerActive).toBe(false);
+  });
+
   it('never sends contact-confirmation or account state to a publisher', async () => {
     const { svc } = makeSvc({ ownGroup: 'g1' });
     const res = (await svc.findPublishers(

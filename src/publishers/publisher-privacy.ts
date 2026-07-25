@@ -1,3 +1,6 @@
+import { PioneerType } from '../common/enums/pioneer-type.enum';
+import { isActivePermanentPioneer } from '../common/pioneer-status';
+
 /**
  * Fields on a Publisher that are private (encrypted contacts, free-text notes,
  * personal dates, removal details such as the disfellowshipping reason, and
@@ -45,4 +48,23 @@ export function redactPrivateFields<T extends object>(publisher: T): T {
     delete copy[field];
   }
   return copy as T;
+}
+
+/**
+ * The roster row as everyone else sees it: private fields gone, plus one
+ * computed fact that cannot be worked out without them.
+ *
+ * `pioneerSince` is private, and a pioneer type with a start month still in
+ * the future means the person is NOT yet a pioneer — she is whatever she is
+ * today, usually an auxiliary one. Without the date the app had to guess, and
+ * guessed "already serving", so a publisher was shown as a regular pioneer
+ * months early. The date stays private; the answer travels instead.
+ */
+export function publicRosterView<T extends object>(publisher: T): T {
+  const source = publisher as Record<string, unknown>;
+  const pioneerActive = isActivePermanentPioneer(
+    source.pioneerType as PioneerType | null | undefined,
+    source.pioneerSince as string | null | undefined,
+  );
+  return { ...redactPrivateFields(publisher), pioneerActive } as T;
 }

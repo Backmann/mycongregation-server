@@ -31,16 +31,21 @@ export class ServiceGroupsController {
   constructor(private readonly serviceGroupsService: ServiceGroupsService) {}
 
   @Get()
-  findAll(@TenantId() tenantId: string, @Query() query: QueryServiceGroupsDto) {
-    return this.serviceGroupsService.findAll(tenantId, query);
+  findAll(
+    @TenantId() tenantId: string,
+    @Query() query: QueryServiceGroupsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.serviceGroupsService.findAllFor(tenantId, query, user);
   }
 
   @Get(':id')
   findOne(
     @TenantId() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.serviceGroupsService.findOne(tenantId, id);
+    return this.serviceGroupsService.findOneFor(tenantId, id, user);
   }
 
   @Get(':id/publishers')
