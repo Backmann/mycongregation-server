@@ -122,6 +122,20 @@ export class ReportRemindersService {
     }
   }
 
+  /** Day of the month in Berlin — the 1st speaks differently from the rest. */
+  private dayOfMonth(): number {
+    return Number(
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: BERLIN_TZ,
+        day: 'numeric',
+      }).format(new Date()),
+    );
+  }
+
+  private capitalize(value: string): string {
+    return value.charAt(0).toUpperCase() + value.slice(1);
+  }
+
   /** Today in Berlin — the reminder keys are per day, not per month. */
   private today(): string {
     return new Intl.DateTimeFormat('en-CA', {
@@ -132,7 +146,20 @@ export class ReportRemindersService {
     }).format(new Date());
   }
 
-  @Cron('0 18 1-10 * *', {
+  /**
+   * Three evenings, not ten.
+   *
+   * A reminder every evening from the 1st to the 10th is not persistence, it
+   * is nagging — and the thing people do about nagging is switch notifications
+   * off entirely, which then costs them the assignment they did want to hear
+   * about. So the person is asked three times and then it stops being pressed
+   * on him: the matter moves up to the group's overseer, and after that to the
+   * secretary. Responsibility escalates; the volume does not.
+   *
+   * The 1st is deliberate and different: it is not a reproach but an opening —
+   * the month has ended and the report can now be handed in.
+   */
+  @Cron('0 18 1,5,9 * *', {
     name: 'report-reminder-publishers',
     timeZone: BERLIN_TZ,
   })
@@ -146,11 +173,14 @@ export class ReportRemindersService {
         // One reminder per person per day: the job may tick twice after a
         // restart, and being told twice in an evening is how people learn to
         // switch notifications off.
+        const opening = this.dayOfMonth() === 1;
         await this.notifications.notify({
           tenantId,
           userIds: [p.userId],
           title: 'Отчёт о служении',
-          body: `Вы ещё не подали отчёт за ${label}. Пожалуйста, заполните его в приложении.`,
+          body: opening
+            ? `${this.capitalize(label)} закончился — отчёт можно сдать.`
+            : `Вы ещё не подали отчёт за ${label}.`,
           kind: 'report_reminder',
           key: `report:${reportMonth}:publisher:${this.today()}`,
           data: { type: 'report_reminder', scope: 'publisher', reportMonth },
@@ -164,7 +194,7 @@ export class ReportRemindersService {
     });
   }
 
-  @Cron('0 18 5,7,10 * *', {
+  @Cron('0 18 7,12 * *', {
     name: 'report-reminder-overseers',
     timeZone: BERLIN_TZ,
   })
@@ -216,7 +246,7 @@ export class ReportRemindersService {
     });
   }
 
-  @Cron('0 18 10,15,18,19 * *', {
+  @Cron('0 18 13,18 * *', {
     name: 'report-reminder-secretary',
     timeZone: BERLIN_TZ,
   })
