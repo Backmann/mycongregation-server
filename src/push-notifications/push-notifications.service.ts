@@ -302,6 +302,21 @@ export class PushNotificationsService {
       return;
     }
 
+    // ONE person, ONE channel.
+    //
+    // Someone with the app installed AND notifications allowed in a browser
+    // used to get every message twice, which reads as carelessness and is a
+    // good reason to switch the whole thing off. The phone wins because it is
+    // the device carried to the hall; the browser is usually a desktop at
+    // home, and a message seen on the phone has already done its work.
+    //
+    // The browser is not abandoned, though: it takes over for anyone with no
+    // phone registered, and it also catches the case where every phone token
+    // failed outright — a message that reached nobody is worse than one that
+    // arrived twice.
+    const phoneUserIds = new Set(tokens.map((t) => t.userId));
+    const reachedByPhone = new Set<string>();
+
     if (tokens.length > 0) {
       const userIdByToken = new Map(tokens.map((t) => [t.token, t.userId]));
       const now = new Date();
@@ -313,8 +328,9 @@ export class PushNotificationsService {
       );
       const receipts: PendingReceipt[] = [];
       for (const r of results) {
-        if (!r.ticketId) continue;
         const userId = userIdByToken.get(r.token);
+        if (userId && !r.errorCode) reachedByPhone.add(userId);
+        if (!r.ticketId) continue;
         if (!userId) continue;
         receipts.push({
           ticketId: r.ticketId,
@@ -338,10 +354,13 @@ export class PushNotificationsService {
       }
     }
 
-    if (webSubs.length > 0) {
+    const webNeeded = webSubs.filter(
+      (s) => !phoneUserIds.has(s.userId) || !reachedByPhone.has(s.userId),
+    );
+    if (webNeeded.length > 0) {
       const payload = { title, body, data };
       await Promise.all(
-        webSubs.map((sub) =>
+        webNeeded.map((sub) =>
           this.webPushService.sendToSubscription(sub, payload),
         ),
       );
