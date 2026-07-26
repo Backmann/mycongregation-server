@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, LessThanOrEqual, Or, Repository } from 'typeorm';
 import { NotificationOutbox } from '../entities/notification-outbox.entity';
+import { NotificationPreference } from '../entities/notification-preference.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 
@@ -14,6 +15,36 @@ const DEFAULT_TZ = 'Europe/Berlin';
  */
 const QUIET_UNTIL_HOUR = 8; // nothing before 08:00 local
 const QUIET_FROM_HOUR = 21; // nothing after 21:00 local
+
+/**
+ * The categories a person can switch off, and which kinds belong to each.
+ *
+ * They are named after the person's life in the congregation, not after our
+ * modules — someone deciding what to hear about thinks in terms of "my
+ * assignments" and "cleaning", not in terms of which service sends what.
+ * A kind nobody mapped falls into `other`, which cannot be switched off:
+ * better an occasional unexpected message than silently losing a new kind
+ * because nobody remembered to map it.
+ */
+export const NOTIFICATION_CATEGORIES = [
+  'assignments',
+  'ministry',
+  'cleaning',
+  'reports',
+  'admin',
+] as const;
+export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
+
+export function categoryOfKind(kind: string): NotificationCategory | 'other' {
+  if (kind === 'schedule') return 'assignments';
+  if (kind === 'field_service_meeting' || kind.startsWith('cart')) {
+    return 'ministry';
+  }
+  if (kind.startsWith('cleaning')) return 'cleaning';
+  if (kind === 'report_reminder') return 'reports';
+  if (kind === 'status_change') return 'admin';
+  return 'other';
+}
 
 export interface NotifyInput {
   tenantId: string;
@@ -60,6 +91,8 @@ export class NotificationsService {
     private readonly outboxRepo: Repository<NotificationOutbox>,
     @InjectRepository(Congregation)
     private readonly congregationsRepo: Repository<Congregation>,
+    @InjectRepository(NotificationPreference)
+    private readonly preferencesRepo: Repository<NotificationPreference>,
     private readonly push: PushNotificationsService,
   ) {}
 
@@ -131,7 +164,28 @@ export class NotificationsService {
         input.urgent,
       );
 
+      const category = categoryOfKind(input.kind);
+      const switchedOff =
+        category === 'other'
+          ? new Set<string>()
+          : new Set(
+              (
+                await this.preferencesRepo.find({
+                  where: {
+                    userId: In(recipients),
+                    category,
+                    enabled: false,
+                  },
+                  select: { userId: true },
+                })
+              ).map((p) => p.userId),
+            );
+
       for (const userId of recipients) {
+        // Asked not to hear about this. Nothing is written: an outbox row for
+        // something deliberately not sent would make the ledger lie about
+        // what the congregation actually receives.
+        if (switchedOff.has(userId)) continue;
         const row = this.outboxRepo.create({
           congregationId: input.tenantId,
           userId,
@@ -213,6 +267,46 @@ export class NotificationsService {
       .andWhere('created_at < :cutoff', { cutoff })
       .execute();
     return res.affected ?? 0;
+  }
+
+  /**
+   * What this person hears about. Everything is on unless they turned it off,
+   * so a fresh account needs no rows at all.
+   */
+  async getPreferences(userId: string): Promise<Record<string, boolean>> {
+    const rows = await this.preferencesRepo.find({ where: { userId } });
+    const off = new Map(rows.map((r) => [r.category, r.enabled]));
+    return Object.fromEntries(
+      NOTIFICATION_CATEGORIES.map((c) => [c, off.get(c) ?? true]),
+    );
+  }
+
+  /** Store a choice. Turning something back on removes the row rather than
+   * keeping a `true` around — the absence IS the default. */
+  async setPreference(
+    userId: string,
+    category: string,
+    enabled: boolean,
+  ): Promise<Record<string, boolean>> {
+    if (!NOTIFICATION_CATEGORIES.includes(category as NotificationCategory)) {
+      return this.getPreferences(userId);
+    }
+    if (enabled) {
+      await this.preferencesRepo.delete({ userId, category });
+    } else {
+      const existing = await this.preferencesRepo.findOne({
+        where: { userId, category },
+      });
+      if (existing) {
+        await this.preferencesRepo.update(
+          { id: existing.id },
+          { enabled: false },
+        );
+      } else {
+        await this.preferencesRepo.insert({ userId, category, enabled: false });
+      }
+    }
+    return this.getPreferences(userId);
   }
 
   /** Volume by kind over a window — for seeing whether it is getting noisier. */

@@ -44,12 +44,25 @@ function makeService(over: Partial<Record<string, any>> = {}) {
   const congregationsRepo = {
     findOne: jest.fn(async () => ({ id: 'cong-1', timezone: TZ })),
   } as any;
+  // Nothing switched off unless a test says so.
+  const preferencesRepo = {
+    find: jest.fn(async () => over.switchedOff ?? []),
+    findOne: jest.fn(async () => null),
+    insert: jest.fn(async () => undefined),
+    update: jest.fn(async () => undefined),
+    delete: jest.fn(async () => undefined),
+  } as any;
   const push = {
     sendToUsers: jest.fn().mockResolvedValue(undefined),
     ...(over.push ?? {}),
   } as any;
-  const svc = new NotificationsService(outboxRepo, congregationsRepo, push);
-  return { svc, rows, push, outboxRepo };
+  const svc = new NotificationsService(
+    outboxRepo,
+    congregationsRepo,
+    preferencesRepo,
+    push,
+  );
+  return { svc, rows, push, outboxRepo, preferencesRepo };
 }
 
 const base = {
@@ -184,6 +197,36 @@ describe('NotificationsService.deliverDue', () => {
     expect(sent).toBe(1);
     expect(push.sendToUsers).toHaveBeenCalledTimes(1);
     expect(rows[0].status).toBe('sent');
+    jest.useRealTimers();
+  });
+});
+
+describe('NotificationsService — what a person chose not to hear', () => {
+  it('says nothing to someone who switched that category off', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-15T16:00:00Z'));
+    const { svc, push, rows } = makeService({
+      switchedOff: [{ userId: 'u1', category: 'reports', enabled: false }],
+    });
+
+    await svc.notify({ ...base, userIds: ['u1'] }); // kind: report_reminder
+
+    expect(push.sendToUsers).not.toHaveBeenCalled();
+    // And nothing is written down: a ledger that records what was deliberately
+    // not sent would lie about what the congregation receives.
+    expect(rows).toHaveLength(0);
+    jest.useRealTimers();
+  });
+
+  it('still reaches the others in the same send', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-15T16:00:00Z'));
+    const { svc, push } = makeService({
+      switchedOff: [{ userId: 'u1', category: 'reports', enabled: false }],
+    });
+
+    await svc.notify({ ...base, userIds: ['u1', 'u2'] });
+
+    expect(push.sendToUsers).toHaveBeenCalledTimes(1);
+    expect(push.sendToUsers.mock.calls[0][1]).toEqual(['u2']);
     jest.useRealTimers();
   });
 });

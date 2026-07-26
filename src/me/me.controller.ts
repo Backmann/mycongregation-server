@@ -3,6 +3,8 @@ import { MeService } from './me.service';
 import { DataRightsService } from './data-rights.service';
 import { EraseAccountDto } from './dto/erase-account.dto';
 import { UpdateMyContactsDto } from './dto/update-my-contacts.dto';
+import { UpdateNotificationPreferenceDto } from './dto/update-notification-preference.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -16,6 +18,7 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 export class MeController {
   constructor(
     private readonly service: MeService,
+    private readonly notifications: NotificationsService,
     private readonly dataRights: DataRightsService,
   ) {}
 
@@ -61,6 +64,23 @@ export class MeController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.myPublisher(tenantId, user.id);
+  }
+
+  /**
+   * What this person hears about, and the switch for each. Personal settings,
+   * so they hang off /me and need no role: everyone decides for themselves.
+   */
+  @Get('notification-preferences')
+  notificationPreferences(@CurrentUser() user: AuthenticatedUser) {
+    return this.notifications.getPreferences(user.id);
+  }
+
+  @Patch('notification-preferences')
+  setNotificationPreference(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdateNotificationPreferenceDto,
+  ) {
+    return this.notifications.setPreference(user.id, dto.category, dto.enabled);
   }
 
   @Get('export')

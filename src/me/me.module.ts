@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Publisher } from '../entities/publisher.entity';
@@ -17,6 +18,7 @@ import { DataRightsService } from './data-rights.service';
 
 @Module({
   imports: [
+    NotificationsModule,
     AuditLogModule,
     TypeOrmModule.forFeature([
       Publisher,
