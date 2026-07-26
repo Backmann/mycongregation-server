@@ -1,5 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
-import { MeetingAttendanceService } from './meeting-attendance.service';
+import {
+  MeetingAttendanceService,
+  attendanceOpen,
+  minutesOfClock,
+} from './meeting-attendance.service';
 import { EventType } from '../common/enums/event-type.enum';
 
 const TENANT = 'cong-1';
@@ -383,5 +387,40 @@ describe('MeetingAttendanceService', () => {
       .calls[0][0];
     expect(call.before.count).toBe(100);
     expect(call.after.count).toBe(105);
+  });
+});
+
+describe('attendanceOpen — when the card may be filled in', () => {
+  const TODAY = '2026-07-29'; // a Wednesday
+  const START = '19:00'; // 1140 minutes
+
+  it('opens an hour before the meeting starts', () => {
+    expect(attendanceOpen(TODAY, START, TODAY, 18 * 60)).toBe(true);
+  });
+
+  it('stays shut earlier in the day', () => {
+    expect(attendanceOpen(TODAY, START, TODAY, 17 * 60 + 59)).toBe(false);
+  });
+
+  // The old rule: a meeting whose day has passed is always open, and that is
+  // what makes a forgotten week still fixable.
+  it('is open for a meeting on an earlier day', () => {
+    expect(attendanceOpen('2026-07-22', START, TODAY, 8 * 60)).toBe(true);
+  });
+
+  it('is shut for a meeting still to come', () => {
+    expect(attendanceOpen('2026-08-05', START, TODAY, 23 * 60)).toBe(false);
+  });
+
+  // Without a time on record, guessing would put the card on screen at
+  // breakfast; the old behaviour is the safer answer.
+  it('falls back to the old rule when no time is recorded', () => {
+    expect(attendanceOpen(TODAY, null, TODAY, 23 * 60)).toBe(false);
+    expect(attendanceOpen('2026-07-22', null, TODAY, 8 * 60)).toBe(true);
+  });
+
+  it('reads a time with seconds as well', () => {
+    expect(minutesOfClock('10:30:00')).toBe(630);
+    expect(minutesOfClock(null)).toBeNull();
   });
 });

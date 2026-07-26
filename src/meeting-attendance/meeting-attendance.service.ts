@@ -187,15 +187,23 @@ export class MeetingAttendanceService {
     if (!ctx) return { meetings: [], outstandingThisYear: 0 };
 
     const today = berlinToday();
+    const nowMinutes = berlinNowMinutes();
     const thisMonday = mondayOfISO(today);
     const wanted: { date: string; eventType: EventType }[] = [];
 
     for (let back = 0; back < weeksBack; back++) {
       const weekStart = addDaysISO(thisMonday, -7 * back);
       for (const m of this.meetingsOfWeek(weekStart, ctx)) {
-        // Only meetings whose own day has passed. The day of the meeting
-        // itself is left alone: it is not over yet.
-        if (m.date >= today) continue;
+        if (
+          !attendanceOpen(
+            m.date,
+            this.startTimeOf(m.date, m.eventType, ctx),
+            today,
+            nowMinutes,
+          )
+        ) {
+          continue;
+        }
         wanted.push(m);
       }
     }
@@ -278,6 +286,24 @@ export class MeetingAttendanceService {
   }
 
   /** Which meetings that week held, and on which dates. */
+  /** The start time in force for that week, or null when none is recorded. */
+  private startTimeOf(
+    date: string,
+    kind: EventType,
+    ctx: WeekContext,
+  ): string | null {
+    const weekStart = mondayOfISO(date);
+    let version: MeetingSettings | null = null;
+    for (const v of ctx.versions) {
+      if (v.effectiveFrom <= weekStart) version = v;
+    }
+    version = version ?? ctx.versions[0];
+    if (!version) return null;
+    return kind === EventType.MIDWEEK
+      ? version.midweekTime
+      : version.weekendTime;
+  }
+
   private meetingsOfWeek(
     weekStart: string,
     ctx: WeekContext,
@@ -474,6 +500,56 @@ function berlinToday(): string {
     month: '2-digit',
     day: '2-digit',
   }).format(new Date());
+}
+
+/** Minutes since midnight in Berlin, right now. */
+function berlinNowMinutes(): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Berlin',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+  const hour = get('hour') === 24 ? 0 : get('hour');
+  return hour * 60 + get('minute');
+}
+
+/** 'HH:MM' as minutes since midnight; null when the value is unusable. */
+export function minutesOfClock(
+  value: string | null | undefined,
+): number | null {
+  if (!value) return null;
+  const m = /^(\d{1,2}):(\d{2})/.exec(value);
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+/**
+ * May a meeting be counted yet?
+ *
+ * Until now the card waited for the day to be OVER — the meeting's own day was
+ * left alone because "it is not over yet". Correct, but it cost exactly the
+ * freshness the card exists for: the brother counts during the meeting and
+ * wants to type the figure in on his way home, not the next morning.
+ *
+ * An hour before the start is when he is already at the hall, so that is when
+ * the field appears. Earlier meetings are of course always open.
+ */
+export function attendanceOpen(
+  meetingDate: string,
+  startTime: string | null | undefined,
+  today: string,
+  nowMinutes: number,
+  leadMinutes = 60,
+): boolean {
+  if (meetingDate < today) return true;
+  if (meetingDate > today) return false;
+  const start = minutesOfClock(startTime);
+  // No time on record: fall back to the old rule rather than guess — a card
+  // that appears at midnight is better than one that appears at breakfast.
+  if (start === null) return false;
+  return nowMinutes >= start - leadMinutes;
 }
 
 function addDaysISO(iso: string, days: number): string {
