@@ -1252,7 +1252,7 @@ describe('ServiceReportsService', () => {
         expect(auditLogService.logUpdate).toHaveBeenCalledTimes(1);
         const call = auditLogService.logUpdate.mock.calls[0][0];
         expect(call.tenantId).toBe('cong-1');
-        expect(call.entityType).toBe('ServiceReport');
+        expect(call.entityType).toBe('service_report');
         expect(call.entityId).toBe('r-1');
         expect(call.actorUserId).toBe('user-self');
         expect(call.fields).toEqual([

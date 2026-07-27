@@ -205,7 +205,7 @@ export class UsersService {
 
     await this.auditLog.logCreate({
       tenantId: congregationId,
-      entityType: 'User',
+      entityType: 'user',
       entityId: user.id,
       actorUserId,
       after: {
@@ -256,7 +256,7 @@ export class UsersService {
 
     await this.auditLog.logUpdate({
       tenantId: congregationId,
-      entityType: 'User',
+      entityType: 'user',
       entityId: targetId,
       actorUserId,
       before: { role: oldRole },
@@ -299,7 +299,7 @@ export class UsersService {
 
     await this.auditLog.logUpdate({
       tenantId: congregationId,
-      entityType: 'User',
+      entityType: 'user',
       entityId: targetId,
       actorUserId,
       before: { isActive: !isActive },
@@ -323,7 +323,7 @@ export class UsersService {
     await this.usersRepo.update(targetId, { canViewPrivateData });
     await this.auditLog.logUpdate({
       tenantId: congregationId,
-      entityType: 'User',
+      entityType: 'user',
       entityId: targetId,
       actorUserId,
       before: { canViewPrivateData: !canViewPrivateData },
@@ -429,7 +429,7 @@ export class UsersService {
     // treat the two equal '<redacted>' values as "unchanged" and write nothing.
     await this.auditLog.logRawUpdate({
       tenantId: congregationId,
-      entityType: 'User',
+      entityType: 'user',
       entityId: targetId,
       actorUserId,
       changedFields: ['passwordHash'],
@@ -493,7 +493,7 @@ export class UsersService {
 
     await this.auditLog.logRawUpdate({
       tenantId: user.congregationId,
-      entityType: 'User',
+      entityType: 'user',
       entityId: userId,
       actorUserId: userId, // self-action: actor === target
       changedFields: ['passwordHash'],
@@ -521,7 +521,7 @@ export class UsersService {
     await this.usersRepo.update(targetId, { role: newRole });
     await this.auditLog.logUpdate({
       tenantId: congregationId,
-      entityType: 'User',
+      entityType: 'user',
       entityId: targetId,
       actorUserId: actorUserId ?? targetId,
       before: { role: user.role },

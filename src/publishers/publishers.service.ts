@@ -195,7 +195,7 @@ export class PublishersService {
       if (publisher.userId) {
         await this.auditLogService.logUpdate({
           tenantId,
-          entityType: 'Publisher',
+          entityType: 'publisher',
           entityId: publisher.id,
           actorUserId: publisher.userId,
           before,
@@ -235,7 +235,7 @@ export class PublishersService {
     if (publisher.userId) {
       await this.auditLogService.logUpdate({
         tenantId,
-        entityType: 'Publisher',
+        entityType: 'publisher',
         entityId: publisher.id,
         actorUserId: publisher.userId,
         before,
@@ -465,7 +465,7 @@ export class PublishersService {
 
     await this.auditLogService.logUpdate({
       tenantId,
-      entityType: 'Publisher',
+      entityType: 'publisher',
       entityId: saved.id,
       actorUserId: user.id,
       before,
@@ -511,7 +511,7 @@ export class PublishersService {
 
     await this.auditLogService.logUpdate({
       tenantId,
-      entityType: 'Publisher',
+      entityType: 'publisher',
       entityId: publisher.id,
       actorUserId: user.id,
       before,

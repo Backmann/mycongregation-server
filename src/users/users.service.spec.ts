@@ -255,7 +255,7 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
       expect(audit.logCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           tenantId: CONG,
-          entityType: 'User',
+          entityType: 'user',
           actorUserId: ADMIN_ID,
           after: expect.objectContaining({
             email: 'foo@bar.com',
@@ -531,7 +531,7 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
       expect(audit.logRawUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           tenantId: CONG,
-          entityType: 'User',
+          entityType: 'user',
           entityId: 'u-1',
           actorUserId: ADMIN_ID,
           changedFields: ['passwordHash'],
@@ -583,7 +583,7 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
       expect(audit.logRawUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           tenantId: CONG,
-          entityType: 'User',
+          entityType: 'user',
           entityId: 'u-1',
           actorUserId: 'u-1',
           changedFields: ['passwordHash'],

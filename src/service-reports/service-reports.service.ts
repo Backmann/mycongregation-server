@@ -643,7 +643,7 @@ export class ServiceReportsService {
     const saved = await this.reportsRepo.save(report);
     await this.auditLogService.logUpdate({
       tenantId,
-      entityType: 'ServiceReport',
+      entityType: 'service_report',
       entityId: saved.id,
       actorUserId: user.id,
       before,

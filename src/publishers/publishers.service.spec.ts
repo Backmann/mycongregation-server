@@ -463,7 +463,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       );
       expect(auditLogService.logUpdate).toHaveBeenCalledTimes(1);
       const call = auditLogService.logUpdate.mock.calls[0][0];
-      expect(call.entityType).toBe('Publisher');
+      expect(call.entityType).toBe('publisher');
       expect(call.entityId).toBe('pub-1');
       expect(call.actorUserId).toBe('admin-1');
       expect(call.before.status).toBe(PublisherStatus.INACTIVE);
