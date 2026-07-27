@@ -256,7 +256,21 @@ describe('CoVisitItemsService.hostStats', () => {
       andWhere: () => qb,
       getMany: async () => rows,
     };
-    const repo = { createQueryBuilder: () => qb } as any;
+    // Accommodation history comes from the visits themselves, so the service
+    // asks the manager too.
+    const visitQb: any = {
+      select: () => visitQb,
+      where: () => visitQb,
+      andWhere: () => visitQb,
+      getMany: async () => [
+        { date: '2019-05-01', coAccommodationPublisherId: 'p3' },
+        { date: '2099-05-01', coAccommodationPublisherId: 'p3' },
+      ],
+    };
+    const repo = {
+      createQueryBuilder: () => qb,
+      manager: { createQueryBuilder: () => visitQb },
+    } as any;
     const svc = new CoVisitItemsService(
       repo,
       {} as any,
@@ -280,6 +294,79 @@ describe('CoVisitItemsService.hostStats', () => {
       nextDate: '2099-01-01',
     });
     expect(out.find((s) => s.kind === 'lunch_box')?.total).toBe(1);
+  });
+});
+
+describe('CoVisitItemsService.hostStats — counted per kind', () => {
+  // Hosting lunch three times says nothing about whether someone has ever
+  // gone out in the ministry with the overseer; rolling the kinds together
+  // would send the same few names round every time.
+  function run(rows: any[], visits: any[] = []) {
+    const qb: any = {
+      select: () => qb,
+      where: () => qb,
+      andWhere: () => qb,
+      getMany: async () => rows,
+    };
+    const visitQb: any = {
+      select: () => visitQb,
+      where: () => visitQb,
+      andWhere: () => visitQb,
+      getMany: async () => visits,
+    };
+    const repo = {
+      createQueryBuilder: () => qb,
+      manager: { createQueryBuilder: () => visitQb },
+    } as any;
+    return new CoVisitItemsService(
+      repo,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    ).hostStats('c1');
+  }
+
+  it('keeps the ministry apart from the lunches for the same person', async () => {
+    const out = await run([
+      { kind: 'lunch', itemDate: '2020-01-01', assigneePublisherId: 'p1' },
+      { kind: 'lunch', itemDate: '2021-01-01', assigneePublisherId: 'p1' },
+      {
+        kind: 'field_service',
+        itemDate: '2020-02-01',
+        assigneePublisherId: 'p1',
+      },
+    ]);
+    const lunch = out.find((x) => x.publisherId === 'p1' && x.kind === 'lunch');
+    const service = out.find(
+      (x) => x.publisherId === 'p1' && x.kind === 'field_service',
+    );
+    expect(lunch?.total).toBe(2);
+    expect(service?.total).toBe(1);
+  });
+
+  it('counts a shepherding call as its own kind', async () => {
+    const out = await run([
+      { kind: 'pastoral', itemDate: '2020-04-01', assigneePublisherId: 'p2' },
+    ]);
+    expect(out.find((x) => x.kind === 'pastoral')?.total).toBe(1);
+  });
+
+  // Accommodation lives on the visit, not on an item, but the question is the
+  // same: who has already put them up, and how long ago.
+  it('answers the accommodation question from the visits themselves', async () => {
+    const out = await run(
+      [],
+      [
+        { date: '2019-05-01', coAccommodationPublisherId: 'p3' },
+        { date: '2099-05-01', coAccommodationPublisherId: 'p3' },
+      ],
+    );
+    const acc = out.find((x) => x.kind === 'accommodation');
+    expect(acc?.publisherId).toBe('p3');
+    expect(acc?.total).toBe(2);
+    expect(acc?.lastDate).toBe('2019-05-01');
+    expect(acc?.nextDate).toBe('2099-05-01');
   });
 });
 

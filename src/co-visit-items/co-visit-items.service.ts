@@ -153,10 +153,19 @@ export class CoVisitItemsService {
    * Private assignee data of other people is never included.
    */
   /**
-   * Hosting rotation across ALL visits (past ones included): for every
-   * publisher who has ever hosted a lunch / prepared a lunch box, the total,
-   * the last past date and the next scheduled date. Powers the "who hasn't
-   * hosted yet" ordering in the host picker.
+   * Who has already done what, across ALL visits, past ones included.
+   *
+   * For every publisher and every KIND separately — a lunch, a lunch box, a
+   * morning in the ministry, a shepherding call — the total, the last past
+   * date and the next scheduled one. Kept per kind on purpose: hosting the
+   * overseer for lunch three times says nothing about whether you have ever
+   * gone out in the ministry with him, and rolling them together would send
+   * the same few names round every time.
+   *
+   * This is what the pickers order by, so whoever has not been asked for the
+   * longest stands at the top. It informs; it never forbids — sometimes the
+   * same person really is the right one, and the choice stays with whoever is
+   * planning the visit.
    */
   async hostStats(congregationId: string): Promise<
     {
@@ -171,7 +180,9 @@ export class CoVisitItemsService {
       .createQueryBuilder('i')
       .select(['i.kind', 'i.itemDate', 'i.assigneePublisherId'])
       .where('i.congregationId = :congregationId', { congregationId })
-      .andWhere('i.kind IN (:...kinds)', { kinds: ['lunch', 'lunch_box'] })
+      .andWhere('i.kind IN (:...kinds)', {
+        kinds: ['lunch', 'lunch_box', 'field_service', 'pastoral'],
+      })
       .andWhere('i.assigneePublisherId IS NOT NULL')
       .getMany();
     const today = new Date().toISOString().slice(0, 10);
@@ -199,6 +210,34 @@ export class CoVisitItemsService {
         if (!st.lastDate || r.itemDate > st.lastDate) st.lastDate = r.itemDate;
       } else if (!st.nextDate || r.itemDate < st.nextDate) {
         st.nextDate = r.itemDate;
+      }
+      map.set(key, st);
+    }
+
+    // Accommodation is not an item — it lives on the visit itself — but the
+    // question is the same one: who has already put them up, and how long ago.
+    // Answered here so the picker has a single place to ask.
+    const visits = await this.repo.manager
+      .createQueryBuilder(SpecialEvent, 'e')
+      .select(['e.date', 'e.coAccommodationPublisherId'])
+      .where('e.congregationId = :congregationId', { congregationId })
+      .andWhere('e.type = :type', { type: 'circuit_overseer_visit' })
+      .andWhere('e.coAccommodationPublisherId IS NOT NULL')
+      .getMany();
+    for (const v of visits) {
+      const key = `${v.coAccommodationPublisherId}|accommodation`;
+      const st = map.get(key) ?? {
+        publisherId: v.coAccommodationPublisherId!,
+        kind: 'accommodation',
+        total: 0,
+        lastDate: null,
+        nextDate: null,
+      };
+      st.total += 1;
+      if (v.date <= today) {
+        if (!st.lastDate || v.date > st.lastDate) st.lastDate = v.date;
+      } else if (!st.nextDate || v.date < st.nextDate) {
+        st.nextDate = v.date;
       }
       map.set(key, st);
     }
