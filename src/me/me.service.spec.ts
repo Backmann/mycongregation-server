@@ -51,6 +51,28 @@ describe('MeService.myPublisher', () => {
     });
   });
 
+  // Home tells a man his own standing; without this he would have to fetch
+  // the whole roster and find himself in it. It is not private — every
+  // publisher already sees appointments in the roster.
+  it('carries the appointment, so home can say it without the roster', async () => {
+    publishersRepo.findOne.mockResolvedValue({
+      id: 'p1',
+      displayName: 'Lionel B.',
+      firstName: 'Lionel',
+      lastName: 'Backmann',
+      pioneerType: 'regular',
+      appointment: 'elder',
+      serviceGroupId: 'g1',
+      mobilePhone: null,
+      email: null,
+      address: null,
+      contactsConfirmedAt: null,
+      contactsConfirmedByUserId: null,
+    });
+    const res = await service.myPublisher('c1', 'u1');
+    expect(res.publisher?.appointment).toBe('elder');
+  });
+
   it('returns identity and own contacts, never staff-only fields', async () => {
     publishersRepo.findOne.mockResolvedValue({
       id: 'p1',
@@ -76,6 +98,7 @@ describe('MeService.myPublisher', () => {
         firstName: 'Adele',
         lastName: 'Backmann',
         pioneerType: 'none',
+        appointment: null,
         serviceGroupId: 'g1',
         mobilePhone: '+49 151 000',
         email: 'private@example.org',

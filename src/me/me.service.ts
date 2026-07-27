@@ -67,6 +67,7 @@ export interface MyPublisherResponse {
     firstName: string;
     lastName: string;
     pioneerType: string | null;
+    appointment: string | null;
     serviceGroupId: string | null;
     /** Own contacts — the publisher keeps these up to date themselves. */
     mobilePhone: string | null;
@@ -179,6 +180,10 @@ export class MeService {
         firstName: me.firstName,
         lastName: me.lastName,
         pioneerType: me.pioneerType ?? null,
+        // Not private: every publisher already sees this in the roster. It is
+        // here so a man can be told his own standing on his own screen without
+        // fetching the whole roster to find himself in it.
+        appointment: me.appointment ?? null,
         serviceGroupId: me.serviceGroupId ?? null,
         // Own contacts: the publisher edits these themselves.
         mobilePhone: me.mobilePhone ?? null,
