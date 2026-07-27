@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
 import { ValidationPipe, Logger } from '@nestjs/common';
+import { SentFieldsOnlyValidationPipe } from './common/pipes/sent-fields-only-validation.pipe';
 import { ConfigService } from '@nestjs/config';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
@@ -99,7 +100,7 @@ async function bootstrap() {
   });
 
   app.useGlobalPipes(
-    new ValidationPipe({
+    new SentFieldsOnlyValidationPipe({
       whitelist: true,
       transform: true,
       forbidNonWhitelisted: true,
