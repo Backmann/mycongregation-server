@@ -7,6 +7,7 @@ import { Duty } from '../entities/duty.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
+import { ServiceGroup } from '../entities/service-group.entity';
 import { User } from '../entities/user.entity';
 import { JournalService } from './journal.service';
 
@@ -38,6 +39,7 @@ describe('JournalService', () => {
   let cleaningRepo: { find: jest.Mock };
   let fieldServiceRepo: { find: jest.Mock };
   let publicTalksRepo: { find: jest.Mock };
+  let serviceGroupsRepo: { find: jest.Mock };
 
   beforeEach(async () => {
     auditRepo = { find: jest.fn().mockResolvedValue([]) };
@@ -48,6 +50,7 @@ describe('JournalService', () => {
     cleaningRepo = { find: jest.fn().mockResolvedValue([]) };
     fieldServiceRepo = { find: jest.fn().mockResolvedValue([]) };
     publicTalksRepo = { find: jest.fn().mockResolvedValue([]) };
+    serviceGroupsRepo = { find: jest.fn().mockResolvedValue([]) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -66,6 +69,10 @@ describe('JournalService', () => {
           useValue: fieldServiceRepo,
         },
         { provide: getRepositoryToken(PublicTalk), useValue: publicTalksRepo },
+        {
+          provide: getRepositoryToken(ServiceGroup),
+          useValue: serviceGroupsRepo,
+        },
       ],
     }).compile();
 

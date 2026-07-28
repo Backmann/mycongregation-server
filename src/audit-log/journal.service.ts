@@ -9,6 +9,7 @@ import { Duty } from '../entities/duty.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
+import { ServiceGroup } from '../entities/service-group.entity';
 
 export interface JournalPerson {
   id: string;
@@ -120,6 +121,8 @@ export class JournalService {
     private readonly fieldServiceRepo: Repository<FieldServiceMeeting>,
     @InjectRepository(PublicTalk)
     private readonly publicTalksRepo: Repository<PublicTalk>,
+    @InjectRepository(ServiceGroup)
+    private readonly serviceGroupsRepo: Repository<ServiceGroup>,
   ) {}
 
   async find(tenantId: string, filters: JournalFilters): Promise<JournalPage> {
@@ -312,7 +315,12 @@ export class JournalService {
       where: { id: In(wanted) },
     });
 
-    const [byId, byUserId, users] = await Promise.all([
+    // Service groups hide in the values just as people do: a field-service
+    // meeting now records which group it belongs to, and the journal was
+    // printing the bare uuid — «пусто → 4bc48ac6-…», which tells a reader
+    // nothing at all. One more lookup in the same place, so every screen that
+    // reads this dictionary gains the name at once.
+    const [byId, byUserId, users, groups] = await Promise.all([
       this.publishersRepo.find({
         where: { congregationId: tenantId, id: In(wanted) },
       }),
@@ -322,9 +330,13 @@ export class JournalService {
       this.usersRepo.find({
         where: { congregationId: tenantId, id: In(wanted) },
       }),
+      this.serviceGroupsRepo.find({
+        where: { congregationId: tenantId, id: In(wanted) },
+      }),
     ]);
 
     const names = new Map<string, string>();
+    for (const g of groups) names.set(g.id, g.name);
     for (const t of talks) names.set(t.id, `№${t.number}. ${t.title}`);
     const fullName = (p: Publisher) =>
       [p.lastName, p.firstName].filter(Boolean).join(' ').trim();
