@@ -534,7 +534,7 @@ export function minutesOfClock(
  * wants to type the figure in on his way home, not the next morning.
  *
  * An hour before the start is when he is already at the hall, so that is when
- * the field appears. Earlier meetings are of course always open.
+ * the field appears — and it stays only until midnight of that same day.
  */
 export function attendanceOpen(
   meetingDate: string,
@@ -543,12 +543,24 @@ export function attendanceOpen(
   nowMinutes: number,
   leadMinutes = 60,
 ): boolean {
-  if (meetingDate < today) return true;
-  if (meetingDate > today) return false;
+  // ONLY the meeting of TODAY. A card that outlives its day stops meaning
+  // anything definite: a midweek meeting nobody entered was still sitting on
+  // the home screen when the weekend one arrived, and the figure counted at
+  // the weekend can then be typed into the midweek row. The unique constraint
+  // cannot catch that — the entry is perfectly valid, just about the wrong
+  // meeting.
+  //
+  // So the card now says one thing only: "the meeting that happened today".
+  // At midnight, by the CONGREGATION's clock, it goes; a meeting that was
+  // missed is not lost — «Ещё N без записи» stays on the home screen and leads
+  // to the page where every meeting carries its own date and kind, and where a
+  // whole year can be filled in at once.
+  if (meetingDate !== today) return false;
   const start = minutesOfClock(startTime);
-  // No time on record: fall back to the old rule rather than guess — a card
-  // that appears at midnight is better than one that appears at breakfast.
-  if (start === null) return false;
+  // No start time on record: open for the whole of the meeting's day. It has
+  // to be the day itself now that later days are closed, and a congregation
+  // that has not set its meeting times would otherwise never see the card.
+  if (start === null) return true;
   return nowMinutes >= start - leadMinutes;
 }
 

@@ -402,21 +402,33 @@ describe('attendanceOpen — when the card may be filled in', () => {
     expect(attendanceOpen(TODAY, START, TODAY, 17 * 60 + 59)).toBe(false);
   });
 
-  // The old rule: a meeting whose day has passed is always open, and that is
-  // what makes a forgotten week still fixable.
-  it('is open for a meeting on an earlier day', () => {
-    expect(attendanceOpen('2026-07-22', START, TODAY, 8 * 60)).toBe(true);
+  // THE POINT OF THE RULE. A meeting whose day has passed is closed on the
+  // card. It used to stay open so a forgotten week could still be fixed from
+  // home, and that is exactly what let a midweek meeting sit there until the
+  // weekend one arrived — at which point the weekend figure could be typed
+  // into the midweek row, a valid entry about the wrong meeting. Missed
+  // meetings are recovered on the attendance page, where each carries its own
+  // date and kind.
+  it('is shut for a meeting on an earlier day', () => {
+    expect(attendanceOpen('2026-07-22', START, TODAY, 8 * 60)).toBe(false);
   });
 
   it('is shut for a meeting still to come', () => {
     expect(attendanceOpen('2026-08-05', START, TODAY, 23 * 60)).toBe(false);
   });
 
-  // Without a time on record, guessing would put the card on screen at
-  // breakfast; the old behaviour is the safer answer.
-  it('falls back to the old rule when no time is recorded', () => {
-    expect(attendanceOpen(TODAY, null, TODAY, 23 * 60)).toBe(false);
-    expect(attendanceOpen('2026-07-22', null, TODAY, 8 * 60)).toBe(true);
+  // Without a time on record the card takes the whole of the meeting's day:
+  // later days are closed now, so a congregation that has not set its meeting
+  // times would otherwise never see it at all.
+  it('takes the whole day when no time is recorded', () => {
+    expect(attendanceOpen(TODAY, null, TODAY, 8 * 60)).toBe(true);
+    expect(attendanceOpen('2026-07-22', null, TODAY, 8 * 60)).toBe(false);
+  });
+
+  // The backlog does not disappear with the card — it is counted separately
+  // and shown as «Ещё N без записи», which is what leads to the page.
+  it('closing the card says nothing about the backlog', () => {
+    expect(attendanceOpen('2026-07-22', START, TODAY, 23 * 60)).toBe(false);
   });
 
   it('reads a time with seconds as well', () => {
