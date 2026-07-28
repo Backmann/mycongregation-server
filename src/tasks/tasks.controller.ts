@@ -1,0 +1,151 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  IsIn,
+  IsISO8601,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+} from 'class-validator';
+import { TasksService } from './tasks.service';
+import { TenantId } from '../common/decorators/tenant-id.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Roles } from '../common/decorators/roles.decorator';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { UserRole } from '../common/enums/user-role.enum';
+import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+
+const AREAS = [
+  'ministry',
+  'teaching',
+  'care',
+  'organisation',
+  'accounts',
+  'other',
+] as const;
+
+export class UpsertMeetingDto {
+  @IsOptional() @IsISO8601() date?: string;
+  @IsOptional() @IsString() @MaxLength(5) startTime?: string | null;
+  @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
+}
+
+export class UpsertTaskDto {
+  @IsOptional() @IsString() @MaxLength(300) title?: string;
+  @IsOptional() @IsString() @MaxLength(8000) details?: string | null;
+  @IsOptional() @IsIn(AREAS as unknown as string[]) area?: string;
+  @IsOptional() @IsUUID() assigneePublisherId?: string | null;
+  @IsOptional() @IsISO8601() dueDate?: string | null;
+  @IsOptional() @IsUUID() eldersMeetingId?: string | null;
+  @IsOptional() @IsIn(['open', 'done']) status?: 'open' | 'done';
+}
+
+/**
+ * Tasks of the body of elders.
+ *
+ * Elders and admins only, and refused HERE rather than merely hidden in the
+ * app: a hidden tab is a convenience, not a barrier. Every elder sees every
+ * task — the body decides together, and a task nobody may read is a task
+ * nobody will do.
+ */
+@Controller('tasks')
+@UseGuards(RolesGuard)
+@Roles(UserRole.ADMIN, UserRole.ELDER)
+export class TasksController {
+  constructor(private readonly service: TasksService) {}
+
+  // ---- Meetings ---------------------------------------------------------
+
+  @Get('meetings')
+  listMeetings(@TenantId() tenantId: string) {
+    return this.service.listMeetings(tenantId);
+  }
+
+  @Post('meetings')
+  createMeeting(
+    @TenantId() tenantId: string,
+    @Body() dto: UpsertMeetingDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.createMeeting(
+      tenantId,
+      { date: dto.date as string, startTime: dto.startTime, note: dto.note },
+      user?.id ?? null,
+    );
+  }
+
+  @Patch('meetings/:id')
+  updateMeeting(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: UpsertMeetingDto,
+  ) {
+    return this.service.updateMeeting(tenantId, id, dto);
+  }
+
+  @Delete('meetings/:id')
+  removeMeeting(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.service.removeMeeting(tenantId, id);
+  }
+
+  // ---- The agenda -------------------------------------------------------
+
+  @Get('agenda')
+  agenda(@TenantId() tenantId: string, @Query('meetingId') meetingId?: string) {
+    const today = new Date().toISOString().slice(0, 10);
+    return this.service.agenda(tenantId, meetingId ?? null, today);
+  }
+
+  // ---- Tasks ------------------------------------------------------------
+
+  @Get()
+  list(
+    @TenantId() tenantId: string,
+    @Query('status') status?: 'open' | 'done',
+  ) {
+    return this.service.listTasks(tenantId, status);
+  }
+
+  @Post()
+  create(
+    @TenantId() tenantId: string,
+    @Body() dto: UpsertTaskDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.createTask(
+      tenantId,
+      { ...dto, title: dto.title as string } as never,
+      user?.id ?? null,
+    );
+  }
+
+  @Patch(':id')
+  update(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: UpsertTaskDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.updateTask(
+      tenantId,
+      id,
+      dto as never,
+      user?.id ?? null,
+    );
+  }
+
+  @Delete(':id')
+  remove(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.service.removeTask(tenantId, id);
+  }
+}

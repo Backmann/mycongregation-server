@@ -43,6 +43,7 @@ import { ActivityFeedModule } from './activity-feed/activity-feed.module';
 import { ResponsibilitiesModule } from './responsibilities/responsibilities.module';
 import { MeetingSettingsModule } from './meeting-settings/meeting-settings.module';
 import { CircuitOverseerModule } from './circuit-overseer/circuit-overseer.module';
+import { TasksModule } from './tasks/tasks.module';
 import { DutiesModule } from './duties/duties.module';
 import { MeetingAttendanceModule } from './meeting-attendance/meeting-attendance.module';
 import { AnnualReportModule } from './annual-report/annual-report.module';
@@ -123,6 +124,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     ResponsibilitiesModule,
     MeetingSettingsModule,
     CircuitOverseerModule,
+    TasksModule,
     DutiesModule,
     MeetingAttendanceModule,
     AnnualReportModule,
