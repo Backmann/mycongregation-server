@@ -161,6 +161,10 @@ export class FieldServiceMeetingsService {
       topic: dto.topic ?? null,
       sourceUrl: dto.sourceUrl ?? null,
       isGeneral: dto.isGeneral ?? false,
+      serviceGroupId: dto.serviceGroupId ?? null,
+      serviceOverseerVisit: dto.serviceOverseerVisit ?? false,
+      serviceOverseerPublisherId: dto.serviceOverseerPublisherId ?? null,
+      serviceOverseerAssistantId: dto.serviceOverseerAssistantId ?? null,
     });
     const saved = await this.repo.save(entity);
     await this.auditLog.logCreate({
@@ -212,6 +216,10 @@ export class FieldServiceMeetingsService {
       conductorPublisherId: entity.conductorPublisherId,
       topic: entity.topic,
       isGeneral: entity.isGeneral,
+      serviceGroupId: entity.serviceGroupId,
+      serviceOverseerVisit: entity.serviceOverseerVisit,
+      serviceOverseerPublisherId: entity.serviceOverseerPublisherId,
+      serviceOverseerAssistantId: entity.serviceOverseerAssistantId,
     };
     if (dto.dayOfWeek !== undefined) entity.dayOfWeek = dto.dayOfWeek;
     if (dto.startTime !== undefined) entity.startTime = dto.startTime;
@@ -222,6 +230,20 @@ export class FieldServiceMeetingsService {
     if (dto.topic !== undefined) entity.topic = dto.topic ?? null;
     if (dto.sourceUrl !== undefined) entity.sourceUrl = dto.sourceUrl ?? null;
     if (dto.isGeneral !== undefined) entity.isGeneral = dto.isGeneral;
+    if (dto.serviceGroupId !== undefined) {
+      entity.serviceGroupId = dto.serviceGroupId ?? null;
+    }
+    if (dto.serviceOverseerVisit !== undefined) {
+      entity.serviceOverseerVisit = dto.serviceOverseerVisit;
+    }
+    if (dto.serviceOverseerPublisherId !== undefined) {
+      entity.serviceOverseerPublisherId =
+        dto.serviceOverseerPublisherId ?? null;
+    }
+    if (dto.serviceOverseerAssistantId !== undefined) {
+      entity.serviceOverseerAssistantId =
+        dto.serviceOverseerAssistantId ?? null;
+    }
     const saved = await this.repo.save(entity);
     await this.auditLog.logUpdate({
       tenantId: congregationId,
@@ -236,6 +258,10 @@ export class FieldServiceMeetingsService {
         conductorPublisherId: saved.conductorPublisherId,
         topic: saved.topic,
         isGeneral: saved.isGeneral,
+        serviceGroupId: saved.serviceGroupId,
+        serviceOverseerVisit: saved.serviceOverseerVisit,
+        serviceOverseerPublisherId: saved.serviceOverseerPublisherId,
+        serviceOverseerAssistantId: saved.serviceOverseerAssistantId,
       },
       fields: [
         'dayOfWeek',
@@ -244,6 +270,10 @@ export class FieldServiceMeetingsService {
         'conductorPublisherId',
         'topic',
         'isGeneral',
+        'serviceGroupId',
+        'serviceOverseerVisit',
+        'serviceOverseerPublisherId',
+        'serviceOverseerAssistantId',
       ],
     });
     if (

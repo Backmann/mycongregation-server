@@ -52,6 +52,27 @@ export class UpdateFieldServiceMeetingDto {
   @IsBoolean()
   isGeneral?: boolean;
 
+  /** Whose meeting this is. Omitted or null means it belongs to no one group. */
+  @IsOptional()
+  @IsUUID()
+  serviceGroupId?: string | null;
+
+  /** The service overseer is visiting this group's meeting. */
+  @IsOptional()
+  @IsBoolean()
+  serviceOverseerVisit?: boolean;
+
+  /** Who went. Stored rather than looked up, so the history stays true when
+   * the appointment passes to someone else. */
+  @IsOptional()
+  @IsUUID()
+  serviceOverseerPublisherId?: string | null;
+
+  /** His assistant, when one came. */
+  @IsOptional()
+  @IsUUID()
+  serviceOverseerAssistantId?: string | null;
+
   /** When false, the conductor is not push-notified about this change. */
   @IsOptional()
   @IsBoolean()

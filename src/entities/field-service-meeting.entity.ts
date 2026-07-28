@@ -9,6 +9,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { Congregation } from './congregation.entity';
+import { ServiceGroup } from './service-group.entity';
 import { Publisher } from './publisher.entity';
 
 /**
@@ -83,6 +84,43 @@ export class FieldServiceMeeting {
     comment: 'Combined field-service meeting for the whole congregation',
   })
   isGeneral!: boolean;
+
+  /**
+   * Whose meeting this is. Null means it belongs to no particular group —
+   * either a general one, or one recorded before groups were known here.
+   *
+   * Meetings in this congregation are sometimes per group and sometimes for
+   * everyone, and until now a meeting could not say which: a group could not
+   * be shown its own outings, and nothing could count how often a group had
+   * been visited. `onDelete: SET NULL` because disbanding a group must not
+   * take its history of meetings with it.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  serviceGroupId!: string | null;
+
+  @ManyToOne(() => ServiceGroup, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'service_group_id' })
+  serviceGroup?: ServiceGroup | null;
+
+  /**
+   * The service overseer visits this group's meeting.
+   *
+   * A visit is a MARK ON THE MEETING, not an event of its own: he conducts the
+   * meeting and preaches with the group on one occasion, and a separate record
+   * would mean two dates about the same thing — which is how they drift apart.
+   */
+  @Column({ type: 'boolean', default: false })
+  serviceOverseerVisit!: boolean;
+
+  /** Who actually went. Filled from the appointed brother, but STORED: in two
+   * years someone else holds the role and the history must still be true. */
+  @Column({ type: 'uuid', nullable: true })
+  serviceOverseerPublisherId!: string | null;
+
+  /** His assistant, when one came. Part of the SAME record — a second row
+   * would count two visits where there was one. */
+  @Column({ type: 'uuid', nullable: true })
+  serviceOverseerAssistantId!: string | null;
 
   // ---- Timestamps ----
   @CreateDateColumn({ type: 'timestamptz' })

@@ -12,6 +12,9 @@ import { FieldServiceMonthTheme } from '../entities/field-service-month-theme.en
 import { FieldServiceTemplateSlot } from '../entities/field-service-template-slot.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
+import { ServiceGroup } from '../entities/service-group.entity';
+import { ServiceOverseerService } from './service-overseer.service';
+import { ServiceOverseerController } from './service-overseer.controller';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
@@ -24,12 +27,14 @@ import { AuditLogModule } from '../audit-log/audit-log.module';
       FieldServiceTemplateSlot,
       Responsibility,
       Publisher,
+      ServiceGroup,
     ]),
     PushNotificationsModule,
     NotificationsModule,
     AuditLogModule,
   ],
   controllers: [
+    ServiceOverseerController,
     FieldServiceMeetingsController,
     FieldServiceMonthThemesController,
     FieldServiceTemplateController,
@@ -38,6 +43,7 @@ import { AuditLogModule } from '../audit-log/audit-log.module';
     FieldServiceMeetingsService,
     FieldServiceMonthThemesService,
     FieldServiceTemplateService,
+    ServiceOverseerService,
     ResponsibilityGuard,
   ],
 })
