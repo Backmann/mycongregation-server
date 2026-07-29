@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Publisher } from '../entities/publisher.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { Assignment } from '../entities/assignment.entity';
@@ -49,6 +49,16 @@ export interface MyAssignmentItem {
   /** Outgoing public talk: host congregation name. */
   congregationName?: string;
   asAssistant?: boolean;
+  /**
+   * The other person in a pair, by name.
+   *
+   * A brother told only «you have Оттачиваем навыки» cannot tell whether he
+   * leads it or helps, still less with whom — and the pair is half the
+   * assignment. The flag alone was not enough.
+   */
+  partnerName?: string;
+  /** Field-service visit: he comes as the service overseer's assistant. */
+  asOverseerAssistant?: boolean;
   /** CO-visit lunch: organizer note shown as a task instruction. */
   note?: string;
 }
@@ -364,7 +374,12 @@ export class MeService {
       .createQueryBuilder('f')
       .select('f.week_start_date', 'week')
       .where('f.congregation_id = :tenantId', { tenantId })
-      .andWhere('f.conductor_publisher_id = :pid', { pid })
+      // The visit belongs to the assistant as much as to the man conducting:
+      // he goes to that group, on that day, and until now nothing told him so.
+      .andWhere(
+        '(f.conductor_publisher_id = :pid OR f.service_overseer_publisher_id = :pid OR f.service_overseer_assistant_id = :pid)',
+        { pid },
+      )
       .groupBy('f.week_start_date')
       .getRawMany<{ week: string }>();
     for (const r of field) {
@@ -407,7 +422,25 @@ export class MeService {
       })
       .orderBy('a.week_start_date', 'ASC')
       .getMany();
+    // Names of the other halves of the pairs, fetched once for all of them.
+    const partnerIds = new Set<string>();
     for (const a of meetings) {
+      const other =
+        a.assistantPublisherId === pid ? a.publisherId : a.assistantPublisherId;
+      if (other) partnerIds.add(other);
+    }
+    const partners = partnerIds.size
+      ? await this.publishersRepo.find({
+          where: { congregationId: tenantId, id: In([...partnerIds]) },
+        })
+      : [];
+    const partnerName = new Map(
+      partners.map((p) => [p.id, `${p.lastName} ${p.firstName}`.trim()]),
+    );
+
+    for (const a of meetings) {
+      const otherId =
+        a.assistantPublisherId === pid ? a.publisherId : a.assistantPublisherId;
       items.push({
         kind: 'meeting',
         sortDate: a.weekStartDate,
@@ -417,6 +450,7 @@ export class MeService {
         partKey: a.partKey,
         partOrder: a.partOrder,
         asAssistant: a.assistantPublisherId === pid,
+        partnerName: otherId ? partnerName.get(otherId) : undefined,
       });
     }
 
@@ -539,6 +573,8 @@ export class MeService {
         time: f.startTime,
         label: f.address,
         location: f.address,
+        asOverseerAssistant:
+          f.serviceOverseerVisit && f.serviceOverseerAssistantId === pid,
       });
     }
 

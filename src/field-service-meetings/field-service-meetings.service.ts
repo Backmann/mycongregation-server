@@ -192,6 +192,22 @@ export class FieldServiceMeetingsService {
         saved.conductorPublisherId,
       );
     }
+    // The overseer's assistant is told as well. He goes to that group on that
+    // day like anyone else assigned, and until now only the man conducting
+    // heard about it — so the assistant learned of his own evening by chance.
+    if (
+      saved.serviceOverseerVisit &&
+      saved.serviceOverseerAssistantId &&
+      saved.serviceOverseerAssistantId !== saved.conductorPublisherId &&
+      dto.notifyConductor !== false
+    ) {
+      await this.notifyConductor(
+        congregationId,
+        saved,
+        'assigned',
+        saved.serviceOverseerAssistantId,
+      );
+    }
     return saved;
   }
 
@@ -207,6 +223,7 @@ export class FieldServiceMeetingsService {
       throw new NotFoundException('Field service meeting not found');
     }
     const prevConductorId = entity.conductorPublisherId;
+    const prevAssistantId = entity.serviceOverseerAssistantId;
     // Snapshot taken BEFORE the mutations below — the entity is edited in
     // place, so reading it afterwards would compare a value with itself.
     const before = {
@@ -276,6 +293,33 @@ export class FieldServiceMeetingsService {
         'serviceOverseerAssistantId',
       ],
     });
+    // Told when he becomes the assistant, and told when he stops being one:
+    // a person who was expecting to go should hear that he is not.
+    if (
+      dto.notifyConductor !== false &&
+      prevAssistantId !== saved.serviceOverseerAssistantId
+    ) {
+      if (prevAssistantId && prevAssistantId !== saved.conductorPublisherId) {
+        await this.notifyConductor(
+          congregationId,
+          saved,
+          'unassigned',
+          prevAssistantId,
+        );
+      }
+      if (
+        saved.serviceOverseerVisit &&
+        saved.serviceOverseerAssistantId &&
+        saved.serviceOverseerAssistantId !== saved.conductorPublisherId
+      ) {
+        await this.notifyConductor(
+          congregationId,
+          saved,
+          'assigned',
+          saved.serviceOverseerAssistantId,
+        );
+      }
+    }
     if (
       dto.notifyConductor !== false &&
       prevConductorId !== saved.conductorPublisherId
