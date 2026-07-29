@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { MeService } from './me.service';
 import { Publisher } from '../entities/publisher.entity';
+import { ServiceGroup } from '../entities/service-group.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
@@ -24,6 +25,7 @@ describe('MeService.myPublisher', () => {
       providers: [
         MeService,
         { provide: getRepositoryToken(Publisher), useValue: publishersRepo },
+        { provide: getRepositoryToken(ServiceGroup), useValue: stub },
         { provide: getRepositoryToken(Assignment), useValue: stub },
         { provide: getRepositoryToken(Duty), useValue: stub },
         { provide: getRepositoryToken(CleaningAssignment), useValue: stub },
@@ -185,6 +187,7 @@ describe('MeService.myAssignments (outgoing talks)', () => {
       providers: [
         MeService,
         { provide: getRepositoryToken(Publisher), useValue: publishersRepo },
+        { provide: getRepositoryToken(ServiceGroup), useValue: emptyRepo() },
         { provide: getRepositoryToken(Assignment), useValue: emptyRepo() },
         { provide: getRepositoryToken(Duty), useValue: emptyRepo() },
         {

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Publisher } from '../entities/publisher.entity';
+import { ServiceGroup } from '../entities/service-group.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
@@ -59,6 +60,15 @@ export interface MyAssignmentItem {
   partnerName?: string;
   /** Field-service visit: he comes as the service overseer's assistant. */
   asOverseerAssistant?: boolean;
+  /** Field-service visit: whose group is being visited. */
+  groupName?: string;
+  /**
+   * Field-service visit: the OTHER man of the pair, by name.
+   *
+   * The overseer is told whom he is taking; the assistant is told whom he is
+   * going with. Neither should have to ask somebody else who else is coming.
+   */
+  visitWithName?: string;
   /** CO-visit lunch: organizer note shown as a task instruction. */
   note?: string;
 }
@@ -149,6 +159,8 @@ export class MeService {
   constructor(
     @InjectRepository(Publisher)
     private readonly publishersRepo: Repository<Publisher>,
+    @InjectRepository(ServiceGroup)
+    private readonly serviceGroupsRepo: Repository<ServiceGroup>,
     private readonly auditLogService: AuditLogService,
     @InjectRepository(Assignment)
     private readonly assignmentsRepo: Repository<Assignment>,
@@ -562,9 +574,42 @@ export class MeService {
       .andWhere('f.conductor_publisher_id = :pid', { pid })
       .orderBy('f.week_start_date', 'ASC')
       .getMany();
+    // Group names and the other man of each pair, fetched once for all of the
+    // visits rather than one query per row.
+    const visitGroupIds = new Set<string>();
+    const visitPeerIds = new Set<string>();
+    for (const f of fieldMeetings) {
+      if (f.serviceGroupId) visitGroupIds.add(f.serviceGroupId);
+      if (!f.serviceOverseerVisit) continue;
+      const peer =
+        f.serviceOverseerAssistantId === pid
+          ? f.serviceOverseerPublisherId
+          : f.serviceOverseerAssistantId;
+      if (peer) visitPeerIds.add(peer);
+    }
+    const visitGroups = visitGroupIds.size
+      ? await this.serviceGroupsRepo.find({
+          where: { congregationId: tenantId, id: In([...visitGroupIds]) },
+        })
+      : [];
+    const groupNameById = new Map(visitGroups.map((g) => [g.id, g.name]));
+    const visitPeers = visitPeerIds.size
+      ? await this.publishersRepo.find({
+          where: { congregationId: tenantId, id: In([...visitPeerIds]) },
+        })
+      : [];
+    const peerNameById = new Map(
+      visitPeers.map((p) => [p.id, `${p.lastName} ${p.firstName}`.trim()]),
+    );
+
     for (const f of fieldMeetings) {
       const exact = addDaysISO(f.weekStartDate, (f.dayOfWeek ?? 1) - 1);
       if (exact < today) continue;
+      const peerId = f.serviceOverseerVisit
+        ? f.serviceOverseerAssistantId === pid
+          ? f.serviceOverseerPublisherId
+          : f.serviceOverseerAssistantId
+        : null;
       items.push({
         kind: 'field_service',
         sortDate: exact,
@@ -575,6 +620,10 @@ export class MeService {
         location: f.address,
         asOverseerAssistant:
           f.serviceOverseerVisit && f.serviceOverseerAssistantId === pid,
+        groupName: f.serviceGroupId
+          ? groupNameById.get(f.serviceGroupId)
+          : undefined,
+        visitWithName: peerId ? peerNameById.get(peerId) : undefined,
       });
     }
 

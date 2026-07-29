@@ -3,6 +3,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Publisher } from '../entities/publisher.entity';
+import { ServiceGroup } from '../entities/service-group.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
@@ -22,6 +23,7 @@ import { DataRightsService } from './data-rights.service';
     AuditLogModule,
     TypeOrmModule.forFeature([
       Publisher,
+      ServiceGroup,
       Assignment,
       Duty,
       CleaningAssignment,
