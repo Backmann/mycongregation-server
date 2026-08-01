@@ -13,6 +13,7 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
+import { setNow, restoreNow } from '../common/testing/set-now';
 
 const CONG = 'cong-1';
 const admin = { id: 'u-admin', role: UserRole.ADMIN } as never;
@@ -31,6 +32,8 @@ describe('AuxiliaryPioneersService', () => {
   let publisherRepo: { find: jest.Mock; findOne: jest.Mock };
   let responsibilityRepo: { count: jest.Mock };
   let eventRepo: { find: jest.Mock };
+
+  afterEach(() => restoreNow());
 
   beforeEach(async () => {
     repo = {
@@ -226,7 +229,7 @@ describe('AuxiliaryPioneersService', () => {
 
   describe('journal', () => {
     beforeEach(() => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 6, 15)); // July 2026
+      setNow(Date.UTC(2026, 6, 15)); // July 2026
     });
     afterEach(() => jest.restoreAllMocks());
 

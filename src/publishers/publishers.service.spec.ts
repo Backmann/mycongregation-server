@@ -33,6 +33,7 @@ import { Gender } from '../common/enums/gender.enum';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { setNow, restoreNow } from '../common/testing/set-now';
 
 function makePublisher(overrides: Partial<Publisher> = {}): Publisher {
   return {
@@ -189,6 +190,8 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
   let usersService: { syncRoleFromAppointment: jest.Mock };
   let auxiliaryPioneersService: { closeActiveForPublisher: jest.Mock };
 
+  afterEach(() => restoreNow());
+
   beforeEach(() => {
     publishersRepo = {
       findOne: jest.fn(),
@@ -240,7 +243,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       ]);
       publishersRepo.save.mockImplementation(async (x: any) => x);
 
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 15));
 
       await service.recomputeStatus('cong-1', 'pub-1');
 
@@ -275,7 +278,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         makeReport({ reportMonth: '2026-04-01', servedThisMonth: true }),
       ]);
       publishersRepo.save.mockImplementation(async (x: any) => x);
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 15));
 
       await service.recomputeStatus('cong-1', 'pub-1');
       await new Promise((r) => setImmediate(r));
@@ -315,7 +318,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         makeReport({ reportMonth: '2026-04-01', servedThisMonth: true }),
       ]);
       publishersRepo.save.mockImplementation(async (x: any) => x);
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 15));
 
       const result = await service.recomputeStatus('cong-1', 'pub-1', {
         notify: false,
@@ -352,7 +355,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         makeReport({ reportMonth: '2026-04-01', servedThisMonth: true }),
       ]);
       publishersRepo.save.mockImplementation(async (x: any) => x);
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 15));
 
       await service.recomputeStatus('cong-1', 'pub-1');
       await new Promise((r) => setImmediate(r));
@@ -381,7 +384,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         makeReport({ reportMonth: '2026-04-01', servedThisMonth: true }),
       ]);
       publishersRepo.save.mockImplementation(async (x: any) => x);
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 15));
 
       await service.recomputeStatus('cong-1', 'pub-1');
       await new Promise((r) => setImmediate(r));
@@ -403,7 +406,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         makeReport({ reportMonth: '2026-04-01', servedThisMonth: false }),
       ]);
 
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 15));
 
       await service.recomputeStatus('cong-1', 'pub-1');
 
@@ -419,7 +422,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       publishersRepo.findOne.mockResolvedValue(pub);
       reportsRepo.find.mockResolvedValue([]);
 
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 15));
 
       await service.recomputeStatus('cong-1', 'pub-1');
 
@@ -445,7 +448,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       publishersRepo.findOne.mockResolvedValue(pub);
       publishersRepo.save.mockImplementation(async (x: any) => x);
 
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15, 10, 0, 0));
+      setNow(Date.UTC(2026, 4, 15, 10, 0, 0));
 
       await service.overrideStatus(
         'cong-1',
@@ -498,7 +501,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       publishersRepo.save.mockImplementation(async (x: any) => x);
       reportsRepo.find.mockResolvedValue([]);
 
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 15));
 
       await service.clearOverride(
         'cong-1',
@@ -530,7 +533,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         makeReport({ reportMonth: '2026-04-01', servedThisMonth: true }),
       ]);
       publishersRepo.save.mockImplementation(async (x: any) => x);
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 15));
 
       const result = await service.recomputeStatus('cong-1', 'pub-1');
       expect(result).toBe('updated');
@@ -544,7 +547,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       });
       publishersRepo.findOne.mockResolvedValue(pub);
       reportsRepo.find.mockResolvedValue([]);
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 15));
 
       const result = await service.recomputeStatus('cong-1', 'pub-1');
       expect(result).toBe('unchanged');
@@ -600,7 +603,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         return [];
       });
       publishersRepo.save.mockImplementation(async (x: any) => x);
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 15));
 
       const summary = await service.recomputeForCongregation('cong-1');
       expect(summary.processed).toBe(3);

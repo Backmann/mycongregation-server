@@ -33,6 +33,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { setNow, restoreNow } from '../common/testing/set-now';
 
 // ===========================================================
 // Fixtures
@@ -166,6 +167,7 @@ describe('ServiceReportsService', () => {
   });
 
   afterEach(() => {
+    restoreNow();
     jest.restoreAllMocks();
   });
 
@@ -178,39 +180,37 @@ describe('ServiceReportsService', () => {
       (service as any).isInSelfEditWindow(reportMonth);
 
     it('returns true when current date is mid-window (May 5 for April report)', () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
       expect(callWindow('2026-04-01')).toBe(true);
     });
 
     it('returns true late on the 10th Berlin time (last day of window)', () => {
       // 2026-05-10 23:59:59 Europe/Berlin (CEST, UTC+2) === 21:59:59 UTC.
-      jest
-        .spyOn(Date, 'now')
-        .mockReturnValue(Date.UTC(2026, 4, 10, 21, 59, 59));
+      setNow(Date.UTC(2026, 4, 10, 21, 59, 59));
       expect(callWindow('2026-04-01')).toBe(true);
     });
 
     it('returns false at 00:00 on the 11th Berlin time (window closed)', () => {
       // 2026-05-11 00:00 Europe/Berlin (CEST, UTC+2) === 2026-05-10 22:00 UTC.
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 10, 22, 0, 0));
+      setNow(Date.UTC(2026, 4, 10, 22, 0, 0));
       expect(callWindow('2026-04-01')).toBe(false);
     });
 
     it('returns false well after the window closed (May 30 for April report)', () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 30));
+      setNow(Date.UTC(2026, 4, 30));
       expect(callWindow('2026-04-01')).toBe(false);
     });
 
     it('handles year rollover (December → next January)', () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2027, 0, 5));
+      setNow(Date.UTC(2027, 0, 5));
       expect(callWindow('2026-12-01')).toBe(true);
 
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2027, 0, 11));
+      setNow(Date.UTC(2027, 0, 11));
       expect(callWindow('2026-12-01')).toBe(false);
     });
 
     it('treats YYYY-MM-DD identical to YYYY-MM-01 (only first 7 chars matter)', () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
       expect(callWindow('2026-04-15')).toBe(true);
       expect(callWindow('2026-04-30')).toBe(true);
     });
@@ -240,7 +240,7 @@ describe('ServiceReportsService', () => {
 
     beforeEach(() => {
       // Inside window for April reports.
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
     });
 
     it('owner editing own report within window → true', () => {
@@ -249,7 +249,7 @@ describe('ServiceReportsService', () => {
     });
 
     it('owner editing own report AFTER window closes → false', () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 30));
+      setNow(Date.UTC(2026, 4, 30));
       const report = makeReport({ submittedById: 'u1' });
       expect(callCan(report, ctxFor())).toBe(false);
     });
@@ -265,7 +265,7 @@ describe('ServiceReportsService', () => {
     });
 
     it('admin/secretary (alwaysEdit) → true even after window', () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 30));
+      setNow(Date.UTC(2026, 4, 30));
       const report = makeReport({ submittedById: 'u2' });
       expect(callCan(report, ctxFor({ alwaysEdit: true }))).toBe(true);
     });
@@ -278,7 +278,7 @@ describe('ServiceReportsService', () => {
     });
 
     it('group overseer AFTER window → false', () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 30));
+      setNow(Date.UTC(2026, 4, 30));
       const report = makeReport({ submittedById: 'u2' });
       expect(callCan(report, ctxFor({ overseenGroupIds: ['g1'] }), 'g1')).toBe(
         false,
@@ -632,7 +632,7 @@ describe('ServiceReportsService', () => {
       afterEach(() => jest.restoreAllMocks());
 
       it('uses the publisher (non-hours) form before pioneerSince arrives', async () => {
-        jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 30)); // May
+        setNow(Date.UTC(2026, 4, 30)); // May
         publishersRepo.findOne.mockResolvedValue(
           makePublisher({
             pioneerType: PioneerType.REGULAR,
@@ -659,7 +659,7 @@ describe('ServiceReportsService', () => {
       });
 
       it('rejects the hours form before pioneerSince arrives', async () => {
-        jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 30)); // May
+        setNow(Date.UTC(2026, 4, 30)); // May
         publishersRepo.findOne.mockResolvedValue(
           makePublisher({
             pioneerType: PioneerType.REGULAR,
@@ -930,7 +930,7 @@ describe('ServiceReportsService', () => {
 
   describe('findOne', () => {
     it('returns own report with canEdit=true when in window', async () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
       reportsRepo.findOne.mockResolvedValue(
         makeReport({ submittedById: 'user-self' }),
       );
@@ -961,7 +961,7 @@ describe('ServiceReportsService', () => {
     });
 
     it("allows admin to read another user's report", async () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
       reportsRepo.findOne.mockResolvedValue(
         makeReport({ submittedById: 'other-user' }),
       );
@@ -985,7 +985,7 @@ describe('ServiceReportsService', () => {
     });
 
     it('populates lastEditedByName from the editor publisher displayName', async () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
       reportsRepo.findOne.mockResolvedValue(
         makeReport({
           submittedById: 'user-self',
@@ -1016,7 +1016,7 @@ describe('ServiceReportsService', () => {
   describe('updateReport', () => {
     beforeEach(() => {
       // Default: mid-window for April reports.
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
     });
 
     describe('permissions', () => {
@@ -1041,7 +1041,7 @@ describe('ServiceReportsService', () => {
       });
 
       it('forbids self-edit AFTER window closed for non-admin/elder', async () => {
-        jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 12));
+        setNow(Date.UTC(2026, 4, 12));
         reportsRepo.findOne.mockResolvedValue(
           makeReport({ submittedById: 'user-self' }),
         );
@@ -1072,7 +1072,7 @@ describe('ServiceReportsService', () => {
       });
 
       it('allows admin to edit any report even out of window', async () => {
-        jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 30));
+        setNow(Date.UTC(2026, 4, 30));
         reportsRepo.findOne.mockResolvedValue(
           makeReport({ submittedById: 'someone-else' }),
         );
@@ -1240,7 +1240,7 @@ describe('ServiceReportsService', () => {
         publishersRepo.find.mockResolvedValue([]);
         reportsRepo.save.mockImplementation(async (x: any) => x);
 
-        jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5, 12, 0, 0));
+        setNow(Date.UTC(2026, 4, 5, 12, 0, 0));
 
         await service.updateReport(
           'cong-1',
@@ -1281,7 +1281,7 @@ describe('ServiceReportsService', () => {
         publishersRepo.find.mockResolvedValue([]);
         reportsRepo.save.mockImplementation(async (x: any) => x);
 
-        jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5, 12, 0, 0));
+        setNow(Date.UTC(2026, 4, 5, 12, 0, 0));
 
         await service.updateReport(
           'cong-1',
@@ -1314,7 +1314,7 @@ describe('ServiceReportsService', () => {
     }
 
     it('returns reports enriched with canEdit + lastEditedByName', async () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
       publishersRepo.findOne.mockResolvedValue(makePublisher());
       mockQueryBuilder([
         makeReport({
@@ -1374,7 +1374,7 @@ describe('ServiceReportsService', () => {
 
   describe('findGroupReports', () => {
     it('allows ADMIN to see all publishers in the congregation', async () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
       publishersRepo.find.mockResolvedValue([
         makePublisher({ id: 'p1', displayName: 'Alpha' }),
         makePublisher({ id: 'p2', displayName: 'Beta' }),
@@ -1393,7 +1393,7 @@ describe('ServiceReportsService', () => {
     });
 
     it('returns the caller\u2019s own group id as myGroupId', async () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
       publishersRepo.findOne.mockResolvedValue(
         makePublisher({ id: 'pub-me', serviceGroupId: 'my-group' }),
       );
@@ -1413,7 +1413,7 @@ describe('ServiceReportsService', () => {
     });
 
     it('reports consecutiveMissing for a publisher with no recent reports', async () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
       publishersRepo.find.mockResolvedValue([
         makePublisher({ id: 'p1', displayName: 'Alpha' }),
       ]);
@@ -1432,7 +1432,7 @@ describe('ServiceReportsService', () => {
     });
 
     it('excludes students (appointment=STUDENT) from the congregation list', async () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
       publishersRepo.find.mockResolvedValue([]);
       reportsRepo.find.mockResolvedValue([]);
       serviceGroupsRepo.find.mockResolvedValue([]);
@@ -1457,7 +1457,7 @@ describe('ServiceReportsService', () => {
     });
 
     it('allows ELDER to see all publishers in the congregation', async () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
       publishersRepo.find.mockResolvedValue([makePublisher({ id: 'p1' })]);
       reportsRepo.find.mockResolvedValue([]);
       serviceGroupsRepo.find.mockResolvedValue([]);
@@ -1485,7 +1485,7 @@ describe('ServiceReportsService', () => {
     });
 
     it('allows overseer to see publishers in their group(s)', async () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
       publishersRepo.findOne.mockResolvedValue(
         makePublisher({ id: 'pub-overseer' }),
       );
@@ -1515,7 +1515,7 @@ describe('ServiceReportsService', () => {
     });
 
     it('allows the group ASSISTANT to see their group (same as overseer)', async () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
       publishersRepo.findOne.mockResolvedValue(
         makePublisher({ id: 'pub-assistant' }),
       );
@@ -1545,7 +1545,7 @@ describe('ServiceReportsService', () => {
     });
 
     it('includes groupName on each row for client grouping', async () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
       publishersRepo.find.mockResolvedValue([
         makePublisher({ id: 'p1', displayName: 'Alpha', serviceGroupId: 'g1' }),
       ]);
@@ -1565,7 +1565,7 @@ describe('ServiceReportsService', () => {
     });
 
     it('flags an auxiliary pioneer as isPioneer for the month (hours form)', async () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
       publishersRepo.find.mockResolvedValue([
         makePublisher({
           id: 'p-aux',
@@ -1589,7 +1589,7 @@ describe('ServiceReportsService', () => {
     });
 
     it('returns null report for publishers without a submission', async () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
       publishersRepo.find.mockResolvedValue([
         makePublisher({ id: 'p1', displayName: 'Alpha' }),
         makePublisher({ id: 'p2', displayName: 'Beta' }),
@@ -1610,7 +1610,7 @@ describe('ServiceReportsService', () => {
     });
 
     it('enriches each report with canEdit and lastEditedByName', async () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
       publishersRepo.find.mockResolvedValue([makePublisher({ id: 'p1' })]);
       reportsRepo.find.mockResolvedValue([
         makeReport({
@@ -2248,7 +2248,7 @@ describe('ServiceReportsService', () => {
     });
 
     it('updateReport is frozen when the month is closed (owner, in window)', async () => {
-      jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 4, 5));
+      setNow(Date.UTC(2026, 4, 5));
       reportsRepo.findOne.mockResolvedValue(
         makeReport({
           id: 'rep-1',
