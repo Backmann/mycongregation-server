@@ -371,6 +371,23 @@ export class FieldServiceMeetingsService {
         entity.conductorPublisherId,
       );
     }
+    // The overseer's assistant is told too. He was going to that group on that
+    // day, and cancelling the evening in silence leaves him to arrive for a
+    // meeting that no longer exists. He was told when he was appointed and
+    // when he was removed; being told when the whole thing is called off is
+    // the same courtesy.
+    if (
+      entity.serviceOverseerVisit &&
+      entity.serviceOverseerAssistantId &&
+      entity.serviceOverseerAssistantId !== entity.conductorPublisherId
+    ) {
+      await this.notifyConductor(
+        congregationId,
+        entity,
+        'cancelled',
+        entity.serviceOverseerAssistantId,
+      );
+    }
   }
 
   /**
