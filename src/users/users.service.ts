@@ -38,14 +38,27 @@ export interface PublicUser {
   updatedAt: Date;
   /** Appointment of the linked publisher (null when no publisher is linked). */
   appointment: PublisherAppointment | null;
+  /**
+   * The publisher card this account speaks for, or null.
+   *
+   * Null is not a harmless gap: the app recognises a person THROUGH the card —
+   * their report, assignments and group all hang off it. An account without
+   * one can sign in and then find every personal screen closed to it, saying
+   * only «свяжитесь со старейшиной». Which is why this now travels with the
+   * list: an elder can see who is in that state before they discover it
+   * themselves.
+   */
+  publisherId: string | null;
 }
 
 function toPublicUser(
   u: User,
   appointment: PublisherAppointment | null = null,
   now: number = Date.now(),
+  publisherId: string | null = null,
 ): PublicUser {
   return {
+    publisherId,
     id: u.id,
     email: u.email,
     role: u.role,
@@ -122,17 +135,26 @@ export class UsersService {
     // Select only non-encrypted columns so publisher names aren't decrypted.
     const pubs = await this.publishersRepo
       .createQueryBuilder('p')
-      .select(['p.userId', 'p.appointment'])
+      .select(['p.id', 'p.userId', 'p.appointment'])
       .where('p.congregation_id = :cid', { cid: congregationId })
       .andWhere('p.user_id IS NOT NULL')
       .getMany();
     const apptByUser = new Map<string, PublisherAppointment>();
+    const cardByUser = new Map<string, string>();
     for (const p of pubs) {
-      if (p.userId) apptByUser.set(p.userId, p.appointment);
+      if (p.userId) {
+        apptByUser.set(p.userId, p.appointment);
+        cardByUser.set(p.userId, p.id);
+      }
     }
     const now = Date.now();
     return rows.map((u) => {
-      const pub = toPublicUser(u, apptByUser.get(u.id) ?? null, now);
+      const pub = toPublicUser(
+        u,
+        apptByUser.get(u.id) ?? null,
+        now,
+        cardByUser.get(u.id) ?? null,
+      );
       // Presence is recorded for everyone but masked for users who hide it —
       // except when they are viewing their own row.
       if (u.hidePresence && u.id !== viewerUserId) {
@@ -159,6 +181,72 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
     return user;
+  }
+
+  /**
+   * Point an existing account at a publisher card, or clear the link.
+   *
+   * Repairs what the two ways of creating an account left inconsistent:
+   * granting access FROM a card links it, while creating a login on the users
+   * screen did not — and the person could then sign in to find every personal
+   * screen shut, told only to «свяжитесь со старейшиной». Nobody could see who
+   * was in that state, so it surfaced one complaint at a time.
+   */
+  async linkPublisher(
+    userId: string,
+    publisherId: string | null,
+    congregationId: string,
+    actorUserId: string,
+  ): Promise<PublicUser> {
+    const user = await this.usersRepo.findOne({
+      where: { id: userId, congregationId },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const previous = await this.publishersRepo.findOne({
+      where: { congregationId, userId },
+    });
+
+    let next: Publisher | null = null;
+    if (publisherId) {
+      next = await this.publishersRepo.findOne({
+        where: { id: publisherId, congregationId },
+      });
+      if (!next) throw new NotFoundException('Publisher not found');
+      // One card, one account. Two accounts answering for the same person
+      // would make «мои задания» mean two different things at once.
+      if (next.userId && next.userId !== userId) {
+        throw new ConflictException(
+          'That publisher card already belongs to another account',
+        );
+      }
+    }
+
+    if (previous && previous.id !== publisherId) {
+      previous.userId = null;
+      await this.publishersRepo.save(previous);
+    }
+    if (next) {
+      next.userId = userId;
+      await this.publishersRepo.save(next);
+    }
+
+    await this.auditLog.logUpdate({
+      tenantId: congregationId,
+      entityType: 'user',
+      entityId: userId,
+      actorUserId,
+      before: { publisherId: previous?.id ?? null },
+      after: { publisherId: publisherId ?? null },
+      fields: ['publisherId'],
+    });
+
+    return toPublicUser(
+      user,
+      next ? next.appointment : null,
+      Date.now(),
+      next ? next.id : null,
+    );
   }
 
   async createUserByAdmin(
@@ -190,6 +278,17 @@ export class UsersService {
 
     try {
       await this.usersRepo.save(user);
+      // Link the card in the same breath as creating the account. Doing it
+      // afterwards is what left orphans: two steps, and the second forgotten.
+      if (dto.publisherId) {
+        const card = await this.publishersRepo.findOne({
+          where: { id: dto.publisherId, congregationId },
+        });
+        if (card && !card.userId) {
+          card.userId = user.id;
+          await this.publishersRepo.save(card);
+        }
+      }
     } catch (err) {
       // Race-condition fallback: another request inserted the same email
       // between our pre-check and save. The UNIQUE constraint catches it.

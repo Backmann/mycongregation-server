@@ -615,3 +615,112 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
     });
   });
 });
+
+/**
+ * Linking an account to a publisher card.
+ *
+ * The two ways of creating a login behaved differently — granting access from
+ * a card linked it, creating a login on the users screen did not — and an
+ * unlinked account can sign in only to find every personal screen closed. This
+ * is the repair, so it is worth pinning down.
+ */
+describe('UsersService.linkPublisher', () => {
+  const CONG2 = 'cong-1';
+  let service: UsersService;
+  let users: MockRepo<User>;
+  let publishers: {
+    findOne: jest.Mock;
+    save: jest.Mock;
+    createQueryBuilder: jest.Mock;
+  };
+
+  beforeEach(async () => {
+    users = makeUsersRepo();
+    users.findOne!.mockResolvedValue(userFixture({ id: 'u-1' }));
+    publishers = {
+      findOne: jest.fn().mockResolvedValue(null),
+      save: jest.fn().mockImplementation((p) => Promise.resolve(p)),
+      createQueryBuilder: jest.fn(() => ({
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([]),
+      })),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        UsersService,
+        { provide: getRepositoryToken(User), useValue: users },
+        { provide: getRepositoryToken(Publisher), useValue: publishers },
+        {
+          provide: MailService,
+          useValue: {
+            sendInvite: jest.fn(),
+            sendPasswordReset: jest.fn(),
+          },
+        },
+        { provide: AuditLogService, useValue: makeAuditLog() },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn().mockReturnValue(4) },
+        },
+      ],
+    }).compile();
+    service = module.get<UsersService>(UsersService);
+  });
+
+  it('points the account at the card', async () => {
+    publishers.findOne.mockImplementation(({ where }: any) =>
+      Promise.resolve(
+        where.id === 'p-1' ? ({ id: 'p-1', userId: null } as Publisher) : null,
+      ),
+    );
+    const out = await service.linkPublisher('u-1', 'p-1', CONG2, 'admin-1');
+    expect(publishers.save).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'p-1', userId: 'u-1' }),
+    );
+    expect(out.publisherId).toBe('p-1');
+  });
+
+  // One card, one account: two logins answering for the same person would make
+  // «мои задания» mean two different things at once.
+  it('refuses a card that already belongs to somebody else', async () => {
+    publishers.findOne.mockImplementation(({ where }: any) =>
+      Promise.resolve(
+        where.id === 'p-1'
+          ? ({ id: 'p-1', userId: 'someone-else' } as Publisher)
+          : null,
+      ),
+    );
+    await expect(
+      service.linkPublisher('u-1', 'p-1', CONG2, 'admin-1'),
+    ).rejects.toThrow();
+    expect(publishers.save).not.toHaveBeenCalled();
+  });
+
+  it('releases the previous card when the account is moved', async () => {
+    const prev = { id: 'p-old', userId: 'u-1' } as Publisher;
+    publishers.findOne.mockImplementation(({ where }: any) =>
+      Promise.resolve(
+        where.userId
+          ? prev
+          : where.id === 'p-new'
+            ? ({ id: 'p-new', userId: null } as Publisher)
+            : null,
+      ),
+    );
+    await service.linkPublisher('u-1', 'p-new', CONG2, 'admin-1');
+    expect(publishers.save).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'p-old', userId: null }),
+    );
+  });
+
+  // An administrator who is not a publisher here has no card to point at, and
+  // refusing that would lock out the one person able to fix everything else.
+  it('allows an account with no card at all', async () => {
+    publishers.findOne.mockResolvedValue(null);
+    const out = await service.linkPublisher('u-1', null, CONG2, 'admin-1');
+    expect(out.publisherId).toBeNull();
+  });
+});

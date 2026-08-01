@@ -1,4 +1,5 @@
 import {
+  IsUUID,
   IsEmail,
   IsEnum,
   IsIn,
@@ -36,4 +37,17 @@ export class CreateUserDto {
     message: `uiLanguage must be one of: ${SUPPORTED_LANGUAGES.join(', ')}`,
   })
   uiLanguage?: string;
+
+  /**
+   * The publisher card this account will speak for.
+   *
+   * Optional in the type, deliberate in the interface: granting access FROM a
+   * card always linked it, while creating a login here did not, and the two
+   * paths quietly produced different results. The person then signed in to
+   * find every personal screen shut. Now the choice is made where the account
+   * is made.
+   */
+  @IsOptional()
+  @IsUUID()
+  publisherId?: string;
 }

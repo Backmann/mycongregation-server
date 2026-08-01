@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
+import { LinkPublisherDto } from './dto/link-publisher.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -67,6 +68,26 @@ export class UsersController {
     return this.usersService.updateRoleByAdmin(
       id,
       dto.role,
+      congregationId,
+      current.id,
+    );
+  }
+
+  /**
+   * Point an account at a publisher card — or clear the link with null.
+   *
+   * Admin only, like every other action on this controller.
+   */
+  @Patch(':id/publisher')
+  linkPublisher(
+    @Param('id') id: string,
+    @Body() dto: LinkPublisherDto,
+    @TenantId() congregationId: string,
+    @CurrentUser() current: AuthenticatedUser,
+  ) {
+    return this.usersService.linkPublisher(
+      id,
+      dto.publisherId ?? null,
       congregationId,
       current.id,
     );
