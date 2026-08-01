@@ -63,6 +63,14 @@ export interface MyAssignmentItem {
   /** Field-service visit: whose group is being visited. */
   groupName?: string;
   /**
+   * This field-service meeting IS the service overseer's visit.
+   *
+   * Needed on its own: the overseer coming without an assistant had no way to
+   * be told apart from an ordinary meeting he happens to conduct, and the two
+   * read very differently to the man going.
+   */
+  serviceOverseerVisit?: boolean;
+  /**
    * Field-service visit: the OTHER man of the pair, by name.
    *
    * The overseer is told whom he is taking; the assistant is told whom he is
@@ -618,6 +626,7 @@ export class MeService {
         time: f.startTime,
         label: f.address,
         location: f.address,
+        serviceOverseerVisit: !!f.serviceOverseerVisit,
         asOverseerAssistant:
           f.serviceOverseerVisit && f.serviceOverseerAssistantId === pid,
         groupName: f.serviceGroupId
