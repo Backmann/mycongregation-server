@@ -349,13 +349,65 @@ export class ServiceReportsService {
     try {
       saved = await this.reportsRepo.save(report);
     } catch (err: any) {
-      // PostgreSQL unique_violation
-      if (err?.code === '23505') {
-        throw new ConflictException(
-          `A report for ${reportMonth} has already been submitted.`,
+      // PostgreSQL unique_violation — one report per publisher per month.
+      if (err?.code !== '23505') throw err;
+
+      // WHICH row is in the way. Answering «already submitted» and stopping
+      // there is what left a publisher staring at a month his own list and the
+      // group summary both showed as free: those two read the congregation's
+      // rows, while the constraint knows nothing about congregations.
+      const existing = await this.reportsRepo.findOne({
+        where: { publisherId: publisher.id, reportMonth },
+        withDeleted: true,
+      });
+
+      if (existing?.deletedAt) {
+        // A deleted report must not block the month for ever. The publisher is
+        // filing it now; restore the row and let this submission stand.
+        await this.reportsRepo.restore(existing.id);
+        Object.assign(existing, {
+          servedThisMonth: report.servedThisMonth,
+          hoursReported: report.hoursReported,
+          bibleStudies: report.bibleStudies,
+          notes: report.notes,
+          submittedAt: report.submittedAt,
+          submittedById: report.submittedById,
+          submittedOnBehalfOf: report.submittedOnBehalfOf,
+        });
+        saved = await this.reportsRepo.save(existing);
+        this.logger.warn(
+          `report ${existing.id} for ${reportMonth} was deleted and has been ` +
+            'restored by a new submission',
         );
+        await this.publishersService.recomputeStatus(tenantId, publisher.id);
+        return saved;
       }
-      throw err;
+
+      if (existing) {
+        throw new ConflictException({
+          code: 'REPORT_EXISTS',
+          reportId: existing.id,
+          reportMonth,
+          message: `A report for ${reportMonth} has already been submitted.`,
+        });
+      }
+
+      // The row is not in this congregation's reports at all, yet the unique
+      // key rejects the insert. That is a fact worth writing down loudly: it
+      // means a report row for this publisher carries another congregation's
+      // id, which nothing in the app is supposed to be able to do.
+      this.logger.error(
+        `report month ${reportMonth} is taken for publisher ${publisher.id} ` +
+          `(login card in ${tenantId}) but no such report is visible in this ` +
+          'congregation — the row belongs to another congregation_id',
+      );
+      throw new ConflictException({
+        code: 'REPORT_EXISTS_ELSEWHERE',
+        reportMonth,
+        message:
+          `A report for ${reportMonth} exists for this publisher but is not ` +
+          'visible in this congregation.',
+      });
     }
     // Recompute target publisher's status (no-op if manually overridden).
     await this.publishersService.recomputeStatus(tenantId, publisher.id);
@@ -1809,12 +1861,26 @@ export class ServiceReportsService {
     tenantId: string,
     userId: string,
   ): Promise<Publisher> {
-    const publisher = await this.publishersRepo.findOne({
-      where: {
-        congregationId: tenantId,
-        userId,
-      },
+    // findOne with no ordering used to stand here. If a login ever carried
+    // TWO cards — an old one kept for history and the current one — Postgres
+    // was free to return either, and it could return a different one to two
+    // consecutive requests. The report list would then read one card while
+    // the submission wrote to the other: a month that looks free and is not.
+    // One card wins by a stated rule, and the second is reported rather than
+    // shrugged at.
+    const cards = await this.publishersRepo.find({
+      where: { congregationId: tenantId, userId },
+      order: { removedAt: 'ASC', createdAt: 'ASC' },
     });
+    if (cards.length > 1) {
+      this.logger.warn(
+        `login ${userId} has ${cards.length} publisher cards in ${tenantId}: ` +
+          cards
+            .map((c) => `${c.id}${c.removedAt ? ' (removed)' : ''}`)
+            .join(', '),
+      );
+    }
+    const publisher = cards.find((c) => !c.removedAt) ?? cards[0] ?? null;
 
     if (!publisher) {
       throw new BadRequestException(

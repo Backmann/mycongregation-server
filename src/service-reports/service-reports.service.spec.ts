@@ -128,6 +128,14 @@ describe('ServiceReportsService', () => {
       find: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
     } as unknown as jest.Mocked<Repository<Publisher>>;
+    // Resolving «my card» reads the LIST now, so a login with two cards is
+    // settled by a rule instead of by chance. The tests set findOne; mirror it
+    // into find so each one keeps saying what it was written to say.
+    (publishersRepo.find as jest.Mock).mockImplementation(async (opts: any) => {
+      if (!opts?.where?.userId) return [];
+      const one = await (publishersRepo.findOne as jest.Mock)(opts);
+      return one ? [one] : [];
+    });
 
     serviceGroupsRepo = {
       find: jest.fn().mockResolvedValue([]),
@@ -606,6 +614,71 @@ describe('ServiceReportsService', () => {
             bibleStudies: 0,
           }),
         ).rejects.toBeInstanceOf(ConflictException);
+      });
+
+      it('restores a deleted report instead of blocking the month for ever', async () => {
+        // Nothing in the app deletes a report today, but the unique key counts
+        // deleted rows — so a row removed by hand in the database would lock
+        // that month out of the app with no way back through it.
+        const pgErr: any = new Error('duplicate key');
+        pgErr.code = '23505';
+        reportsRepo.save
+          .mockRejectedValueOnce(pgErr)
+          .mockImplementation(async (x: any) => x);
+        reportsRepo.findOne.mockResolvedValue({
+          id: 'old-report',
+          deletedAt: new Date('2026-07-15T10:00:00Z'),
+        } as any);
+        (reportsRepo as any).restore = jest.fn(async () => undefined);
+
+        const saved = await service.submitOwnReport(
+          'cong-1',
+          makeUser({ id: 'user-self' }),
+          { reportMonth: '2026-04', servedThisMonth: true, bibleStudies: 0 },
+        );
+
+        expect((reportsRepo as any).restore).toHaveBeenCalledWith('old-report');
+        expect(saved).toBeDefined();
+      });
+
+      it('names the report standing in the way, so the app can open it', async () => {
+        const pgErr: any = new Error('duplicate key');
+        pgErr.code = '23505';
+        reportsRepo.save.mockRejectedValue(pgErr);
+        reportsRepo.findOne.mockResolvedValue({
+          id: 'live-report',
+          deletedAt: null,
+        } as any);
+
+        await expect(
+          service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
+            reportMonth: '2026-04',
+            servedThisMonth: true,
+            bibleStudies: 0,
+          }),
+        ).rejects.toMatchObject({
+          response: { code: 'REPORT_EXISTS', reportId: 'live-report' },
+        });
+      });
+
+      it('says so plainly when the row is not in this congregation at all', async () => {
+        // The month is taken by a row the congregation's own queries cannot
+        // see — the case that left a publisher looking at a free month he
+        // could not file. Silence here is what made it a mystery.
+        const pgErr: any = new Error('duplicate key');
+        pgErr.code = '23505';
+        reportsRepo.save.mockRejectedValue(pgErr);
+        reportsRepo.findOne.mockResolvedValue(null as any);
+
+        await expect(
+          service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
+            reportMonth: '2026-04',
+            servedThisMonth: true,
+            bibleStudies: 0,
+          }),
+        ).rejects.toMatchObject({
+          response: { code: 'REPORT_EXISTS_ELSEWHERE' },
+        });
       });
 
       it('re-throws non-23505 errors unchanged', async () => {
