@@ -29,6 +29,7 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
+import { Congregation } from '../entities/congregation.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
@@ -98,6 +99,7 @@ describe('ServiceReportsService', () => {
   let serviceGroupsRepo: jest.Mocked<Repository<ServiceGroup>>;
   let responsibilitiesRepo: jest.Mocked<Repository<Responsibility>>;
   let closuresRepo: jest.Mocked<Repository<ReportMonthClosure>>;
+  let congregationsRepo: jest.Mocked<Repository<Congregation>>;
   let auditLogService: {
     logUpdate: jest.Mock;
     logEvent: jest.Mock;
@@ -143,6 +145,13 @@ describe('ServiceReportsService', () => {
       delete: jest.fn().mockResolvedValue({ affected: 1 }),
     } as unknown as jest.Mocked<Repository<ReportMonthClosure>>;
 
+    congregationsRepo = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'cong-1',
+        timezone: 'Europe/Berlin',
+      }),
+    } as unknown as jest.Mocked<Repository<Congregation>>;
+
     auditLogService = {
       logEvent: jest.fn(),
       logUpdate: jest.fn(),
@@ -160,6 +169,7 @@ describe('ServiceReportsService', () => {
       serviceGroupsRepo,
       responsibilitiesRepo,
       closuresRepo,
+      congregationsRepo,
       auditLogService as any,
       publishersService as any,
       auxiliaryPioneersService as any,
@@ -2278,6 +2288,84 @@ describe('ServiceReportsService', () => {
         ),
       ).rejects.toThrow(/closed/i);
       expect(reportsRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================
+  // getReportCollection — how the month's collection stands
+  // =========================================================
+  describe('getReportCollection', () => {
+    const admin = {
+      id: 'user-admin',
+      role: UserRole.ADMIN,
+      congregationId: 'cong-1',
+    } as any;
+
+    const scopePublishers = [
+      { id: 'p1', serviceGroupId: 'grp-1' },
+      { id: 'p2', serviceGroupId: 'grp-1' },
+      { id: 'p3', serviceGroupId: 'grp-2' },
+    ];
+
+    it('counts who has handed a report in for the month being collected', async () => {
+      setNow(Date.UTC(2026, 7, 3, 9, 0, 0)); // 3 August
+      publishersRepo.findOne.mockResolvedValue(null as any);
+      publishersRepo.find.mockResolvedValue(scopePublishers as any);
+      reportsRepo.find.mockResolvedValue([{ publisherId: 'p1' }] as any);
+
+      const result = await service.getReportCollection('cong-1', admin);
+
+      expect(result.reportMonth).toBe('2026-07-01');
+      expect(result.scope).toBe('congregation');
+      expect(result.expected).toBe(3);
+      expect(result.received).toBe(1);
+      expect(result.deadline).toBe('2026-08-20');
+      // Nobody is late on the 3rd — the reports are still coming in.
+      expect(result.pastDeadline).toBe(false);
+    });
+
+    it('says the deadline has passed once it has', async () => {
+      setNow(Date.UTC(2026, 7, 20, 9, 0, 0)); // 20 August
+      publishersRepo.findOne.mockResolvedValue(null as any);
+      publishersRepo.find.mockResolvedValue(scopePublishers as any);
+      reportsRepo.find.mockResolvedValue([] as any);
+
+      const result = await service.getReportCollection('cong-1', admin);
+
+      expect(result.reportMonth).toBe('2026-07-01');
+      expect(result.pastDeadline).toBe(true);
+    });
+
+    it('counts only his own groups for a group overseer', async () => {
+      setNow(Date.UTC(2026, 7, 3, 9, 0, 0));
+      publishersRepo.findOne.mockResolvedValue({ id: 'pub-o' } as any);
+      serviceGroupsRepo.find.mockResolvedValue([{ id: 'grp-1' }] as any);
+      publishersRepo.find.mockResolvedValue(scopePublishers as any);
+      reportsRepo.find.mockResolvedValue([{ publisherId: 'p2' }] as any);
+
+      const result = await service.getReportCollection('cong-1', {
+        id: 'user-overseer',
+        role: UserRole.ELDER,
+        congregationId: 'cong-1',
+      } as any);
+
+      expect(result.scope).toBe('group');
+      expect(result.expected).toBe(2); // p3 is in another group
+      expect(result.received).toBe(1);
+    });
+
+    it('refuses an ordinary publisher', async () => {
+      setNow(Date.UTC(2026, 7, 3, 9, 0, 0));
+      publishersRepo.findOne.mockResolvedValue({ id: 'pub-x' } as any);
+      serviceGroupsRepo.find.mockResolvedValue([] as any);
+
+      await expect(
+        service.getReportCollection('cong-1', {
+          id: 'user-x',
+          role: UserRole.PUBLISHER,
+          congregationId: 'cong-1',
+        } as any),
+      ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
 });

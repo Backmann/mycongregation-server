@@ -141,6 +141,14 @@ export class ServiceReportsController {
     return this.serviceReportsService.getYearSummary(tenantId, user, year);
   }
 
+  @Get('collection')
+  getCollection(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.serviceReportsService.getReportCollection(tenantId, user);
+  }
+
   @Get('closure')
   getClosure(
     @TenantId() tenantId: string,

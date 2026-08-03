@@ -6,7 +6,7 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceReport } from '../entities/service-report.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Responsibility } from '../entities/responsibility.entity';
-import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
+import { reportingPublisherWhere } from '../common/reporting-publishers';
 import { Congregation } from '../entities/congregation.entity';
 import { User } from '../entities/user.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
@@ -83,11 +83,7 @@ export class ReportRemindersService {
     reportMonth: string,
   ): Promise<MissingPublisher[]> {
     const publishers = await this.publisherRepo.find({
-      where: {
-        congregationId: tenantId,
-        isActive: true,
-        appointment: Not(PublisherAppointment.STUDENT),
-      },
+      where: reportingPublisherWhere(tenantId),
     });
     if (publishers.length === 0) return [];
     const reports = await this.reportRepo.find({

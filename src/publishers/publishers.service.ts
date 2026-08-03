@@ -7,6 +7,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { reportedMinistry } from '../common/reported-ministry';
+import {
+  isMonthClosingDay,
+  lastClosedReportMonth,
+  monthKey,
+  DEFAULT_CONGREGATION_TIMEZONE,
+} from '../common/report-month-window';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, IsNull, MoreThanOrEqual, Repository } from 'typeorm';
 import { Publisher } from '../entities/publisher.entity';
@@ -15,6 +21,7 @@ import { User } from '../entities/user.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { ServiceReport } from '../entities/service-report.entity';
+import { Congregation } from '../entities/congregation.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
@@ -36,8 +43,20 @@ import { UpdateAccessDto } from './dto/update-access.dto';
 /**
  * Pure status-computation helper, exported for unit testing.
  *
- * Window: last 6 calendar months including the month containing
- * `currentMonth` (so May 2026 covers Dec 2025 → May 2026).
+ * Window: the last 6 CLOSED report months, ending at `lastClosedMonth` — the
+ * most recent month whose collection deadline has passed (see
+ * common/report-month-window.ts). On 3 August that is June, so the window runs
+ * January → June; on 20 August July closes and the window becomes
+ * February → July.
+ *
+ * The argument is a closed month rather than "today" on purpose. The old
+ * version took the current month and ended the window at the month before it,
+ * which meant July entered the window on 1 August — while its reports were
+ * still being collected. Every publisher held a hole he had not yet had time
+ * to fill, so the whole congregation turned irregular on the 1st and drifted
+ * back to active as the reports were typed in. Handing this function a settled
+ * month makes that mistake unrepresentable: it has no notion of "now" left to
+ * misread.
  *
  * A report counts as "served" when servedThisMonth=true OR hoursReported>0.
  * Months are de-duplicated, so multiple rows for the same month count once.
@@ -48,7 +67,7 @@ export function computeStatusFromReports(
     servedThisMonth: boolean | null;
     hoursReported: number | null;
   }[],
-  currentMonth: Date,
+  lastClosedMonth: Date,
   /**
    * First month the publisher was expected to report (start of ministry /
    * baptism, or their first report). Months before this are not counted as
@@ -56,21 +75,24 @@ export function computeStatusFromReports(
    */
   startMonth?: Date | null,
 ): PublisherStatus {
-  const sixMonthsAgo = new Date(
-    Date.UTC(currentMonth.getUTCFullYear(), currentMonth.getUTCMonth() - 5, 1),
+  const windowEnd = new Date(
+    Date.UTC(
+      lastClosedMonth.getUTCFullYear(),
+      lastClosedMonth.getUTCMonth(),
+      1,
+    ),
   );
-  // Window starts at the later of "6 months ago" and the publisher's start.
+  const sixMonthsAgo = new Date(
+    Date.UTC(windowEnd.getUTCFullYear(), windowEnd.getUTCMonth() - 5, 1),
+  );
+  // Window starts at the later of "6 closed months ago" and the publisher's
+  // start.
   const windowStart =
     startMonth && startMonth.getTime() > sixMonthsAgo.getTime()
       ? new Date(
           Date.UTC(startMonth.getUTCFullYear(), startMonth.getUTCMonth(), 1),
         )
       : sixMonthsAgo;
-  // The last month that could have a report is the previous month (the current
-  // month isn't finished yet).
-  const windowEnd = new Date(
-    Date.UTC(currentMonth.getUTCFullYear(), currentMonth.getUTCMonth() - 1, 1),
-  );
 
   // How many months the publisher could have reported in the window (inclusive
   // of both ends), capped at 6.
@@ -131,6 +153,8 @@ export class PublishersService {
     private readonly publishersRepo: Repository<Publisher>,
     @InjectRepository(ServiceReport)
     private readonly reportsRepo: Repository<ServiceReport>,
+    @InjectRepository(Congregation)
+    private readonly congregationsRepo: Repository<Congregation>,
     private readonly auditLogService: AuditLogService,
     private readonly pushNotificationsService: PushNotificationsService,
     private readonly usersService: UsersService,
@@ -147,6 +171,18 @@ export class PublishersService {
    * start (unbaptized) or baptism date (baptized). Returns null if neither is
    * set — the status logic then falls back to the plain 6-month window.
    */
+  /**
+   * The congregation's IANA timezone, or Berlin when none is on record — the
+   * same fallback the rest of the app already makes.
+   */
+  private async congregationTimezone(tenantId: string): Promise<string> {
+    const congregation = await this.congregationsRepo.findOne({
+      where: { id: tenantId },
+      select: ['id', 'timezone'],
+    });
+    return congregation?.timezone || DEFAULT_CONGREGATION_TIMEZONE;
+  }
+
   private reportingStartMonth(publisher: Publisher): Date | null {
     const raw =
       publisher.appointment === PublisherAppointment.UNBAPTIZED_PUBLISHER
@@ -173,7 +209,7 @@ export class PublishersService {
   async recomputeStatus(
     tenantId: string,
     publisherId: string,
-    opts: { notify?: boolean } = {},
+    opts: { notify?: boolean; timezone?: string | null } = {},
   ): Promise<RecomputeResult> {
     const notify = opts.notify ?? true;
     const publisher = await this.publishersRepo.findOne({
@@ -207,12 +243,18 @@ export class PublishersService {
     }
 
     const now = new Date(Date.now());
+    // The congregation's own calendar decides when a month closed. Passed in
+    // by the nightly sweep, which already holds it, so a congregation is read
+    // once per run rather than once per publisher.
+    const timezone =
+      opts.timezone !== undefined
+        ? opts.timezone
+        : await this.congregationTimezone(tenantId);
+    const lastClosed = lastClosedReportMonth(now, timezone);
     const windowStart = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 1),
+      Date.UTC(lastClosed.getUTCFullYear(), lastClosed.getUTCMonth() - 5, 1),
     );
-    const windowStartStr = `${windowStart.getUTCFullYear()}-${String(
-      windowStart.getUTCMonth() + 1,
-    ).padStart(2, '0')}-01`;
+    const windowStartStr = monthKey(windowStart);
 
     const reports = await this.reportsRepo.find({
       where: {
@@ -223,7 +265,7 @@ export class PublishersService {
     });
 
     const startMonth = this.reportingStartMonth(publisher);
-    const newStatus = computeStatusFromReports(reports, now, startMonth);
+    const newStatus = computeStatusFromReports(reports, lastClosed, startMonth);
     if (publisher.status === newStatus) return 'unchanged';
 
     const before = { status: publisher.status };
@@ -374,7 +416,9 @@ export class PublishersService {
       durationMs: 0,
     };
     for (const congregation of congregations) {
-      const one = await this.recomputeForCongregation(congregation.id);
+      const one = await this.recomputeForCongregation(congregation.id, {
+        notifyOnClosingDay: true,
+      });
       total.processed += one.processed;
       total.updated += one.updated;
       total.unchanged += one.unchanged;
@@ -385,7 +429,10 @@ export class PublishersService {
     return total;
   }
 
-  async recomputeForCongregation(congregationId: string): Promise<{
+  async recomputeForCongregation(
+    congregationId: string,
+    opts: { notifyOnClosingDay?: boolean } = {},
+  ): Promise<{
     processed: number;
     updated: number;
     unchanged: number;
@@ -397,6 +444,16 @@ export class PublishersService {
     const publishers = await this.publishersRepo.find({
       where: { congregationId, removedAt: IsNull() },
     });
+    // One read per congregation, not per publisher.
+    const timezone = await this.congregationTimezone(congregationId);
+    // The sweep is silent every night but one. On the day the collection
+    // deadline passes, a publisher who did not report has genuinely fallen
+    // behind, and that is news the group overseer and the secretary should
+    // get — so that is the single night the sweep is allowed to speak. Any
+    // other caller (an administrator pressing recompute) stays silent.
+    const notify =
+      opts.notifyOnClosingDay === true &&
+      isMonthClosingDay(new Date(Date.now()), timezone);
 
     let updated = 0;
     let unchanged = 0;
@@ -406,7 +463,8 @@ export class PublishersService {
     for (const p of publishers) {
       try {
         const result = await this.recomputeStatus(p.congregationId, p.id, {
-          notify: false,
+          notify,
+          timezone,
         });
         if (result === 'updated') updated++;
         else if (result === 'unchanged') unchanged++;

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceReport } from '../entities/service-report.entity';
+import { Congregation } from '../entities/congregation.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { PublishersService } from './publishers.service';
 import { PublishersController } from './publishers.controller';
@@ -13,7 +14,12 @@ import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Publisher, ServiceReport, Responsibility]),
+    TypeOrmModule.forFeature([
+      Publisher,
+      ServiceReport,
+      Responsibility,
+      Congregation,
+    ]),
     AuditLogModule,
     PushNotificationsModule,
     UsersModule,

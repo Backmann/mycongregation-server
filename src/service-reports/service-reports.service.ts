@@ -13,6 +13,14 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
+import { Congregation } from '../entities/congregation.entity';
+import {
+  collectedReportMonth,
+  lastClosedReportMonth,
+  monthKey,
+  reportDeadlineDate,
+} from '../common/report-month-window';
+import { reportingPublisherWhere } from '../common/reporting-publishers';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { PublishersService } from '../publishers/publishers.service';
 import { AuxiliaryPioneersService } from '../auxiliary-pioneers/auxiliary-pioneers.service';
@@ -174,6 +182,20 @@ export interface ServiceYearSummary {
   }[];
 }
 
+/** Where the collection of one month's reports stands, for the home card. */
+export interface ReportCollection {
+  /** The month being collected — the previous calendar month. */
+  reportMonth: string;
+  /** Whose reports are counted: the congregation, or the caller's groups. */
+  scope: 'congregation' | 'group';
+  expected: number;
+  received: number;
+  /** The day they are due, 'YYYY-MM-DD'. */
+  deadline: string;
+  pastDeadline: boolean;
+  closed: boolean;
+}
+
 export interface ServiceReportSummary {
   reportMonth: string;
   categories: ServiceReportSummaryCategory[];
@@ -239,6 +261,8 @@ export class ServiceReportsService {
     private readonly responsibilitiesRepo: Repository<Responsibility>,
     @InjectRepository(ReportMonthClosure)
     private readonly closuresRepo: Repository<ReportMonthClosure>,
+    @InjectRepository(Congregation)
+    private readonly congregationsRepo: Repository<Congregation>,
     private readonly auditLogService: AuditLogService,
     private readonly publishersService: PublishersService,
     private readonly auxiliaryPioneersService: AuxiliaryPioneersService,
@@ -1070,6 +1094,78 @@ export class ServiceReportsService {
    * the congregation's total active-or-irregular publisher count. Restricted
    * to admins and the holder of the SECRETARY responsibility.
    */
+  /**
+   * Where this month's collection of reports stands.
+   *
+   * This is the thing the publisher STATUS used to say and should never have
+   * said. A missing report for the month being collected is not a fact about
+   * the publisher — it is a line still to be gathered, and it belongs on the
+   * secretary's desk, not on someone's record. The card built on this answers
+   * «сдали 34 из 46», and the status keeps its own, slower question.
+   *
+   * Scope follows the caller: the whole congregation for an administrator or
+   * the secretary, the overseen groups for a group overseer — the same two
+   * audiences the reminder job already writes to.
+   */
+  async getReportCollection(
+    tenantId: string,
+    user: AuthenticatedUser,
+  ): Promise<ReportCollection> {
+    const ctx = await this.buildPermissionContext(tenantId, user);
+    const isOverseer = ctx.overseenGroupIds.length > 0;
+    if (!ctx.alwaysEdit && !isOverseer) {
+      throw new ForbiddenException(
+        'Only administrators, the secretary and a group overseer may view report collection.',
+      );
+    }
+
+    const congregation = await this.congregationsRepo.findOne({
+      where: { id: tenantId },
+      select: ['id', 'timezone'],
+    });
+    const timezone = congregation?.timezone ?? null;
+    const now = new Date(Date.now());
+    const reportMonth = monthKey(collectedReportMonth(now, timezone));
+    const lastClosed = monthKey(lastClosedReportMonth(now, timezone));
+
+    const publishers = await this.publishersRepo.find({
+      where: reportingPublisherWhere(tenantId),
+      select: ['id', 'serviceGroupId'],
+    });
+    const inScope = ctx.alwaysEdit
+      ? publishers
+      : publishers.filter(
+          (p) =>
+            p.serviceGroupId !== null &&
+            ctx.overseenGroupIds.includes(p.serviceGroupId),
+        );
+
+    const reports =
+      inScope.length === 0
+        ? []
+        : await this.reportsRepo.find({
+            where: {
+              congregationId: tenantId,
+              reportMonth,
+              publisherId: In(inScope.map((p) => p.id)),
+            },
+            select: ['publisherId'],
+          });
+    const submitted = new Set(reports.map((r) => r.publisherId));
+
+    return {
+      reportMonth,
+      scope: ctx.alwaysEdit ? 'congregation' : 'group',
+      expected: inScope.length,
+      received: inScope.filter((p) => submitted.has(p.id)).length,
+      deadline: reportDeadlineDate(reportMonth),
+      // A month is past its deadline exactly when it has closed — one piece
+      // of arithmetic, asked twice, rather than two that can disagree.
+      pastDeadline: reportMonth <= lastClosed,
+      closed: await this.isMonthClosed(tenantId, reportMonth),
+    };
+  }
+
   async getSummary(
     tenantId: string,
     user: AuthenticatedUser,

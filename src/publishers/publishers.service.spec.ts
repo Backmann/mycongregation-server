@@ -27,6 +27,7 @@ import {
 } from './publishers.service';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceReport } from '../entities/service-report.entity';
+import { Congregation } from '../entities/congregation.entity';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { Gender } from '../common/enums/gender.enum';
@@ -79,8 +80,9 @@ function makeUser(
 }
 
 describe('computeStatusFromReports (pure function)', () => {
-  // currentMonth is May 2026 → window covers Dec 2025 through May 2026
-  const may2026 = new Date(Date.UTC(2026, 4, 15));
+  // The argument is the last CLOSED report month. April 2026 closed on
+  // 20 May, so the window it defines runs November 2025 → April 2026.
+  const may2026 = new Date(Date.UTC(2026, 3, 1));
 
   it('returns INACTIVE for an empty report list', () => {
     expect(computeStatusFromReports([], may2026)).toBe(
@@ -90,12 +92,12 @@ describe('computeStatusFromReports (pure function)', () => {
 
   it('returns ACTIVE when all 6 months in window have served reports', () => {
     const months = [
+      '2025-11-01',
       '2025-12-01',
       '2026-01-01',
       '2026-02-01',
       '2026-03-01',
       '2026-04-01',
-      '2026-05-01',
     ];
     const reports = months.map((m) =>
       makeReport({
@@ -157,10 +159,23 @@ describe('computeStatusFromReports (pure function)', () => {
 
   it('ignores reports older than the 6-month window', () => {
     const reports = [
-      // 7 months before May 2026 = October 2025 — outside window
-      makeReport({ reportMonth: '2025-10-01', servedThisMonth: true }),
-      // 8 months before — also outside
+      // 7 months before April 2026 = September 2025 — outside window
       makeReport({ reportMonth: '2025-09-01', servedThisMonth: true }),
+      // 8 months before — also outside
+      makeReport({ reportMonth: '2025-08-01', servedThisMonth: true }),
+    ];
+    expect(computeStatusFromReports(reports, may2026)).toBe(
+      PublisherStatus.INACTIVE,
+    );
+  });
+
+  it('takes no notice of a month that has not closed yet', () => {
+    // May's reports are collected during June. A May report may already exist
+    // when the last closed month is April, and it must not be counted early —
+    // otherwise the window would drift a month ahead of the deadline it is
+    // built on.
+    const reports = [
+      makeReport({ reportMonth: '2026-05-01', servedThisMonth: true }),
     ];
     expect(computeStatusFromReports(reports, may2026)).toBe(
       PublisherStatus.INACTIVE,
@@ -182,6 +197,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
   let service: PublishersService;
   let publishersRepo: jest.Mocked<Repository<Publisher>>;
   let reportsRepo: jest.Mocked<Repository<ServiceReport>>;
+  let congregationsRepo: jest.Mocked<Repository<Congregation>>;
   let auditLogService: { logUpdate: jest.Mock; findForEntity: jest.Mock };
   let pushNotificationsService: {
     sendStatusChange: jest.Mock;
@@ -206,6 +222,9 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
     reportsRepo = {
       find: jest.fn(),
     } as unknown as jest.Mocked<Repository<ServiceReport>>;
+    congregationsRepo = {
+      findOne: jest.fn().mockResolvedValue(null),
+    } as unknown as jest.Mocked<Repository<Congregation>>;
     auditLogService = {
       logUpdate: jest.fn(),
       findForEntity: jest.fn(),
@@ -223,6 +242,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
     service = new PublishersService(
       publishersRepo,
       reportsRepo,
+      congregationsRepo,
       auditLogService as any,
       pushNotificationsService as any,
       usersService as any,
@@ -243,7 +263,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       ]);
       publishersRepo.save.mockImplementation(async (x: any) => x);
 
-      setNow(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 25));
 
       await service.recomputeStatus('cong-1', 'pub-1');
 
@@ -252,6 +272,104 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
           id: 'pub-1',
           status: PublisherStatus.IRREGULAR,
         }),
+      );
+    });
+
+    it("leaves a publisher alone while last month's reports are still being collected", async () => {
+      // 3 August. Reports for July are handed in up to the 20th, so July is
+      // not a month anyone has missed — it is a month nobody is late for yet.
+      // Before this rule the whole congregation turned irregular on the 1st
+      // and drifted back to active as the reports were typed in.
+      const pub = makePublisher({
+        id: 'pub-1',
+        status: PublisherStatus.ACTIVE,
+        statusManuallyOverridden: false,
+      });
+      publishersRepo.findOne.mockResolvedValue(pub);
+      reportsRepo.find.mockResolvedValue(
+        [
+          '2026-01-01',
+          '2026-02-01',
+          '2026-03-01',
+          '2026-04-01',
+          '2026-05-01',
+          '2026-06-01',
+        ].map((reportMonth) =>
+          makeReport({ reportMonth, servedThisMonth: true }),
+        ),
+      );
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+      setNow(Date.UTC(2026, 7, 3));
+
+      const result = await service.recomputeStatus('cong-1', 'pub-1');
+
+      expect(result).toBe('unchanged');
+      expect(publishersRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('turns the same publisher irregular once the deadline has passed', async () => {
+      // 20 August: July is closed now, and a July report never arrived. The
+      // status change is a fact about the publisher, not about the calendar.
+      const pub = makePublisher({
+        id: 'pub-1',
+        status: PublisherStatus.ACTIVE,
+        statusManuallyOverridden: false,
+      });
+      publishersRepo.findOne.mockResolvedValue(pub);
+      reportsRepo.find.mockResolvedValue(
+        [
+          '2026-01-01',
+          '2026-02-01',
+          '2026-03-01',
+          '2026-04-01',
+          '2026-05-01',
+          '2026-06-01',
+        ].map((reportMonth) =>
+          makeReport({ reportMonth, servedThisMonth: true }),
+        ),
+      );
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+      setNow(Date.UTC(2026, 7, 20, 3, 0, 0));
+
+      await service.recomputeStatus('cong-1', 'pub-1');
+
+      expect(publishersRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: PublisherStatus.IRREGULAR }),
+      );
+    });
+
+    it('reads the closing day in the congregation timezone, not UTC', async () => {
+      // 19 August 23:00 UTC is already the 20th in Berlin, so July is closed
+      // there. Judged in UTC the deadline would arrive a day late.
+      (congregationsRepo.findOne as jest.Mock).mockResolvedValue({
+        id: 'cong-1',
+        timezone: 'Europe/Berlin',
+      });
+      const pub = makePublisher({
+        id: 'pub-1',
+        status: PublisherStatus.ACTIVE,
+        statusManuallyOverridden: false,
+      });
+      publishersRepo.findOne.mockResolvedValue(pub);
+      reportsRepo.find.mockResolvedValue(
+        [
+          '2026-01-01',
+          '2026-02-01',
+          '2026-03-01',
+          '2026-04-01',
+          '2026-05-01',
+          '2026-06-01',
+        ].map((reportMonth) =>
+          makeReport({ reportMonth, servedThisMonth: true }),
+        ),
+      );
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+      setNow(Date.UTC(2026, 7, 19, 23, 0, 0));
+
+      await service.recomputeStatus('cong-1', 'pub-1');
+
+      expect(publishersRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: PublisherStatus.IRREGULAR }),
       );
     });
 
@@ -278,7 +396,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         makeReport({ reportMonth: '2026-04-01', servedThisMonth: true }),
       ]);
       publishersRepo.save.mockImplementation(async (x: any) => x);
-      setNow(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 25));
 
       await service.recomputeStatus('cong-1', 'pub-1');
       await new Promise((r) => setImmediate(r));
@@ -318,7 +436,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         makeReport({ reportMonth: '2026-04-01', servedThisMonth: true }),
       ]);
       publishersRepo.save.mockImplementation(async (x: any) => x);
-      setNow(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 25));
 
       const result = await service.recomputeStatus('cong-1', 'pub-1', {
         notify: false,
@@ -355,7 +473,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         makeReport({ reportMonth: '2026-04-01', servedThisMonth: true }),
       ]);
       publishersRepo.save.mockImplementation(async (x: any) => x);
-      setNow(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 25));
 
       await service.recomputeStatus('cong-1', 'pub-1');
       await new Promise((r) => setImmediate(r));
@@ -384,7 +502,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         makeReport({ reportMonth: '2026-04-01', servedThisMonth: true }),
       ]);
       publishersRepo.save.mockImplementation(async (x: any) => x);
-      setNow(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 25));
 
       await service.recomputeStatus('cong-1', 'pub-1');
       await new Promise((r) => setImmediate(r));
@@ -406,7 +524,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         makeReport({ reportMonth: '2026-04-01', servedThisMonth: false }),
       ]);
 
-      setNow(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 25));
 
       await service.recomputeStatus('cong-1', 'pub-1');
 
@@ -422,7 +540,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       publishersRepo.findOne.mockResolvedValue(pub);
       reportsRepo.find.mockResolvedValue([]);
 
-      setNow(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 25));
 
       await service.recomputeStatus('cong-1', 'pub-1');
 
@@ -448,7 +566,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       publishersRepo.findOne.mockResolvedValue(pub);
       publishersRepo.save.mockImplementation(async (x: any) => x);
 
-      setNow(Date.UTC(2026, 4, 15, 10, 0, 0));
+      setNow(Date.UTC(2026, 4, 25, 10, 0, 0));
 
       await service.overrideStatus(
         'cong-1',
@@ -501,7 +619,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       publishersRepo.save.mockImplementation(async (x: any) => x);
       reportsRepo.find.mockResolvedValue([]);
 
-      setNow(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 25));
 
       await service.clearOverride(
         'cong-1',
@@ -533,7 +651,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         makeReport({ reportMonth: '2026-04-01', servedThisMonth: true }),
       ]);
       publishersRepo.save.mockImplementation(async (x: any) => x);
-      setNow(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 25));
 
       const result = await service.recomputeStatus('cong-1', 'pub-1');
       expect(result).toBe('updated');
@@ -547,7 +665,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       });
       publishersRepo.findOne.mockResolvedValue(pub);
       reportsRepo.find.mockResolvedValue([]);
-      setNow(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 25));
 
       const result = await service.recomputeStatus('cong-1', 'pub-1');
       expect(result).toBe('unchanged');
@@ -603,7 +721,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         return [];
       });
       publishersRepo.save.mockImplementation(async (x: any) => x);
-      setNow(Date.UTC(2026, 4, 15));
+      setNow(Date.UTC(2026, 4, 25));
 
       const summary = await service.recomputeForCongregation('cong-1');
       expect(summary.processed).toBe(3);
@@ -611,6 +729,75 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       expect(summary.unchanged).toBe(1); // 'c': stays inactive
       expect(summary.skipped).toBe(1); // 'b': manual override
       expect(summary.errors).toBe(0);
+    });
+
+    const sweepSetup = () => {
+      publishersRepo.find.mockResolvedValue([
+        makePublisher({
+          id: 'a',
+          congregationId: 'cong-1',
+          status: PublisherStatus.INACTIVE,
+          serviceGroupId: null,
+        }),
+      ]);
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({
+          id: 'a',
+          congregationId: 'cong-1',
+          status: PublisherStatus.INACTIVE,
+          serviceGroupId: null,
+          userId: 'user-a',
+        } as any),
+      );
+      reportsRepo.find.mockResolvedValue([
+        makeReport({ reportMonth: '2026-06-01', servedThisMonth: true }),
+      ]);
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+      (publishersRepo.manager.find as jest.Mock).mockResolvedValue([
+        { id: 'user-admin-1' },
+      ]);
+    };
+
+    it('the nightly sweep says nothing on an ordinary night', async () => {
+      sweepSetup();
+      setNow(Date.UTC(2026, 7, 3, 3, 0, 0));
+
+      const summary = await service.recomputeForCongregation('cong-1', {
+        notifyOnClosingDay: true,
+      });
+      await new Promise((r) => setImmediate(r));
+
+      expect(summary.updated).toBe(1);
+      expect(
+        pushNotificationsService.sendStatusChangeToUser,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('the nightly sweep speaks on the day the month closes', async () => {
+      sweepSetup();
+      setNow(Date.UTC(2026, 7, 20, 3, 0, 0));
+
+      const summary = await service.recomputeForCongregation('cong-1', {
+        notifyOnClosingDay: true,
+      });
+      await new Promise((r) => setImmediate(r));
+
+      expect(summary.updated).toBe(1);
+      expect(
+        pushNotificationsService.sendStatusChangeToUser,
+      ).toHaveBeenCalled();
+    });
+
+    it('an administrator pressing recompute never notifies, closing day or not', async () => {
+      sweepSetup();
+      setNow(Date.UTC(2026, 7, 20, 3, 0, 0));
+
+      await service.recomputeForCongregation('cong-1');
+      await new Promise((r) => setImmediate(r));
+
+      expect(
+        pushNotificationsService.sendStatusChangeToUser,
+      ).not.toHaveBeenCalled();
     });
 
     it('counts per-publisher errors without failing the whole run', async () => {
@@ -649,7 +836,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
     it('treats a newcomer who reported every month since start as active', () => {
       // Started 2 months ago; reported both months. Fewer than 6 served, but
       // that's all they could have — should be ACTIVE, not IRREGULAR.
-      const now = new Date(Date.UTC(2026, 4, 15)); // May 2026
+      const now = new Date(Date.UTC(2026, 3, 1)); // April 2026, last closed
       const start = new Date(Date.UTC(2026, 3, 1)); // April 2026
       const reports = [
         {
@@ -664,7 +851,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
     });
 
     it('still marks a long-time publisher with one report as irregular', () => {
-      const now = new Date(Date.UTC(2026, 4, 15));
+      const now = new Date(Date.UTC(2026, 3, 1));
       const start = new Date(Date.UTC(2020, 0, 1)); // long ago
       const reports = [
         {
