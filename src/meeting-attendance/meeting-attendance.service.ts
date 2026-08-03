@@ -9,6 +9,7 @@ import { EventType } from '../common/enums/event-type.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { minutesOfDayIn, todayIn } from '../common/congregation-clock';
+import { mondayOf } from '../common/week';
 
 /** One meeting's figure as the report reads it. */
 export interface AttendanceRow {
@@ -193,7 +194,7 @@ export class MeetingAttendanceService {
     const now = new Date(Date.now());
     const today = todayIn(now, timezone);
     const nowMinutes = minutesOfDayIn(now, timezone);
-    const thisMonday = mondayOfISO(today);
+    const thisMonday = mondayOf(today);
     const wanted: { date: string; eventType: EventType }[] = [];
 
     for (let back = 0; back < weeksBack; back++) {
@@ -233,8 +234,8 @@ export class MeetingAttendanceService {
     const done = new Set(rows.map((r) => `${r.date}|${r.eventType}`));
 
     let count = 0;
-    let week = mondayOfISO(from);
-    const lastWeek = mondayOfISO(today);
+    let week = mondayOf(from);
+    const lastWeek = mondayOf(today);
     while (week <= lastWeek) {
       for (const m of this.meetingsOfWeek(week, ctx)) {
         if (m.date > today || m.date < from) continue;
@@ -297,7 +298,7 @@ export class MeetingAttendanceService {
     kind: EventType,
     ctx: WeekContext,
   ): string | null {
-    const weekStart = mondayOfISO(date);
+    const weekStart = mondayOf(date);
     let version: MeetingSettings | null = null;
     for (const v of ctx.versions) {
       if (v.effectiveFrom <= weekStart) version = v;
@@ -440,8 +441,8 @@ export class MeetingAttendanceService {
     const today = await this.clock.todayFor(tenantId);
     const expected: AttendanceRow[] = [];
     if (ctx) {
-      let week = mondayOfISO(from);
-      const lastWeek = mondayOfISO(to);
+      let week = mondayOf(from);
+      const lastWeek = mondayOf(to);
       while (week <= lastWeek) {
         for (const m of this.meetingsOfWeek(week, ctx)) {
           // Meetings still ahead are not gaps; they simply have not happened.
@@ -557,13 +558,6 @@ function addDaysISO(iso: string, days: number): string {
 function isoDowOf(iso: string): number {
   const d = new Date(`${iso}T00:00:00Z`).getUTCDay();
   return d === 0 ? 7 : d;
-}
-
-/** Monday of the ISO week a date falls in. */
-function mondayOfISO(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  const dow = d.getUTCDay() === 0 ? 7 : d.getUTCDay();
-  return addDaysISO(iso, 1 - dow);
 }
 
 /**

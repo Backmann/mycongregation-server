@@ -14,6 +14,7 @@ import { PublicTalk } from '../entities/public-talk.entity';
 import { CartAssignment } from '../entities/cart-assignment.entity';
 import { CoVisitItem } from '../entities/co-visit-item.entity';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { mondayOf } from '../common/week';
 
 export type MyAssignmentKind =
   | 'meeting'
@@ -135,13 +136,6 @@ function fmtISO(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
-}
-
-/** Monday of the ISO week containing the given date. */
-function mondayOf(iso: string): string {
-  const d = new Date(`${iso}T00:00:00`);
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-  return fmtISO(d);
 }
 
 function addDaysISO(iso: string, days: number): string {

@@ -7,6 +7,7 @@ import {
   GenerateFieldServiceDto,
   ReplaceFieldServiceTemplateDto,
 } from './dto/field-service-template.dto';
+import { mondayOf } from '../common/week';
 
 /** UTC 'YYYY-MM-DD'. */
 function toISO(d: Date): string {
@@ -29,15 +30,6 @@ function nthWeekdayOfMonth(
   let day = 1 + ((jsTarget - firstDow + 7) % 7) + (ordinal - 1) * 7;
   const date = new Date(Date.UTC(year, month - 1, day));
   return date.getUTCMonth() === month - 1 ? date : null;
-}
-
-/** Monday (UTC) of the ISO week containing the date. */
-function mondayOf(d: Date): Date {
-  const dow = d.getUTCDay(); // 0=Sun..6=Sat
-  const diff = dow === 0 ? -6 : 1 - dow;
-  const m = new Date(d);
-  m.setUTCDate(d.getUTCDate() + diff);
-  return m;
 }
 
 @Injectable()
@@ -102,7 +94,7 @@ export class FieldServiceTemplateService {
         const date = nthWeekdayOfMonth(y, m, slot.dayOfWeek, slot.ordinal);
         if (!date) continue;
         specs.push({
-          weekStartDate: toISO(mondayOf(date)),
+          weekStartDate: mondayOf(toISO(date)),
           dayOfWeek: slot.dayOfWeek,
           startTime: slot.startTime,
           address: slot.address,

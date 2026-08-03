@@ -21,17 +21,9 @@ import { TalkExchangeDirection } from '../common/enums/talk-exchange.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { CreateTalkExchangeDto } from './dto/create-talk-exchange.dto';
 import { UpdateTalkExchangeDto } from './dto/update-talk-exchange.dto';
+import { mondayOf } from '../common/week';
 
 const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
-
-/** Monday (YYYY-MM-DD) of the ISO week containing the given date. */
-function mondayOf(dateStr: string): string {
-  const d = new Date(`${dateStr}T00:00:00Z`);
-  const dow = d.getUTCDay(); // 0=Sun..6=Sat
-  const isoDow = dow === 0 ? 7 : dow; // 1=Mon..7=Sun
-  d.setUTCDate(d.getUTCDate() - (isoDow - 1));
-  return d.toISOString().slice(0, 10);
-}
 
 /** dateStr + n days, as YYYY-MM-DD (UTC). */
 function addDaysISO(dateStr: string, n: number): string {
