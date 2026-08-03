@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Congregation } from '../entities/congregation.entity';
+import { ReportMonthClosure } from '../entities/report-month-closure.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { PublishersService } from './publishers.service';
 import { PublishersController } from './publishers.controller';
@@ -19,6 +20,7 @@ import { UsersModule } from '../users/users.module';
       ServiceReport,
       Responsibility,
       Congregation,
+      ReportMonthClosure,
     ]),
     AuditLogModule,
     PushNotificationsModule,

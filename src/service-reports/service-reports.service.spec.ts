@@ -105,7 +105,10 @@ describe('ServiceReportsService', () => {
     logEvent: jest.Mock;
     findForEntity: jest.Mock;
   };
-  let publishersService: { recomputeStatus: jest.Mock };
+  let publishersService: {
+    recomputeStatus: jest.Mock;
+    recomputeForCongregation: jest.Mock;
+  };
   let auxiliaryPioneersService: {
     isActiveAuxiliaryPioneer: jest.Mock;
     activePublisherIdsForMonth: jest.Mock;
@@ -157,7 +160,10 @@ describe('ServiceReportsService', () => {
       logUpdate: jest.fn(),
       findForEntity: jest.fn(),
     };
-    publishersService = { recomputeStatus: jest.fn() };
+    publishersService = {
+      recomputeStatus: jest.fn(),
+      recomputeForCongregation: jest.fn().mockResolvedValue({}),
+    };
     auxiliaryPioneersService = {
       isActiveAuxiliaryPioneer: jest.fn().mockResolvedValue(false),
       activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()),
@@ -2222,6 +2228,71 @@ describe('ServiceReportsService', () => {
       expect(closuresRepo.save).toHaveBeenCalled();
       expect(result.closed).toBe(true);
       expect(result.canManage).toBe(true);
+    });
+
+    it('closeMonth settles the statuses and lets them be heard', async () => {
+      // The month is over because the secretary says so, not because a date
+      // arrived. He is at the screen, so this is the recompute that speaks.
+      responsibilitiesRepo.count.mockResolvedValue(1);
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ id: 'pub-sec', userId: 'sec-id' }),
+      );
+      closuresRepo.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce({
+        reportMonth: '2026-04-01',
+        closedAt: new Date('2026-05-12T09:00:00Z'),
+      } as ReportMonthClosure);
+
+      await service.closeMonth(
+        'cong-1',
+        makeUser({ id: 'sec-id', role: UserRole.PUBLISHER }),
+        '2026-04',
+      );
+
+      expect(publishersService.recomputeForCongregation).toHaveBeenCalledWith(
+        'cong-1',
+        { notify: 'always' },
+      );
+    });
+
+    it('closeMonth still closes the month when the recompute fails', async () => {
+      // Bookkeeping the secretary must be able to finish. The nightly sweep
+      // will put the statuses right.
+      responsibilitiesRepo.count.mockResolvedValue(1);
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ id: 'pub-sec', userId: 'sec-id' }),
+      );
+      closuresRepo.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce({
+        reportMonth: '2026-04-01',
+        closedAt: new Date('2026-05-12T09:00:00Z'),
+      } as ReportMonthClosure);
+      publishersService.recomputeForCongregation.mockRejectedValueOnce(
+        new Error('boom'),
+      );
+
+      const result = await service.closeMonth(
+        'cong-1',
+        makeUser({ id: 'sec-id', role: UserRole.PUBLISHER }),
+        '2026-04',
+      );
+
+      expect(closuresRepo.save).toHaveBeenCalled();
+      expect(result.closed).toBe(true);
+    });
+
+    it('reopenMonth puts the statuses back without telling anyone', async () => {
+      publishersRepo.findOne.mockResolvedValue(null);
+      closuresRepo.findOne.mockResolvedValue(null);
+
+      await service.reopenMonth(
+        'cong-1',
+        makeUser({ id: 'admin-id', role: UserRole.ADMIN }),
+        '2026-04',
+      );
+
+      expect(publishersService.recomputeForCongregation).toHaveBeenCalledWith(
+        'cong-1',
+        { notify: 'never' },
+      );
     });
 
     it('closeMonth is idempotent — no second insert when already closed', async () => {

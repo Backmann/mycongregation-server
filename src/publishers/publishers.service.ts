@@ -8,13 +8,21 @@ import {
 } from '@nestjs/common';
 import { reportedMinistry } from '../common/reported-ministry';
 import {
+  collectedReportMonth,
   isMonthClosingDay,
   lastClosedReportMonth,
   monthKey,
   DEFAULT_CONGREGATION_TIMEZONE,
 } from '../common/report-month-window';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, In, IsNull, MoreThanOrEqual, Repository } from 'typeorm';
+import {
+  Brackets,
+  In,
+  IsNull,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+  Repository,
+} from 'typeorm';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { User } from '../entities/user.entity';
@@ -22,6 +30,7 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Congregation } from '../entities/congregation.entity';
+import { ReportMonthClosure } from '../entities/report-month-closure.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
@@ -135,6 +144,9 @@ import { RemovePublisherDto } from './dto/remove-publisher.dto';
 
 export type RecomputeResult = 'skipped_override' | 'unchanged' | 'updated';
 
+/** Who is told when a congregation-wide recompute changes something. */
+export type RecomputeNotify = 'never' | 'onClosingDay' | 'always';
+
 export interface AccessSummary {
   hasAccess: boolean;
   email: string | null;
@@ -155,6 +167,8 @@ export class PublishersService {
     private readonly reportsRepo: Repository<ServiceReport>,
     @InjectRepository(Congregation)
     private readonly congregationsRepo: Repository<Congregation>,
+    @InjectRepository(ReportMonthClosure)
+    private readonly closuresRepo: Repository<ReportMonthClosure>,
     private readonly auditLogService: AuditLogService,
     private readonly pushNotificationsService: PushNotificationsService,
     private readonly usersService: UsersService,
@@ -171,6 +185,41 @@ export class PublishersService {
    * start (unbaptized) or baptism date (baptized). Returns null if neither is
    * set — the status logic then falls back to the plain 6-month window.
    */
+  /**
+   * The month the status window ends at: the LATER of two ways a month can be
+   * settled.
+   *
+   *   - the deadline passed (the 20th of the month after it), or
+   *   - the secretary pressed «Закрыть месяц» — the collection is over
+   *     because the person who collects says so, and waiting for a date he
+   *     has already overtaken would mean holding a status everyone knows is
+   *     stale.
+   *
+   * An explicit closure is only honoured for a month that has actually ended.
+   * Closing the current month must not drag the window forward into a month
+   * whose reports nobody could have filed yet.
+   */
+  private async effectiveLastClosedMonth(
+    tenantId: string,
+    timezone: string | null,
+    now: Date,
+  ): Promise<Date> {
+    const byDeadline = lastClosedReportMonth(now, timezone);
+    const latestEnded = monthKey(collectedReportMonth(now, timezone));
+    const closure = await this.closuresRepo.findOne({
+      where: {
+        congregationId: tenantId,
+        reportMonth: LessThanOrEqual(latestEnded),
+      },
+      order: { reportMonth: 'DESC' },
+    });
+    if (!closure) return byDeadline;
+    const declared = new Date(
+      `${closure.reportMonth.slice(0, 7)}-01T00:00:00Z`,
+    );
+    return declared.getTime() > byDeadline.getTime() ? declared : byDeadline;
+  }
+
   /**
    * The congregation's IANA timezone, or Berlin when none is on record — the
    * same fallback the rest of the app already makes.
@@ -209,7 +258,11 @@ export class PublishersService {
   async recomputeStatus(
     tenantId: string,
     publisherId: string,
-    opts: { notify?: boolean; timezone?: string | null } = {},
+    opts: {
+      notify?: boolean;
+      timezone?: string | null;
+      lastClosedMonth?: Date;
+    } = {},
   ): Promise<RecomputeResult> {
     const notify = opts.notify ?? true;
     const publisher = await this.publishersRepo.findOne({
@@ -228,17 +281,14 @@ export class PublishersService {
       };
       publisher.status = null;
       await this.publishersRepo.save(publisher);
-      if (publisher.userId) {
-        await this.auditLogService.logUpdate({
-          tenantId,
-          entityType: 'publisher',
-          entityId: publisher.id,
-          actorUserId: publisher.userId,
-          before,
-          after: { status: null } as { status: PublisherStatus | null },
-          fields: ['status'],
-        });
-      }
+      await this.auditLogService.logUpdate({
+        tenantId,
+        entityType: 'publisher',
+        entityId: publisher.id,
+        before,
+        after: { status: null } as { status: PublisherStatus | null },
+        fields: ['status'],
+      });
       return 'updated';
     }
 
@@ -250,7 +300,9 @@ export class PublishersService {
       opts.timezone !== undefined
         ? opts.timezone
         : await this.congregationTimezone(tenantId);
-    const lastClosed = lastClosedReportMonth(now, timezone);
+    const lastClosed =
+      opts.lastClosedMonth ??
+      (await this.effectiveLastClosedMonth(tenantId, timezone, now));
     const windowStart = new Date(
       Date.UTC(lastClosed.getUTCFullYear(), lastClosed.getUTCMonth() - 5, 1),
     );
@@ -271,20 +323,23 @@ export class PublishersService {
     const before = { status: publisher.status };
     publisher.status = newStatus;
     await this.publishersRepo.save(publisher);
-    // Auto-recompute writes a system-level audit entry (actor=publisher's
-    // user if linked, else use a sentinel). For now we log under the
-    // publisher's userId if present; otherwise skip the audit row.
-    if (publisher.userId) {
-      await this.auditLogService.logUpdate({
-        tenantId,
-        entityType: 'publisher',
-        entityId: publisher.id,
-        actorUserId: publisher.userId,
-        before,
-        after: { status: newStatus },
-        fields: ['status'],
-      });
-    }
+    // WHO changed this. Not the publisher: he did nothing — the status was
+    // computed. It used to be filed under his own name whenever he happened to
+    // have a login, and skipped entirely when he had none, so the journal both
+    // misnamed the author and went silent about everyone without an account.
+    //
+    // With no actor given, the audit log takes the user whose request caused
+    // the change — the secretary who entered the report — and falls back to
+    // "system" when nothing did, which is exactly right for the nightly sweep.
+    // The journal screen already says «Система» for those.
+    await this.auditLogService.logUpdate({
+      tenantId,
+      entityType: 'publisher',
+      entityId: publisher.id,
+      before,
+      after: { status: newStatus },
+      fields: ['status'],
+    });
     // Notify a SCOPED set — the overseer of this publisher's service group,
     // the congregation secretary (keeps the reporting records), and all
     // admins. A status change (e.g. becoming irregular/inactive after missing
@@ -417,7 +472,7 @@ export class PublishersService {
     };
     for (const congregation of congregations) {
       const one = await this.recomputeForCongregation(congregation.id, {
-        notifyOnClosingDay: true,
+        notify: 'onClosingDay',
       });
       total.processed += one.processed;
       total.updated += one.updated;
@@ -431,7 +486,7 @@ export class PublishersService {
 
   async recomputeForCongregation(
     congregationId: string,
-    opts: { notifyOnClosingDay?: boolean } = {},
+    opts: { notify?: RecomputeNotify } = {},
   ): Promise<{
     processed: number;
     updated: number;
@@ -444,16 +499,27 @@ export class PublishersService {
     const publishers = await this.publishersRepo.find({
       where: { congregationId, removedAt: IsNull() },
     });
-    // One read per congregation, not per publisher.
+    // Read once per congregation, not once per publisher.
+    const now = new Date(Date.now());
     const timezone = await this.congregationTimezone(congregationId);
-    // The sweep is silent every night but one. On the day the collection
-    // deadline passes, a publisher who did not report has genuinely fallen
-    // behind, and that is news the group overseer and the secretary should
-    // get — so that is the single night the sweep is allowed to speak. Any
-    // other caller (an administrator pressing recompute) stays silent.
+    const lastClosedMonth = await this.effectiveLastClosedMonth(
+      congregationId,
+      timezone,
+      now,
+    );
+    // Who hears about it:
+    //   'never'        — an administrator refreshing statuses by hand.
+    //   'onClosingDay' — the nightly sweep. Silent every night but one: on the
+    //                    day the deadline passes, a publisher who did not
+    //                    report has genuinely fallen behind, and that is news.
+    //                    Waking the overseer to say time has passed on any
+    //                    other night is the wrong trade.
+    //   'always'       — the secretary just closed the month. The fact became
+    //                    true at that moment, not on the 20th, and he is
+    //                    awake and looking at the screen.
     const notify =
-      opts.notifyOnClosingDay === true &&
-      isMonthClosingDay(new Date(Date.now()), timezone);
+      opts.notify === 'always' ||
+      (opts.notify === 'onClosingDay' && isMonthClosingDay(now, timezone));
 
     let updated = 0;
     let unchanged = 0;
@@ -465,6 +531,7 @@ export class PublishersService {
         const result = await this.recomputeStatus(p.congregationId, p.id, {
           notify,
           timezone,
+          lastClosedMonth,
         });
         if (result === 'updated') updated++;
         else if (result === 'unchanged') unchanged++;

@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { reportedMinistry } from '../common/reported-ministry';
@@ -22,7 +23,10 @@ import {
 } from '../common/report-month-window';
 import { reportingPublisherWhere } from '../common/reporting-publishers';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { PublishersService } from '../publishers/publishers.service';
+import {
+  PublishersService,
+  type RecomputeNotify,
+} from '../publishers/publishers.service';
 import { AuxiliaryPioneersService } from '../auxiliary-pioneers/auxiliary-pioneers.service';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { isActivePermanentPioneer } from '../common/pioneer-status';
@@ -250,6 +254,8 @@ interface ReportPermissionContext {
 
 @Injectable()
 export class ServiceReportsService {
+  private readonly logger = new Logger(ServiceReportsService.name);
+
   constructor(
     @InjectRepository(ServiceReport)
     private readonly reportsRepo: Repository<ServiceReport>,
@@ -1458,6 +1464,27 @@ export class ServiceReportsService {
    * Confirm/close a reporting month. Idempotent — closing an already-closed
    * month is a no-op. Only admins and the secretary may close.
    */
+  /**
+   * Recompute the congregation's statuses after a month was closed or
+   * reopened. Best-effort: closing a month is bookkeeping the secretary must
+   * be able to finish, so a failure here is logged and swallowed rather than
+   * turned into a failed request. The nightly sweep will put it right.
+   */
+  private async recomputeAfterClosureChange(
+    tenantId: string,
+    notify: RecomputeNotify,
+  ): Promise<void> {
+    try {
+      await this.publishersService.recomputeForCongregation(tenantId, {
+        notify,
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `status recompute after closure change failed for cong=${tenantId}: ${err?.message ?? err}`,
+      );
+    }
+  }
+
   async closeMonth(
     tenantId: string,
     user: AuthenticatedUser,
@@ -1480,6 +1507,11 @@ export class ServiceReportsService {
         closedById: user.id,
       });
       await this.closuresRepo.save(row);
+      // Closing the month settles it for the status window too, so the
+      // statuses are recomputed here rather than left until the deadline the
+      // secretary has just overtaken. He is at the screen and the change is
+      // his doing, so this is the one recompute that speaks up.
+      await this.recomputeAfterClosureChange(tenantId, 'always');
     }
     return this.buildClosureStatus(tenantId, reportMonth, ctx.alwaysEdit);
   }
@@ -1501,6 +1533,9 @@ export class ServiceReportsService {
       );
     }
     await this.closuresRepo.delete({ congregationId: tenantId, reportMonth });
+    // Reopening takes the month back out of the window. Statuses follow, but
+    // quietly: undoing one's own click is not news for anybody else.
+    await this.recomputeAfterClosureChange(tenantId, 'never');
     return this.buildClosureStatus(tenantId, reportMonth, ctx.alwaysEdit);
   }
 

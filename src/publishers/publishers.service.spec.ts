@@ -28,6 +28,7 @@ import {
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Congregation } from '../entities/congregation.entity';
+import { ReportMonthClosure } from '../entities/report-month-closure.entity';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { Gender } from '../common/enums/gender.enum';
@@ -198,6 +199,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
   let publishersRepo: jest.Mocked<Repository<Publisher>>;
   let reportsRepo: jest.Mocked<Repository<ServiceReport>>;
   let congregationsRepo: jest.Mocked<Repository<Congregation>>;
+  let closuresRepo: jest.Mocked<Repository<ReportMonthClosure>>;
   let auditLogService: { logUpdate: jest.Mock; findForEntity: jest.Mock };
   let pushNotificationsService: {
     sendStatusChange: jest.Mock;
@@ -225,6 +227,9 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
     congregationsRepo = {
       findOne: jest.fn().mockResolvedValue(null),
     } as unknown as jest.Mocked<Repository<Congregation>>;
+    closuresRepo = {
+      findOne: jest.fn().mockResolvedValue(null),
+    } as unknown as jest.Mocked<Repository<ReportMonthClosure>>;
     auditLogService = {
       logUpdate: jest.fn(),
       findForEntity: jest.fn(),
@@ -243,6 +248,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       publishersRepo,
       reportsRepo,
       congregationsRepo,
+      closuresRepo,
       auditLogService as any,
       pushNotificationsService as any,
       usersService as any,
@@ -370,6 +376,101 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
 
       expect(publishersRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({ status: PublisherStatus.IRREGULAR }),
+      );
+    });
+
+    it('journals a status change for a publisher who has no login', async () => {
+      // The entry used to be written only when the publisher had an account,
+      // so the journal simply had nothing to say about everyone else.
+      const pub = makePublisher({
+        id: 'pub-1',
+        status: PublisherStatus.ACTIVE,
+        statusManuallyOverridden: false,
+        userId: null,
+      } as any);
+      publishersRepo.findOne.mockResolvedValue(pub);
+      reportsRepo.find.mockResolvedValue([]);
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+      setNow(Date.UTC(2026, 7, 3));
+
+      await service.recomputeStatus('cong-1', 'pub-1');
+
+      expect(auditLogService.logUpdate).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not file an automatic status change under the publisher himself', async () => {
+      // He did nothing — the status was computed. With no actor given the
+      // audit log falls back to the request's user, or to «Система».
+      const pub = makePublisher({
+        id: 'pub-1',
+        status: PublisherStatus.ACTIVE,
+        statusManuallyOverridden: false,
+        userId: 'user-his-own',
+      } as any);
+      publishersRepo.findOne.mockResolvedValue(pub);
+      reportsRepo.find.mockResolvedValue([]);
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+      setNow(Date.UTC(2026, 7, 3));
+
+      await service.recomputeStatus('cong-1', 'pub-1');
+
+      const call = auditLogService.logUpdate.mock.calls[0][0];
+      expect(call.actorUserId).toBeUndefined();
+    });
+
+    it('honours a month the secretary closed before the deadline', async () => {
+      // 8 August. By the deadline alone June would be the last closed month
+      // and this publisher would still count as active. The secretary has
+      // already closed July, so July is settled and the missing July report
+      // is a real gap.
+      (closuresRepo.findOne as jest.Mock).mockResolvedValue({
+        reportMonth: '2026-07-01',
+      });
+      const pub = makePublisher({
+        id: 'pub-1',
+        status: PublisherStatus.ACTIVE,
+        statusManuallyOverridden: false,
+      });
+      publishersRepo.findOne.mockResolvedValue(pub);
+      reportsRepo.find.mockResolvedValue(
+        [
+          '2026-01-01',
+          '2026-02-01',
+          '2026-03-01',
+          '2026-04-01',
+          '2026-05-01',
+          '2026-06-01',
+        ].map((reportMonth) =>
+          makeReport({ reportMonth, servedThisMonth: true }),
+        ),
+      );
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+      setNow(Date.UTC(2026, 7, 8));
+
+      await service.recomputeStatus('cong-1', 'pub-1');
+
+      expect(publishersRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: PublisherStatus.IRREGULAR }),
+      );
+    });
+
+    it('never looks at a closure for a month that has not ended', async () => {
+      // Closing the current month must not drag the window into a month whose
+      // reports nobody could have filed yet.
+      const pub = makePublisher({
+        id: 'pub-1',
+        statusManuallyOverridden: false,
+      });
+      publishersRepo.findOne.mockResolvedValue(pub);
+      reportsRepo.find.mockResolvedValue([]);
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+      setNow(Date.UTC(2026, 7, 8));
+
+      await service.recomputeStatus('cong-1', 'pub-1');
+
+      const where = (closuresRepo.findOne as jest.Mock).mock.calls[0][0].where;
+      expect(String(where.reportMonth.value ?? where.reportMonth)).toContain(
+        '2026-07-01',
       );
     });
 
@@ -763,7 +864,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       setNow(Date.UTC(2026, 7, 3, 3, 0, 0));
 
       const summary = await service.recomputeForCongregation('cong-1', {
-        notifyOnClosingDay: true,
+        notify: 'onClosingDay',
       });
       await new Promise((r) => setImmediate(r));
 
@@ -778,7 +879,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       setNow(Date.UTC(2026, 7, 20, 3, 0, 0));
 
       const summary = await service.recomputeForCongregation('cong-1', {
-        notifyOnClosingDay: true,
+        notify: 'onClosingDay',
       });
       await new Promise((r) => setImmediate(r));
 
