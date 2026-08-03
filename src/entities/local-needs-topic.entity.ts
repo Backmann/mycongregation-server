@@ -55,9 +55,21 @@ export class LocalNeedsTopic {
   @Column({ type: 'date', nullable: true })
   usedWeek!: string | null;
 
-  /** Manual ordering of the backlog (lower first). */
-  @Column({ type: 'int', default: 0 })
-  sortOrder!: number;
+  /**
+   * The meeting part this topic became, when it was placed from the schedule.
+   *
+   * Null means the week was ticked by hand — the topic was used, but nothing
+   * in the programme points back at it. Where it is set, the app can tell that
+   * the part still carries this topic, and release the topic by itself when
+   * the part is changed to something else or deleted.
+   *
+   * No foreign key on purpose: assignments are soft-deleted and restored, and
+   * a hard constraint would make a restore fail on a topic nobody was thinking
+   * about. The link is released explicitly instead — see LocalNeedsService.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  @Index()
+  usedAssignmentId!: string | null;
 
   @Column({ type: 'uuid', nullable: true })
   createdById!: string | null;

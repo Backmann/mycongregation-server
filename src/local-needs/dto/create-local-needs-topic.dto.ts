@@ -1,11 +1,9 @@
 import {
   IsDateString,
-  IsInt,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
-  Min,
 } from 'class-validator';
 
 export class CreateLocalNeedsTopicDto {
@@ -26,9 +24,4 @@ export class CreateLocalNeedsTopicDto {
   @IsOptional()
   @IsDateString()
   usedWeek?: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  sortOrder?: number;
 }

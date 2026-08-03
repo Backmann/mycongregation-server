@@ -21,6 +21,8 @@ export type AuditAction =
   | 'UPDATE'
   | 'CREATE'
   | 'DELETE'
+  /** Undoing a delete. Deleting was journalled; undoing it has to be too. */
+  | 'RESTORE'
   | 'VIEW'
   | 'DOWNLOAD'
   | 'DENY';

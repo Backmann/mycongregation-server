@@ -19,6 +19,7 @@ jest.mock('../push-notifications/push-notifications.service', () => ({
   PushNotificationsService: class PushNotificationsServiceMock {},
 }));
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { LocalNeedsService } from '../local-needs/local-needs.service';
 
 function makeQb() {
   const qb: Record<string, jest.Mock> = {};
@@ -128,6 +129,10 @@ describe('AssignmentsService draft visibility', () => {
         {
           provide: DutiesService,
           useValue: { reconcileTreasuresMic: jest.fn().mockResolvedValue([]) },
+        },
+        {
+          provide: LocalNeedsService,
+          useValue: { releaseAssignment: jest.fn() },
         },
       ],
     }).compile();
@@ -361,6 +366,10 @@ describe('AssignmentsService treasures <-> opening-prayer link', () => {
           useValue: { syncProgramToJournal: jest.fn() },
         },
         { provide: DutiesService, useValue: dutiesMock },
+        {
+          provide: LocalNeedsService,
+          useValue: { releaseAssignment: jest.fn() },
+        },
       ],
     }).compile();
     service = moduleRef.get(AssignmentsService);

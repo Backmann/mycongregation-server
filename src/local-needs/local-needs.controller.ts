@@ -17,13 +17,14 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { CreateLocalNeedsTopicDto } from './dto/create-local-needs-topic.dto';
 import { UpdateLocalNeedsTopicDto } from './dto/update-local-needs-topic.dto';
 import { QueryLocalNeedsTopicsDto } from './dto/query-local-needs-topics.dto';
+import { MarkUsedLocalNeedsTopicDto } from './dto/mark-used-local-needs-topic.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 
 /**
- * Local-needs topic backlog. Reading is open to any authenticated member so
- * the schedule editor can offer planned topics; writing is limited to
- * scheduling managers (admin / body_coordinator / life_ministry_overseer /
- * secretary) — enforced in the service.
+ * Local-needs topic backlog. Reading is for elders, writing for an
+ * administrator or the Life & Ministry overseer — both enforced in the
+ * service. (This comment used to name four managing responsibilities and open
+ * reading to every member; neither has been true of the code.)
  */
 @Controller('local-needs')
 export class LocalNeedsController {
@@ -64,6 +65,27 @@ export class LocalNeedsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.update(tenantId, id, dto, user);
+  }
+
+  /** Mark used — this congregation's current week unless a week is named. */
+  @Post(':id/used')
+  markUsed(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: MarkUsedLocalNeedsTopicDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.markUsed(tenantId, id, dto, user);
+  }
+
+  /** Back to the plan. */
+  @Delete(':id/used')
+  markPlanned(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.markPlanned(tenantId, id, user);
   }
 
   @Delete(':id')

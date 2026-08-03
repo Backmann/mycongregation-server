@@ -35,6 +35,7 @@ import {
 } from '../common/i18n/supported-languages';
 import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
 import { DutiesService } from '../duties/duties.service';
+import { LocalNeedsService } from '../local-needs/local-needs.service';
 
 const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
 
@@ -93,6 +94,10 @@ export class AssignmentsService {
     private readonly talkExchange: TalkExchangeService,
     private readonly auditLog: AuditLogService,
     private readonly dutiesService: DutiesService,
+    // Last on purpose: several specs build this service positionally, and a
+    // new dependency in the middle would silently shift every argument after
+    // it into the wrong slot.
+    private readonly localNeeds: LocalNeedsService,
   ) {}
 
   /**
@@ -335,9 +340,17 @@ export class AssignmentsService {
       speakerName: existing.speakerName ?? null,
       status: existing.status,
     };
+    // A local-needs topic that was placed here is no longer here once the
+    // part carries a different title. Releasing it puts it back in the plan
+    // instead of leaving it marked as used for a week it never appeared in.
+    const partTitleReplaced =
+      dto.partTitle !== undefined && dto.partTitle !== existing.partTitle;
     Object.assign(existing, dto);
     if (changed) existing.changedSincePublish = true;
     const saved = await this.repo.save(existing);
+    if (partTitleReplaced) {
+      await this.localNeeds.releaseAssignment(congregationId, id);
+    }
     await this.auditLog.logUpdate({
       tenantId: congregationId,
       entityType: 'assignment',
@@ -655,6 +668,9 @@ export class AssignmentsService {
         partKey: existing.partKey,
       },
     });
+    // Same for a local-needs topic placed in this part: the part is gone, so
+    // the topic was not used, and it belongs back in the plan.
+    await this.localNeeds.releaseAssignment(congregationId, id);
     // Deleting the weekend public-talk slot must also clear the "К нам"
     // journal entry — otherwise an accidental pick leaves a ghost record.
     if (existing.partKey === PUBLIC_TALK_PART_KEY) {

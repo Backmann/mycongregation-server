@@ -11,6 +11,7 @@ import { PushNotificationsService } from '../push-notifications/push-notificatio
 import { NotificationsService } from '../notifications/notifications.service';
 import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
 import { DutiesService } from '../duties/duties.service';
+import { LocalNeedsService } from '../local-needs/local-needs.service';
 
 jest.mock('../push-notifications/push-notifications.service', () => ({
   PushNotificationsService: class PushNotificationsServiceMock {},
@@ -89,6 +90,10 @@ describe('AssignmentsService — journal sync coverage and public-talk swap', ()
         {
           provide: DutiesService,
           useValue: { reconcileTreasuresMic: jest.fn().mockResolvedValue([]) },
+        },
+        {
+          provide: LocalNeedsService,
+          useValue: { releaseAssignment: jest.fn() },
         },
       ],
     }).compile();

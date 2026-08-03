@@ -14,6 +14,9 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { CreateLocalNeedsTopicDto } from './dto/create-local-needs-topic.dto';
 import { UpdateLocalNeedsTopicDto } from './dto/update-local-needs-topic.dto';
 import { QueryLocalNeedsTopicsDto } from './dto/query-local-needs-topics.dto';
+import { MarkUsedLocalNeedsTopicDto } from './dto/mark-used-local-needs-topic.dto';
+import { CongregationClock } from '../common/congregation-clock.service';
+import { mondayOf } from '../common/week';
 
 @Injectable()
 export class LocalNeedsService {
@@ -23,6 +26,7 @@ export class LocalNeedsService {
     @InjectRepository(Responsibility)
     private readonly responsibilitiesRepo: Repository<Responsibility>,
     private readonly auditLog: AuditLogService,
+    private readonly clock: CongregationClock,
   ) {}
 
   /**
@@ -88,7 +92,6 @@ export class LocalNeedsService {
     // Planned (used_week null) first, then used topics newest-week first.
     return qb
       .orderBy('t.used_week', 'DESC', 'NULLS FIRST')
-      .addOrderBy('t.sort_order', 'ASC')
       .addOrderBy('t.created_at', 'ASC')
       .getMany();
   }
@@ -156,6 +159,10 @@ export class LocalNeedsService {
       usedWeek: found.usedWeek,
     };
     Object.assign(found, dto);
+    // A week is identified by its Monday everywhere else in the app; a topic
+    // filed under a Wednesday would sort and group as its own private week.
+    if (found.usedWeek) found.usedWeek = mondayOf(found.usedWeek);
+    if (!found.usedWeek) found.usedAssignmentId = null;
     const saved = await this.repo.save(found);
     await this.auditLog.logUpdate({
       tenantId,
@@ -172,6 +179,119 @@ export class LocalNeedsService {
       fields: ['title', 'notes', 'speakerPublisherId', 'usedWeek'],
     });
     return saved;
+  }
+
+  /**
+   * Mark a topic as used — by default in the congregation's current week.
+   *
+   * The week comes from the SERVER's reading of the congregation's clock when
+   * the caller does not name one, so «отметить как прошедшую» means the same
+   * thing whatever timezone the phone is set to. Naming a week explicitly is
+   * how a topic given three weeks ago is recorded after the fact.
+   */
+  async markUsed(
+    tenantId: string,
+    id: string,
+    dto: MarkUsedLocalNeedsTopicDto,
+    user: AuthenticatedUser,
+  ): Promise<LocalNeedsTopic> {
+    await this.assertCanManage(user);
+    const found = await this.repo.findOne({
+      where: { id, congregationId: tenantId },
+    });
+    if (!found) {
+      throw new NotFoundException('Local needs topic not found');
+    }
+    const before = {
+      usedWeek: found.usedWeek,
+      usedAssignmentId: found.usedAssignmentId,
+    };
+    found.usedWeek = mondayOf(
+      dto.week ?? (await this.clock.todayFor(tenantId)),
+    );
+    found.usedAssignmentId = dto.assignmentId ?? null;
+    const saved = await this.repo.save(found);
+    await this.auditLog.logUpdate({
+      tenantId,
+      entityType: 'local_need',
+      entityId: saved.id,
+      subjectId: saved.speakerPublisherId,
+      before,
+      after: {
+        usedWeek: saved.usedWeek,
+        usedAssignmentId: saved.usedAssignmentId,
+      },
+      fields: ['usedWeek', 'usedAssignmentId'],
+    });
+    return saved;
+  }
+
+  /** Put a topic back in the plan: no week, and no part it belongs to. */
+  async markPlanned(
+    tenantId: string,
+    id: string,
+    user: AuthenticatedUser,
+  ): Promise<LocalNeedsTopic> {
+    await this.assertCanManage(user);
+    const found = await this.repo.findOne({
+      where: { id, congregationId: tenantId },
+    });
+    if (!found) {
+      throw new NotFoundException('Local needs topic not found');
+    }
+    const before = {
+      usedWeek: found.usedWeek,
+      usedAssignmentId: found.usedAssignmentId,
+    };
+    found.usedWeek = null;
+    found.usedAssignmentId = null;
+    const saved = await this.repo.save(found);
+    await this.auditLog.logUpdate({
+      tenantId,
+      entityType: 'local_need',
+      entityId: saved.id,
+      subjectId: saved.speakerPublisherId,
+      before,
+      after: { usedWeek: null, usedAssignmentId: null },
+      fields: ['usedWeek', 'usedAssignmentId'],
+    });
+    return saved;
+  }
+
+  /**
+   * The meeting part is gone, or no longer carries this topic — so the topic
+   * was not used after all, and goes back to the plan.
+   *
+   * Called from the assignments service. Silent by design: nobody asked for
+   * this, it is the app keeping its own record straight, and a notification
+   * about it would be noise. It IS journalled, because a topic that changes
+   * state on its own is exactly the kind of thing someone later disputes.
+   */
+  async releaseAssignment(
+    tenantId: string,
+    assignmentId: string,
+  ): Promise<void> {
+    const bound = await this.repo.find({
+      where: { congregationId: tenantId, usedAssignmentId: assignmentId },
+    });
+    for (const topic of bound) {
+      const before = {
+        usedWeek: topic.usedWeek,
+        usedAssignmentId: topic.usedAssignmentId,
+      };
+      topic.usedWeek = null;
+      topic.usedAssignmentId = null;
+      await this.repo.save(topic);
+      await this.auditLog.logUpdate({
+        tenantId,
+        entityType: 'local_need',
+        entityId: topic.id,
+        subjectId: topic.speakerPublisherId,
+        before,
+        after: { usedWeek: null, usedAssignmentId: null },
+        fields: ['usedWeek', 'usedAssignmentId'],
+      });
+    }
   }
 
   async remove(
@@ -211,6 +331,14 @@ export class LocalNeedsService {
       throw new NotFoundException('Local needs topic not found');
     }
     await this.repo.restore(id);
+    await this.auditLog.logEvent({
+      tenantId,
+      entityType: 'local_need',
+      entityId: id,
+      action: 'RESTORE',
+      subjectId: found.speakerPublisherId,
+      detail: { title: found.title },
+    });
     return this.findOne(tenantId, id, user);
   }
 }
