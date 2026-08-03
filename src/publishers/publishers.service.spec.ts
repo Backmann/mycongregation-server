@@ -476,6 +476,70 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       );
     });
 
+    it('says nothing when a publisher goes back to being active', async () => {
+      // The secretary entering a late report is not news for the overseer —
+      // and the burst of pushes it used to send arrived from the very people
+      // doing the typing.
+      const pub = makePublisher({
+        id: 'pub-1',
+        status: PublisherStatus.IRREGULAR,
+        statusManuallyOverridden: false,
+        serviceGroupId: 'grp-9',
+      });
+      publishersRepo.findOne.mockResolvedValue(pub);
+      (publishersRepo.manager.find as jest.Mock).mockResolvedValue([
+        { id: 'user-admin-1' },
+      ]);
+      reportsRepo.find.mockResolvedValue(
+        [
+          '2026-01-01',
+          '2026-02-01',
+          '2026-03-01',
+          '2026-04-01',
+          '2026-05-01',
+          '2026-06-01',
+        ].map((reportMonth) =>
+          makeReport({ reportMonth, servedThisMonth: true }),
+        ),
+      );
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+      setNow(Date.UTC(2026, 7, 3));
+
+      const result = await service.recomputeStatus('cong-1', 'pub-1');
+      await new Promise((r) => setImmediate(r));
+
+      expect(result).toBe('updated');
+      expect(
+        pushNotificationsService.sendStatusChangeToUser,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('speaks when the standing gets worse', async () => {
+      // The case the notification was written for, and the only one worth a
+      // push: somebody has fallen behind.
+      const pub = makePublisher({
+        id: 'pub-1',
+        status: PublisherStatus.ACTIVE,
+        statusManuallyOverridden: false,
+        serviceGroupId: null,
+        userId: 'user-his-own',
+      } as any);
+      publishersRepo.findOne.mockResolvedValue(pub);
+      (publishersRepo.manager.find as jest.Mock).mockResolvedValue([
+        { id: 'user-admin-1' },
+      ]);
+      reportsRepo.find.mockResolvedValue([]);
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+      setNow(Date.UTC(2026, 7, 3));
+
+      await service.recomputeStatus('cong-1', 'pub-1');
+      await new Promise((r) => setImmediate(r));
+
+      expect(
+        pushNotificationsService.sendStatusChangeToUser,
+      ).toHaveBeenCalled();
+    });
+
     it('notifies the group overseer, the secretary and admins', async () => {
       const pub = makePublisher({
         id: 'pub-1',
@@ -501,7 +565,9 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       publishersRepo.save.mockImplementation(async (x: any) => x);
       setNow(Date.UTC(2026, 4, 25));
 
-      await service.recomputeStatus('cong-1', 'pub-1');
+      // notify:true on purpose — these two tests are about WHO is told, and
+      // the direction rule is tested separately below.
+      await service.recomputeStatus('cong-1', 'pub-1', { notify: true });
       await new Promise((r) => setImmediate(r));
 
       const targets =
@@ -578,7 +644,9 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       publishersRepo.save.mockImplementation(async (x: any) => x);
       setNow(Date.UTC(2026, 4, 25));
 
-      await service.recomputeStatus('cong-1', 'pub-1');
+      // notify:true on purpose — these two tests are about WHO is told, and
+      // the direction rule is tested separately below.
+      await service.recomputeStatus('cong-1', 'pub-1', { notify: true });
       await new Promise((r) => setImmediate(r));
 
       expect(
@@ -607,7 +675,9 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       publishersRepo.save.mockImplementation(async (x: any) => x);
       setNow(Date.UTC(2026, 4, 25));
 
-      await service.recomputeStatus('cong-1', 'pub-1');
+      // notify:true on purpose — these two tests are about WHO is told, and
+      // the direction rule is tested separately below.
+      await service.recomputeStatus('cong-1', 'pub-1', { notify: true });
       await new Promise((r) => setImmediate(r));
 
       expect(

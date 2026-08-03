@@ -143,6 +143,19 @@ import { RemovePublisherDto } from './dto/remove-publisher.dto';
 
 export type RecomputeResult = 'skipped_override' | 'unchanged' | 'updated';
 
+/**
+ * The standings in order, so "did this get worse" is a comparison rather than
+ * a list of special cases. `none` is a publisher whose status is not kept at
+ * all (a student); it sits at the bottom so moving away from it never counts
+ * as a decline.
+ */
+const LocalStatusRank: Record<string, number> = {
+  none: 0,
+  [PublisherStatus.INACTIVE]: 1,
+  [PublisherStatus.IRREGULAR]: 2,
+  [PublisherStatus.ACTIVE]: 3,
+};
+
 /** Who is told when a congregation-wide recompute changes something. */
 export type RecomputeNotify = 'never' | 'onClosingDay' | 'always';
 
@@ -229,17 +242,24 @@ export class PublishersService {
   }
 
   /**
-   * Recompute one publisher's service status from the last six months.
+   * Recompute one publisher's service status from the last six closed months.
    *
-   * `notify` exists for the nightly sweep. A status that changes because a
-   * month rolled out of the window is arithmetic, not something anyone did —
-   * and the sweep runs at 03:00 UTC, which is four or five in the morning
-   * here. Waking the group's overseer and the secretary to tell them that
-   * time has passed is the wrong trade every single night; on the turn of a
-   * month, when several people shift at once, it is a burst of them. Every
-   * other caller — a submitted report, a corrected report, a cleared
-   * override — is a real event with a person behind it, happens during the
-   * day, and still notifies.
+   * WHO HEARS ABOUT IT. Left to itself, this used to announce every change to
+   * the group overseer, the secretary and every administrator. That was
+   * written for the case worth telling — somebody has fallen behind — but it
+   * fired just as loudly for the opposite: the secretary types in a late
+   * report, the publisher goes from irregular back to active, and everyone
+   * gets a push about a person who is fine, sent by the very people doing the
+   * typing. An evening of entering reports became an evening of pushes.
+   *
+   * So the default is now: speak when the standing gets WORSE, stay quiet
+   * when it improves. A decline is news — it is the thing the overseer would
+   * want to act on. A recovery is the removal of a worry, and it is already
+   * on the screen of whoever caused it.
+   *
+   * `notify` overrides that either way, and the congregation-wide sweep uses
+   * it: silent every night, and on the day a report month closes it speaks
+   * about everyone at once, in both directions, because that is the roll call.
    */
   async recomputeStatus(
     tenantId: string,
@@ -250,7 +270,6 @@ export class PublishersService {
       lastClosedMonth?: Date;
     } = {},
   ): Promise<RecomputeResult> {
-    const notify = opts.notify ?? true;
     const publisher = await this.publishersRepo.findOne({
       where: { id: publisherId, congregationId: tenantId },
     });
@@ -332,6 +351,11 @@ export class PublishersService {
     // reports) is sensitive and must not fan out to every elder or the whole
     // congregation. Best-effort: errors are swallowed so a push failure can
     // never break the status pipeline.
+    // A change for the worse, or an explicit instruction from the caller.
+    const declined =
+      LocalStatusRank[newStatus ?? 'none'] <
+      LocalStatusRank[before.status ?? 'none'];
+    const notify = opts.notify ?? declined;
     if (!notify) return 'updated';
     const recipientUserIds = await this.resolveStatusChangeRecipients(
       tenantId,
