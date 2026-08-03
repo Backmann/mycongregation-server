@@ -31,6 +31,7 @@ import { ReportRemindersModule } from './report-reminders/report-reminders.modul
 import { SpecialEventsModule } from './special-events/special-events.module';
 import { AbsencesModule } from './absences/absences.module';
 import { LocalNeedsModule } from './local-needs/local-needs.module';
+import { PioneerSchoolModule } from './pioneer-school/pioneer-school.module';
 import { ExternalCongregationsModule } from './external-congregations/external-congregations.module';
 import { VisitingSpeakersModule } from './visiting-speakers/visiting-speakers.module';
 import { TalkExchangeModule } from './talk-exchange/talk-exchange.module';
@@ -113,6 +114,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     SpecialEventsModule,
     AbsencesModule,
     LocalNeedsModule,
+    PioneerSchoolModule,
     ExternalCongregationsModule,
     VisitingSpeakersModule,
     TalkExchangeModule,
