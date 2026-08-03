@@ -16,23 +16,130 @@ import { NotificationsService } from '../notifications/notifications.service';
 import {
   DEFAULT_CONGREGATION_TIMEZONE,
   localDateParts,
+  minutesOfDayIn,
   todayIn,
 } from '../common/congregation-clock';
+import {
+  coerceLanguage,
+  SupportedLanguage,
+} from '../common/i18n/supported-languages';
 import { collectedReportMonth, monthKey } from '../common/report-month-window';
 
 /**
- * The hour the reminder jobs FIRE.
+ * Six in the evening, BY THE CONGREGATION'S CLOCK.
  *
- * A @Cron decorator is read once when the class is constructed, so this cannot
- * be per-congregation: every congregation is nudged at 18:00 Berlin. WHICH
- * month is chased and WHICH day it is are decided by each congregation's own
- * calendar (see eachCongregation) — only the clock that wakes the job is
- * shared. For a congregation a few hours away the evening nudge would arrive
- * in the afternoon or at night; fixing that means ticking hourly and asking
- * each congregation whether it is 18:00 there yet, which is a change worth
- * making deliberately rather than in passing.
+ * This used to be a @Cron firing at 18:00 Berlin for everybody, because a
+ * decorator is read once when the class is built and cannot ask each
+ * congregation what time it is there. A congregation a few hours away would
+ * have been nudged in the afternoon, or in the middle of the night.
+ *
+ * So the job now ticks every hour and asks. A tick does nothing at all until
+ * the congregation's own clock has reached this hour on one of its days —
+ * and the dedupe key carries the congregation's own DATE, so a reminder is
+ * sent once however many ticks pass afterwards. That also makes the tick
+ * forgiving of a restart: the evening is not missed because the server was
+ * down at exactly six.
+ *
+ * "At or after", not "at": half-hour timezones exist (India is +05:30), and
+ * an hourly tick would never land on the hour there.
  */
-const JOB_FIRING_TZ = 'Europe/Berlin';
+const REMINDER_HOUR = 18;
+
+/**
+ * Three evenings, not ten.
+ *
+ * A reminder every evening from the 1st to the 10th is not persistence, it is
+ * nagging — and the thing people do about nagging is switch notifications off
+ * entirely, which then costs them the assignment they did want to hear about.
+ * So the person is asked three times and then it stops being pressed on him:
+ * the matter moves up to the group's overseer, and after that to the
+ * secretary. Responsibility escalates; the volume does not.
+ *
+ * The 1st is deliberate and different: not a reproach but an opening — the
+ * month has ended and the report can now be handed in.
+ *
+ * These are the days the code actually uses. The class comment above them used
+ * to describe a different schedule entirely, which is how a reader learns to
+ * stop trusting comments.
+ */
+const PUBLISHER_DAYS = [1, 5, 9];
+const OVERSEER_DAYS = [7, 12];
+const SECRETARY_DAYS = [13, 18];
+
+/** Locale used to name a month, per supported language. */
+const MONTH_LOCALE: Record<SupportedLanguage, string> = {
+  ru: 'ru-RU',
+  en: 'en-GB',
+  de: 'de-DE',
+};
+
+/**
+ * What the reminders say.
+ *
+ * These were three Russian literals in the code, while the app has spoken
+ * three languages for months and there is a per-service STR table for exactly
+ * this. A German congregation would have been nudged in Russian.
+ */
+const STR: Record<
+  SupportedLanguage,
+  {
+    publisherTitle: string;
+    publisherOpening: (month: string) => string;
+    publisherReminder: (month: string) => string;
+    overseerTitle: string;
+    overseerBody: (group: string, month: string, names: string) => string;
+    secretaryTitle: string;
+    secretaryBody: (month: string, count: number, lines: string) => string;
+    ungrouped: string;
+  }
+> = {
+  ru: {
+    publisherTitle: 'Отчёт о служении',
+    publisherOpening: (m) => `${m} закончился — отчёт можно сдать.`,
+    publisherReminder: (m) => `Вы ещё не подали отчёт за ${m}.`,
+    overseerTitle: 'Несданные отчёты в группе',
+    overseerBody: (g, m, names) => `Группа «${g}», ${m}: не сдали — ${names}.`,
+    secretaryTitle: 'Несданные отчёты по общине',
+    secretaryBody: (m, count, lines) =>
+      `За ${m} не сдали (${count}):\n${lines}`,
+    ungrouped: 'Без группы',
+  },
+  en: {
+    publisherTitle: 'Field service report',
+    publisherOpening: (m) => `${m} has ended — your report can be handed in.`,
+    publisherReminder: (m) => `You have not handed in your report for ${m}.`,
+    overseerTitle: 'Reports missing in your group',
+    overseerBody: (g, m, names) =>
+      `Group \u00ab${g}\u00bb, ${m}: not handed in — ${names}.`,
+    secretaryTitle: 'Reports missing in the congregation',
+    secretaryBody: (m, count, lines) =>
+      `Not handed in for ${m} (${count}):\n${lines}`,
+    ungrouped: 'No group',
+  },
+  de: {
+    publisherTitle: 'Predigtdienstbericht',
+    publisherOpening: (m) =>
+      `${m} ist zu Ende — der Bericht kann abgegeben werden.`,
+    publisherReminder: (m) =>
+      `Du hast den Bericht für ${m} noch nicht abgegeben.`,
+    overseerTitle: 'Fehlende Berichte in deiner Gruppe',
+    overseerBody: (g, m, names) =>
+      `Gruppe \u00ab${g}\u00bb, ${m}: nicht abgegeben — ${names}.`,
+    secretaryTitle: 'Fehlende Berichte in der Versammlung',
+    secretaryBody: (m, count, lines) =>
+      `Für ${m} nicht abgegeben (${count}):\n${lines}`,
+    ungrouped: 'Ohne Gruppe',
+  },
+};
+
+/** Everything one congregation needs for one evening of reminders. */
+interface ReminderContext {
+  tenantId: string;
+  timezone: string;
+  lang: SupportedLanguage;
+  reportMonth: string;
+  day: number;
+}
 
 interface MissingPublisher {
   id: string;
@@ -42,13 +149,16 @@ interface MissingPublisher {
 }
 
 /**
- * Monthly field-service report reminders. The month being chased is always the
- * previous calendar month, in each congregation's own timezone. All jobs
- * fire at 18:00 Berlin — see JOB_FIRING_TZ.
- *   - publishers : daily 1st-10th  -> each publisher who has not submitted
- *   - overseers  : 5th, 7th, 10th  -> per-group summary to the group overseer
- *   - secretary  : 10/15/18/19     -> congregation summary to the secretary
- * Pushes reach only recipients who have a login + a registered token/web-sub.
+ * Monthly field-service report reminders.
+ *
+ * The month being chased is always the previous calendar month, and both the
+ * month and the day are read from each congregation's own calendar. The days
+ * and the hour are the constants above — deliberately not written out again
+ * here, because the list that used to stand in this comment had drifted away
+ * from the code and was quietly wrong.
+ *
+ * Pushes reach only recipients who have a login and a registered token or
+ * web-subscription.
  */
 @Injectable()
 export class ReportRemindersService {
@@ -71,17 +181,11 @@ export class ReportRemindersService {
     private readonly notifications: NotificationsService,
   ) {}
 
-  /** Previous calendar month in the congregation's timezone, 'YYYY-MM-01'. */
-  private previousReportMonth(timezone: string, now = new Date()): string {
-    return monthKey(collectedReportMonth(now, timezone));
-  }
-
-  private monthLabel(reportMonth: string): string {
-    return new Date(`${reportMonth}T00:00:00Z`).toLocaleDateString('ru-RU', {
-      month: 'long',
-      year: 'numeric',
-      timeZone: 'UTC',
-    });
+  private monthLabel(reportMonth: string, lang: SupportedLanguage): string {
+    return new Date(`${reportMonth}T00:00:00Z`).toLocaleDateString(
+      MONTH_LOCALE[lang],
+      { month: 'long', year: 'numeric', timeZone: 'UTC' },
+    );
   }
 
   /** Reporting publishers with no report for the month. Students
@@ -109,24 +213,42 @@ export class ReportRemindersService {
       }));
   }
 
-  private async eachCongregation(
-    fn: (
-      tenantId: string,
-      reportMonth: string,
-      timezone: string,
-    ) => Promise<void>,
-  ): Promise<void> {
-    // Read the timezone with the id: which month is being chased, and which
-    // day it is, are answered by the congregation's own calendar. The firing
-    // TIME is still Berlin — see the note on the class.
+  /**
+   * The tick.
+   *
+   * Runs every hour and decides, per congregation, whether anything is due
+   * THERE: the right day of its own month, and its own clock past six in the
+   * evening. Nothing else happens on a tick — one small row per congregation.
+   *
+   * A congregation whose evening has already passed is reached again on the
+   * next tick, and the next; the dedupe key carries its local DATE, so only
+   * the first of them says anything. That is also what makes a restart
+   * harmless: the evening is not missed because the server was down at
+   * exactly six.
+   */
+  @Cron('0 * * * *', {
+    name: 'report-reminders-tick',
+    timeZone: 'UTC',
+  })
+  async tick(): Promise<void> {
+    const now = new Date();
     const congregations = await this.congregationRepo.find({
-      select: ['id', 'timezone'],
+      select: ['id', 'timezone', 'language'],
     });
     for (const c of congregations) {
       const timezone = c.timezone || DEFAULT_CONGREGATION_TIMEZONE;
-      const reportMonth = this.previousReportMonth(timezone);
+      if (minutesOfDayIn(now, timezone) < REMINDER_HOUR * 60) continue;
+      const ctx: ReminderContext = {
+        tenantId: c.id,
+        timezone,
+        lang: coerceLanguage(c.language),
+        reportMonth: monthKey(collectedReportMonth(now, timezone)),
+        day: localDateParts(now, timezone).day,
+      };
       try {
-        await fn(c.id, reportMonth, timezone);
+        if (PUBLISHER_DAYS.includes(ctx.day)) await this.remindPublishers(ctx);
+        if (OVERSEER_DAYS.includes(ctx.day)) await this.remindOverseers(ctx);
+        if (SECRETARY_DAYS.includes(ctx.day)) await this.remindSecretary(ctx);
       } catch (err: any) {
         this.logger.error(
           `reminder job failed for tenant=${c.id}`,
@@ -134,14 +256,6 @@ export class ReportRemindersService {
         );
       }
     }
-  }
-
-  /**
-   * Day of the month for the congregation — the 1st speaks differently from
-   * the rest.
-   */
-  private dayOfMonth(timezone: string): number {
-    return localDateParts(new Date(), timezone).day;
   }
 
   private capitalize(value: string): string {
@@ -153,167 +267,143 @@ export class ReportRemindersService {
     return todayIn(new Date(), timezone);
   }
 
-  /**
-   * Three evenings, not ten.
-   *
-   * A reminder every evening from the 1st to the 10th is not persistence, it
-   * is nagging — and the thing people do about nagging is switch notifications
-   * off entirely, which then costs them the assignment they did want to hear
-   * about. So the person is asked three times and then it stops being pressed
-   * on him: the matter moves up to the group's overseer, and after that to the
-   * secretary. Responsibility escalates; the volume does not.
-   *
-   * The 1st is deliberate and different: it is not a reproach but an opening —
-   * the month has ended and the report can now be handed in.
-   */
-  @Cron('0 18 1,5,9 * *', {
-    name: 'report-reminder-publishers',
-    timeZone: JOB_FIRING_TZ,
-  })
-  async remindPublishers(): Promise<void> {
-    await this.eachCongregation(async (tenantId, reportMonth, timezone) => {
-      const missing = await this.collectMissing(tenantId, reportMonth);
-      const label = this.monthLabel(reportMonth);
-      let reached = 0;
-      for (const p of missing) {
-        if (!p.userId) continue;
-        // One reminder per person per day: the job may tick twice after a
-        // restart, and being told twice in an evening is how people learn to
-        // switch notifications off.
-        const opening = this.dayOfMonth(timezone) === 1;
-        await this.notifications.notify({
-          tenantId,
-          userIds: [p.userId],
-          title: 'Отчёт о служении',
-          body: opening
-            ? `${this.capitalize(label)} закончился — отчёт можно сдать.`
-            : `Вы ещё не подали отчёт за ${label}.`,
-          kind: 'report_reminder',
-          key: `report:${reportMonth}:publisher:${this.today(timezone)}`,
-          data: { type: 'report_reminder', scope: 'publisher', reportMonth },
-        });
-        reached += 1;
-      }
+  /** One evening of reminders to the publishers of one congregation. */
+  async remindPublishers(ctx: ReminderContext): Promise<void> {
+    const { tenantId, timezone, lang, reportMonth } = ctx;
+    const t = STR[lang];
+    const missing = await this.collectMissing(tenantId, reportMonth);
+    const label = this.monthLabel(reportMonth, lang);
+    let reached = 0;
+    for (const p of missing) {
+      if (!p.userId) continue;
+      // The 1st opens the month; the later evenings remind.
+      const opening = ctx.day === 1;
+      await this.notifications.notify({
+        tenantId,
+        userIds: [p.userId],
+        title: t.publisherTitle,
+        body: opening
+          ? t.publisherOpening(this.capitalize(label))
+          : t.publisherReminder(label),
+        kind: 'report_reminder',
+        key: `report:${reportMonth}:publisher:${this.today(timezone)}`,
+        data: { type: 'report_reminder', scope: 'publisher', reportMonth },
+      });
+      reached += 1;
+    }
+    if (reached > 0) {
       this.logger.log(
         `[publishers] tenant=${tenantId} month=${reportMonth} ` +
           `missing=${missing.length} reached=${reached}`,
       );
-    });
+    }
   }
 
-  @Cron('0 18 7,12 * *', {
-    name: 'report-reminder-overseers',
-    timeZone: JOB_FIRING_TZ,
-  })
-  async remindOverseers(): Promise<void> {
-    await this.eachCongregation(async (tenantId, reportMonth, timezone) => {
-      const missing = await this.collectMissing(tenantId, reportMonth);
-      if (missing.length === 0) return;
-      const label = this.monthLabel(reportMonth);
-      const groups = await this.groupRepo.find({
-        where: { congregationId: tenantId, overseerPublisherId: Not(IsNull()) },
-      });
-      const overseerIds = groups
-        .map((g) => g.overseerPublisherId)
-        .filter((x): x is string => !!x);
-      const overseers =
-        overseerIds.length > 0
-          ? await this.publisherRepo.find({ where: { id: In(overseerIds) } })
-          : [];
-      const userIdByPublisherId = new Map(
-        overseers.map((o) => [o.id, o.userId]),
-      );
-      for (const g of groups) {
-        const names = missing
-          .filter((m) => m.serviceGroupId === g.id)
-          .map((m) => m.displayName);
-        if (names.length === 0) continue;
-        const overseerUserId = g.overseerPublisherId
-          ? userIdByPublisherId.get(g.overseerPublisherId)
-          : null;
-        if (!overseerUserId) continue;
-        await this.notifications.notify({
-          tenantId,
-          userIds: [overseerUserId],
-          title: 'Несданные отчёты в группе',
-          body: `Группа «${g.name}», ${label}: не сдали — ${names.join(', ')}.`,
-          kind: 'report_reminder',
-          key: `report:${reportMonth}:overseer:${g.id}:${this.today(timezone)}`,
-          data: {
-            type: 'report_reminder',
-            scope: 'overseer',
-            reportMonth,
-            serviceGroupId: g.id,
-          },
-        });
-      }
-      this.logger.log(
-        `[overseers] tenant=${tenantId} month=${reportMonth} groups=${groups.length}`,
-      );
+  /** One evening of per-group summaries to the group overseers. */
+  async remindOverseers(ctx: ReminderContext): Promise<void> {
+    const { tenantId, timezone, lang, reportMonth } = ctx;
+    const t = STR[lang];
+    const missing = await this.collectMissing(tenantId, reportMonth);
+    if (missing.length === 0) return;
+    const label = this.monthLabel(reportMonth, lang);
+    const groups = await this.groupRepo.find({
+      where: { congregationId: tenantId, overseerPublisherId: Not(IsNull()) },
     });
-  }
-
-  @Cron('0 18 13,18 * *', {
-    name: 'report-reminder-secretary',
-    timeZone: JOB_FIRING_TZ,
-  })
-  async remindSecretary(): Promise<void> {
-    await this.eachCongregation(async (tenantId, reportMonth, timezone) => {
-      const missing = await this.collectMissing(tenantId, reportMonth);
-      if (missing.length === 0) return;
-      const label = this.monthLabel(reportMonth);
-      const groups = await this.groupRepo.find({
-        where: { congregationId: tenantId },
-      });
-      const groupName = new Map(groups.map((g) => [g.id, g.name]));
-
-      const byGroup = new Map<string, string[]>();
-      const ungrouped: string[] = [];
-      for (const m of missing) {
-        if (m.serviceGroupId && groupName.has(m.serviceGroupId)) {
-          const arr = byGroup.get(m.serviceGroupId) ?? [];
-          arr.push(m.displayName);
-          byGroup.set(m.serviceGroupId, arr);
-        } else {
-          ungrouped.push(m.displayName);
-        }
-      }
-      const lines: string[] = [];
-      for (const [gid, names] of byGroup) {
-        lines.push(`${groupName.get(gid)}: ${names.join(', ')}`);
-      }
-      if (ungrouped.length > 0) {
-        lines.push(`Без группы: ${ungrouped.join(', ')}`);
-      }
-
-      const secretaries = await this.responsibilityRepo.find({
-        where: { congregationId: tenantId, type: ResponsibilityType.SECRETARY },
-      });
-      let recipientIds = secretaries
-        .map((r) => r.userId)
-        .filter((x): x is string => !!x);
-      if (recipientIds.length === 0) {
-        const admins = await this.userRepo.find({
-          where: { congregationId: tenantId, role: UserRole.ADMIN },
-          select: ['id'],
-        });
-        recipientIds = admins.map((a) => a.id);
-      }
-      if (recipientIds.length === 0) return;
-
+    const overseerIds = groups
+      .map((g) => g.overseerPublisherId)
+      .filter((x): x is string => !!x);
+    const overseers =
+      overseerIds.length > 0
+        ? await this.publisherRepo.find({ where: { id: In(overseerIds) } })
+        : [];
+    const userIdByPublisherId = new Map(overseers.map((o) => [o.id, o.userId]));
+    for (const g of groups) {
+      const names = missing
+        .filter((m) => m.serviceGroupId === g.id)
+        .map((m) => m.displayName);
+      if (names.length === 0) continue;
+      const overseerUserId = g.overseerPublisherId
+        ? userIdByPublisherId.get(g.overseerPublisherId)
+        : null;
+      if (!overseerUserId) continue;
       await this.notifications.notify({
         tenantId,
-        userIds: recipientIds,
-        title: 'Несданные отчёты по общине',
-        body: `За ${label} не сдали (${missing.length}):\n${lines.join('\n')}`,
+        userIds: [overseerUserId],
+        title: t.overseerTitle,
+        body: t.overseerBody(g.name, label, names.join(', ')),
         kind: 'report_reminder',
-        key: `report:${reportMonth}:secretary:${this.today(timezone)}`,
-        data: { type: 'report_reminder', scope: 'secretary', reportMonth },
+        key: `report:${reportMonth}:overseer:${g.id}:${this.today(timezone)}`,
+        data: {
+          type: 'report_reminder',
+          scope: 'overseer',
+          reportMonth,
+          serviceGroupId: g.id,
+        },
       });
-      this.logger.log(
-        `[secretary] tenant=${tenantId} month=${reportMonth} ` +
-          `missing=${missing.length} recipients=${recipientIds.length}`,
-      );
+    }
+    this.logger.log(
+      `[overseers] tenant=${tenantId} month=${reportMonth} groups=${groups.length}`,
+    );
+  }
+
+  /** One evening of the congregation-wide summary to the secretary. */
+  async remindSecretary(ctx: ReminderContext): Promise<void> {
+    const { tenantId, timezone, lang, reportMonth } = ctx;
+    const t = STR[lang];
+    const missing = await this.collectMissing(tenantId, reportMonth);
+    if (missing.length === 0) return;
+    const label = this.monthLabel(reportMonth, lang);
+    const groups = await this.groupRepo.find({
+      where: { congregationId: tenantId },
     });
+    const groupName = new Map(groups.map((g) => [g.id, g.name]));
+
+    const byGroup = new Map<string, string[]>();
+    const ungrouped: string[] = [];
+    for (const m of missing) {
+      if (m.serviceGroupId && groupName.has(m.serviceGroupId)) {
+        const arr = byGroup.get(m.serviceGroupId) ?? [];
+        arr.push(m.displayName);
+        byGroup.set(m.serviceGroupId, arr);
+      } else {
+        ungrouped.push(m.displayName);
+      }
+    }
+    const lines: string[] = [];
+    for (const [gid, names] of byGroup) {
+      lines.push(`${groupName.get(gid)}: ${names.join(', ')}`);
+    }
+    if (ungrouped.length > 0) {
+      lines.push(`${t.ungrouped}: ${ungrouped.join(', ')}`);
+    }
+
+    const secretaries = await this.responsibilityRepo.find({
+      where: { congregationId: tenantId, type: ResponsibilityType.SECRETARY },
+    });
+    let recipientIds = secretaries
+      .map((r) => r.userId)
+      .filter((x): x is string => !!x);
+    if (recipientIds.length === 0) {
+      const admins = await this.userRepo.find({
+        where: { congregationId: tenantId, role: UserRole.ADMIN },
+        select: ['id'],
+      });
+      recipientIds = admins.map((a) => a.id);
+    }
+    if (recipientIds.length === 0) return;
+
+    await this.notifications.notify({
+      tenantId,
+      userIds: recipientIds,
+      title: t.secretaryTitle,
+      body: t.secretaryBody(label, missing.length, lines.join('\n')),
+      kind: 'report_reminder',
+      key: `report:${reportMonth}:secretary:${this.today(timezone)}`,
+      data: { type: 'report_reminder', scope: 'secretary', reportMonth },
+    });
+    this.logger.log(
+      `[secretary] tenant=${tenantId} month=${reportMonth} ` +
+        `missing=${missing.length} recipients=${recipientIds.length}`,
+    );
   }
 }
