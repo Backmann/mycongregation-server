@@ -11,6 +11,8 @@ import { Publisher } from '../entities/publisher.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { DutyType } from '../common/enums/duty-type.enum';
 import { EventType } from '../common/enums/event-type.enum';
+import { CongregationClock } from '../common/congregation-clock.service';
+import { clockStub } from '../common/testing/clock-stub';
 
 const MIDWEEK = 'midweek' as EventType;
 
@@ -72,6 +74,7 @@ describe('DutiesService', () => {
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: CongregationClock, useValue: clockStub() },
         DutiesService,
         {
           provide: AuditLogService,

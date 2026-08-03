@@ -9,6 +9,7 @@ import { SpecialEvent } from '../entities/special-event.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { AuditLogModule } from '../audit-log/audit-log.module';
+import { CongregationClockModule } from '../common/congregation-clock.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { AuditLogModule } from '../audit-log/audit-log.module';
       Publisher,
     ]),
     AuditLogModule,
+    CongregationClockModule,
   ],
   controllers: [MeetingAttendanceController],
   providers: [MeetingAttendanceService, ResponsibilityGuard],

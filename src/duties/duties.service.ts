@@ -22,6 +22,7 @@ import { QueryDutiesDto } from './dto/query-duties.dto';
 import { GenerateWeekDutiesDto } from './dto/generate-week-duties.dto';
 import { AssignDutyDto } from './dto/assign-duty.dto';
 import { CreateCustomDutyDto } from './dto/create-custom-duty.dto';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 /**
  * Non-blocking conflict warning codes returned when a publisher is assigned to
@@ -40,16 +41,6 @@ export interface DutyWithWarnings {
 export interface MicRuleWarning {
   code: 'mic_taken' | 'mic_capability_off';
   publisherName: string;
-}
-
-/** Today's date (YYYY-MM-DD) in the congregation's timezone. */
-function berlinToday(): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Berlin',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
 }
 
 function addDaysISO(iso: string, days: number): string {
@@ -74,6 +65,7 @@ export class DutiesService {
     private readonly congregationRepo: Repository<Congregation>,
     @InjectRepository(SpecialEvent)
     private readonly specialEventRepo: Repository<SpecialEvent>,
+    private readonly clock: CongregationClock,
   ) {}
 
   /**
@@ -115,7 +107,7 @@ export class DutiesService {
     if (!dow) return;
 
     const meetingDate = addDaysISO(weekStartDate, dow - 1);
-    if (meetingDate < berlinToday()) {
+    if (meetingDate < (await this.clock.todayFor(congregationId))) {
       // The refusal itself is worth recording: "who tried to change last
       // week's duties" is exactly the question the journal gets asked, and
       // until now every rejection vanished without trace.

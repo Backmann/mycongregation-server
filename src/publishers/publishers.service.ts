@@ -12,8 +12,8 @@ import {
   isMonthClosingDay,
   lastClosedReportMonth,
   monthKey,
-  DEFAULT_CONGREGATION_TIMEZONE,
 } from '../common/report-month-window';
+import { CongregationClock } from '../common/congregation-clock.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   Brackets,
@@ -29,7 +29,6 @@ import { User } from '../entities/user.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { ServiceReport } from '../entities/service-report.entity';
-import { Congregation } from '../entities/congregation.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
@@ -165,8 +164,7 @@ export class PublishersService {
     private readonly publishersRepo: Repository<Publisher>,
     @InjectRepository(ServiceReport)
     private readonly reportsRepo: Repository<ServiceReport>,
-    @InjectRepository(Congregation)
-    private readonly congregationsRepo: Repository<Congregation>,
+    private readonly clock: CongregationClock,
     @InjectRepository(ReportMonthClosure)
     private readonly closuresRepo: Repository<ReportMonthClosure>,
     private readonly auditLogService: AuditLogService,
@@ -218,18 +216,6 @@ export class PublishersService {
       `${closure.reportMonth.slice(0, 7)}-01T00:00:00Z`,
     );
     return declared.getTime() > byDeadline.getTime() ? declared : byDeadline;
-  }
-
-  /**
-   * The congregation's IANA timezone, or Berlin when none is on record — the
-   * same fallback the rest of the app already makes.
-   */
-  private async congregationTimezone(tenantId: string): Promise<string> {
-    const congregation = await this.congregationsRepo.findOne({
-      where: { id: tenantId },
-      select: ['id', 'timezone'],
-    });
-    return congregation?.timezone || DEFAULT_CONGREGATION_TIMEZONE;
   }
 
   private reportingStartMonth(publisher: Publisher): Date | null {
@@ -299,7 +285,7 @@ export class PublishersService {
     const timezone =
       opts.timezone !== undefined
         ? opts.timezone
-        : await this.congregationTimezone(tenantId);
+        : await this.clock.timezoneOf(tenantId);
     const lastClosed =
       opts.lastClosedMonth ??
       (await this.effectiveLastClosedMonth(tenantId, timezone, now));
@@ -501,7 +487,7 @@ export class PublishersService {
     });
     // Read once per congregation, not once per publisher.
     const now = new Date(Date.now());
-    const timezone = await this.congregationTimezone(congregationId);
+    const timezone = await this.clock.timezoneOf(congregationId);
     const lastClosedMonth = await this.effectiveLastClosedMonth(
       congregationId,
       timezone,

@@ -2,9 +2,9 @@ import {
   REPORT_CLOSING_DAY,
   isMonthClosingDay,
   lastClosedReportMonth,
-  localDateParts,
   monthKey,
 } from './report-month-window';
+import { localDateParts } from './congregation-clock';
 
 /** 'YYYY-MM' of the month the function returns, for readable expectations. */
 const asMonth = (d: Date): string => monthKey(d).slice(0, 7);

@@ -24,42 +24,9 @@
  * deadline (the secretary's last nudge is the 19th); if this ever moves, those
  * cron days move with it.
  */
+import { localDateParts } from './congregation-clock';
+
 export const REPORT_CLOSING_DAY = 20;
-
-/**
- * Used when a congregation has no timezone on record. The rest of the app
- * already assumes Berlin in the same situation (attendance, report reminders),
- * so this keeps one answer rather than inventing a second.
- */
-export const DEFAULT_CONGREGATION_TIMEZONE = 'Europe/Berlin';
-
-/** Calendar date in the congregation's own timezone. */
-export function localDateParts(
-  now: Date,
-  timezone?: string | null,
-): { year: number; month: number; day: number } {
-  const tz = timezone || DEFAULT_CONGREGATION_TIMEZONE;
-  let parts: Intl.DateTimeFormatPart[];
-  try {
-    parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: tz,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).formatToParts(now);
-  } catch {
-    // An unusable timezone string must not take the status pipeline down.
-    parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: DEFAULT_CONGREGATION_TIMEZONE,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).formatToParts(now);
-  }
-  const get = (type: string): number =>
-    Number(parts.find((p) => p.type === type)?.value);
-  return { year: get('year'), month: get('month'), day: get('day') };
-}
 
 /** First day of a month as a UTC date, the shape report months are held in. */
 export function monthStartUTC(year: number, month: number): Date {

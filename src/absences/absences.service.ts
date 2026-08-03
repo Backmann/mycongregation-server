@@ -15,13 +15,7 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { CreateAbsenceDto } from './dto/create-absence.dto';
 import { UpdateAbsenceDto } from './dto/update-absence.dto';
 import { QueryAbsencesDto } from './dto/query-absences.dto';
-
-/** Today's date (YYYY-MM-DD) in the congregation's timezone. */
-function berlinToday(): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Berlin',
-  }).format(new Date());
-}
+import { CongregationClock } from '../common/congregation-clock.service';
 
 @Injectable()
 export class AbsencesService {
@@ -33,6 +27,7 @@ export class AbsencesService {
     @InjectRepository(Responsibility)
     private readonly responsibilitiesRepo: Repository<Responsibility>,
     private readonly auditLog: AuditLogService,
+    private readonly clock: CongregationClock,
   ) {}
 
   /** Responsibilities that may manage ANY publisher's absences. */
@@ -123,7 +118,7 @@ export class AbsencesService {
     }
     if (query.all !== 'true') {
       qb.andWhere('COALESCE(a.end_date, a.start_date) >= :today', {
-        today: berlinToday(),
+        today: await this.clock.todayFor(tenantId),
       });
     }
     if (query.includeRemoved === 'true') {

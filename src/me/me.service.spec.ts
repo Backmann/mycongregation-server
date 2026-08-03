@@ -13,6 +13,8 @@ import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { CartAssignment } from '../entities/cart-assignment.entity';
 import { CoVisitItem } from '../entities/co-visit-item.entity';
+import { CongregationClock } from '../common/congregation-clock.service';
+import { clockStub } from '../common/testing/clock-stub';
 
 describe('MeService.myPublisher', () => {
   let service: MeService;
@@ -23,6 +25,7 @@ describe('MeService.myPublisher', () => {
     const stub = {};
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: CongregationClock, useValue: clockStub() },
         MeService,
         { provide: getRepositoryToken(Publisher), useValue: publishersRepo },
         { provide: getRepositoryToken(ServiceGroup), useValue: stub },
@@ -185,6 +188,7 @@ describe('MeService.myAssignments (outgoing talks)', () => {
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: CongregationClock, useValue: clockStub() },
         MeService,
         { provide: getRepositoryToken(Publisher), useValue: publishersRepo },
         { provide: getRepositoryToken(ServiceGroup), useValue: emptyRepo() },

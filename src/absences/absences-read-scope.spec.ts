@@ -1,5 +1,6 @@
 import { ForbiddenException } from '@nestjs/common';
 import { AbsencesService } from './absences.service';
+import { clockStub } from '../common/testing/clock-stub';
 
 const auditMock = {
   logCreate: jest.fn(),
@@ -45,6 +46,7 @@ function makeSvc(over: Partial<Record<string, any>> = {}) {
       ({ findOne: jest.fn(async () => ({ id: 'pub-me' })) } as any),
     over.responsibilitiesRepo ?? ({ count: jest.fn(async () => 0) } as any),
     auditMock,
+    clockStub(over.timezone ?? 'Europe/Berlin'),
   );
   return { svc, qb };
 }
@@ -65,6 +67,31 @@ describe('AbsencesService reads — scoping', () => {
     const res = await svc.findAll(TENANT, {} as any, member);
     expect(res).toEqual([]);
     expect(qb.getMany).not.toHaveBeenCalled();
+  });
+
+  it('cuts off the list by the congregation\u2019s own date, not the server\u2019s', async () => {
+    // 22:30 UTC on 3 August: already the 4th in Berlin, still the 3rd in
+    // Chicago. An absence that ended on the 3rd is over for one congregation
+    // and still current for the other, and the whole point of reading the
+    // timezone from the congregation is that each gets its own answer.
+    jest.useFakeTimers({ now: Date.parse('2026-08-03T22:30:00Z') });
+    try {
+      const berlin = makeSvc({ timezone: 'Europe/Berlin' });
+      await berlin.svc.findAll(TENANT, {} as any, elder);
+      expect(berlin.qb.andWhere).toHaveBeenCalledWith(
+        'COALESCE(a.end_date, a.start_date) >= :today',
+        { today: '2026-08-04' },
+      );
+
+      const chicago = makeSvc({ timezone: 'America/Chicago' });
+      await chicago.svc.findAll(TENANT, {} as any, elder);
+      expect(chicago.qb.andWhere).toHaveBeenCalledWith(
+        'COALESCE(a.end_date, a.start_date) >= :today',
+        { today: '2026-08-03' },
+      );
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('lets an elder see everything (no own-filter)', async () => {

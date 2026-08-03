@@ -7,6 +7,8 @@ import { SpecialEvent } from '../entities/special-event.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { EventType } from '../common/enums/event-type.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { CongregationClock } from '../common/congregation-clock.service';
+import { minutesOfDayIn, todayIn } from '../common/congregation-clock';
 
 /** One meeting's figure as the report reads it. */
 export interface AttendanceRow {
@@ -71,6 +73,7 @@ export class MeetingAttendanceService {
     @InjectRepository(Publisher)
     private readonly publishersRepo: Repository<Publisher>,
     private readonly auditLog: AuditLogService,
+    private readonly clock: CongregationClock,
   ) {}
 
   /**
@@ -186,8 +189,10 @@ export class MeetingAttendanceService {
     const ctx = await this.weekContext(tenantId);
     if (!ctx) return { meetings: [], outstandingThisYear: 0 };
 
-    const today = berlinToday();
-    const nowMinutes = berlinNowMinutes();
+    const timezone = await this.clock.timezoneOf(tenantId);
+    const now = new Date(Date.now());
+    const today = todayIn(now, timezone);
+    const nowMinutes = minutesOfDayIn(now, timezone);
     const thisMonday = mondayOfISO(today);
     const wanted: { date: string; eventType: EventType }[] = [];
 
@@ -432,7 +437,7 @@ export class MeetingAttendanceService {
     // the home card uses — so a week nobody entered still appears, as a hole.
     const names = await this.namesOfRecorders(rows);
     const ctx = await this.weekContext(tenantId);
-    const today = berlinToday();
+    const today = await this.clock.todayFor(tenantId);
     const expected: AttendanceRow[] = [];
     if (ctx) {
       let week = mondayOfISO(from);
@@ -491,28 +496,6 @@ export class MeetingAttendanceService {
     }
     return { startYear, months };
   }
-}
-
-function berlinToday(): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Berlin',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-}
-
-/** Minutes since midnight in Berlin, right now. */
-function berlinNowMinutes(): number {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/Berlin',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(new Date());
-  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
-  const hour = get('hour') === 24 ? 0 : get('hour');
-  return hour * 60 + get('minute');
 }
 
 /** 'HH:MM' as minutes since midnight; null when the value is unusable. */

@@ -13,8 +13,26 @@ import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import {
+  DEFAULT_CONGREGATION_TIMEZONE,
+  localDateParts,
+  todayIn,
+} from '../common/congregation-clock';
+import { collectedReportMonth, monthKey } from '../common/report-month-window';
 
-const BERLIN_TZ = 'Europe/Berlin';
+/**
+ * The hour the reminder jobs FIRE.
+ *
+ * A @Cron decorator is read once when the class is constructed, so this cannot
+ * be per-congregation: every congregation is nudged at 18:00 Berlin. WHICH
+ * month is chased and WHICH day it is are decided by each congregation's own
+ * calendar (see eachCongregation) — only the clock that wakes the job is
+ * shared. For a congregation a few hours away the evening nudge would arrive
+ * in the afternoon or at night; fixing that means ticking hourly and asking
+ * each congregation whether it is 18:00 there yet, which is a change worth
+ * making deliberately rather than in passing.
+ */
+const JOB_FIRING_TZ = 'Europe/Berlin';
 
 interface MissingPublisher {
   id: string;
@@ -25,7 +43,8 @@ interface MissingPublisher {
 
 /**
  * Monthly field-service report reminders. The month being chased is always the
- * previous calendar month (Europe/Berlin). All jobs fire at 18:00 Berlin.
+ * previous calendar month, in each congregation's own timezone. All jobs
+ * fire at 18:00 Berlin — see JOB_FIRING_TZ.
  *   - publishers : daily 1st-10th  -> each publisher who has not submitted
  *   - overseers  : 5th, 7th, 10th  -> per-group summary to the group overseer
  *   - secretary  : 10/15/18/19     -> congregation summary to the secretary
@@ -52,20 +71,9 @@ export class ReportRemindersService {
     private readonly notifications: NotificationsService,
   ) {}
 
-  /** Previous calendar month in Berlin as 'YYYY-MM-01'. */
-  private previousReportMonth(now = new Date()): string {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: BERLIN_TZ,
-      year: 'numeric',
-      month: '2-digit',
-    }).formatToParts(now);
-    let y = Number(parts.find((p) => p.type === 'year')!.value);
-    let m = Number(parts.find((p) => p.type === 'month')!.value) - 1;
-    if (m === 0) {
-      m = 12;
-      y -= 1;
-    }
-    return `${y}-${String(m).padStart(2, '0')}-01`;
+  /** Previous calendar month in the congregation's timezone, 'YYYY-MM-01'. */
+  private previousReportMonth(timezone: string, now = new Date()): string {
+    return monthKey(collectedReportMonth(now, timezone));
   }
 
   private monthLabel(reportMonth: string): string {
@@ -102,13 +110,23 @@ export class ReportRemindersService {
   }
 
   private async eachCongregation(
-    fn: (tenantId: string, reportMonth: string) => Promise<void>,
+    fn: (
+      tenantId: string,
+      reportMonth: string,
+      timezone: string,
+    ) => Promise<void>,
   ): Promise<void> {
-    const congregations = await this.congregationRepo.find({ select: ['id'] });
-    const reportMonth = this.previousReportMonth();
+    // Read the timezone with the id: which month is being chased, and which
+    // day it is, are answered by the congregation's own calendar. The firing
+    // TIME is still Berlin — see the note on the class.
+    const congregations = await this.congregationRepo.find({
+      select: ['id', 'timezone'],
+    });
     for (const c of congregations) {
+      const timezone = c.timezone || DEFAULT_CONGREGATION_TIMEZONE;
+      const reportMonth = this.previousReportMonth(timezone);
       try {
-        await fn(c.id, reportMonth);
+        await fn(c.id, reportMonth, timezone);
       } catch (err: any) {
         this.logger.error(
           `reminder job failed for tenant=${c.id}`,
@@ -118,28 +136,21 @@ export class ReportRemindersService {
     }
   }
 
-  /** Day of the month in Berlin — the 1st speaks differently from the rest. */
-  private dayOfMonth(): number {
-    return Number(
-      new Intl.DateTimeFormat('en-CA', {
-        timeZone: BERLIN_TZ,
-        day: 'numeric',
-      }).format(new Date()),
-    );
+  /**
+   * Day of the month for the congregation — the 1st speaks differently from
+   * the rest.
+   */
+  private dayOfMonth(timezone: string): number {
+    return localDateParts(new Date(), timezone).day;
   }
 
   private capitalize(value: string): string {
     return value.charAt(0).toUpperCase() + value.slice(1);
   }
 
-  /** Today in Berlin — the reminder keys are per day, not per month. */
-  private today(): string {
-    return new Intl.DateTimeFormat('en-CA', {
-      timeZone: BERLIN_TZ,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date());
+  /** Today for the congregation — reminder keys are per day, not per month. */
+  private today(timezone: string): string {
+    return todayIn(new Date(), timezone);
   }
 
   /**
@@ -157,10 +168,10 @@ export class ReportRemindersService {
    */
   @Cron('0 18 1,5,9 * *', {
     name: 'report-reminder-publishers',
-    timeZone: BERLIN_TZ,
+    timeZone: JOB_FIRING_TZ,
   })
   async remindPublishers(): Promise<void> {
-    await this.eachCongregation(async (tenantId, reportMonth) => {
+    await this.eachCongregation(async (tenantId, reportMonth, timezone) => {
       const missing = await this.collectMissing(tenantId, reportMonth);
       const label = this.monthLabel(reportMonth);
       let reached = 0;
@@ -169,7 +180,7 @@ export class ReportRemindersService {
         // One reminder per person per day: the job may tick twice after a
         // restart, and being told twice in an evening is how people learn to
         // switch notifications off.
-        const opening = this.dayOfMonth() === 1;
+        const opening = this.dayOfMonth(timezone) === 1;
         await this.notifications.notify({
           tenantId,
           userIds: [p.userId],
@@ -178,7 +189,7 @@ export class ReportRemindersService {
             ? `${this.capitalize(label)} закончился — отчёт можно сдать.`
             : `Вы ещё не подали отчёт за ${label}.`,
           kind: 'report_reminder',
-          key: `report:${reportMonth}:publisher:${this.today()}`,
+          key: `report:${reportMonth}:publisher:${this.today(timezone)}`,
           data: { type: 'report_reminder', scope: 'publisher', reportMonth },
         });
         reached += 1;
@@ -192,10 +203,10 @@ export class ReportRemindersService {
 
   @Cron('0 18 7,12 * *', {
     name: 'report-reminder-overseers',
-    timeZone: BERLIN_TZ,
+    timeZone: JOB_FIRING_TZ,
   })
   async remindOverseers(): Promise<void> {
-    await this.eachCongregation(async (tenantId, reportMonth) => {
+    await this.eachCongregation(async (tenantId, reportMonth, timezone) => {
       const missing = await this.collectMissing(tenantId, reportMonth);
       if (missing.length === 0) return;
       const label = this.monthLabel(reportMonth);
@@ -227,7 +238,7 @@ export class ReportRemindersService {
           title: 'Несданные отчёты в группе',
           body: `Группа «${g.name}», ${label}: не сдали — ${names.join(', ')}.`,
           kind: 'report_reminder',
-          key: `report:${reportMonth}:overseer:${g.id}:${this.today()}`,
+          key: `report:${reportMonth}:overseer:${g.id}:${this.today(timezone)}`,
           data: {
             type: 'report_reminder',
             scope: 'overseer',
@@ -244,10 +255,10 @@ export class ReportRemindersService {
 
   @Cron('0 18 13,18 * *', {
     name: 'report-reminder-secretary',
-    timeZone: BERLIN_TZ,
+    timeZone: JOB_FIRING_TZ,
   })
   async remindSecretary(): Promise<void> {
-    await this.eachCongregation(async (tenantId, reportMonth) => {
+    await this.eachCongregation(async (tenantId, reportMonth, timezone) => {
       const missing = await this.collectMissing(tenantId, reportMonth);
       if (missing.length === 0) return;
       const label = this.monthLabel(reportMonth);
@@ -296,7 +307,7 @@ export class ReportRemindersService {
         title: 'Несданные отчёты по общине',
         body: `За ${label} не сдали (${missing.length}):\n${lines.join('\n')}`,
         kind: 'report_reminder',
-        key: `report:${reportMonth}:secretary:${this.today()}`,
+        key: `report:${reportMonth}:secretary:${this.today(timezone)}`,
         data: { type: 'report_reminder', scope: 'secretary', reportMonth },
       });
       this.logger.log(

@@ -14,8 +14,8 @@ import {
   coerceLanguage,
   SupportedLanguage,
 } from '../common/i18n/supported-languages';
+import { DEFAULT_CONGREGATION_TIMEZONE } from '../common/congregation-clock';
 
-const DEFAULT_TZ = 'Europe/Berlin';
 const LEAD_MINUTES = 120; // push 2 hours before a meeting / planned time
 const TICK_MINUTES = 15; // must match the cron cadence
 const MONDAY_HOUR = 9; // weekly-group Monday reminder, local time
@@ -225,7 +225,7 @@ export class CleaningRemindersService {
   }
 
   private async forCongregation(cong: Congregation, now: Date): Promise<void> {
-    const tz = cong.timezone || DEFAULT_TZ;
+    const tz = cong.timezone || DEFAULT_CONGREGATION_TIMEZONE;
     const lang = coerceLanguage(cong.language);
     const s = STR[lang];
     const p = CleaningRemindersService.localParts(now, tz);

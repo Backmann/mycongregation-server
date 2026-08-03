@@ -3,10 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, LessThanOrEqual, Or, Repository } from 'typeorm';
 import { NotificationOutbox } from '../entities/notification-outbox.entity';
 import { NotificationPreference } from '../entities/notification-preference.entity';
-import { Congregation } from '../entities/congregation.entity';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
-
-const DEFAULT_TZ = 'Europe/Berlin';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 /**
  * The congregation's waking hours. Nothing automatic goes out before or after;
@@ -89,11 +87,10 @@ export class NotificationsService {
   constructor(
     @InjectRepository(NotificationOutbox)
     private readonly outboxRepo: Repository<NotificationOutbox>,
-    @InjectRepository(Congregation)
-    private readonly congregationsRepo: Repository<Congregation>,
     @InjectRepository(NotificationPreference)
     private readonly preferencesRepo: Repository<NotificationPreference>,
     private readonly push: PushNotificationsService,
+    private readonly clock: CongregationClock,
   ) {}
 
   /** Wall-clock hour and minute for an instant in an IANA timezone. */
@@ -139,14 +136,6 @@ export class NotificationsService {
     return null; // pathological timezone: better late than never
   }
 
-  private async timezoneOf(tenantId: string): Promise<string> {
-    const cong = await this.congregationsRepo.findOne({
-      where: { id: tenantId },
-      select: { id: true, timezone: true },
-    });
-    return cong?.timezone || DEFAULT_TZ;
-  }
-
   /**
    * Hand a notification to the outbox. Sends it straight away when the hour is
    * decent, otherwise leaves it for the morning. Never throws: a notification
@@ -157,7 +146,7 @@ export class NotificationsService {
     if (recipients.length === 0) return;
 
     try {
-      const tz = await this.timezoneOf(input.tenantId);
+      const tz = await this.clock.timezoneOf(input.tenantId);
       const notBefore = NotificationsService.computeNotBefore(
         new Date(),
         tz,

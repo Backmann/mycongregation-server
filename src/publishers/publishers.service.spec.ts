@@ -27,7 +27,6 @@ import {
 } from './publishers.service';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceReport } from '../entities/service-report.entity';
-import { Congregation } from '../entities/congregation.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
@@ -36,6 +35,7 @@ import { PublisherAppointment } from '../common/enums/publisher-appointment.enum
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { setNow, restoreNow } from '../common/testing/set-now';
+import { clockStub } from '../common/testing/clock-stub';
 
 function makePublisher(overrides: Partial<Publisher> = {}): Publisher {
   return {
@@ -198,7 +198,6 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
   let service: PublishersService;
   let publishersRepo: jest.Mocked<Repository<Publisher>>;
   let reportsRepo: jest.Mocked<Repository<ServiceReport>>;
-  let congregationsRepo: jest.Mocked<Repository<Congregation>>;
   let closuresRepo: jest.Mocked<Repository<ReportMonthClosure>>;
   let auditLogService: { logUpdate: jest.Mock; findForEntity: jest.Mock };
   let pushNotificationsService: {
@@ -224,9 +223,6 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
     reportsRepo = {
       find: jest.fn(),
     } as unknown as jest.Mocked<Repository<ServiceReport>>;
-    congregationsRepo = {
-      findOne: jest.fn().mockResolvedValue(null),
-    } as unknown as jest.Mocked<Repository<Congregation>>;
     closuresRepo = {
       findOne: jest.fn().mockResolvedValue(null),
     } as unknown as jest.Mocked<Repository<ReportMonthClosure>>;
@@ -247,7 +243,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
     service = new PublishersService(
       publishersRepo,
       reportsRepo,
-      congregationsRepo,
+      clockStub(),
       closuresRepo,
       auditLogService as any,
       pushNotificationsService as any,
@@ -347,10 +343,16 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
     it('reads the closing day in the congregation timezone, not UTC', async () => {
       // 19 August 23:00 UTC is already the 20th in Berlin, so July is closed
       // there. Judged in UTC the deadline would arrive a day late.
-      (congregationsRepo.findOne as jest.Mock).mockResolvedValue({
-        id: 'cong-1',
-        timezone: 'Europe/Berlin',
-      });
+      service = new PublishersService(
+        publishersRepo,
+        reportsRepo,
+        clockStub('Europe/Berlin'),
+        closuresRepo,
+        auditLogService as any,
+        pushNotificationsService as any,
+        usersService as any,
+        auxiliaryPioneersService as any,
+      );
       const pub = makePublisher({
         id: 'pub-1',
         status: PublisherStatus.ACTIVE,

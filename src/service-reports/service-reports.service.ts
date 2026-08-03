@@ -14,7 +14,6 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
-import { Congregation } from '../entities/congregation.entity';
 import {
   collectedReportMonth,
   lastClosedReportMonth,
@@ -22,6 +21,8 @@ import {
   reportDeadlineDate,
 } from '../common/report-month-window';
 import { reportingPublisherWhere } from '../common/reporting-publishers';
+import { CongregationClock } from '../common/congregation-clock.service';
+import { todayIn } from '../common/congregation-clock';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import {
   PublishersService,
@@ -250,6 +251,16 @@ interface ReportPermissionContext {
   alwaysView: boolean;
   myPublisherId: string | null;
   overseenGroupIds: string[];
+  /**
+   * The congregation's timezone, resolved once per request.
+   *
+   * It lives here rather than being fetched where it is used because the rule
+   * that needs it — the self-edit window — is decided by a SYNCHRONOUS
+   * function called from half a dozen places. Threading a promise through all
+   * of them to read one column would have turned a small correction into a
+   * rewrite of the permission path.
+   */
+  timezone: string;
 }
 
 @Injectable()
@@ -267,8 +278,7 @@ export class ServiceReportsService {
     private readonly responsibilitiesRepo: Repository<Responsibility>,
     @InjectRepository(ReportMonthClosure)
     private readonly closuresRepo: Repository<ReportMonthClosure>,
-    @InjectRepository(Congregation)
-    private readonly congregationsRepo: Repository<Congregation>,
+    private readonly clock: CongregationClock,
     private readonly auditLogService: AuditLogService,
     private readonly publishersService: PublishersService,
     private readonly auxiliaryPioneersService: AuxiliaryPioneersService,
@@ -574,7 +584,8 @@ export class ServiceReportsService {
    * Permission rules:
    * - Admins and the secretary may edit any report at any time.
    * - The original submitter may self-edit during the self-edit window
-   *   (1st-10th of the month following `reportMonth`, Europe/Berlin).
+   *   (1st-10th of the month following `reportMonth`, in the congregation's
+   *   own timezone).
    * - The overseer of the report publisher's service group may edit it
    *   within the same window.
    * - Everyone else (including elders) is denied — elders view only.
@@ -616,7 +627,7 @@ export class ServiceReportsService {
       if (isOwnReport) {
         throw new ForbiddenException(
           'Self-edit window has closed. The window is the 1st-10th of the ' +
-            'month following the report month (Europe/Berlin). Contact the ' +
+            'month following the report month, by the congregation clock. Contact the ' +
             'secretary to request changes.',
         );
       }
@@ -1125,11 +1136,7 @@ export class ServiceReportsService {
       );
     }
 
-    const congregation = await this.congregationsRepo.findOne({
-      where: { id: tenantId },
-      select: ['id', 'timezone'],
-    });
-    const timezone = congregation?.timezone ?? null;
+    const timezone = ctx.timezone;
     const now = new Date(Date.now());
     const reportMonth = monthKey(collectedReportMonth(now, timezone));
     const lastClosed = monthKey(lastClosedReportMonth(now, timezone));
@@ -1566,6 +1573,7 @@ export class ServiceReportsService {
       alwaysView: isAdmin || isElder || secretary,
       myPublisherId,
       overseenGroupIds,
+      timezone: await this.clock.timezoneOf(tenantId),
     };
   }
 
@@ -1617,7 +1625,8 @@ export class ServiceReportsService {
     if (ctx.alwaysEdit) return true;
     // A closed month is frozen for everyone except admins/secretary above.
     if (isClosed) return false;
-    if (!this.isInSelfEditWindow(report.reportMonth)) return false;
+    if (!this.isInSelfEditWindow(report.reportMonth, ctx.timezone))
+      return false;
     if (report.submittedById === ctx.userId) return true;
     if (
       publisherGroupId !== null &&
@@ -1688,15 +1697,15 @@ export class ServiceReportsService {
    * `reportMonth`.
    *
    * Window: through the 10th (inclusive) of the month following
-   * reportMonth, evaluated in the congregation timezone (Europe/Berlin).
-   * Closes at 00:00 Europe/Berlin on the 11th. Comparing calendar dates in
-   * Berlin keeps the boundary correct across the summer-time change.
+   * reportMonth, evaluated in the congregation's own timezone.
+   * Closes at 00:00 local time on the 11th. Comparing calendar dates in that
+   * timezone keeps the boundary correct across the summer-time change.
    *
    * Example: an April 2026 report (`reportMonth = "2026-04-01"`) is
-   * self-editable through 2026-05-10 (Berlin); it closes at the start of
-   * 2026-05-11 (Berlin).
+   * self-editable through 2026-05-10 locally; it closes at the start of
+   * 2026-05-11.
    */
-  private isInSelfEditWindow(reportMonth: string): boolean {
+  private isInSelfEditWindow(reportMonth: string, timezone: string): boolean {
     const [yearStr, monthStr] = reportMonth.slice(0, 7).split('-');
     let ny = parseInt(yearStr, 10);
     let nm = parseInt(monthStr, 10) + 1; // month following the report month
@@ -1705,15 +1714,10 @@ export class ServiceReportsService {
       ny += 1;
     }
 
-    // Current calendar date in the congregation timezone, as YYYY-MM-DD so
-    // the day boundary is unambiguous regardless of DST.
-    const berlin = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Europe/Berlin',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date(Date.now()));
-    const [byStr, bmStr, bdStr] = berlin.split('-');
+    // Current calendar date in the congregation's own timezone, as YYYY-MM-DD
+    // so the day boundary is unambiguous regardless of DST.
+    const local = todayIn(new Date(Date.now()), timezone);
+    const [byStr, bmStr, bdStr] = local.split('-');
     const by = parseInt(byStr, 10);
     const bm = parseInt(bmStr, 10);
     const bd = parseInt(bdStr, 10);

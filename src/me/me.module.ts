@@ -16,9 +16,11 @@ import { CoVisitItem } from '../entities/co-visit-item.entity';
 import { MeService } from './me.service';
 import { MeController } from './me.controller';
 import { DataRightsService } from './data-rights.service';
+import { CongregationClockModule } from '../common/congregation-clock.module';
 
 @Module({
   imports: [
+    CongregationClockModule,
     NotificationsModule,
     AuditLogModule,
     TypeOrmModule.forFeature([

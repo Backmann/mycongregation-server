@@ -12,6 +12,7 @@ jest.mock('expo-server-sdk', () => {
 });
 
 import { NotificationsService } from './notifications.service';
+import { clockStub } from '../common/testing/clock-stub';
 
 const TZ = 'Europe/Berlin';
 
@@ -58,9 +59,9 @@ function makeService(over: Partial<Record<string, any>> = {}) {
   } as any;
   const svc = new NotificationsService(
     outboxRepo,
-    congregationsRepo,
     preferencesRepo,
     push,
+    clockStub(over.timezone ?? 'Europe/Berlin'),
   );
   return { svc, rows, push, outboxRepo, preferencesRepo };
 }

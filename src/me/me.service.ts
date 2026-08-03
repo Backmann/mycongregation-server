@@ -13,6 +13,7 @@ import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { CartAssignment } from '../entities/cart-assignment.entity';
 import { CoVisitItem } from '../entities/co-visit-item.entity';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 export type MyAssignmentKind =
   | 'meeting'
@@ -129,13 +130,6 @@ export interface MyWeekMarks {
   fieldService: boolean;
 }
 
-/** Today's date (YYYY-MM-DD) in the congregation's timezone. */
-function berlinToday(): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Berlin',
-  }).format(new Date());
-}
-
 function fmtISO(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -188,6 +182,7 @@ export class MeService {
     private readonly publicTalksRepo: Repository<PublicTalk>,
     @InjectRepository(CoVisitItem)
     private readonly coVisitItemsRepo: Repository<CoVisitItem>,
+    private readonly clock: CongregationClock,
   ) {}
 
   /**
@@ -422,7 +417,7 @@ export class MeService {
       return { publisherId: null, items: [] };
     }
     const pid = me.id;
-    const today = berlinToday();
+    const today = await this.clock.todayFor(tenantId);
     const weekFloor = mondayOf(today);
     const horizon = addDaysISO(today, HORIZON_DAYS);
 

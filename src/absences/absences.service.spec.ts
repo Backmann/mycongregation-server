@@ -8,6 +8,8 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { CongregationClock } from '../common/congregation-clock.service';
+import { clockStub } from '../common/testing/clock-stub';
 
 const TENANT = 'cong-1';
 const MY_PUBLISHER = 'pub-mine';
@@ -52,6 +54,7 @@ describe('AbsencesService — self-absence authorization', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         AbsencesService,
+        { provide: CongregationClock, useValue: clockStub() },
         { provide: getRepositoryToken(Absence), useValue: absenceRepo },
         { provide: getRepositoryToken(Publisher), useValue: publisherRepo },
         {

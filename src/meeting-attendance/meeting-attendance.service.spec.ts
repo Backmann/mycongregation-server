@@ -5,6 +5,7 @@ import {
   minutesOfClock,
 } from './meeting-attendance.service';
 import { EventType } from '../common/enums/event-type.enum';
+import { clockStub } from '../common/testing/clock-stub';
 
 const TENANT = 'cong-1';
 
@@ -46,6 +47,7 @@ function build(rows: unknown[] = []) {
       eventsRepo,
       publishersRepo,
       audit,
+      clockStub(),
     ),
     repo,
     audit,
@@ -199,7 +201,12 @@ describe('MeetingAttendanceService', () => {
       repo,
       settingsRepo,
       { find: eventsFind },
+      // The publishers repository was missing here entirely, so the audit
+      // service was landing in its slot — harmless on this path, and exactly
+      // the sort of thing that stops being harmless later.
+      { find: jest.fn().mockResolvedValue([]) },
       { logCreate: jest.fn(), logUpdate: jest.fn() },
+      clockStub(),
     );
 
     const out = (await svc.pending('cong-1', 2)).meetings;
@@ -239,6 +246,7 @@ describe('MeetingAttendanceService', () => {
       { find: eventsFind } as never,
       { find: jest.fn().mockResolvedValue([]) } as never,
       { logCreate: jest.fn(), logUpdate: jest.fn() } as never,
+      clockStub(),
     );
 
     const out = (await svc.pending('cong-1', 4)).meetings;
@@ -265,6 +273,7 @@ describe('MeetingAttendanceService', () => {
       { find: eventsFind } as never,
       { find: jest.fn().mockResolvedValue([]) } as never,
       { logCreate: jest.fn(), logUpdate: jest.fn() } as never,
+      clockStub(),
     );
 
     const out = await svc.pendingForWeek('cong-1', '2026-04-06');
@@ -289,6 +298,7 @@ describe('MeetingAttendanceService', () => {
       { find: eventsFind } as never,
       { find: jest.fn().mockResolvedValue([]) } as never,
       { logCreate: jest.fn(), logUpdate: jest.fn() } as never,
+      clockStub(),
     );
 
     const out = await svc.pendingForWeek('cong-1', '2026-04-06');
@@ -312,6 +322,7 @@ describe('MeetingAttendanceService', () => {
       { find: jest.fn().mockResolvedValue([]) } as never,
       { find: jest.fn().mockResolvedValue([]) } as never,
       { logCreate: jest.fn(), logUpdate: jest.fn() } as never,
+      clockStub(),
     );
 
     // Nothing recorded at all, and only two weeks are offered.

@@ -29,12 +29,12 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
-import { Congregation } from '../entities/congregation.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { setNow, restoreNow } from '../common/testing/set-now';
+import { clockStub } from '../common/testing/clock-stub';
 
 // ===========================================================
 // Fixtures
@@ -99,7 +99,6 @@ describe('ServiceReportsService', () => {
   let serviceGroupsRepo: jest.Mocked<Repository<ServiceGroup>>;
   let responsibilitiesRepo: jest.Mocked<Repository<Responsibility>>;
   let closuresRepo: jest.Mocked<Repository<ReportMonthClosure>>;
-  let congregationsRepo: jest.Mocked<Repository<Congregation>>;
   let auditLogService: {
     logUpdate: jest.Mock;
     logEvent: jest.Mock;
@@ -148,13 +147,6 @@ describe('ServiceReportsService', () => {
       delete: jest.fn().mockResolvedValue({ affected: 1 }),
     } as unknown as jest.Mocked<Repository<ReportMonthClosure>>;
 
-    congregationsRepo = {
-      findOne: jest.fn().mockResolvedValue({
-        id: 'cong-1',
-        timezone: 'Europe/Berlin',
-      }),
-    } as unknown as jest.Mocked<Repository<Congregation>>;
-
     auditLogService = {
       logEvent: jest.fn(),
       logUpdate: jest.fn(),
@@ -175,7 +167,7 @@ describe('ServiceReportsService', () => {
       serviceGroupsRepo,
       responsibilitiesRepo,
       closuresRepo,
-      congregationsRepo,
+      clockStub(),
       auditLogService as any,
       publishersService as any,
       auxiliaryPioneersService as any,

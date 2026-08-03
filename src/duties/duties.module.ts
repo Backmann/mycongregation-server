@@ -11,9 +11,11 @@ import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { Responsibility } from '../entities/responsibility.entity';
+import { CongregationClockModule } from '../common/congregation-clock.module';
 
 @Module({
   imports: [
+    CongregationClockModule,
     AuditLogModule,
     TypeOrmModule.forFeature([
       Duty,

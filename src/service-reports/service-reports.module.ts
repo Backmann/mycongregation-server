@@ -5,12 +5,12 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
-import { Congregation } from '../entities/congregation.entity';
 import { ServiceReportsController } from './service-reports.controller';
 import { ServiceReportsService } from './service-reports.service';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { PublishersModule } from '../publishers/publishers.module';
 import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneers.module';
+import { CongregationClockModule } from '../common/congregation-clock.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -19,11 +19,11 @@ import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneer
       ServiceGroup,
       Responsibility,
       ReportMonthClosure,
-      Congregation,
     ]),
     AuditLogModule,
     PublishersModule,
     AuxiliaryPioneersModule,
+    CongregationClockModule,
   ],
   controllers: [ServiceReportsController],
   providers: [ServiceReportsService],
