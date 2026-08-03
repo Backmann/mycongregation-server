@@ -50,10 +50,26 @@ export class AuditLogService {
    * — a service that changes assignments should not have to be handed a user
    * just so the journal can name one.
    */
-  private actorOf(explicit?: string | null): {
+  /**
+   * Who the entry is filed under.
+   *
+   * Normally the user whose request caused the change, which is right for
+   * anything a person did — including things they caused sideways, like a
+   * topic released because they edited the meeting part it sat in.
+   *
+   * `system: true` is for changes the app makes on its own while somebody
+   * happens to be looking: reconciling a topic against the programme starts
+   * from a READ, and filing that under whoever opened the screen would say
+   * that he changed something he never touched.
+   */
+  private actorOf(
+    explicit?: string | null,
+    system?: boolean,
+  ): {
     actorUserId: string | null;
     source: 'user' | 'system';
   } {
+    if (system) return { actorUserId: null, source: 'system' };
     const actorUserId = explicit ?? requestContext.get()?.userId ?? null;
     return { actorUserId, source: actorUserId ? 'user' : 'system' };
   }
@@ -79,6 +95,8 @@ export class AuditLogService {
     before: T;
     after: T;
     fields: (keyof T)[];
+    /** The app decided this by itself — file it under «Система». */
+    system?: boolean;
   }): Promise<void> {
     const changed: string[] = [];
     const beforeChanged: Record<string, any> = {};
@@ -101,7 +119,7 @@ export class AuditLogService {
         entityType: opts.entityType,
         entityId: opts.entityId,
         action: 'UPDATE',
-        ...this.actorOf(opts.actorUserId),
+        ...this.actorOf(opts.actorUserId, opts.system),
         subjectId: opts.subjectId ?? null,
         beforeJson: JSON.stringify(beforeChanged),
         afterJson: JSON.stringify(afterChanged),

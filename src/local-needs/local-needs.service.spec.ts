@@ -12,6 +12,7 @@ import { setNow, restoreNow } from '../common/testing/set-now';
 describe('LocalNeedsService', () => {
   let repo: any;
   let responsibilities: any;
+  let assignments: any;
   let audit: any;
   let service: LocalNeedsService;
 
@@ -53,12 +54,26 @@ describe('LocalNeedsService', () => {
       createQueryBuilder: jest.fn(),
     };
     responsibilities = { count: jest.fn().mockResolvedValue(0) };
+    assignments = {
+      createQueryBuilder: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([]),
+      }),
+    };
     audit = {
       logCreate: jest.fn(),
       logUpdate: jest.fn(),
       logEvent: jest.fn(),
     };
-    service = new LocalNeedsService(repo, responsibilities, audit, clockStub());
+    service = new LocalNeedsService(
+      repo,
+      responsibilities,
+      assignments,
+      audit,
+      clockStub(),
+    );
   });
 
   afterEach(() => restoreNow());
@@ -219,6 +234,125 @@ describe('LocalNeedsService', () => {
       );
 
       expect(saved.usedWeek).toBe('2026-07-06');
+    });
+  });
+
+  describe('noticing a topic that has already been in the programme', () => {
+    const listQb = (rows: any[]) => ({
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue(rows),
+    });
+    const topicsQb = {
+      leftJoin: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      withDeleted: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    };
+
+    it('marks it used, with the week the part actually stands in', async () => {
+      // The subject was typed into the plan and separately imported into the
+      // programme from the workbook. Nothing connected the two, so the backlog
+      // kept offering a subject the congregation had already had.
+      repo.find.mockResolvedValue([
+        topic({ title: '«Обращение Руководящего совета № 4 (2026 год)»' }),
+      ]);
+      repo.createQueryBuilder.mockReturnValue(topicsQb);
+      assignments.createQueryBuilder.mockReturnValue(
+        listQb([
+          {
+            id: 'assignment-4',
+            weekStartDate: '2026-06-29',
+            partTitle: 'Обращение Руководящего совета № 4 (2026 год)',
+          },
+        ]),
+      );
+
+      await service.findAll('cong-1', {}, admin);
+
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          usedWeek: '2026-06-29',
+          usedAssignmentId: 'assignment-4',
+        }),
+      );
+    });
+
+    it('files that under «Система», not under whoever opened the screen', async () => {
+      repo.find.mockResolvedValue([topic({ title: 'Как быть гостеприимным' })]);
+      repo.createQueryBuilder.mockReturnValue(topicsQb);
+      assignments.createQueryBuilder.mockReturnValue(
+        listQb([
+          {
+            id: 'a-1',
+            weekStartDate: '2026-06-29',
+            partTitle: 'Как быть гостеприимным: Евр 13:2',
+          },
+        ]),
+      );
+
+      await service.findAll('cong-1', {}, admin);
+
+      expect(audit.logUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ system: true }),
+      );
+    });
+
+    it('takes the latest week when a subject ran more than once', async () => {
+      repo.find.mockResolvedValue([topic({ title: 'Гостеприимство' })]);
+      repo.createQueryBuilder.mockReturnValue(topicsQb);
+      assignments.createQueryBuilder.mockReturnValue(
+        listQb([
+          {
+            id: 'old',
+            weekStartDate: '2025-02-03',
+            partTitle: 'Гостеприимство',
+          },
+          {
+            id: 'new',
+            weekStartDate: '2026-06-29',
+            partTitle: 'Гостеприимство',
+          },
+        ]),
+      );
+
+      await service.findAll('cong-1', {}, admin);
+
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ usedAssignmentId: 'new' }),
+      );
+    });
+
+    it('does not claim a subject on a merely similar title', async () => {
+      // A loose match here marks the WRONG subject as done, which is worse
+      // than marking nothing at all.
+      repo.find.mockResolvedValue([topic({ title: 'Гостеприимство' })]);
+      repo.createQueryBuilder.mockReturnValue(topicsQb);
+      assignments.createQueryBuilder.mockReturnValue(
+        listQb([
+          {
+            id: 'a-1',
+            weekStartDate: '2026-06-29',
+            partTitle: 'Гостеприимство в трудные времена',
+          },
+        ]),
+      );
+
+      await service.findAll('cong-1', {}, admin);
+
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
+    it('never lets the list fail because the reconciliation did', async () => {
+      repo.find.mockRejectedValue(new Error('boom'));
+      repo.createQueryBuilder.mockReturnValue(topicsQb);
+
+      await expect(service.findAll('cong-1', {}, admin)).resolves.toEqual([]);
     });
   });
 
