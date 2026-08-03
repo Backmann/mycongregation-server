@@ -366,6 +366,12 @@ export class ServiceReportsService {
         // filing it now; restore the row and let this submission stand.
         await this.reportsRepo.restore(existing.id);
         Object.assign(existing, {
+          // The entity in hand still carries the deletion, and save() would
+          // write it straight back over the restore — which is exactly what
+          // happened the first time: the report was stored with the right
+          // figures and stayed invisible to every screen, so the publisher saw
+          // «принят» and then could not find it anywhere.
+          deletedAt: null,
           servedThisMonth: report.servedThisMonth,
           hoursReported: report.hoursReported,
           bibleStudies: report.bibleStudies,

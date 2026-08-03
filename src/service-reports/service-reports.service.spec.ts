@@ -638,7 +638,10 @@ describe('ServiceReportsService', () => {
         );
 
         expect((reportsRepo as any).restore).toHaveBeenCalledWith('old-report');
-        expect(saved).toBeDefined();
+        // And the row that goes back to the database is no longer deleted.
+        // Calling restore() and then saving the entity we already held wrote
+        // the deletion back on top of it, and the report stayed invisible.
+        expect(saved.deletedAt).toBeNull();
       });
 
       it('names the report standing in the way, so the app can open it', async () => {
