@@ -98,11 +98,28 @@ export class UsersService {
   /**
    * For login flow — explicitly selects passwordHash which is excluded by default.
    */
+  /**
+   * The address as the person typed it — which is not how it is stored.
+   *
+   * Everything that WRITES an address lowercases and trims it; the login
+   * lookup compared what arrived, character for character. A capital from a
+   * phone keyboard or a space picked up by copy-paste therefore answered
+   * «Invalid credentials» to somebody whose password was perfectly right, and
+   * there was no way for him to see what was wrong. The login rate limiter
+   * normalised the same address one line earlier, which is how long this had
+   * been half-done.
+   *
+   * LOWER() on the column rather than trusting the stored value: the very
+   * first administrator of a congregation was written straight from the
+   * bootstrap form without normalising, so mixed-case rows exist.
+   */
   findByEmailWithPassword(email: string): Promise<User | null> {
     return this.usersRepo
       .createQueryBuilder('user')
       .addSelect('user.passwordHash')
-      .where('user.email = :email', { email })
+      .where('LOWER(user.email) = :email', {
+        email: email.trim().toLowerCase(),
+      })
       .getOne();
   }
 
@@ -472,8 +489,14 @@ export class UsersService {
 
   // ---- Password reset (forgot password) ----
 
+  /** Same normalisation as the login lookup — see the note there. */
   findByEmail(email: string): Promise<User | null> {
-    return this.usersRepo.findOne({ where: { email } });
+    return this.usersRepo
+      .createQueryBuilder('user')
+      .where('LOWER(user.email) = :email', {
+        email: email.trim().toLowerCase(),
+      })
+      .getOne();
   }
 
   async setPasswordResetToken(

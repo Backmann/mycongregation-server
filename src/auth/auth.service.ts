@@ -97,7 +97,11 @@ export class AuthService {
 
       const user = manager.create(User, {
         congregationId: congregation.id,
-        email: dto.email,
+        // Normalised like every other address in the system. This one was
+        // stored exactly as typed, so the founding administrator of a
+        // congregation could end up unable to sign in with the address he
+        // reads on his own screen.
+        email: dto.email.trim().toLowerCase(),
         passwordHash,
         role: UserRole.ADMIN,
         isActive: true,
