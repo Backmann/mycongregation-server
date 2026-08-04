@@ -246,6 +246,60 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
   // ---------------------------------------------------------------------------
 
   describe('createUserByAdmin', () => {
+    it('invites a login created without a password', async () => {
+      // An account with neither a password nor an invitation can never be
+      // signed into, and nothing says so: it answers «Invalid credentials»
+      // for ever. One login sat unusable for weeks exactly this way.
+      (repo.findOne as jest.Mock).mockResolvedValue(null);
+      const sendInvitation = jest
+        .spyOn(service, 'sendInvitation')
+        .mockResolvedValue(undefined);
+
+      await service.createUserByAdmin(
+        { email: 'new@example.org', role: UserRole.PUBLISHER } as never,
+        CONG,
+        'actor-1',
+      );
+
+      expect(sendInvitation).toHaveBeenCalled();
+    });
+
+    it('sends nothing when the administrator set a password', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(null);
+      const sendInvitation = jest
+        .spyOn(service, 'sendInvitation')
+        .mockResolvedValue(undefined);
+
+      await service.createUserByAdmin(
+        {
+          email: 'new2@example.org',
+          role: UserRole.PUBLISHER,
+          password: 'longenough1',
+        } as never,
+        CONG,
+        'actor-1',
+      );
+
+      expect(sendInvitation).not.toHaveBeenCalled();
+    });
+
+    it('keeps the account when the invitation cannot be sent', async () => {
+      // A mail server having a bad minute must not undo a login that was
+      // created correctly; the row shows «Пароль не задан» either way.
+      (repo.findOne as jest.Mock).mockResolvedValue(null);
+      jest
+        .spyOn(service, 'sendInvitation')
+        .mockRejectedValue(new Error('smtp down'));
+
+      await expect(
+        service.createUserByAdmin(
+          { email: 'new3@example.org', role: UserRole.PUBLISHER } as never,
+          CONG,
+          'actor-1',
+        ),
+      ).resolves.toBeDefined();
+    });
+
     it('normalises email, hashes password, audits creation, omits sensitive fields', async () => {
       (repo.findOne as jest.Mock).mockResolvedValue(null);
       (repo.save as jest.Mock).mockImplementation(async (u: User) => {

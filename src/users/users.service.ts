@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -89,6 +90,8 @@ const PG_UNIQUE_VIOLATION = '23505';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     @InjectRepository(User) private readonly usersRepo: Repository<User>,
     @InjectRepository(Publisher)
@@ -346,6 +349,28 @@ export class UsersService {
         uiLanguage: user.uiLanguage,
       },
     });
+
+    // An account with no password and no invitation can never be signed into,
+    // and nothing anywhere says so — it simply answers «Invalid credentials»
+    // for ever. That is exactly how one login sat unusable for weeks: created
+    // here without a password, while the invitation belongs to the OTHER path
+    // (granting access from a publisher's card).
+    //
+    // So the account cannot be born dead: no password means an invitation,
+    // always. Best-effort, and after the account exists — a mail server having
+    // a bad minute must not undo a login that was created correctly. The
+    // administrator sees «Пароль не задан» on the row either way and can set
+    // one by hand.
+    if (!dto.password) {
+      try {
+        await this.sendInvitation(user.id, user.email);
+      } catch (err: unknown) {
+        this.logger.warn(
+          `invitation for a new login ${user.email} could not be sent: ` +
+            (err instanceof Error ? err.message : String(err)),
+        );
+      }
+    }
 
     return toPublicUser(user);
   }
