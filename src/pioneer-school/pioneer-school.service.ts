@@ -5,13 +5,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, LessThanOrEqual, Not, Repository } from 'typeorm';
+import { In, IsNull, Not, Repository } from 'typeorm';
 import { PioneerSchool } from '../entities/pioneer-school.entity';
 import { PioneerSchoolDay } from '../entities/pioneer-school-day.entity';
 import { PioneerSchoolDuty } from '../entities/pioneer-school-duty.entity';
 import { PioneerSchoolHelper } from '../entities/pioneer-school-helper.entity';
 import { Absence } from '../entities/absence.entity';
-import { MeetingSettings } from '../entities/meeting-settings.entity';
+import { MeetingAttendanceService } from '../meeting-attendance/meeting-attendance.service';
+import { EventType } from '../common/enums/event-type.enum';
 import { Duty } from '../entities/duty.entity';
 import { DutyType } from '../common/enums/duty-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -27,6 +28,9 @@ import {
   UpdatePioneerSchoolDto,
   UpdatePioneerSchoolHelperDto,
 } from './dto/pioneer-school.dto';
+
+/** Said in the congregation's own words, not in code. */
+const PIONEER_SCHOOL_ABSENCE_NOTE = 'Школа пионерского служения';
 
 /** The roles a school day carries, in the order they are read. */
 const AV_SLOT = { dutyType: DutyType.AV, slotIndex: 0 };
@@ -59,8 +63,7 @@ export class PioneerSchoolService {
     private readonly helpersRepo: Repository<PioneerSchoolHelper>,
     @InjectRepository(Absence)
     private readonly absencesRepo: Repository<Absence>,
-    @InjectRepository(MeetingSettings)
-    private readonly meetingSettingsRepo: Repository<MeetingSettings>,
+    private readonly meetingAttendance: MeetingAttendanceService,
     @InjectRepository(Duty)
     private readonly meetingDutiesRepo: Repository<Duty>,
     private readonly auditLog: AuditLogService,
@@ -302,12 +305,19 @@ export class PioneerSchoolService {
         helperId: string | null;
         helperName: string | null;
         helperCongregation: string | null;
+        /** He is no longer on the list of brothers, but he is still here. */
+        helperRemoved: boolean;
         warnings: string[];
       }[];
     }[];
   }> {
     this.assertCanView(user);
     const school = await this.getSchool(tenantId, id);
+    try {
+      await this.syncAbsencesForSchool(tenantId, id);
+    } catch {
+      // A schedule that opens is worth more than a reconciliation that ran.
+    }
     const days = await this.daysRepo.find({
       where: { schoolId: school.id },
       order: { date: 'ASC' },
@@ -318,8 +328,13 @@ export class PioneerSchoolService {
         : await this.dutiesRepo.find({
             where: { dayId: In(days.map((d) => d.id)) },
           });
+    // withDeleted: a brother taken off the list still stands on the days he
+    // was given. Dropping him from this map turned his rows into «не
+    // назначен» — on screen and on the printed sheet — as if nobody had ever
+    // been there, which is the one thing a schedule must not do quietly.
     const helpers = await this.helpersRepo.find({
       where: { congregationId: tenantId },
+      withDeleted: true,
     });
     const helperById = new Map(helpers.map((h) => [h.id, h]));
     const warnings = await this.warningsFor(tenantId, days, duties, helpers);
@@ -350,6 +365,7 @@ export class PioneerSchoolService {
                 ? `${helper.firstName} ${helper.lastName}`.trim()
                 : null,
               helperCongregation: helper?.congregationName ?? null,
+              helperRemoved: !!helper?.deletedAt,
               warnings: warnings.get(r.id) ?? [],
             };
           }),
@@ -512,93 +528,105 @@ export class PioneerSchoolService {
     }
     duty.helperId = dto.helperId ?? null;
     const saved = await this.dutiesRepo.save(duty);
-    await this.syncAbsenceForDuty(tenantId, saved);
+    await this.syncAbsencesForSchool(tenantId, schoolId);
     return saved;
   }
 
   /**
-   * A brother serving at the school on the evening of our own midweek meeting
-   * is not at that meeting — so the app records the absence for him.
+   * Absences for the whole school, brought in line with who is standing where.
    *
-   * Why bother: the schedule generator and every assignment screen read
-   * absences. Without this the same brother is offered a microphone at our
-   * hall on a night he is standing in another one, and the mistake is found on
-   * the day. Writing it down is the whole point of the app knowing both facts.
+   * Batch rather than per-duty, and run when the school is READ as well as
+   * when a duty changes. Two reasons, both learned the hard way: assignments
+   * made before this existed would otherwise never get an absence — nothing
+   * would ever revisit them — and doing it one duty at a time meant four
+   * queries per row, which for a week of four roles is a hundred queries to
+   * open one screen.
    *
-   * Only for OUR brothers — a helper from another congregation has no card
-   * here and nothing to be absent from. And only for the midweek meeting: the
-   * school runs on weekdays, and the weekend is a different question we are
-   * not going to guess at.
+   * WHICH DAY counts is not «the weekday the settings name». It is asked of
+   * the meeting rules themselves — the same ones the attendance card uses —
+   * so a circuit visit that MOVES the midweek meeting moves this with it, and
+   * a week replaced by an assembly produces no absence at all, because there
+   * was no meeting to miss.
    *
-   * The row carries the duty's id, which is what lets the app take it back.
-   * Absences entered by a person are never touched.
+   * Only our own brothers: a helper from another congregation has no card
+   * here and nothing to be absent from.
    */
-  private async syncAbsenceForDuty(
+  private async syncAbsencesForSchool(
     tenantId: string,
-    duty: PioneerSchoolDuty,
+    schoolId: string,
   ): Promise<void> {
-    const existing = await this.absencesRepo.findOne({
-      where: { congregationId: tenantId, pioneerSchoolDutyId: duty.id },
+    const days = await this.daysRepo.find({ where: { schoolId } });
+    if (days.length === 0) return;
+    const duties = await this.dutiesRepo.find({
+      where: { dayId: In(days.map((d) => d.id)) },
     });
-
-    const helper = duty.helperId
-      ? await this.helpersRepo.findOne({
-          where: { id: duty.helperId, congregationId: tenantId },
-        })
-      : null;
-    const publisherId = helper?.publisherId ?? null;
-
-    const day = await this.daysRepo.findOne({ where: { id: duty.dayId } });
-    const date = day ? day.date.slice(0, 10) : null;
-
-    let wanted = false;
-    if (publisherId && date) {
-      const settings = await this.meetingSettingsRepo.find({
-        where: {
-          congregationId: tenantId,
-          effectiveFrom: LessThanOrEqual(date),
-        },
-        order: { effectiveFrom: 'DESC' },
-        take: 1,
-      });
-      const midweekDow = settings[0]?.midweekDow ?? null;
-      if (midweekDow !== null) {
-        // Sunday is 0 in JavaScript; the setting counts the same way.
-        const dow = new Date(`${date}T00:00:00Z`).getUTCDay();
-        wanted = dow === midweekDow;
-      }
-    }
-
-    if (!wanted) {
-      if (existing) await this.absencesRepo.delete(existing.id);
-      return;
-    }
-
-    if (existing) {
-      if (
-        existing.publisherId === publisherId &&
-        existing.startDate.slice(0, 10) === date
-      ) {
-        return;
-      }
-      await this.absencesRepo.delete(existing.id);
-    }
-
-    await this.absencesRepo.save(
-      this.absencesRepo.create({
-        congregationId: tenantId,
-        publisherId: publisherId as string,
-        startDate: date as string,
-        endDate: null,
-        note: this.absenceNote(),
-        pioneerSchoolDutyId: duty.id,
-      }),
+    const helpers = await this.helpersRepo.find({
+      where: { congregationId: tenantId },
+    });
+    const publisherByHelper = new Map(
+      helpers.filter((h) => h.publisherId).map((h) => [h.id, h.publisherId!]),
     );
-  }
 
-  /** Said in the congregation's own words, not in code. */
-  private absenceNote(): string {
-    return 'Школа пионерского служения';
+    // Which of the school's days carry a midweek meeting of ours, asked once
+    // per week rather than once per day.
+    const weeks = [...new Set(days.map((d) => mondayOf(d.date.slice(0, 10))))];
+    const meetingDates = new Set<string>();
+    for (const week of weeks) {
+      const meetings = await this.meetingAttendance.pendingForWeek(
+        tenantId,
+        week,
+      );
+      for (const m of meetings) {
+        if (m.eventType === EventType.MIDWEEK) meetingDates.add(m.date);
+      }
+    }
+
+    const dateById = new Map(days.map((d) => [d.id, d.date.slice(0, 10)]));
+    /** duty id -> the absence it should produce, or nothing. */
+    const wanted = new Map<string, { publisherId: string; date: string }>();
+    for (const duty of duties) {
+      const publisherId = duty.helperId
+        ? publisherByHelper.get(duty.helperId)
+        : undefined;
+      const date = dateById.get(duty.dayId);
+      if (!publisherId || !date || !meetingDates.has(date)) continue;
+      wanted.set(duty.id, { publisherId, date });
+    }
+
+    const existing = await this.absencesRepo.find({
+      where: {
+        congregationId: tenantId,
+        pioneerSchoolDutyId: In(duties.map((d) => d.id)),
+      },
+    });
+    for (const row of existing) {
+      const want = wanted.get(row.pioneerSchoolDutyId as string);
+      if (
+        want &&
+        want.publisherId === row.publisherId &&
+        want.date === row.startDate.slice(0, 10)
+      ) {
+        wanted.delete(row.pioneerSchoolDutyId as string);
+        continue;
+      }
+      // The duty changed hands, moved, or was cleared: the absence the app
+      // wrote goes with it. Absences a person entered carry no duty id and are
+      // never touched.
+      await this.absencesRepo.delete(row.id);
+    }
+
+    for (const [dutyId, want] of wanted) {
+      await this.absencesRepo.save(
+        this.absencesRepo.create({
+          congregationId: tenantId,
+          publisherId: want.publisherId,
+          startDate: want.date,
+          endDate: null,
+          note: PIONEER_SCHOOL_ABSENCE_NOTE,
+          pioneerSchoolDutyId: dutyId,
+        }),
+      );
+    }
   }
 
   async addCustomDuty(
@@ -630,7 +658,7 @@ export class PioneerSchoolService {
         helperId: dto.helperId ?? null,
       }),
     );
-    await this.syncAbsenceForDuty(tenantId, created);
+    await this.syncAbsencesForSchool(tenantId, schoolId);
     return created;
   }
 
