@@ -4,6 +4,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -63,6 +64,8 @@ const EMPTY_UUID = '00000000-0000-0000-0000-000000000000';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly usersService: UsersService,
@@ -145,13 +148,24 @@ export class AuthService {
       );
     }
     const user = await this.usersService.findByEmailWithPassword(dto.email);
-    if (!user || !user.isActive || !user.passwordHash) {
+    // The PAGE must keep saying one thing — telling a stranger «no such
+    // address» turns the login form into a way of testing addresses. But the
+    // four reasons are worlds apart for whoever is asked to help, and nobody
+    // could tell them apart, so a person could be stuck for days on an
+    // account that simply never had a password set.
+    //
+    // So: one answer on screen, the reason in the log.
+    const refuse = (reason: string): never => {
+      this.logger.warn(`login refused for ${email}: ${reason}`);
       throw new UnauthorizedException('Invalid credentials');
+    };
+    if (!user) return refuse('no account with this address');
+    if (!user.isActive) return refuse('account is switched off');
+    if (!user.passwordHash) {
+      return refuse('no password has been set (invited but never completed?)');
     }
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
-    if (!ok) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
+    if (!ok) return refuse('wrong password');
     // Successful login clears the email counter.
     this.loginAttempts.delete(`login:email:${email}`);
     await this.usersService.touchLastLogin(user.id);

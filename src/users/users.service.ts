@@ -49,6 +49,16 @@ export interface PublicUser {
    * themselves.
    */
   publisherId: string | null;
+  /**
+   * Whether a password has ever been set on this account.
+   *
+   * An account can be created and invited, and the invitation link is what
+   * sets the password. Until then the person signing in is told «Invalid
+   * credentials» — the same words as a wrong password — and there is no way
+   * for anybody to tell the two apart. So the administrator gets the fact
+   * that the login page must not give away.
+   */
+  hasPassword: boolean;
 }
 
 function toPublicUser(
@@ -59,6 +69,7 @@ function toPublicUser(
 ): PublicUser {
   return {
     publisherId,
+    hasPassword: !!u.passwordHash,
     id: u.id,
     email: u.email,
     role: u.role,
@@ -145,10 +156,14 @@ export class UsersService {
     congregationId: string,
     viewerUserId: string,
   ): Promise<PublicUser[]> {
-    const rows = await this.usersRepo.find({
-      where: { congregationId },
-      order: { createdAt: 'ASC' },
-    });
+    // addSelect for the hash so we can answer «is one set» — the value never
+    // leaves this method.
+    const rows = await this.usersRepo
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('user.congregation_id = :congregationId', { congregationId })
+      .orderBy('user.created_at', 'ASC')
+      .getMany();
     // Select only non-encrypted columns so publisher names aren't decrypted.
     const pubs = await this.publishersRepo
       .createQueryBuilder('p')

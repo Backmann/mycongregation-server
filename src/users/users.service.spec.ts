@@ -117,25 +117,47 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
   // ---------------------------------------------------------------------------
 
   describe('findAllInCongregation', () => {
+    /** The list is read through a query builder — see the first test. */
+    const listReturns = (rows: unknown[]) => {
+      const qb = {
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue(rows),
+      };
+      (repo.createQueryBuilder as jest.Mock).mockReturnValue(qb);
+      return qb;
+    };
+
     it('returns users in the caller congregation sorted by createdAt ASC', async () => {
-      (repo.find as jest.Mock).mockResolvedValue([
-        userFixture({ id: 'u-1' }),
-        userFixture({ id: 'u-2' }),
-      ]);
+      // The list is read through a query builder now, so it can also answer
+      // «has this account a password at all» without ever returning the hash.
+      const qb = {
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getMany: jest
+          .fn()
+          .mockResolvedValue([
+            userFixture({ id: 'u-1' }),
+            userFixture({ id: 'u-2' }),
+          ]),
+      };
+      (repo.createQueryBuilder as jest.Mock).mockReturnValue(qb);
 
       const result = await service.findAllInCongregation(CONG, 'viewer-1');
 
-      expect(repo.find).toHaveBeenCalledWith({
-        where: { congregationId: CONG },
-        order: { createdAt: 'ASC' },
-      });
+      expect(qb.where).toHaveBeenCalledWith(
+        'user.congregation_id = :congregationId',
+        { congregationId: CONG },
+      );
       expect(result).toHaveLength(2);
       // passwordHash must never leak through the PublicUser projection
       expect((result[0] as any).passwordHash).toBeUndefined();
     });
 
     it('masks presence of hidden users for other viewers', async () => {
-      (repo.find as jest.Mock).mockResolvedValue([
+      listReturns([
         userFixture({ id: 'u-1', hidePresence: true, lastSeenAt: new Date() }),
         userFixture({ id: 'u-2', lastSeenAt: new Date() }),
       ]);
@@ -148,7 +170,7 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
     });
 
     it('shows hidden users their own presence', async () => {
-      (repo.find as jest.Mock).mockResolvedValue([
+      listReturns([
         userFixture({ id: 'u-1', hidePresence: true, lastSeenAt: new Date() }),
       ]);
       const result = await service.findAllInCongregation(CONG, 'u-1');
