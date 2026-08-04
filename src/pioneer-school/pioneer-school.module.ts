@@ -5,6 +5,7 @@ import { PioneerSchoolDay } from '../entities/pioneer-school-day.entity';
 import { PioneerSchoolDuty } from '../entities/pioneer-school-duty.entity';
 import { PioneerSchoolHelper } from '../entities/pioneer-school-helper.entity';
 import { Absence } from '../entities/absence.entity';
+import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { Duty } from '../entities/duty.entity';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { PioneerSchoolService } from './pioneer-school.service';
@@ -18,6 +19,7 @@ import { PioneerSchoolController } from './pioneer-school.controller';
       PioneerSchoolDuty,
       PioneerSchoolHelper,
       Absence,
+      MeetingSettings,
       Duty,
     ]),
     AuditLogModule,

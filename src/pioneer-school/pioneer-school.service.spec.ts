@@ -9,6 +9,7 @@ describe('PioneerSchoolService', () => {
   let duties: any;
   let helpers: any;
   let absences: any;
+  let meetingSettings: any;
   let meetingDuties: any;
   let audit: any;
   let service: PioneerSchoolService;
@@ -69,6 +70,7 @@ describe('PioneerSchoolService', () => {
       duties,
       helpers,
       absences,
+      meetingSettings,
       meetingDuties,
       audit,
     );
@@ -80,6 +82,7 @@ describe('PioneerSchoolService', () => {
     duties = repo([]);
     helpers = repo([]);
     absences = repo([]);
+    meetingSettings = repo([]);
     meetingDuties = repo([]);
     audit = { logCreate: jest.fn(), logUpdate: jest.fn(), logEvent: jest.fn() };
     build();
@@ -210,13 +213,155 @@ describe('PioneerSchoolService', () => {
     it('refuses to remove a standing role, which reconciliation would restore', async () => {
       duties.findOne = jest.fn(async () => ({
         id: 'duty-1',
+        dayId: 'd1',
         dutyType: DutyType.AV,
         congregationId: 'cong-1',
       }));
+      // The duty must also belong to THIS school — checked before the kind.
+      days.findOne = jest.fn(async () => ({ id: 'd1', schoolId: 'school-1' }));
 
       await expect(
         service.removeCustomDuty('cong-1', 'school-1', 'duty-1', admin),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('an absence that follows from a duty', () => {
+    const mondayIsMidweek = () => {
+      // 23 November 2026 is a Monday; say the midweek meeting is on Mondays.
+      meetingSettings.find = jest.fn(async () => [{ midweekDow: 1 }]);
+      days.findOne = jest.fn(async () => ({
+        id: 'd1',
+        date: '2026-11-23',
+        schoolId: 'school-1',
+      }));
+    };
+
+    it('records the brother as away on our own meeting evening', async () => {
+      mondayIsMidweek();
+      duties.findOne = jest.fn(async () => ({
+        id: 'r1',
+        dayId: 'd1',
+        dutyType: DutyType.AV,
+        slotIndex: 0,
+        congregationId: 'cong-1',
+        helperId: null,
+      }));
+      helpers.findOne = jest.fn(async () => ({
+        id: 'h1',
+        publisherId: 'pub-1',
+        congregationId: 'cong-1',
+      }));
+      absences.findOne = jest.fn(async () => null);
+
+      await service.assignDuty(
+        'cong-1',
+        'school-1',
+        'r1',
+        { helperId: 'h1' },
+        admin,
+      );
+
+      expect(absences.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          publisherId: 'pub-1',
+          startDate: '2026-11-23',
+          pioneerSchoolDutyId: 'r1',
+        }),
+      );
+    });
+
+    it('says nothing about a day that is not a meeting evening', async () => {
+      meetingSettings.find = jest.fn(async () => [{ midweekDow: 4 }]); // Thursday
+      days.findOne = jest.fn(async () => ({
+        id: 'd1',
+        date: '2026-11-23',
+        schoolId: 'school-1',
+      }));
+      duties.findOne = jest.fn(async () => ({
+        id: 'r1',
+        dayId: 'd1',
+        dutyType: DutyType.AV,
+        slotIndex: 0,
+        congregationId: 'cong-1',
+        helperId: null,
+      }));
+      helpers.findOne = jest.fn(async () => ({
+        id: 'h1',
+        publisherId: 'pub-1',
+        congregationId: 'cong-1',
+      }));
+      absences.findOne = jest.fn(async () => null);
+
+      await service.assignDuty(
+        'cong-1',
+        'school-1',
+        'r1',
+        { helperId: 'h1' },
+        admin,
+      );
+
+      expect(absences.save).not.toHaveBeenCalled();
+    });
+
+    it('says nothing about a brother from another congregation', async () => {
+      // He has no card here, so there is nothing for him to be absent from.
+      mondayIsMidweek();
+      duties.findOne = jest.fn(async () => ({
+        id: 'r1',
+        dayId: 'd1',
+        dutyType: DutyType.AV,
+        slotIndex: 0,
+        congregationId: 'cong-1',
+        helperId: null,
+      }));
+      helpers.findOne = jest.fn(async () => ({
+        id: 'h1',
+        publisherId: null,
+        congregationName: 'Зост',
+        congregationId: 'cong-1',
+      }));
+      absences.findOne = jest.fn(async () => null);
+
+      await service.assignDuty(
+        'cong-1',
+        'school-1',
+        'r1',
+        { helperId: 'h1' },
+        admin,
+      );
+
+      expect(absences.save).not.toHaveBeenCalled();
+    });
+
+    it('takes the absence back when the slot is cleared', async () => {
+      // The whole reason the duty's id is written on the row: an absence the
+      // app invented must disappear with its cause, or the brother stays
+      // marked away for a meeting he can attend.
+      mondayIsMidweek();
+      duties.findOne = jest.fn(async () => ({
+        id: 'r1',
+        dayId: 'd1',
+        dutyType: DutyType.AV,
+        slotIndex: 0,
+        congregationId: 'cong-1',
+        helperId: 'h1',
+      }));
+      absences.findOne = jest.fn(async () => ({
+        id: 'abs-1',
+        pioneerSchoolDutyId: 'r1',
+      }));
+
+      await service.assignDuty(
+        'cong-1',
+        'school-1',
+        'r1',
+        { helperId: null },
+        admin,
+      );
+
+      expect(absences.delete).toHaveBeenCalledWith('abs-1');
+      expect(absences.save).not.toHaveBeenCalled();
     });
   });
 

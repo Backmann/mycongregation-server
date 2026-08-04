@@ -5,12 +5,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Not, Repository } from 'typeorm';
+import { In, IsNull, LessThanOrEqual, Not, Repository } from 'typeorm';
 import { PioneerSchool } from '../entities/pioneer-school.entity';
 import { PioneerSchoolDay } from '../entities/pioneer-school-day.entity';
 import { PioneerSchoolDuty } from '../entities/pioneer-school-duty.entity';
 import { PioneerSchoolHelper } from '../entities/pioneer-school-helper.entity';
 import { Absence } from '../entities/absence.entity';
+import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { Duty } from '../entities/duty.entity';
 import { DutyType } from '../common/enums/duty-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -58,6 +59,8 @@ export class PioneerSchoolService {
     private readonly helpersRepo: Repository<PioneerSchoolHelper>,
     @InjectRepository(Absence)
     private readonly absencesRepo: Repository<Absence>,
+    @InjectRepository(MeetingSettings)
+    private readonly meetingSettingsRepo: Repository<MeetingSettings>,
     @InjectRepository(Duty)
     private readonly meetingDutiesRepo: Repository<Duty>,
     private readonly auditLog: AuditLogService,
@@ -91,7 +94,9 @@ export class PioneerSchoolService {
     this.assertCanView(user);
     return this.schoolsRepo.find({
       where: { congregationId: tenantId },
-      order: { startDate: 'DESC' },
+      // Chronological: a schedule is read forwards, and the school people are
+      // asking about is the next one, not the last one.
+      order: { startDate: 'ASC' },
     });
   }
 
@@ -465,6 +470,30 @@ export class PioneerSchoolService {
 
   // ---------------------------------------------------------------- duties
 
+  /**
+   * A duty, checked against the school it is claimed to belong to.
+   *
+   * Scoping by congregation alone let a duty of one school be edited through
+   * another school's address. Same congregation, so nothing leaked — but the
+   * two schools are separate documents, and an id in the wrong one is a bug
+   * waiting for the day two schools overlap.
+   */
+  private async dutyOfSchool(
+    tenantId: string,
+    schoolId: string,
+    dutyId: string,
+  ): Promise<PioneerSchoolDuty> {
+    const duty = await this.dutiesRepo.findOne({
+      where: { id: dutyId, congregationId: tenantId },
+    });
+    if (!duty) throw new NotFoundException('Duty not found');
+    const day = await this.daysRepo.findOne({
+      where: { id: duty.dayId, schoolId },
+    });
+    if (!day) throw new NotFoundException('Duty not found');
+    return duty;
+  }
+
   async assignDuty(
     tenantId: string,
     schoolId: string,
@@ -474,10 +503,7 @@ export class PioneerSchoolService {
   ): Promise<PioneerSchoolDuty> {
     this.assertCanEdit(user);
     await this.getSchool(tenantId, schoolId);
-    const duty = await this.dutiesRepo.findOne({
-      where: { id: dutyId, congregationId: tenantId },
-    });
-    if (!duty) throw new NotFoundException('Duty not found');
+    const duty = await this.dutyOfSchool(tenantId, schoolId, dutyId);
     if (dto.helperId) {
       const helper = await this.helpersRepo.findOne({
         where: { id: dto.helperId, congregationId: tenantId },
@@ -485,7 +511,94 @@ export class PioneerSchoolService {
       if (!helper) throw new NotFoundException('Helper not found');
     }
     duty.helperId = dto.helperId ?? null;
-    return this.dutiesRepo.save(duty);
+    const saved = await this.dutiesRepo.save(duty);
+    await this.syncAbsenceForDuty(tenantId, saved);
+    return saved;
+  }
+
+  /**
+   * A brother serving at the school on the evening of our own midweek meeting
+   * is not at that meeting — so the app records the absence for him.
+   *
+   * Why bother: the schedule generator and every assignment screen read
+   * absences. Without this the same brother is offered a microphone at our
+   * hall on a night he is standing in another one, and the mistake is found on
+   * the day. Writing it down is the whole point of the app knowing both facts.
+   *
+   * Only for OUR brothers — a helper from another congregation has no card
+   * here and nothing to be absent from. And only for the midweek meeting: the
+   * school runs on weekdays, and the weekend is a different question we are
+   * not going to guess at.
+   *
+   * The row carries the duty's id, which is what lets the app take it back.
+   * Absences entered by a person are never touched.
+   */
+  private async syncAbsenceForDuty(
+    tenantId: string,
+    duty: PioneerSchoolDuty,
+  ): Promise<void> {
+    const existing = await this.absencesRepo.findOne({
+      where: { congregationId: tenantId, pioneerSchoolDutyId: duty.id },
+    });
+
+    const helper = duty.helperId
+      ? await this.helpersRepo.findOne({
+          where: { id: duty.helperId, congregationId: tenantId },
+        })
+      : null;
+    const publisherId = helper?.publisherId ?? null;
+
+    const day = await this.daysRepo.findOne({ where: { id: duty.dayId } });
+    const date = day ? day.date.slice(0, 10) : null;
+
+    let wanted = false;
+    if (publisherId && date) {
+      const settings = await this.meetingSettingsRepo.find({
+        where: {
+          congregationId: tenantId,
+          effectiveFrom: LessThanOrEqual(date),
+        },
+        order: { effectiveFrom: 'DESC' },
+        take: 1,
+      });
+      const midweekDow = settings[0]?.midweekDow ?? null;
+      if (midweekDow !== null) {
+        // Sunday is 0 in JavaScript; the setting counts the same way.
+        const dow = new Date(`${date}T00:00:00Z`).getUTCDay();
+        wanted = dow === midweekDow;
+      }
+    }
+
+    if (!wanted) {
+      if (existing) await this.absencesRepo.delete(existing.id);
+      return;
+    }
+
+    if (existing) {
+      if (
+        existing.publisherId === publisherId &&
+        existing.startDate.slice(0, 10) === date
+      ) {
+        return;
+      }
+      await this.absencesRepo.delete(existing.id);
+    }
+
+    await this.absencesRepo.save(
+      this.absencesRepo.create({
+        congregationId: tenantId,
+        publisherId: publisherId as string,
+        startDate: date as string,
+        endDate: null,
+        note: this.absenceNote(),
+        pioneerSchoolDutyId: duty.id,
+      }),
+    );
+  }
+
+  /** Said in the congregation's own words, not in code. */
+  private absenceNote(): string {
+    return 'Школа пионерского служения';
   }
 
   async addCustomDuty(
@@ -507,7 +620,7 @@ export class PioneerSchoolService {
       existing.length === 0
         ? 0
         : Math.max(...existing.map((r) => r.slotIndex)) + 1;
-    return this.dutiesRepo.save(
+    const created = await this.dutiesRepo.save(
       this.dutiesRepo.create({
         congregationId: tenantId,
         dayId: day.id,
@@ -517,6 +630,8 @@ export class PioneerSchoolService {
         helperId: dto.helperId ?? null,
       }),
     );
+    await this.syncAbsenceForDuty(tenantId, created);
+    return created;
   }
 
   async removeCustomDuty(
@@ -527,10 +642,7 @@ export class PioneerSchoolService {
   ): Promise<void> {
     this.assertCanEdit(user);
     await this.getSchool(tenantId, schoolId);
-    const duty = await this.dutiesRepo.findOne({
-      where: { id: dutyId, congregationId: tenantId },
-    });
-    if (!duty) throw new NotFoundException('Duty not found');
+    const duty = await this.dutyOfSchool(tenantId, schoolId, dutyId);
     if (duty.dutyType !== DutyType.CUSTOM) {
       // The standing roles come from the school's settings; removing one here
       // would be undone by the next reconciliation, which is worse than a
@@ -601,6 +713,10 @@ export class PioneerSchoolService {
     user: AuthenticatedUser,
   ): Promise<Record<string, number>> {
     this.assertCanView(user);
+    // The school has to be OURS. Without this, a school id from another
+    // congregation answered with its day counts to any elder who asked —
+    // small, but a leak is a leak.
+    await this.getSchool(tenantId, schoolId);
     const days = await this.daysRepo.find({ where: { schoolId } });
     if (days.length === 0) return {};
     const duties = await this.dutiesRepo.find({

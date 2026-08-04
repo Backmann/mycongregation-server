@@ -54,6 +54,17 @@ export class Absence {
   @Column({ type: 'text', nullable: true })
   note!: string | null;
 
+  /**
+   * The school duty this absence follows from, when the app created it.
+   *
+   * Null for every absence a person entered — those are decisions, and the app
+   * never touches them. A row that carries a duty id is the app's own
+   * bookkeeping and is withdrawn the moment the duty is cleared.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  @Index()
+  pioneerSchoolDutyId!: string | null;
+
   // Login (user id) that recorded this absence; for future self-service.
   @Column({ type: 'uuid', nullable: true })
   createdById!: string | null;
