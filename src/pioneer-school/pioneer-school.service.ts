@@ -427,9 +427,23 @@ export class PioneerSchoolService {
 
     if (publisherIds.length === 0) return out;
 
-    const absences = await this.absencesRepo.find({
-      where: { congregationId: tenantId, publisherId: In(publisherIds) },
-    });
+    // The app's own bookkeeping must not be read back as news.
+    //
+    // Serving here on our meeting evening WRITES an absence — and that absence
+    // was then found again by this very check, so the schedule told the reader
+    // «в этот день в отъезде» about the man standing in front of him, on the
+    // row that had put him there. The app was arguing with itself.
+    //
+    // Absences from ANOTHER school stay: a brother booked in Soest that
+    // evening genuinely cannot be in Ahlen, and that is worth saying.
+    const ownDutyIds = new Set(duties.map((d) => d.id));
+    const absences = (
+      await this.absencesRepo.find({
+        where: { congregationId: tenantId, publisherId: In(publisherIds) },
+      })
+    ).filter(
+      (a) => !a.pioneerSchoolDutyId || !ownDutyIds.has(a.pioneerSchoolDutyId),
+    );
     const meetingDuties = await this.meetingDutiesRepo.find({
       where: {
         congregationId: tenantId,
@@ -526,9 +540,42 @@ export class PioneerSchoolService {
       });
       if (!helper) throw new NotFoundException('Helper not found');
     }
+    const before = duty.helperId
+      ? await this.helperName(tenantId, duty.helperId)
+      : null;
     duty.helperId = dto.helperId ?? null;
     const saved = await this.dutiesRepo.save(duty);
     await this.syncAbsencesForSchool(tenantId, schoolId);
+    // WHO put WHOM on WHICH role — the thing people come back and dispute
+    // about a sheet that went out to twenty brothers. The school itself was
+    // journalled from the start; the assignments, which are the whole content
+    // of the schedule, were not.
+    const day = await this.daysRepo.findOne({ where: { id: saved.dayId } });
+    // The day and the role live in the field NAME rather than in a detail
+    // blob: the journal shows «what changed, from what, to what», and a line
+    // reading «25 ноября · microphone 2: Иванов → Петров» needs no lookup to
+    // be understood a month later.
+    const label = [
+      day ? day.date.slice(0, 10) : '?',
+      saved.customLabel ??
+        `${saved.dutyType}${
+          saved.dutyType === DutyType.MICROPHONE
+            ? ` ${saved.slotIndex + 1}`
+            : ''
+        }`,
+    ].join(' · ');
+    await this.auditLog.logUpdate({
+      tenantId,
+      entityType: 'pioneer_school_duty',
+      entityId: saved.id,
+      before: { [label]: before },
+      after: {
+        [label]: dto.helperId
+          ? await this.helperName(tenantId, dto.helperId)
+          : null,
+      },
+      fields: [label],
+    });
     return saved;
   }
 
@@ -732,6 +779,18 @@ export class PioneerSchoolService {
     // Soft: his name stays on the schools he already served, and the duty rows
     // keep pointing at a row that still exists.
     await this.helpersRepo.softDelete(id);
+  }
+
+  /** A helper's name for the journal — an id in a journal explains nothing. */
+  private async helperName(
+    tenantId: string,
+    helperId: string,
+  ): Promise<string | null> {
+    const helper = await this.helpersRepo.findOne({
+      where: { id: helperId, congregationId: tenantId },
+      withDeleted: true,
+    });
+    return helper ? `${helper.firstName} ${helper.lastName}`.trim() : null;
   }
 
   /** How many days each helper already holds — the load, for the picker. */

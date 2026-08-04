@@ -376,6 +376,117 @@ describe('PioneerSchoolService', () => {
     });
   });
 
+  describe('the app must not argue with itself', () => {
+    it('does not call a brother away because of THIS school\u2019s own duty', async () => {
+      // Serving here on our meeting evening writes an absence; reading that
+      // absence back as a warning told the reader «в этот день в отъезде»
+      // about the man the very same row had just put there.
+      days.find = jest.fn(async () => [
+        { id: 'd1', date: '2026-11-25', schoolId: 'school-1' },
+      ]);
+      helpers.find = jest.fn(async () => [
+        { id: 'h1', firstName: 'Л', lastName: 'Б', publisherId: 'pub-1' },
+      ]);
+      duties.find = jest.fn(async () => [
+        {
+          id: 'r1',
+          dayId: 'd1',
+          dutyType: DutyType.AV,
+          slotIndex: 0,
+          helperId: 'h1',
+          customLabel: null,
+        },
+      ]);
+      absences.find = jest.fn(async () => [
+        {
+          id: 'abs-1',
+          publisherId: 'pub-1',
+          startDate: '2026-11-25',
+          endDate: null,
+          pioneerSchoolDutyId: 'r1',
+        },
+      ]);
+
+      const full = await service.getFull('cong-1', 'school-1', admin);
+
+      expect(full.days[0].duties[0].warnings).not.toContain('away');
+    });
+
+    it('still says it when the absence comes from ANOTHER school', async () => {
+      // Booked in Soest that evening, he genuinely cannot be in Ahlen.
+      days.find = jest.fn(async () => [
+        { id: 'd1', date: '2026-11-25', schoolId: 'school-1' },
+      ]);
+      helpers.find = jest.fn(async () => [
+        { id: 'h1', firstName: 'Л', lastName: 'Б', publisherId: 'pub-1' },
+      ]);
+      duties.find = jest.fn(async () => [
+        {
+          id: 'r1',
+          dayId: 'd1',
+          dutyType: DutyType.AV,
+          slotIndex: 0,
+          helperId: 'h1',
+          customLabel: null,
+        },
+      ]);
+      absences.find = jest.fn(async () => [
+        {
+          id: 'abs-2',
+          publisherId: 'pub-1',
+          startDate: '2026-11-25',
+          endDate: null,
+          pioneerSchoolDutyId: 'duty-of-another-school',
+        },
+      ]);
+
+      const full = await service.getFull('cong-1', 'school-1', admin);
+
+      expect(full.days[0].duties[0].warnings).toContain('away');
+    });
+
+    it('journals who was put on which role, in words', async () => {
+      days.find = jest.fn(async () => [
+        { id: 'd1', date: '2026-11-25', schoolId: 'school-1' },
+      ]);
+      days.findOne = jest.fn(async () => ({
+        id: 'd1',
+        date: '2026-11-25',
+        schoolId: 'school-1',
+      }));
+      duties.findOne = jest.fn(async () => ({
+        id: 'r1',
+        dayId: 'd1',
+        dutyType: DutyType.MICROPHONE,
+        slotIndex: 1,
+        congregationId: 'cong-1',
+        helperId: null,
+        customLabel: null,
+      }));
+      duties.find = jest.fn(async () => []);
+      helpers.findOne = jest.fn(async () => ({
+        id: 'h1',
+        firstName: 'Иван',
+        lastName: 'Петров',
+        congregationId: 'cong-1',
+      }));
+      helpers.find = jest.fn(async () => []);
+      absences.find = jest.fn(async () => []);
+
+      await service.assignDuty(
+        'cong-1',
+        'school-1',
+        'r1',
+        { helperId: 'h1' },
+        admin,
+      );
+
+      const call = audit.logUpdate.mock.calls[0][0];
+      expect(call.fields[0]).toBe('2026-11-25 · microphone 2');
+      expect(call.after['2026-11-25 · microphone 2']).toBe('Иван Петров');
+    });
+  });
+
   describe('warnings', () => {
     const withDay = () => {
       days.rows = [
