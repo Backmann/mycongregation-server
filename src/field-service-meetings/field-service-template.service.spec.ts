@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { FieldServiceTemplateService } from './field-service-template.service';
 import { FieldServiceTemplateSlot } from '../entities/field-service-template-slot.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 const CONG = 'cong-1';
 
@@ -67,6 +68,10 @@ describe('FieldServiceTemplateService.generate', () => {
         {
           provide: getRepositoryToken(FieldServiceMeeting),
           useValue: meetingRepo,
+        },
+        {
+          provide: AuditLogService,
+          useValue: { logUpdate: jest.fn(), logEvent: jest.fn() },
         },
       ],
     }).compile();
@@ -141,5 +146,38 @@ describe('FieldServiceTemplateService.generate', () => {
     });
     expect(res).toEqual({ created: 0, skipped: 0 });
     expect(meetingRepo.save).not.toHaveBeenCalled();
+  });
+});
+
+describe('FieldServiceTemplateService.replaceSlots', () => {
+  it('writes the previous template into the journal before it goes', async () => {
+    // «Сохранить» takes the old template with it — there is no version of a
+    // template to go back to, so the journal is the only place a person can
+    // read what stood there and type it back.
+    const before = [
+      { ordinal: 1, dayOfWeek: 6, startTime: '10:30', address: 'Зал' },
+    ];
+    let call = 0;
+    const slotRepo: any = {
+      find: jest.fn(async () => (call++ === 0 ? before : [])),
+      delete: jest.fn(async () => ({ affected: 1 })),
+      create: jest.fn((x: unknown) => x),
+      save: jest.fn(async (x: unknown) => x),
+    };
+    const audit = { logUpdate: jest.fn(), logEvent: jest.fn() };
+    const service = new FieldServiceTemplateService(
+      slotRepo,
+      { find: jest.fn(), create: jest.fn(), save: jest.fn() } as never,
+      audit as never,
+    );
+
+    await service.replaceSlots('cong-1', { slots: [] } as never);
+
+    expect(audit.logUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityType: 'field_service_template',
+        before: { slots: JSON.stringify(before) },
+      }),
+    );
   });
 });

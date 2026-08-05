@@ -8,6 +8,7 @@ import {
   ReplaceFieldServiceTemplateDto,
 } from './dto/field-service-template.dto';
 import { mondayOf } from '../common/week';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 /** UTC 'YYYY-MM-DD'. */
 function toISO(d: Date): string {
@@ -39,6 +40,7 @@ export class FieldServiceTemplateService {
     private readonly slotRepo: Repository<FieldServiceTemplateSlot>,
     @InjectRepository(FieldServiceMeeting)
     private readonly meetingRepo: Repository<FieldServiceMeeting>,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   getSlots(congregationId: string): Promise<FieldServiceTemplateSlot[]> {
@@ -48,10 +50,21 @@ export class FieldServiceTemplateService {
     });
   }
 
+  /**
+   * Replace the template wholesale.
+   *
+   * The old rows are gone the moment this runs — there is no version of a
+   * template, and keeping the discarded rows around would leave a table full
+   * of hidden clutter with no way to tell which set was in force. So the
+   * PREVIOUS template goes into the change journal instead: a person who
+   * saved over the wrong thing can read what stood there and type it back.
+   * Without that, «сохранить» quietly took the schedule with it.
+   */
   async replaceSlots(
     congregationId: string,
     dto: ReplaceFieldServiceTemplateDto,
   ): Promise<FieldServiceTemplateSlot[]> {
+    const before = await this.getSlots(congregationId);
     await this.slotRepo.delete({ congregationId });
     if (dto.slots.length) {
       const rows = dto.slots.map((s, i) =>
@@ -66,7 +79,23 @@ export class FieldServiceTemplateService {
       );
       await this.slotRepo.save(rows);
     }
-    return this.getSlots(congregationId);
+    const after = await this.getSlots(congregationId);
+    const shape = (rows: FieldServiceTemplateSlot[]) =>
+      rows.map((r) => ({
+        ordinal: r.ordinal,
+        dayOfWeek: r.dayOfWeek,
+        startTime: r.startTime,
+        address: r.address,
+      }));
+    await this.auditLog.logUpdate({
+      tenantId: congregationId,
+      entityType: 'field_service_template',
+      entityId: congregationId,
+      before: { slots: JSON.stringify(shape(before)) },
+      after: { slots: JSON.stringify(shape(after)) },
+      fields: ['slots'],
+    });
+    return after;
   }
 
   /**
