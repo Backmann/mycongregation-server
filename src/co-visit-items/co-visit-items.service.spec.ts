@@ -24,6 +24,93 @@ function item(partial: Partial<CoVisitItem>): CoVisitItem {
   } as CoVisitItem;
 }
 
+describe('CoVisitItemsService — a removed item is kept, not erased', () => {
+  const build = (item: any, audit: any) => {
+    const repo = {
+      findOne: jest.fn(async () => item),
+      softDelete: jest.fn(async () => ({ affected: 1 })),
+      restore: jest.fn(async () => ({ affected: 1 })),
+    } as any;
+    const svc = new CoVisitItemsService(
+      repo,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      audit as never,
+    );
+    return { svc, repo };
+  };
+
+  it('hides the row instead of deleting it', async () => {
+    // One mis-tap used to mean decrypting last night's backup and reading the
+    // values out by hand.
+    const audit = { logEvent: jest.fn(), logUpdate: jest.fn() };
+    const { svc, repo } = build(
+      { id: 'i1', kind: 'lunch', itemDate: '2026-08-06', startTime: '12:00' },
+      audit,
+    );
+
+    await svc.remove('c1', 'i1', 'user-1');
+
+    expect(repo.softDelete).toHaveBeenCalledWith({
+      id: 'i1',
+      congregationId: 'c1',
+    });
+  });
+
+  it('writes what was removed into the journal', async () => {
+    // The row carries the state, but a person looking for what was lost looks
+    // in the journal — and would find nothing there if we only flipped a flag.
+    const audit = { logEvent: jest.fn(), logUpdate: jest.fn() };
+    const { svc } = build(
+      { id: 'i1', kind: 'lunch', itemDate: '2026-08-06', startTime: '12:00' },
+      audit,
+    );
+
+    await svc.remove('c1', 'i1', 'user-1');
+
+    expect(audit.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'DELETE',
+        detail: expect.objectContaining({
+          kind: 'lunch',
+          itemDate: '2026-08-06',
+        }),
+      }),
+    );
+  });
+
+  it('puts it back', async () => {
+    const audit = { logEvent: jest.fn(), logUpdate: jest.fn() };
+    const { svc, repo } = build(
+      {
+        id: 'i1',
+        kind: 'lunch',
+        itemDate: '2026-08-06',
+        deletedAt: new Date(),
+      },
+      audit,
+    );
+
+    await svc.restore('c1', 'i1');
+
+    expect(repo.restore).toHaveBeenCalledWith({
+      id: 'i1',
+      congregationId: 'c1',
+    });
+  });
+
+  it('does nothing when the item was never removed', async () => {
+    const audit = { logEvent: jest.fn(), logUpdate: jest.fn() };
+    const { svc, repo } = build({ id: 'i1', deletedAt: null }, audit);
+
+    await svc.restore('c1', 'i1');
+
+    expect(repo.restore).not.toHaveBeenCalled();
+  });
+});
+
 describe('toCoVisitItemView', () => {
   it('resolves assignee "Last First" when a publisher is set', () => {
     const v = toCoVisitItemView(
@@ -103,6 +190,7 @@ describe('CoVisitItemsService.mine', () => {
       usersRepo,
       publishersRepo,
       auxService,
+      { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
     );
   }
   const base = {
@@ -218,6 +306,7 @@ describe('CoVisitItemsService.mine', () => {
       {} as any,
       publishersRepo,
       auxService,
+      { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
     );
     expect((await svc.mine(CONG, USER))[0]?.items).toHaveLength(1);
   });
@@ -277,6 +366,7 @@ describe('CoVisitItemsService.hostStats', () => {
       {} as any,
       {} as any,
       {} as any,
+      { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
     );
     const out = await svc.hostStats('c1');
     const p1lunch = out.find(
@@ -324,6 +414,7 @@ describe('CoVisitItemsService.hostStats — counted per kind', () => {
       {} as any,
       {} as any,
       {} as any,
+      { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
     ).hostStats('c1');
   }
 
@@ -398,6 +489,7 @@ describe('CoVisitItemsService.mine — accommodation host & legacy copies', () =
       {} as any,
       publishersRepo,
       auxService,
+      { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
     );
   }
 
@@ -475,6 +567,7 @@ describe('CoVisitItemsService.fieldService', () => {
       {
         isActiveAuxiliaryPioneer: jest.fn(async () => false),
       } as any,
+      { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
     );
   }
 

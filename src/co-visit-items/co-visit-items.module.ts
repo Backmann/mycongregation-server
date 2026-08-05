@@ -10,6 +10,7 @@ import { User } from '../entities/user.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneers.module';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneer
       Publisher,
     ]),
     AuxiliaryPioneersModule,
+    AuditLogModule,
   ],
   controllers: [CoVisitItemsController],
   providers: [CoVisitItemsService, RolesGuard, ResponsibilityGuard],

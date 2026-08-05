@@ -403,7 +403,10 @@ describe('CleaningService.planGeneral', () => {
 
 describe('CleaningService.clearSlot', () => {
   it('deletes the slot row for the tenant/week/type', async () => {
-    const repo = { delete: jest.fn(async () => ({ affected: 1 })) } as any;
+    const repo = {
+      delete: jest.fn(async () => ({ affected: 1 })),
+      findOne: jest.fn(async () => null),
+    } as any;
     const svc = svcWith(repo, { find: jest.fn() });
     await svc.clearSlot(CONG, '2026-05-18', CleaningSlotType.THOROUGH);
     expect(repo.delete).toHaveBeenCalledWith({
@@ -411,5 +414,34 @@ describe('CleaningService.clearSlot', () => {
       weekStartDate: '2026-05-18',
       slotType: CleaningSlotType.THOROUGH,
     });
+  });
+
+  it('writes down who was cleaning before the row goes', async () => {
+    // A cleared week is otherwise a blank nobody can explain — and the row is
+    // gone, so the journal is the only place left to ask.
+    const repo = {
+      delete: jest.fn(async () => ({ affected: 1 })),
+      findOne: jest.fn(async () => ({
+        id: 'row-1',
+        serviceGroupId: 'grp-2',
+      })),
+    } as any;
+    const audit = { logEvent: jest.fn(), logUpdate: jest.fn() };
+    const svc = svcWith(
+      repo,
+      { find: jest.fn() },
+      { findOne: jest.fn(async () => null) },
+      { count: jest.fn(async () => 0) },
+      audit,
+    );
+
+    await svc.clearSlot(CONG, '2026-05-18', CleaningSlotType.THOROUGH);
+
+    expect(audit.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'DELETE',
+        detail: expect.objectContaining({ serviceGroupId: 'grp-2' }),
+      }),
+    );
   });
 });

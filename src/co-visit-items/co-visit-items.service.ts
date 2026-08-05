@@ -12,6 +12,7 @@ import { isActivePermanentPioneer } from '../common/pioneer-status';
 import { AuxiliaryPioneersService } from '../auxiliary-pioneers/auxiliary-pioneers.service';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 /**
  * The field-service part of a circuit-overseer visit, as everyone may see it.
@@ -139,6 +140,7 @@ export class CoVisitItemsService {
     @InjectRepository(Publisher)
     private readonly publishersRepo: Repository<Publisher>,
     private readonly auxiliaryPioneersService: AuxiliaryPioneersService,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   /**
@@ -509,8 +511,52 @@ export class CoVisitItemsService {
     );
   }
 
-  async remove(congregationId: string, id: string): Promise<void> {
-    const res = await this.repo.delete({ id, congregationId });
-    if (!res.affected) throw new NotFoundException('Item not found');
+  /**
+   * Remove an item — kept, not erased, and written down in full.
+   *
+   * The contents go into the journal because that is what an undo reads: the
+   * row itself carries the state, but a person looking for what was lost looks
+   * in the journal, and finds nothing there if we only flip a column.
+   */
+  async remove(
+    congregationId: string,
+    id: string,
+    actorUserId?: string,
+  ): Promise<void> {
+    const item = await this.repo.findOne({ where: { id, congregationId } });
+    if (!item) throw new NotFoundException('Item not found');
+    await this.repo.softDelete({ id, congregationId });
+    await this.auditLog.logEvent({
+      tenantId: congregationId,
+      entityType: 'co_visit_item',
+      entityId: id,
+      action: 'DELETE',
+      actorUserId,
+      detail: {
+        kind: item.kind,
+        itemDate: item.itemDate,
+        startTime: item.startTime,
+        placeText: item.placeText,
+        specialEventId: item.specialEventId,
+      },
+    });
+  }
+
+  /** Put a removed item back where it was. */
+  async restore(congregationId: string, id: string): Promise<void> {
+    const item = await this.repo.findOne({
+      where: { id, congregationId },
+      withDeleted: true,
+    });
+    if (!item) throw new NotFoundException('Item not found');
+    if (!item.deletedAt) return;
+    await this.repo.restore({ id, congregationId });
+    await this.auditLog.logEvent({
+      tenantId: congregationId,
+      entityType: 'co_visit_item',
+      entityId: id,
+      action: 'RESTORE',
+      detail: { kind: item.kind, itemDate: item.itemDate },
+    });
   }
 }

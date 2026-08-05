@@ -308,6 +308,26 @@ export class CleaningService {
     weekStartDate: string,
     slotType: CleaningSlotType,
   ): Promise<void> {
+    // Who was cleaning that week goes into the journal before the row goes.
+    // The row itself is not worth keeping — the week and the slot identify it
+    // completely, so it can be written again from these three facts — but
+    // without them a cleared week is simply a blank nobody can explain.
+    const existing = await this.repo.findOne({
+      where: { congregationId, weekStartDate, slotType },
+    });
     await this.repo.delete({ congregationId, weekStartDate, slotType });
+    if (existing) {
+      await this.auditLog.logEvent({
+        tenantId: congregationId,
+        entityType: 'cleaning',
+        entityId: existing.id,
+        action: 'DELETE',
+        detail: {
+          weekStartDate,
+          slotType,
+          serviceGroupId: existing.serviceGroupId ?? null,
+        },
+      });
+    }
   }
 }

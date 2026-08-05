@@ -1184,7 +1184,27 @@ export class PublishersService {
     if (reports + asPub + asAsst + duties + fsm > 0) {
       throw new BadRequestException('publisher_has_history');
     }
+    // The one action here that truly destroys something. It is refused while
+    // any history points at the person, so what goes is a card with nothing
+    // hanging off it — but the card itself was leaving no trace at all, and
+    // «его никогда и не было» is a bad answer to «а куда делся брат N?».
+    const gone = await this.publishersRepo.findOne({
+      where: { id, congregationId: tenantId },
+      withDeleted: true,
+    });
     await this.publishersRepo.delete({ id, congregationId: tenantId });
+    await this.auditLogService.logEvent({
+      tenantId,
+      entityType: 'publisher',
+      entityId: id,
+      action: 'DELETE',
+      detail: {
+        firstName: gone?.firstName ?? null,
+        lastName: gone?.lastName ?? null,
+        serviceGroupId: gone?.serviceGroupId ?? null,
+        permanent: true,
+      },
+    });
     return { deleted: true };
   }
 

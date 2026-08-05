@@ -1,11 +1,12 @@
 import {
-  Entity,
-  PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
+  Entity,
   Index,
-  ManyToOne,
   JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Congregation } from './congregation.entity';
 import { SpecialEvent } from './special-event.entity';
@@ -89,4 +90,15 @@ export class CoVisitItem {
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
+  /**
+   * Removed, but kept.
+   *
+   * A visit item is typed by hand and read by the whole congregation; erasing
+   * it outright meant a mis-tap could only be undone from a backup. The row
+   * stays, the schedule stops showing it, and the journal knows how to bring
+   * it back.
+   */
+  @DeleteDateColumn({ type: 'timestamptz' })
+  @Index()
+  deletedAt!: Date | null;
 }

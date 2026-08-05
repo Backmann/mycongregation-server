@@ -113,7 +113,24 @@ export class CoVisitItemsController {
   remove(
     @TenantId() congregationId: string,
     @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.remove(congregationId, id);
+    return this.service.remove(congregationId, id, user.id);
+  }
+
+  /** Put a removed item back — the same right as removing it. */
+  @Post(':id/restore')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+    ResponsibilityType.BODY_COORDINATOR,
+  )
+  restore(
+    @TenantId() congregationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.restore(congregationId, id);
   }
 }
