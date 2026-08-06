@@ -15,6 +15,8 @@ import {
   SupportedLanguage,
 } from '../common/i18n/supported-languages';
 import { DEFAULT_CONGREGATION_TIMEZONE } from '../common/congregation-clock';
+import { MeetingAttendanceService } from '../meeting-attendance/meeting-attendance.service';
+import { EventType } from '../common/enums/event-type.enum';
 
 const LEAD_MINUTES = 120; // push 2 hours before a meeting / planned time
 const TICK_MINUTES = 15; // must match the cron cadence
@@ -114,6 +116,7 @@ export class CleaningRemindersService {
     private readonly logRepo: Repository<ReminderLog>,
     private readonly push: PushNotificationsService,
     private readonly notifications: NotificationsService,
+    private readonly meetingAttendance: MeetingAttendanceService,
   ) {}
 
   /** Wall-clock parts for `now` in the given IANA timezone. */
@@ -252,12 +255,29 @@ export class CleaningRemindersService {
 
     // 1. After-meeting group: 2h before each meeting today.
     if (settings && afterSlot?.serviceGroupId) {
-      const meetingToday =
-        p.isoDow === settings.midweekDow
-          ? { name: 'midweek', time: settings.midweekTime }
-          : p.isoDow === settings.weekendDow
-            ? { name: 'weekend', time: settings.weekendTime }
-            : null;
+      // WHICH day holds a meeting is asked of the meeting rules, not derived
+      // from the weekday in the settings. A circuit visit MOVES the midweek
+      // meeting — so the reminder used to arrive on the ordinary Thursday when
+      // nobody was there, and stay silent on the Tuesday when the group was
+      // actually expected. A week replaced by an assembly now produces no
+      // reminder at all, because there is no meeting to clean up after.
+      const meetingsThisWeek = await this.meetingAttendance.pendingForWeek(
+        cong.id,
+        weekStart,
+      );
+      const today = meetingsThisWeek.find((m) => m.date === p.date);
+      const meetingToday = today
+        ? {
+            name: today.eventType === EventType.MIDWEEK ? 'midweek' : 'weekend',
+            // The visit moves the DAY; the hour still comes from the
+            // congregation's settings, which is what the visit schedule
+            // itself shows.
+            time:
+              today.eventType === EventType.MIDWEEK
+                ? settings.midweekTime
+                : settings.weekendTime,
+          }
+        : null;
       if (meetingToday) {
         const target =
           CleaningRemindersService.parseHm(meetingToday.time) - LEAD_MINUTES;

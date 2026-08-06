@@ -61,6 +61,17 @@ function makeSvc(over: Partial<Record<string, any>> = {}) {
     ),
   };
 
+  /**
+   * The meetings of the week as the settings would have them — what the old
+   * code assumed silently. A test that cares about a circuit visit passes its
+   * own `meetingAttendance`.
+   */
+  const defaultMeetings = () => {
+    const settings = over.meetingSettingsRepo ? null : null;
+    void settings;
+    return over.meetingsThisWeek ?? [];
+  };
+
   const logRepo = {
     insert: jest.fn(async (row: { kind: string; key: string }) => {
       if (inserted.some((r) => r.kind === row.kind && r.key === row.key)) {
@@ -87,6 +98,11 @@ function makeSvc(over: Partial<Record<string, any>> = {}) {
     logRepo as any,
     push as any,
     notifications as any,
+    // Which day holds a meeting is asked of the meeting rules now. By default
+    // the tests keep their old world: the settings' weekday is the meeting.
+    (over.meetingAttendance ?? {
+      pendingForWeek: jest.fn(async () => defaultMeetings()),
+    }) as any,
   );
   return { svc, sends, inserted, push, logRepo, notifications };
 }
@@ -145,12 +161,48 @@ describe('CleaningRemindersService.forCongregation', () => {
     const { svc, sends } = makeSvc({
       meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
       cleaningRepo: cleaningRepoWith(rows),
+      meetingsThisWeek: [{ date: '2026-05-19', eventType: 'midweek' }],
     });
     await svc['forCongregation'](cong, new Date('2026-05-19T15:00:00Z'));
     expect(sends).toHaveLength(1);
     expect(sends[0].data.type).toBe('cleaning_after_meeting');
     expect(sends[0].data.meeting).toBe('midweek');
     expect(sends[0].users).toEqual(['u1', 'u2']);
+  });
+
+  it('follows the circuit visit when it moves the midweek meeting', async () => {
+    // The settings say Thursday; the visit put the meeting on Tuesday. The
+    // reminder used to arrive on the Thursday nobody was there, and stay
+    // silent on the day the group was actually expected.
+    const rows = [
+      { slotType: CleaningSlotType.AFTER_MEETING, serviceGroupId: 'g-after' },
+    ];
+    const { svc, sends } = makeSvc({
+      meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
+      cleaningRepo: cleaningRepoWith(rows),
+      meetingsThisWeek: [{ date: '2026-05-19', eventType: 'midweek' }],
+    });
+
+    await svc['forCongregation'](cong, new Date('2026-05-19T15:00:00Z'));
+
+    expect(sends).toHaveLength(1);
+    expect(sends[0].data.meeting).toBe('midweek');
+  });
+
+  it('says nothing on a day the week holds no meeting', async () => {
+    // An assembly replaced it: there is nothing to clean up after.
+    const rows = [
+      { slotType: CleaningSlotType.AFTER_MEETING, serviceGroupId: 'g-after' },
+    ];
+    const { svc, sends } = makeSvc({
+      meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
+      cleaningRepo: cleaningRepoWith(rows),
+      meetingsThisWeek: [],
+    });
+
+    await svc['forCongregation'](cong, new Date('2026-05-19T15:00:00Z'));
+
+    expect(sends).toHaveLength(0);
   });
 
   it('does not push the after-meeting group at the wrong time', async () => {
@@ -214,6 +266,7 @@ describe('CleaningRemindersService.forCongregation', () => {
     const { svc, sends } = makeSvc({
       meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
       cleaningRepo: cleaningRepoWith(rows),
+      meetingsThisWeek: [{ date: '2026-05-19', eventType: 'midweek' }],
     });
     await svc['forCongregation'](cong, new Date('2026-05-19T15:00:00Z'));
     await svc['forCongregation'](cong, new Date('2026-05-19T15:10:00Z'));

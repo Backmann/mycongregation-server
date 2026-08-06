@@ -14,9 +14,11 @@ import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { ReminderLog } from '../entities/reminder-log.entity';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { MeetingAttendanceModule } from '../meeting-attendance/meeting-attendance.module';
 
 @Module({
   imports: [
+    MeetingAttendanceModule,
     AuditLogModule,
     TypeOrmModule.forFeature([
       CleaningAssignment,
