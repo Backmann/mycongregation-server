@@ -38,6 +38,12 @@ describe('AuditRevertService', () => {
     role: UserRole.ELDER,
     congregationId: 'cong-1',
   } as any;
+  /** Reverting is an administrator's, like the journal it lives in. */
+  const admin = {
+    id: 'u-admin',
+    role: UserRole.ADMIN,
+    congregationId: 'cong-1',
+  } as any;
   const publisher = {
     id: 'u-pub',
     role: UserRole.PUBLISHER,
@@ -95,7 +101,7 @@ describe('AuditRevertService', () => {
   });
 
   it('shows what would change, from what to what', async () => {
-    const plan = await service.preview('cong-1', 'log-1', elder);
+    const plan = await service.preview('cong-1', 'log-1', admin);
 
     expect(plan.supported).toBe(true);
     expect(plan.fields).toEqual([
@@ -108,7 +114,7 @@ describe('AuditRevertService', () => {
     // undo somebody else's later work as well.
     logRepo.count = jest.fn(async () => 2);
 
-    const plan = await service.preview('cong-1', 'log-1', elder);
+    const plan = await service.preview('cong-1', 'log-1', admin);
 
     expect(plan.changedAfter).toBe(2);
   });
@@ -116,7 +122,7 @@ describe('AuditRevertService', () => {
   it('applies it through the module\u2019s own update, not to the table', async () => {
     // Which is what keeps every rule in force: a frozen week stays frozen, a
     // closed month stays closed, and the revert is journalled like any edit.
-    await service.revert('cong-1', 'log-1', elder);
+    await service.revert('cong-1', 'log-1', admin);
 
     expect(assignments.update).toHaveBeenCalledWith('cong-1', 'a-1', {
       partTitle: 'Было',
@@ -137,7 +143,7 @@ describe('AuditRevertService', () => {
       }),
     );
 
-    await service.revert('cong-1', 'log-1', elder);
+    await service.revert('cong-1', 'log-1', admin);
 
     expect(assignments.update).toHaveBeenCalledWith('cong-1', 'a-1', {
       partTitle: 'Было',
@@ -151,7 +157,7 @@ describe('AuditRevertService', () => {
       entry({ entityType: 'service_report' }),
     );
 
-    const plan = await service.preview('cong-1', 'log-1', elder);
+    const plan = await service.preview('cong-1', 'log-1', admin);
 
     expect(plan.supported).toBe(false);
     expect(plan.reason).toBe('entityNotSupported');
@@ -170,13 +176,13 @@ describe('AuditRevertService', () => {
       }),
     );
 
-    await service.revert('cong-1', 'log-1', elder);
+    await service.revert('cong-1', 'log-1', admin);
 
     expect(localNeeds.update).toHaveBeenCalledWith(
       'cong-1',
       'topic-1',
       { title: 'Было' },
-      elder,
+      admin,
     );
     expect(assignments.update).not.toHaveBeenCalled();
   });
@@ -184,7 +190,7 @@ describe('AuditRevertService', () => {
   it('refuses anything that was not an edit', async () => {
     logRepo.findOne = jest.fn(async () => entry({ action: 'DELETE' }));
 
-    const plan = await service.preview('cong-1', 'log-1', elder);
+    const plan = await service.preview('cong-1', 'log-1', admin);
 
     expect(plan.reason).toBe('notAnEdit');
   });
@@ -194,12 +200,12 @@ describe('AuditRevertService', () => {
       entry({ redactedAt: new Date('2026-08-02T00:00:00Z') }),
     );
 
-    const plan = await service.preview('cong-1', 'log-1', elder);
+    const plan = await service.preview('cong-1', 'log-1', admin);
 
     expect(plan.reason).toBe('redacted');
   });
 
-  it('refuses an elder a kind his own screens would refuse him', async () => {
+  it('keeps the per-kind demands for the day the journal widens', async () => {
     // A revert calls the service DIRECTLY and so walks past the guard on the
     // controller. Halls are an administrator's business; without this check
     // any elder could edit one through the journal — a way in the app does
@@ -213,13 +219,21 @@ describe('AuditRevertService', () => {
       }),
     );
 
-    const plan = await service.preview('cong-1', 'log-1', elder);
+    const ask = (u: unknown, t: string, id: string) =>
+      (
+        service as unknown as {
+          mayRevert: (a: unknown, b: string, c: string) => Promise<boolean>;
+        }
+      ).mayRevert(u, t, id);
 
-    expect(plan.supported).toBe(false);
-    expect(plan.reason).toBe('notAllowed');
+    // A hall is an administrator's business; a special event belongs to the
+    // body coordinator, and this elder holds the responsibility.
+    expect(await ask(elder, 'hall', 'hall-1')).toBe(false);
+    expect(await ask(admin, 'hall', 'hall-1')).toBe(true);
+    expect(await ask(elder, 'special_event', 'e-1')).toBe(true);
   });
 
-  it('lets an administrator put the same thing back', async () => {
+  it('lets an administrator put a hall back', async () => {
     logRepo.findOne = jest.fn(async () =>
       entry({
         entityType: 'hall',
@@ -243,23 +257,30 @@ describe('AuditRevertService', () => {
     // may undo a midweek part, and a weekend one is not his to undo.
     responsibilities.count = jest.fn(async () => 0);
 
-    const plan = await service.preview('cong-1', 'log-1', elder);
+    const may = await (
+      service as unknown as {
+        mayRevert: (u: unknown, t: string, id: string) => Promise<boolean>;
+      }
+    ).mayRevert(elder, 'assignment', 'a-1');
 
-    expect(plan.reason).toBe('notAllowed');
+    expect(may).toBe(false);
   });
 
   it('applies nothing when the person may not', async () => {
-    responsibilities.count = jest.fn(async () => 0);
-
     await expect(
       service.revert('cong-1', 'log-1', elder),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(assignments.update).not.toHaveBeenCalled();
   });
 
-  it('keeps an ordinary publisher out entirely', async () => {
+  it('keeps everyone but an administrator out entirely', async () => {
+    // The journal is an administrator's screen; a second door beside a shut
+    // one is a door nobody watches.
     await expect(
       service.preview('cong-1', 'log-1', publisher),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.preview('cong-1', 'log-1', elder),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
@@ -267,7 +288,7 @@ describe('AuditRevertService', () => {
     logRepo.findOne = jest.fn(async () => entry({ entityType: 'user' }));
 
     await expect(
-      service.revert('cong-1', 'log-1', elder),
+      service.revert('cong-1', 'log-1', admin),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(assignments.update).not.toHaveBeenCalled();
   });

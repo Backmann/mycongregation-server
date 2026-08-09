@@ -192,9 +192,20 @@ export class AuditRevertService {
     },
   };
 
-  /** Elders and administrators may ASK; each kind then demands its own. */
+  /**
+   * Administrators only — the same door as the journal itself.
+   *
+   * Reverting was written for any elder «within what he may already change»,
+   * and the per-kind demands below still enforce exactly that. But the JOURNAL
+   * is an administrator's screen, on the server and in the app both: an elder
+   * never reaches an entry, so the wider rule delivered nothing while leaving
+   * two routes open beside a door that is shut. One door, one key.
+   *
+   * If the journal is ever opened to elders, this is the line to widen — and
+   * the per-kind demands are already waiting underneath it.
+   */
   private assertMayAsk(user: AuthenticatedUser): void {
-    if (user.role === UserRole.ADMIN || user.role === UserRole.ELDER) return;
+    if (user.role === UserRole.ADMIN) return;
     throw new BadRequestException('Not allowed');
   }
 
