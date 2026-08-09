@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditLog } from '../entities/audit-log.entity';
+import { Responsibility } from '../entities/responsibility.entity';
+import { Assignment } from '../entities/assignment.entity';
 import { AssignmentsModule } from '../assignments/assignments.module';
 import { LocalNeedsModule } from '../local-needs/local-needs.module';
 import { AbsencesModule } from '../absences/absences.module';
@@ -26,7 +28,7 @@ import { AuditRevertController } from './audit-revert.controller';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([AuditLog]),
+    TypeOrmModule.forFeature([AuditLog, Responsibility, Assignment]),
     AssignmentsModule,
     LocalNeedsModule,
     AbsencesModule,

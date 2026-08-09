@@ -25,6 +25,8 @@ import { UserRole } from '../common/enums/user-role.enum';
 
 describe('AuditRevertService', () => {
   let logRepo: any;
+  let responsibilities: any;
+  let assignmentsRepo: any;
   let assignments: any;
   let localNeeds: any;
   let absences: any;
@@ -60,6 +62,12 @@ describe('AuditRevertService', () => {
       findOne: jest.fn(async () => entry()),
       count: jest.fn(async () => 0),
     };
+    // What the caller holds, and the row a meeting part belongs to — both
+    // consulted before anything is put back.
+    responsibilities = { count: jest.fn(async () => 1) };
+    assignmentsRepo = {
+      findOne: jest.fn(async () => ({ id: 'a-1', eventType: 'midweek' })),
+    };
     assignments = { update: jest.fn(async () => ({})) };
     localNeeds = { update: jest.fn(async () => ({})) };
     absences = { update: jest.fn(async () => ({})) };
@@ -69,6 +77,8 @@ describe('AuditRevertService', () => {
     const unused = { update: jest.fn(async () => ({})) } as never;
     service = new AuditRevertService(
       logRepo,
+      responsibilities,
+      assignmentsRepo,
       assignments,
       localNeeds,
       absences,
@@ -187,6 +197,64 @@ describe('AuditRevertService', () => {
     const plan = await service.preview('cong-1', 'log-1', elder);
 
     expect(plan.reason).toBe('redacted');
+  });
+
+  it('refuses an elder a kind his own screens would refuse him', async () => {
+    // A revert calls the service DIRECTLY and so walks past the guard on the
+    // controller. Halls are an administrator's business; without this check
+    // any elder could edit one through the journal — a way in the app does
+    // not have anywhere else.
+    logRepo.findOne = jest.fn(async () =>
+      entry({
+        entityType: 'hall',
+        entityId: 'hall-1',
+        beforeJson: JSON.stringify({ name: 'Было' }),
+        afterJson: JSON.stringify({ name: 'Стало' }),
+      }),
+    );
+
+    const plan = await service.preview('cong-1', 'log-1', elder);
+
+    expect(plan.supported).toBe(false);
+    expect(plan.reason).toBe('notAllowed');
+  });
+
+  it('lets an administrator put the same thing back', async () => {
+    logRepo.findOne = jest.fn(async () =>
+      entry({
+        entityType: 'hall',
+        entityId: 'hall-1',
+        beforeJson: JSON.stringify({ name: 'Было' }),
+        afterJson: JSON.stringify({ name: 'Стало' }),
+      }),
+    );
+
+    const plan = await service.preview('cong-1', 'log-1', {
+      id: 'u-admin',
+      role: UserRole.ADMIN,
+      congregationId: 'cong-1',
+    } as never);
+
+    expect(plan.supported).toBe(true);
+  });
+
+  it('judges a meeting part by its own section', async () => {
+    // The same rule the section guard uses: the brother over Life and Ministry
+    // may undo a midweek part, and a weekend one is not his to undo.
+    responsibilities.count = jest.fn(async () => 0);
+
+    const plan = await service.preview('cong-1', 'log-1', elder);
+
+    expect(plan.reason).toBe('notAllowed');
+  });
+
+  it('applies nothing when the person may not', async () => {
+    responsibilities.count = jest.fn(async () => 0);
+
+    await expect(
+      service.revert('cong-1', 'log-1', elder),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(assignments.update).not.toHaveBeenCalled();
   });
 
   it('keeps an ordinary publisher out entirely', async () => {

@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { MoreThan, Repository } from 'typeorm';
+import { In, MoreThan, Repository } from 'typeorm';
 import { AuditLog } from '../entities/audit-log.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -21,6 +21,10 @@ import { SpecialEventsService } from '../special-events/special-events.service';
 import { PioneerSchoolService } from '../pioneer-school/pioneer-school.service';
 import { CoVisitItemsService } from '../co-visit-items/co-visit-items.service';
 import { REVERTABLE_FIELDS } from './revertable';
+import { Responsibility } from '../entities/responsibility.entity';
+import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
+import { Assignment } from '../entities/assignment.entity';
+import { EVENT_TYPE_RESPONSIBILITY } from '../common/guards/assignment-section.guard';
 
 /**
  * Putting a change back the way it was.
@@ -52,6 +56,10 @@ export class AuditRevertService {
   constructor(
     @InjectRepository(AuditLog)
     private readonly logRepo: Repository<AuditLog>,
+    @InjectRepository(Responsibility)
+    private readonly responsibilitiesRepo: Repository<Responsibility>,
+    @InjectRepository(Assignment)
+    private readonly assignmentsRepo: Repository<Assignment>,
     private readonly assignments: AssignmentsService,
     private readonly localNeeds: LocalNeedsService,
     private readonly absences: AbsencesService,
@@ -148,10 +156,90 @@ export class AuditRevertService {
     },
   };
 
-  /** Elders and administrators; the service behind each field checks the rest. */
+  /**
+   * What each kind demands of whoever asks — copied from that kind's own
+   * controller, and this is the part that was missing.
+   *
+   * A revert calls a service DIRECTLY, which means it walks straight past the
+   * guard on the controller. Several of those services trust that guard and
+   * check nothing themselves: halls, service groups and the circuit overseer
+   * are administrators' business, special events belong to the body
+   * coordinator, cart locations to the brothers over public witnessing. With
+   * only «elder or administrator» checked here, ANY elder could have edited
+   * all of them through the journal — a way in that the app does not have
+   * anywhere else. That is a hole this module opened, and it closes here.
+   *
+   * An administrator passes everything, exactly as the guards allow.
+   */
+  private readonly demands: Record<
+    string,
+    { responsibilities?: ResponsibilityType[]; adminOnly?: boolean }
+  > = {
+    hall: { adminOnly: true },
+    service_group: { adminOnly: true },
+    circuit_overseer: { adminOnly: true },
+    special_event: { responsibilities: [ResponsibilityType.BODY_COORDINATOR] },
+    cart_location: {
+      responsibilities: [
+        ResponsibilityType.PUBLIC_WITNESSING,
+        ResponsibilityType.SERVICE_OVERSEER,
+        ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+      ],
+    },
+    pioneer_school: { adminOnly: true },
+    local_need: {
+      responsibilities: [ResponsibilityType.LIFE_MINISTRY_OVERSEER],
+    },
+  };
+
+  /** Elders and administrators may ASK; each kind then demands its own. */
   private assertMayAsk(user: AuthenticatedUser): void {
     if (user.role === UserRole.ADMIN || user.role === UserRole.ELDER) return;
     throw new BadRequestException('Not allowed');
+  }
+
+  private async holdsAny(
+    user: AuthenticatedUser,
+    types: ResponsibilityType[],
+  ): Promise<boolean> {
+    const count = await this.responsibilitiesRepo.count({
+      where: {
+        congregationId: user.congregationId,
+        userId: user.id,
+        type: In(types),
+      },
+    });
+    return count > 0;
+  }
+
+  /**
+   * May THIS person put THIS kind of record back.
+   *
+   * A meeting part is judged the way its own guard judges it: by the section
+   * it belongs to, so the brother over Life and Ministry can undo a midweek
+   * part and not a weekend one.
+   */
+  private async mayRevert(
+    user: AuthenticatedUser,
+    entityType: string,
+    entityId: string,
+  ): Promise<boolean> {
+    if (user.role === UserRole.ADMIN) return true;
+
+    if (entityType === 'assignment') {
+      const row = await this.assignmentsRepo.findOne({
+        where: { id: entityId, congregationId: user.congregationId },
+      });
+      if (!row) return false;
+      const allowed = EVENT_TYPE_RESPONSIBILITY[row.eventType];
+      if (!allowed || allowed.length === 0) return false;
+      return this.holdsAny(user, allowed);
+    }
+
+    const demand = this.demands[entityType];
+    if (!demand) return true; // the service checks for itself
+    if (demand.adminOnly) return false;
+    return this.holdsAny(user, demand.responsibilities ?? []);
   }
 
   private async entry(tenantId: string, id: string): Promise<AuditLog> {
@@ -222,6 +310,15 @@ export class AuditRevertService {
       return {
         supported: false,
         reason: 'nothingRevertable',
+        fields: [],
+        changedAfter: 0,
+      };
+    }
+
+    if (!(await this.mayRevert(user, log.entityType, log.entityId))) {
+      return {
+        supported: false,
+        reason: 'notAllowed',
         fields: [],
         changedAfter: 0,
       };
