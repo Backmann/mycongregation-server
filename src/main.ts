@@ -5,6 +5,7 @@ import { SentFieldsOnlyValidationPipe } from './common/pipes/sent-fields-only-va
 import { ConfigService } from '@nestjs/config';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { httpRefusalLogger } from './common/http-refusal-logger';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: false });
@@ -88,6 +89,11 @@ async function bootstrap() {
 
   // Needed so the auth endpoints can read the httpOnly refresh cookie.
   app.use(cookieParser());
+
+  // Every refused request leaves a line. Registered here — after the cookie
+  // parser, before the routes — so it sees the final status of everything,
+  // including requests turned away by a guard before any controller runs.
+  app.use(httpRefusalLogger());
 
   app.setGlobalPrefix(apiPrefix);
 
