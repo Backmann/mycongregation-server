@@ -64,12 +64,23 @@ describe('AuditRevertService', () => {
     localNeeds = { update: jest.fn(async () => ({})) };
     absences = { update: jest.fn(async () => ({})) };
     halls = { update: jest.fn(async () => ({})) };
+    // Only the four the tests exercise are real stand-ins; the rest of the
+    // registry is wired the same way and adds nothing to what these prove.
+    const unused = { update: jest.fn(async () => ({})) } as never;
     service = new AuditRevertService(
       logRepo,
       assignments,
       localNeeds,
       absences,
       halls,
+      unused,
+      unused,
+      unused,
+      unused,
+      unused,
+      unused,
+      unused,
+      unused,
     );
   });
 
@@ -134,6 +145,30 @@ describe('AuditRevertService', () => {
 
     expect(plan.supported).toBe(false);
     expect(plan.reason).toBe('entityNotSupported');
+  });
+
+  it('handles the kinds the registry covers, one service each', async () => {
+    // The registry grew to every kind whose edit is an ordinary partial one.
+    // What protects it is not a short list but the route: each goes through
+    // its own service, so each service's rules still apply.
+    logRepo.findOne = jest.fn(async () =>
+      entry({
+        entityType: 'local_need',
+        entityId: 'topic-1',
+        beforeJson: JSON.stringify({ title: 'Было' }),
+        afterJson: JSON.stringify({ title: 'Стало' }),
+      }),
+    );
+
+    await service.revert('cong-1', 'log-1', elder);
+
+    expect(localNeeds.update).toHaveBeenCalledWith(
+      'cong-1',
+      'topic-1',
+      { title: 'Было' },
+      elder,
+    );
+    expect(assignments.update).not.toHaveBeenCalled();
   });
 
   it('refuses anything that was not an edit', async () => {

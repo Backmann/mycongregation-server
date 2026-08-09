@@ -12,6 +12,14 @@ import { AssignmentsService } from '../assignments/assignments.service';
 import { LocalNeedsService } from '../local-needs/local-needs.service';
 import { AbsencesService } from '../absences/absences.service';
 import { HallsService } from '../halls/halls.service';
+import { PublishersService } from '../publishers/publishers.service';
+import { ServiceGroupsService } from '../service-groups/service-groups.service';
+import { CartLocationsService } from '../cart-locations/cart-locations.service';
+import { CircuitOverseerService } from '../circuit-overseer/circuit-overseer.service';
+import { ExternalCongregationsService } from '../external-congregations/external-congregations.service';
+import { SpecialEventsService } from '../special-events/special-events.service';
+import { PioneerSchoolService } from '../pioneer-school/pioneer-school.service';
+import { CoVisitItemsService } from '../co-visit-items/co-visit-items.service';
 
 /**
  * Putting a change back the way it was.
@@ -47,6 +55,14 @@ export class AuditRevertService {
     private readonly localNeeds: LocalNeedsService,
     private readonly absences: AbsencesService,
     private readonly halls: HallsService,
+    private readonly publishers: PublishersService,
+    private readonly serviceGroups: ServiceGroupsService,
+    private readonly cartLocations: CartLocationsService,
+    private readonly circuitOverseer: CircuitOverseerService,
+    private readonly externalCongregations: ExternalCongregationsService,
+    private readonly specialEvents: SpecialEventsService,
+    private readonly pioneerSchool: PioneerSchoolService,
+    private readonly coVisitItems: CoVisitItemsService,
   ) {}
 
   /**
@@ -93,6 +109,86 @@ export class AuditRevertService {
     hall: {
       fields: ['name', 'address'],
       apply: (tenantId, id, dto) => this.halls.update(tenantId, id, dto),
+    },
+    publisher: {
+      // Name, place in the congregation and the dates that describe service.
+      // NOT the status: it is computed from reports, and a hand-set value has
+      // its own override switch which this must not impersonate.
+      fields: [
+        'firstName',
+        'lastName',
+        'gender',
+        'appointment',
+        'serviceGroupId',
+        'baptismDate',
+        'birthDate',
+        'ministryStartDate',
+        'pioneerType',
+        'pioneerSince',
+        'notes',
+      ],
+      apply: (tenantId, id, dto, user) =>
+        this.publishers.update(tenantId, id, dto, user.id),
+    },
+    service_group: {
+      fields: ['name', 'overseerPublisherId', 'assistantPublisherId'],
+      apply: (tenantId, id, dto) =>
+        this.serviceGroups.update(tenantId, id, dto),
+    },
+    cart_location: {
+      fields: ['name', 'address', 'note', 'mapUrl'],
+      apply: (tenantId, id, dto) =>
+        this.cartLocations.update(tenantId, id, dto),
+    },
+    circuit_overseer: {
+      fields: ['firstName', 'lastName', 'wifeName', 'phone', 'email', 'note'],
+      apply: (tenantId, id, dto) =>
+        this.circuitOverseer.update(tenantId, id, dto),
+    },
+    external_congregation: {
+      fields: [
+        'name',
+        'city',
+        'address',
+        'mapUrl',
+        'contactName',
+        'contactPhone',
+        'note',
+      ],
+      apply: (tenantId, id, dto, user) =>
+        this.externalCongregations.update(tenantId, id, dto, user),
+    },
+    special_event: {
+      fields: ['title', 'startDate', 'endDate', 'note'],
+      apply: (tenantId, id, dto) =>
+        this.specialEvents.update(tenantId, id, dto),
+    },
+    pioneer_school: {
+      fields: [
+        'title',
+        'startDate',
+        'endDate',
+        'hallName',
+        'hallAddress',
+        'startTime',
+        'endTime',
+        'microphoneSlots',
+        'notes',
+      ],
+      apply: (tenantId, id, dto, user) =>
+        this.pioneerSchool.update(tenantId, id, dto, user),
+    },
+    co_visit_item: {
+      fields: [
+        'itemDate',
+        'startTime',
+        'placeKind',
+        'placeText',
+        'cartLocationId',
+        'note',
+      ],
+      apply: (tenantId, id, dto, user) =>
+        this.coVisitItems.update(tenantId, id, dto, user),
     },
   };
 

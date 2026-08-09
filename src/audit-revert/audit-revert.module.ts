@@ -5,6 +5,14 @@ import { AssignmentsModule } from '../assignments/assignments.module';
 import { LocalNeedsModule } from '../local-needs/local-needs.module';
 import { AbsencesModule } from '../absences/absences.module';
 import { HallsModule } from '../halls/halls.module';
+import { PublishersModule } from '../publishers/publishers.module';
+import { ServiceGroupsModule } from '../service-groups/service-groups.module';
+import { CartLocationsModule } from '../cart-locations/cart-locations.module';
+import { CircuitOverseerModule } from '../circuit-overseer/circuit-overseer.module';
+import { ExternalCongregationsModule } from '../external-congregations/external-congregations.module';
+import { SpecialEventsModule } from '../special-events/special-events.module';
+import { PioneerSchoolModule } from '../pioneer-school/pioneer-school.module';
+import { CoVisitItemsModule } from '../co-visit-items/co-visit-items.module';
 import { AuditRevertService } from './audit-revert.service';
 import { AuditRevertController } from './audit-revert.controller';
 
@@ -23,6 +31,14 @@ import { AuditRevertController } from './audit-revert.controller';
     LocalNeedsModule,
     AbsencesModule,
     HallsModule,
+    PublishersModule,
+    ServiceGroupsModule,
+    CartLocationsModule,
+    CircuitOverseerModule,
+    ExternalCongregationsModule,
+    SpecialEventsModule,
+    PioneerSchoolModule,
+    CoVisitItemsModule,
   ],
   controllers: [AuditRevertController],
   providers: [AuditRevertService],

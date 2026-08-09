@@ -26,5 +26,6 @@ import { AuditLogModule } from '../audit-log/audit-log.module';
   ],
   controllers: [CoVisitItemsController],
   providers: [CoVisitItemsService, RolesGuard, ResponsibilityGuard],
+  exports: [CoVisitItemsService],
 })
 export class CoVisitItemsModule {}
