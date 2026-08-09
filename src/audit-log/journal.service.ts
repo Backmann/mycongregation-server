@@ -10,6 +10,7 @@ import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
+import { isRevertable } from '../audit-revert/revertable';
 
 export interface JournalPerson {
   id: string;
@@ -59,6 +60,8 @@ export interface JournalEntry {
   detail: Record<string, unknown> | null;
   /** True when the values were cleared at the subject's request. */
   redacted: boolean;
+  /** Whether this entry can be put back — see the revertable registry. */
+  canRevert: boolean;
   /** Which item this entry concerns; null when it cannot be resolved. */
   context: JournalContext | null;
 }
@@ -194,6 +197,15 @@ export class JournalService {
         before: parseDetail(row.beforeJson),
         detail: parseDetail(row.afterJson),
         redacted: row.redactedAt !== null,
+        // Whether «вернуть как было» would work on this entry, decided here
+        // rather than guessed at by the app. Offering a button that turns out
+        // to say no is the thing we have spent a fortnight removing.
+        canRevert: isRevertable(
+          row.action,
+          row.entityType,
+          row.redactedAt !== null,
+          row.changedFields ?? [],
+        ),
         context: contexts.get(row.id) ?? null,
       })),
       nextCursor,

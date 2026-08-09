@@ -20,6 +20,7 @@ import { ExternalCongregationsService } from '../external-congregations/external
 import { SpecialEventsService } from '../special-events/special-events.service';
 import { PioneerSchoolService } from '../pioneer-school/pioneer-school.service';
 import { CoVisitItemsService } from '../co-visit-items/co-visit-items.service';
+import { REVERTABLE_FIELDS } from './revertable';
 
 /**
  * Putting a change back the way it was.
@@ -85,108 +86,63 @@ export class AuditRevertService {
     }
   > = {
     assignment: {
-      fields: [
-        'partTitle',
-        'partNotes',
-        'assigneePublisherId',
-        'assistantPublisherId',
-        'startTime',
-        'durationMinutes',
-        'songNumber',
-      ],
+      fields: REVERTABLE_FIELDS.assignment,
       apply: (tenantId, id, dto) => this.assignments.update(tenantId, id, dto),
     },
     local_need: {
-      fields: ['title', 'notes', 'speakerPublisherId', 'usedWeek'],
+      fields: REVERTABLE_FIELDS.local_need,
       apply: (tenantId, id, dto, user) =>
         this.localNeeds.update(tenantId, id, dto, user),
     },
     absence: {
-      fields: ['startDate', 'endDate', 'reason', 'note'],
+      fields: REVERTABLE_FIELDS.absence,
       apply: (tenantId, id, dto, user) =>
         this.absences.update(tenantId, id, dto, user),
     },
     hall: {
-      fields: ['name', 'address'],
+      fields: REVERTABLE_FIELDS.hall,
       apply: (tenantId, id, dto) => this.halls.update(tenantId, id, dto),
     },
     publisher: {
       // Name, place in the congregation and the dates that describe service.
       // NOT the status: it is computed from reports, and a hand-set value has
       // its own override switch which this must not impersonate.
-      fields: [
-        'firstName',
-        'lastName',
-        'gender',
-        'appointment',
-        'serviceGroupId',
-        'baptismDate',
-        'birthDate',
-        'ministryStartDate',
-        'pioneerType',
-        'pioneerSince',
-        'notes',
-      ],
+      fields: REVERTABLE_FIELDS.publisher,
       apply: (tenantId, id, dto, user) =>
         this.publishers.update(tenantId, id, dto, user.id),
     },
     service_group: {
-      fields: ['name', 'overseerPublisherId', 'assistantPublisherId'],
+      fields: REVERTABLE_FIELDS.service_group,
       apply: (tenantId, id, dto) =>
         this.serviceGroups.update(tenantId, id, dto),
     },
     cart_location: {
-      fields: ['name', 'address', 'note', 'mapUrl'],
+      fields: REVERTABLE_FIELDS.cart_location,
       apply: (tenantId, id, dto) =>
         this.cartLocations.update(tenantId, id, dto),
     },
     circuit_overseer: {
-      fields: ['firstName', 'lastName', 'wifeName', 'phone', 'email', 'note'],
+      fields: REVERTABLE_FIELDS.circuit_overseer,
       apply: (tenantId, id, dto) =>
         this.circuitOverseer.update(tenantId, id, dto),
     },
     external_congregation: {
-      fields: [
-        'name',
-        'city',
-        'address',
-        'mapUrl',
-        'contactName',
-        'contactPhone',
-        'note',
-      ],
+      fields: REVERTABLE_FIELDS.external_congregation,
       apply: (tenantId, id, dto, user) =>
         this.externalCongregations.update(tenantId, id, dto, user),
     },
     special_event: {
-      fields: ['title', 'startDate', 'endDate', 'note'],
+      fields: REVERTABLE_FIELDS.special_event,
       apply: (tenantId, id, dto) =>
         this.specialEvents.update(tenantId, id, dto),
     },
     pioneer_school: {
-      fields: [
-        'title',
-        'startDate',
-        'endDate',
-        'hallName',
-        'hallAddress',
-        'startTime',
-        'endTime',
-        'microphoneSlots',
-        'notes',
-      ],
+      fields: REVERTABLE_FIELDS.pioneer_school,
       apply: (tenantId, id, dto, user) =>
         this.pioneerSchool.update(tenantId, id, dto, user),
     },
     co_visit_item: {
-      fields: [
-        'itemDate',
-        'startTime',
-        'placeKind',
-        'placeText',
-        'cartLocationId',
-        'note',
-      ],
+      fields: REVERTABLE_FIELDS.co_visit_item,
       apply: (tenantId, id, dto, user) =>
         this.coVisitItems.update(tenantId, id, dto, user),
     },
