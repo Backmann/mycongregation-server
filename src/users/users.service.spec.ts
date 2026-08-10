@@ -121,29 +121,38 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
     const listReturns = (rows: unknown[]) => {
       const qb = {
         addSelect: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
+        addOrderBy: jest.fn().mockReturnThis(),
         getMany: jest.fn().mockResolvedValue(rows),
       };
       (repo.createQueryBuilder as jest.Mock).mockReturnValue(qb);
+      // The list also asks for each person's latest session — «с чего он
+      // заходит» — through the entity manager.
+      (repo as unknown as { manager: unknown }).manager = {
+        getRepository: () => ({
+          createQueryBuilder: () => ({
+            select: jest.fn().mockReturnThis(),
+            where: jest.fn().mockReturnThis(),
+            andWhere: jest.fn().mockReturnThis(),
+            orderBy: jest.fn().mockReturnThis(),
+            addOrderBy: jest.fn().mockReturnThis(),
+            getMany: jest.fn().mockResolvedValue([]),
+          }),
+        }),
+      };
       return qb;
     };
 
     it('returns users in the caller congregation sorted by createdAt ASC', async () => {
       // The list is read through a query builder now, so it can also answer
       // «has this account a password at all» without ever returning the hash.
-      const qb = {
-        addSelect: jest.fn().mockReturnThis(),
-        where: jest.fn().mockReturnThis(),
-        orderBy: jest.fn().mockReturnThis(),
-        getMany: jest
-          .fn()
-          .mockResolvedValue([
-            userFixture({ id: 'u-1' }),
-            userFixture({ id: 'u-2' }),
-          ]),
-      };
-      (repo.createQueryBuilder as jest.Mock).mockReturnValue(qb);
+      const qb = listReturns([
+        userFixture({ id: 'u-1' }),
+        userFixture({ id: 'u-2' }),
+      ]);
 
       const result = await service.findAllInCongregation(CONG, 'viewer-1');
 

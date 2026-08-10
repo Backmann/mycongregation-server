@@ -59,6 +59,18 @@ export class RefreshSession {
   @Column({ type: 'timestamptz', nullable: true })
   lastUsedAt: Date | null;
 
+  /**
+   * What this session is used from — a platform and a kind, nothing finer.
+   *
+   * Null on sessions that began before this was recorded; the app says «не
+   * известно» rather than inventing something.
+   */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  clientPlatform: string | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  clientKind: string | null;
+
   /** Set when the session is rotated away, signed out, or revoked wholesale. */
   @Column({ type: 'timestamptz', nullable: true })
   revokedAt: Date | null;

@@ -20,6 +20,7 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { PresenceService } from '../presence/presence.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { passwordProblem } from '../auth/password-policy';
+import { RefreshSession } from '../entities/refresh-session.entity';
 
 /**
  * Public projection of a User — excludes sensitive fields (passwordHash)
@@ -61,6 +62,18 @@ export interface PublicUser {
    * that the login page must not give away.
    */
   hasPassword: boolean;
+  /**
+   * What this person last used — a platform and a kind, and when.
+   *
+   * The question behind it is «кто ещё не поставил приложение»: a brother on a
+   * browser gets no push notifications and has no build to update. Null until
+   * he signs in again, because older sessions never recorded it.
+   */
+  lastClient: {
+    platform: string;
+    kind: string;
+    at: Date | null;
+  } | null;
 }
 
 function toPublicUser(
@@ -68,10 +81,12 @@ function toPublicUser(
   appointment: PublisherAppointment | null = null,
   now: number = Date.now(),
   publisherId: string | null = null,
+  lastClient: PublicUser['lastClient'] = null,
 ): PublicUser {
   return {
     publisherId,
     hasPassword: !!u.passwordHash,
+    lastClient,
     id: u.id,
     email: u.email,
     role: u.role,
@@ -168,6 +183,34 @@ export class UsersService {
       .where('user.congregation_id = :congregationId', { congregationId })
       .orderBy('user.created_at', 'ASC')
       .getMany();
+
+    // The most recently used living session of each person — one query for the
+    // whole list rather than one per row.
+    const clients = new Map<string, PublicUser['lastClient']>();
+    if (rows.length > 0) {
+      const sessions = await this.usersRepo.manager
+        .getRepository(RefreshSession)
+        .createQueryBuilder('s')
+        .select([
+          's.userId',
+          's.clientPlatform',
+          's.clientKind',
+          's.lastUsedAt',
+        ])
+        .where('s.user_id IN (:...ids)', { ids: rows.map((r) => r.id) })
+        .andWhere('s.client_platform IS NOT NULL')
+        .orderBy('s.last_used_at', 'DESC', 'NULLS LAST')
+        .addOrderBy('s.created_at', 'DESC')
+        .getMany();
+      for (const session of sessions) {
+        if (clients.has(session.userId)) continue;
+        clients.set(session.userId, {
+          platform: session.clientPlatform as string,
+          kind: session.clientKind as string,
+          at: session.lastUsedAt,
+        });
+      }
+    }
     // Select only non-encrypted columns so publisher names aren't decrypted.
     const pubs = await this.publishersRepo
       .createQueryBuilder('p')
@@ -190,6 +233,7 @@ export class UsersService {
         apptByUser.get(u.id) ?? null,
         now,
         cardByUser.get(u.id) ?? null,
+        clients.get(u.id) ?? null,
       );
       // Presence is recorded for everyone but masked for users who hide it —
       // except when they are viewing their own row.

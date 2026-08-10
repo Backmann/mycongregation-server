@@ -30,6 +30,7 @@ import {
   setRefreshCookie,
   wantsCookieAuth,
 } from './refresh-cookie';
+import { readClient } from './read-client';
 
 @Controller('auth')
 export class AuthController {
@@ -81,7 +82,11 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.authService.login(dto, req.ip ?? 'unknown');
+    const result = await this.authService.login(
+      dto,
+      req.ip ?? 'unknown',
+      readClient(req.headers['user-agent']),
+    );
     return this.deliverTokens(req, res, result);
   }
 
@@ -95,7 +100,10 @@ export class AuthController {
   ) {
     const token = readRefreshToken(req, dto.refreshToken);
     if (!token) throw new UnauthorizedException('No refresh token');
-    const result = await this.authService.refresh(token);
+    const result = await this.authService.refresh(
+      token,
+      readClient(req.headers['user-agent']),
+    );
     return this.deliverTokens(req, res, result);
   }
 

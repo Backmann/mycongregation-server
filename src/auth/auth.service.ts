@@ -25,6 +25,7 @@ import { UpdateMeDto } from './dto/update-me.dto';
 import type { AuthenticatedUser } from './decorators/current-user.decorator';
 import { LoginDto } from './dto/login.dto';
 import { passwordProblem } from './password-policy';
+import type { ClientInfo } from './read-client';
 
 interface RefreshTokenPayload {
   sub: string;
@@ -135,7 +136,7 @@ export class AuthService {
     return true;
   }
 
-  async login(dto: LoginDto, ip = 'unknown') {
+  async login(dto: LoginDto, ip = 'unknown', client?: ClientInfo) {
     const FIFTEEN_MIN = 15 * 60 * 1000;
     const email = dto.email.toLowerCase().trim();
     // 6 attempts / 15 min, by email and by IP.
@@ -170,7 +171,7 @@ export class AuthService {
     // Successful login clears the email counter.
     this.loginAttempts.delete(`login:email:${email}`);
     await this.usersService.touchLastLogin(user.id);
-    return this.issueTokens(user);
+    return this.issueTokens(user, undefined, client);
   }
 
   // ---- Password reset (forgot password) ----
@@ -294,7 +295,7 @@ export class AuthService {
    * later than that, or one whose digest does not match the session at all,
    * is still treated as theft.
    */
-  async refresh(refreshToken: string) {
+  async refresh(refreshToken: string, client?: ClientInfo) {
     let payload: RefreshTokenPayload;
     try {
       payload = this.jwtService.verify<RefreshTokenPayload>(refreshToken, {
@@ -352,7 +353,9 @@ export class AuthService {
     session.lastUsedAt = new Date();
     await sessions.save(session);
 
-    return this.issueTokens(user, session.familyId);
+    // The chain continues, but the client can change: the same account moving
+    // from a browser to the installed app is exactly what we want to see.
+    return this.issueTokens(user, session.familyId, client);
   }
 
   /**
@@ -416,6 +419,7 @@ export class AuthService {
     user: User,
     /** Continue an existing chain; a fresh sign-in starts its own. */
     familyId?: string,
+    client?: ClientInfo,
   ): Promise<string> {
     const sessions = this.dataSource.getRepository(RefreshSession);
     const ttlMs = durationToMs(this.config.get<string>('jwt.refreshExpiresIn'));
@@ -427,6 +431,8 @@ export class AuthService {
         expiresAt: new Date(Date.now() + ttlMs),
         lastUsedAt: null,
         revokedAt: null,
+        clientPlatform: client?.platform ?? null,
+        clientKind: client?.kind ?? null,
       }),
     );
     // A sign-in is the root of its own family, and the id only exists once the
@@ -452,10 +458,14 @@ export class AuthService {
     return token;
   }
 
-  private async issueTokens(user: User, familyId?: string) {
+  private async issueTokens(
+    user: User,
+    familyId?: string,
+    client?: ClientInfo,
+  ) {
     return {
       accessToken: this.signAccessToken(user),
-      refreshToken: await this.signRefreshToken(user, familyId),
+      refreshToken: await this.signRefreshToken(user, familyId, client),
       user: {
         id: user.id,
         email: user.email,
