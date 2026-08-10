@@ -12,8 +12,15 @@ import { MailService } from '../mail/mail.service';
 const sessionsRepo = {
   update: jest.fn().mockResolvedValue({ affected: 0 }),
   findOne: jest.fn(),
-  save: jest.fn(),
-  create: jest.fn(),
+  // Issuing tokens saves a session row and reads its id back.
+  save: jest.fn(async (row: Record<string, unknown>) => ({
+    id: 'session-1',
+    ...row,
+  })),
+  create: jest.fn((row: Record<string, unknown>) => ({
+    id: 'session-1',
+    ...row,
+  })),
 };
 
 describe('AuthService — password reset', () => {
@@ -52,7 +59,13 @@ describe('AuthService — password reset', () => {
           useValue: { getRepository: () => sessionsRepo },
         },
         { provide: UsersService, useValue: users },
-        { provide: JwtService, useValue: { signAsync: jest.fn() } },
+        {
+          provide: JwtService,
+          useValue: {
+            sign: jest.fn(() => 'access.token'),
+            signAsync: jest.fn(async () => 'refresh.token'),
+          },
+        },
         {
           provide: ConfigService,
           useValue: {
@@ -121,7 +134,15 @@ describe('AuthService — password reset', () => {
   });
 
   it('hashes the new password and clears the token on success', async () => {
-    users.findByValidResetToken.mockResolvedValue({ id: 'u1' });
+    // Setting a password now also signs the person in, so the service reaches
+    // for the token issuer — the whole point of the change: an invitation
+    // should not end at a sign-in form asking for what was just typed.
+    users.findByValidResetToken.mockResolvedValue({
+      id: 'u1',
+      email: 'brother@example.org',
+      role: 'publisher',
+      congregationId: 'c1',
+    });
     await service.resetPassword('b'.repeat(64), 'newpassword1');
     expect(users.completePasswordReset).toHaveBeenCalledTimes(1);
     const [userId, passwordHash] = users.completePasswordReset.mock.calls[0];

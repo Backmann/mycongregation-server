@@ -10,6 +10,7 @@ import {
 import { Transform } from 'class-transformer';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { SUPPORTED_LANGUAGES } from '../../common/i18n/supported-languages';
+import { PASSWORD_MIN_LENGTH } from '../../auth/password-policy';
 
 export class CreateUserDto {
   @IsEmail()
@@ -25,7 +26,7 @@ export class CreateUserDto {
    */
   @IsOptional()
   @IsString()
-  @MinLength(8)
+  @MinLength(PASSWORD_MIN_LENGTH)
   password?: string;
 
   @IsEnum(UserRole)

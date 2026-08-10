@@ -24,6 +24,7 @@ import { BootstrapDto } from './dto/bootstrap.dto';
 import { UpdateMeDto } from './dto/update-me.dto';
 import type { AuthenticatedUser } from './decorators/current-user.decorator';
 import { LoginDto } from './dto/login.dto';
+import { passwordProblem } from './password-policy';
 
 interface RefreshTokenPayload {
   sub: string;
@@ -224,18 +225,35 @@ export class AuthService {
     return { ok: true };
   }
 
-  async resetPassword(token: string, password: string): Promise<{ ok: true }> {
+  /**
+   * Set a password from a link, and let the person straight in.
+   *
+   * Until now this answered «done» and left him at the sign-in screen, asked
+   * for the address and the password he had typed ten seconds earlier. For an
+   * invitation that is the whole first impression of the app, and it is a
+   * pointless one: the server knows exactly who this is — the link came from
+   * his own mailbox and the password is in its hands.
+   *
+   * Every other device is still signed out first. A reset is the one moment
+   * where killing every session is the point, and the new one issued here
+   * belongs to whoever holds the mailbox, which is precisely the person the
+   * link was for.
+   */
+  async resetPassword(token: string, password: string) {
     const tokenHash = createHash('sha256').update(token).digest('hex');
     const user = await this.usersService.findByValidResetToken(tokenHash);
     if (!user) {
       throw new BadRequestException('Invalid or expired reset link');
     }
+    const problem = passwordProblem(password, user.email);
+    if (problem) {
+      throw new BadRequestException({ code: 'WEAK_PASSWORD', problem });
+    }
     const rounds = this.config.get<number>('bcrypt.rounds') ?? 12;
     const passwordHash = await bcrypt.hash(password, rounds);
     await this.usersService.completePasswordReset(user.id, passwordHash);
-    // A reset is the one moment where killing every device is the point.
     await this.revokeAllSessions(user.id);
-    return { ok: true };
+    return this.issueTokens(user);
   }
 
   async updateMe(userId: string, dto: UpdateMeDto): Promise<AuthenticatedUser> {

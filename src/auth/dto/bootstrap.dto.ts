@@ -9,6 +9,7 @@ import {
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { SUPPORTED_LANGUAGES } from '../../common/i18n/supported-languages';
+import { PASSWORD_MIN_LENGTH } from '../password-policy';
 
 export class BootstrapDto {
   @IsString()
@@ -43,6 +44,6 @@ export class BootstrapDto {
   email!: string;
 
   @IsString()
-  @MinLength(8)
+  @MinLength(PASSWORD_MIN_LENGTH)
   password!: string;
 }

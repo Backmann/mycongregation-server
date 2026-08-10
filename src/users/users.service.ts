@@ -19,6 +19,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { PresenceService } from '../presence/presence.service';
 import { CreateUserDto } from './dto/create-user.dto';
+import { passwordProblem } from '../auth/password-policy';
 
 /**
  * Public projection of a User — excludes sensitive fields (passwordHash)
@@ -582,6 +583,12 @@ export class UsersService {
     if (user.isOwner && actorUserId !== targetId) {
       throw new ForbiddenException('The owner account is protected');
     }
+    // The same bar as a person setting his own: an administrator handing out
+    // «12345678» by telephone is exactly the case worth stopping.
+    const problem = passwordProblem(newPassword, user.email);
+    if (problem) {
+      throw new BadRequestException({ code: 'WEAK_PASSWORD', problem });
+    }
 
     const passwordHash = await this.hashPassword(newPassword);
     await this.usersRepo.update(targetId, { passwordHash });
@@ -648,6 +655,10 @@ export class UsersService {
     const ok = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!ok) {
       throw new BadRequestException('Current password is incorrect');
+    }
+    const problem = passwordProblem(newPassword, user.email);
+    if (problem) {
+      throw new BadRequestException({ code: 'WEAK_PASSWORD', problem });
     }
 
     const passwordHash = await this.hashPassword(newPassword);
