@@ -1,3 +1,5 @@
+import { Logger } from '@nestjs/common';
+
 /**
  * What a request came from — asked of the client, not guessed from its agent.
  *
@@ -16,6 +18,8 @@
  * A platform, an OS version, our own build number and a date — enough to manage
  * access and to know who needs help updating, and nothing beyond that.
  */
+
+const logger = new Logger('Client');
 
 export type ClientPlatform = 'android' | 'ios' | 'windows' | 'mac' | 'other';
 export type ClientKind = 'app' | 'browser';
@@ -58,11 +62,20 @@ export function readClient(
     const fields = parseHeader(stated);
     const platform = (fields.platform ?? '').toLowerCase();
     if (PLATFORMS.has(platform)) {
+      const os = tidyVersion(fields.os);
+      const appVersion = tidyVersion(fields.app);
+      // A client that names its platform but not its build is worth a line:
+      // it means the header arrived and the two useful halves did not, which
+      // is a question about the app and not about this parser. Without this
+      // the only symptom is a blank in a list, and blanks explain nothing.
+      if (!os || !appVersion) {
+        logger.warn(`client stated «${stated}» — os or app missing`);
+      }
       return {
         platform: platform as ClientPlatform,
         kind: fields.kind === 'browser' ? 'browser' : 'app',
-        os: tidyVersion(fields.os),
-        appVersion: tidyVersion(fields.app),
+        os,
+        appVersion,
       };
     }
   }
