@@ -230,8 +230,14 @@ export class UsersService {
         ])
         .where('s.user_id IN (:...ids)', { ids: rows.map((r) => r.id) })
         .andWhere('s.client_platform IS NOT NULL')
-        .orderBy('s.last_used_at', 'DESC', 'NULLS LAST')
-        .addOrderBy('s.created_at', 'DESC')
+        // The NEWEST session, by whichever of its two dates is later.
+        //
+        // Ordering by last_used_at alone put a FRESH sign-in last: a session
+        // that has only just been created has never been used, so that column
+        // is null, and null sorts after every date. The row shown was then an
+        // older session — which is why a phone that had just signed in with the
+        // new app still read «Неизвестно», left over from the build before it.
+        .orderBy('GREATEST(s.last_used_at, s.created_at)', 'DESC')
         .getMany();
       for (const session of sessions) {
         if (clients.has(session.userId)) continue;
