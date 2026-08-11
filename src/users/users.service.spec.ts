@@ -165,6 +165,36 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
       expect((result[0] as any).passwordHash).toBeUndefined();
     });
 
+    it('asks the database for every client field it will show', async () => {
+      // These two went missing once: a later patch rewrote the select list
+      // from an older tree, and the screen showed «Android» with no version
+      // while the database held «36» and «1.1.0». A query selecting less than
+      // it reads says nothing about it — the fields arrive undefined.
+      const qb = listReturns([userFixture({ id: 'u-1' })]);
+      let selected: string[] = [];
+      (repo as unknown as { manager: unknown }).manager = {
+        getRepository: () => ({
+          createQueryBuilder: () => ({
+            select: jest.fn(function (this: unknown, fields: string[]) {
+              selected = fields;
+              return this;
+            }),
+            where: jest.fn().mockReturnThis(),
+            andWhere: jest.fn().mockReturnThis(),
+            orderBy: jest.fn().mockReturnThis(),
+            addOrderBy: jest.fn().mockReturnThis(),
+            getMany: jest.fn().mockResolvedValue([]),
+          }),
+        }),
+      };
+
+      await service.findAllInCongregation(CONG, 'viewer-1');
+
+      expect(selected).toContain('s.clientOs');
+      expect(selected).toContain('s.clientAppVersion');
+      expect(qb).toBeDefined();
+    });
+
     it('masks presence of hidden users for other viewers', async () => {
       listReturns([
         userFixture({ id: 'u-1', hidePresence: true, lastSeenAt: new Date() }),

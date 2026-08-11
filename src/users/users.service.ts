@@ -222,10 +222,18 @@ export class UsersService {
       const sessions = await this.usersRepo.manager
         .getRepository(RefreshSession)
         .createQueryBuilder('s')
+        // Every column the row is asked for below. Two of them went missing
+        // once already: a later patch rewrote this list from a tree where the
+        // wider version had not been saved, and the screen went on showing
+        // «Android» with no version while the database held «36» and «1.1.0»
+        // all along. A query that selects less than it reads is silent about
+        // it — the fields simply come back undefined.
         .select([
           's.userId',
           's.clientPlatform',
           's.clientKind',
+          's.clientOs',
+          's.clientAppVersion',
           's.lastUsedAt',
         ])
         .where('s.user_id IN (:...ids)', { ids: rows.map((r) => r.id) })
