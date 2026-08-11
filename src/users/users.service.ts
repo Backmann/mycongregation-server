@@ -72,8 +72,37 @@ export interface PublicUser {
   lastClient: {
     platform: string;
     kind: string;
+    /** OS version as the client stated it; null when it did not say. */
+    os: string | null;
+    /** Which build of ours he is on; null in a browser. */
+    appVersion: string | null;
+    /**
+     * Whether that build is behind the one being handed out — the whole point
+     * of showing a version. Null when there is nothing to compare against.
+     */
+    outdated: boolean | null;
     at: Date | null;
   } | null;
+}
+
+/**
+ * Is this build older than the one being handed out.
+ *
+ * Numeric, part by part: «1.2.10» is newer than «1.2.9», which a string
+ * comparison gets backwards — the one place this could quietly mislead.
+ */
+function behindCurrent(
+  mine: string | null,
+  current: string | null,
+): boolean | null {
+  if (!mine || !current) return null;
+  const a = mine.split('.').map((n) => parseInt(n, 10) || 0);
+  const b = current.split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const diff = (a[i] ?? 0) - (b[i] ?? 0);
+    if (diff !== 0) return diff < 0;
+  }
+  return false;
 }
 
 function toPublicUser(
@@ -186,6 +215,8 @@ export class UsersService {
 
     // The most recently used living session of each person — one query for the
     // whole list rather than one per row.
+    const currentBuild =
+      this.config.get<string | null>('appVersion.current') ?? null;
     const clients = new Map<string, PublicUser['lastClient']>();
     if (rows.length > 0) {
       const sessions = await this.usersRepo.manager
@@ -207,6 +238,9 @@ export class UsersService {
         clients.set(session.userId, {
           platform: session.clientPlatform as string,
           kind: session.clientKind as string,
+          os: session.clientOs,
+          appVersion: session.clientAppVersion,
+          outdated: behindCurrent(session.clientAppVersion, currentBuild),
           at: session.lastUsedAt,
         });
       }

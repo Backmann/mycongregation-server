@@ -71,6 +71,14 @@ export class RefreshSession {
   @Column({ type: 'varchar', length: 20, nullable: true })
   clientKind: string | null;
 
+  /** «14» for Android 14, «17.4» for an iPhone — a version, not a model. */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  clientOs: string | null;
+
+  /** Which build of OURS — the half that answers «кому помочь обновиться». */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  clientAppVersion: string | null;
+
   /** Set when the session is rotated away, signed out, or revoked wholesale. */
   @Column({ type: 'timestamptz', nullable: true })
   revokedAt: Date | null;

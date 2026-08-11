@@ -30,7 +30,7 @@ import {
   setRefreshCookie,
   wantsCookieAuth,
 } from './refresh-cookie';
-import { readClient } from './read-client';
+import { CLIENT_HEADER, readClient } from './read-client';
 
 @Controller('auth')
 export class AuthController {
@@ -85,7 +85,7 @@ export class AuthController {
     const result = await this.authService.login(
       dto,
       req.ip ?? 'unknown',
-      readClient(req.headers['user-agent']),
+      readClient(req.headers['user-agent'], req.headers[CLIENT_HEADER]),
     );
     return this.deliverTokens(req, res, result);
   }
@@ -102,7 +102,7 @@ export class AuthController {
     if (!token) throw new UnauthorizedException('No refresh token');
     const result = await this.authService.refresh(
       token,
-      readClient(req.headers['user-agent']),
+      readClient(req.headers['user-agent'], req.headers[CLIENT_HEADER]),
     );
     return this.deliverTokens(req, res, result);
   }

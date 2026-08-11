@@ -433,6 +433,8 @@ export class AuthService {
         revokedAt: null,
         clientPlatform: client?.platform ?? null,
         clientKind: client?.kind ?? null,
+        clientOs: client?.os ?? null,
+        clientAppVersion: client?.appVersion ?? null,
       }),
     );
     // A sign-in is the root of its own family, and the id only exists once the

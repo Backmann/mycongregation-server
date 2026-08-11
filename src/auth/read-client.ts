@@ -1,14 +1,20 @@
 /**
- * What a request came from, in the two words worth keeping.
+ * What a request came from — asked of the client, not guessed from its agent.
  *
- * A user-agent string says far more than anybody here needs: version numbers,
- * device models, engine builds. All of that is a way of watching people rather
- * than managing access, so it is read once and thrown away, and what remains is
- * a platform and a kind of client.
+ * THE FIRST VERSION READ THE USER-AGENT ONLY, and on a real phone that produced
+ * «неизвестно»: a React Native app signs its requests `okhttp/4.x` and says
+ * nothing about the platform it runs on. Browsers describe themselves honestly;
+ * our own app was the single client telling the server nothing at all. Guessing
+ * harder would not have helped — the fact simply was not in the string.
  *
- * The kind matters most: 'app' means push notifications reach this person and
- * an update has to be installed; 'browser' means neither. That single fact is
- * what an administrator is really asking when he wonders who has the app.
+ * So the app now states it, in one header, and the user-agent stays as the
+ * fallback for browsers and for older builds that do not send it yet.
+ *
+ *   X-Client: platform=android; kind=app; os=14; app=1.1.0
+ *
+ * WHAT IS NEVER READ, header or not: device model, IP address, browser build.
+ * A platform, an OS version, our own build number and a date — enough to manage
+ * access and to know who needs help updating, and nothing beyond that.
  */
 
 export type ClientPlatform = 'android' | 'ios' | 'windows' | 'mac' | 'other';
@@ -17,14 +23,52 @@ export type ClientKind = 'app' | 'browser';
 export interface ClientInfo {
   platform: ClientPlatform;
   kind: ClientKind;
+  /** OS version as the client states it, or null when it did not. */
+  os: string | null;
+  /** Which build of our app, or null in a browser. */
+  appVersion: string | null;
 }
 
-/**
- * Expo's own agent identifies the installed app; anything else on a phone is
- * that phone's browser. Deliberately forgiving: an unknown agent is 'other' and
- * 'browser', never a guess dressed up as a fact.
- */
-export function readClient(userAgent: string | undefined): ClientInfo {
+const PLATFORMS = new Set(['android', 'ios', 'windows', 'mac', 'other']);
+
+/** `a=1; b=2` → a map, forgiving of spacing and of anything unexpected. */
+function parseHeader(value: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of value.split(';')) {
+    const [key, ...rest] = part.split('=');
+    if (!key || rest.length === 0) continue;
+    out[key.trim().toLowerCase()] = rest.join('=').trim();
+  }
+  return out;
+}
+
+/** Keep a stated version short and plain — «14», «17.4», «1.1.0». */
+function tidyVersion(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const cleaned = raw.trim().slice(0, 20);
+  return /^[0-9][0-9.]*$/.test(cleaned) ? cleaned : null;
+}
+
+export function readClient(
+  userAgent: string | undefined,
+  clientHeader?: string | string[] | undefined,
+): ClientInfo {
+  const stated = Array.isArray(clientHeader) ? clientHeader[0] : clientHeader;
+  if (stated) {
+    const fields = parseHeader(stated);
+    const platform = (fields.platform ?? '').toLowerCase();
+    if (PLATFORMS.has(platform)) {
+      return {
+        platform: platform as ClientPlatform,
+        kind: fields.kind === 'browser' ? 'browser' : 'app',
+        os: tidyVersion(fields.os),
+        appVersion: tidyVersion(fields.app),
+      };
+    }
+  }
+
+  // No header: a browser, or one of our older builds. The agent is honest
+  // about browsers, which is exactly the case this still covers.
   const ua = (userAgent ?? '').toLowerCase();
 
   const kind: ClientKind =
@@ -42,5 +86,10 @@ export function readClient(userAgent: string | undefined): ClientInfo {
   // somebody at a desk.
   if (kind === 'app' && platform === 'mac') platform = 'ios';
 
-  return { platform, kind };
+  // A browser states its platform in the agent; the version there is the
+  // BROWSER's, not the system's, so it is left out rather than misreported.
+  return { platform, kind, os: null, appVersion: null };
 }
+
+/** The header's name, shared so the app and the server cannot drift apart. */
+export const CLIENT_HEADER = 'x-client';
