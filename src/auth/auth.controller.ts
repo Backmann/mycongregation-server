@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Logger,
   Patch,
   Post,
   Req,
@@ -34,6 +35,29 @@ import { CLIENT_HEADER, readClient } from './read-client';
 
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger('AuthClient');
+
+  /**
+   * Write down what the client said about itself, on the two requests that
+   * record it.
+   *
+   * A temporary pair of eyes, and it exists because the previous attempt could
+   * not distinguish «the header arrived without versions» from «no request
+   * happened at all» — the log stayed empty either way, and an empty log is
+   * not evidence. This line appears whichever it is, so the next look settles
+   * the question instead of adding another guess.
+   *
+   * Remove once «Android 15 · приложение 1.1.0» is confirmed on a live phone.
+   */
+  private noteClient(where: string, req: Request): void {
+    const stated = req.headers[CLIENT_HEADER];
+    const agent = req.headers['user-agent'];
+    this.logger.warn(
+      `${where}: x-client=${stated ? `«${String(stated)}»` : '(none)'} ` +
+        `ua=«${String(agent ?? '')}»`,
+    );
+  }
+
   constructor(
     private readonly authService: AuthService,
     private readonly usersService: UsersService,
@@ -82,6 +106,7 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
+    this.noteClient('login', req);
     const result = await this.authService.login(
       dto,
       req.ip ?? 'unknown',
@@ -100,6 +125,7 @@ export class AuthController {
   ) {
     const token = readRefreshToken(req, dto.refreshToken);
     if (!token) throw new UnauthorizedException('No refresh token');
+    this.noteClient('refresh', req);
     const result = await this.authService.refresh(
       token,
       readClient(req.headers['user-agent'], req.headers[CLIENT_HEADER]),
