@@ -12,6 +12,8 @@ import { ElderTaskCalendarLog } from '../entities/elder-task-calendar-log.entity
 import { CalendarTasksService } from './calendar-tasks.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { TaskRemindersService } from './task-reminders.service';
+import { EldersMeetingItem } from '../entities/elders-meeting-item.entity';
+import { AgendaItemsService } from './agenda-items.service';
 
 @Module({
   imports: [
@@ -23,6 +25,7 @@ import { TaskRemindersService } from './task-reminders.service';
       Responsibility,
       Congregation,
       ElderTaskCalendarLog,
+      EldersMeetingItem,
     ]),
   ],
   controllers: [TasksController],
@@ -31,12 +34,14 @@ import { TaskRemindersService } from './task-reminders.service';
     TaskAddresseesService,
     CalendarTasksService,
     TaskRemindersService,
+    AgendaItemsService,
   ],
   exports: [
     TasksService,
     TaskAddresseesService,
     CalendarTasksService,
     TaskRemindersService,
+    AgendaItemsService,
   ],
 })
 export class TasksModule {}

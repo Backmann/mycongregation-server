@@ -54,6 +54,30 @@ export class EldersMeeting {
   @Column({ type: 'uuid', nullable: true })
   createdById!: string | null;
 
+  /** Where it is held — a hall from the list, or a line of one's own. */
+  @Column({ type: 'uuid', nullable: true })
+  hallId!: string | null;
+
+  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
+  placeText!: string | null;
+
+  /** Who keeps the record — the secretary unless somebody else is named. */
+  @Column({ type: 'uuid', nullable: true })
+  minuteTakerPublisherId!: string | null;
+
+  /**
+   * Until this is set, the agenda is the coordinator's alone.
+   *
+   * Questions reach him by letter and he decides what goes on; an unfinished
+   * agenda read by five people is five conversations about something not yet
+   * decided. Approving it opens the items to the body and sends word.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  approvedAt!: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  approvedById!: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
