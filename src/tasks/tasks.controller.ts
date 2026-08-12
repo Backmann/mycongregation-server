@@ -29,6 +29,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { TaskAddresseesService } from './task-addressees.service';
+import { AgendaItemsService } from './agenda-items.service';
 
 const AREAS = [
   'ministry',
@@ -46,6 +47,23 @@ export class UpsertMeetingDto {
   @IsOptional() @IsISO8601() date?: string;
   @IsOptional() @IsString() @MaxLength(5) startTime?: string | null;
   @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
+  /** A hall from the list, OR a line of one's own — meetings are often at home. */
+  @IsOptional() @IsUUID() hallId?: string | null;
+  @IsOptional() @IsString() @MaxLength(300) placeText?: string | null;
+  @IsOptional() @IsUUID() minuteTakerPublisherId?: string | null;
+}
+
+export class UpsertItemDto {
+  @IsOptional() @IsString() @MaxLength(300) title?: string;
+  @IsOptional() @IsString() @MaxLength(300) sourceText?: string | null;
+  @IsOptional() @IsString() @MaxLength(500) sourceUrl?: string | null;
+  @IsOptional() @IsUUID() presenterPublisherId?: string | null;
+  @IsOptional() @IsInt() @Min(1) @Max(240) minutes?: number;
+  @IsOptional()
+  @IsIn(['reviewed', 'carried', 'task'])
+  outcome?: 'reviewed' | 'carried' | 'task' | null;
+  @IsOptional() @IsString() @MaxLength(4000) outcomeNote?: string | null;
+  @IsOptional() @IsUUID() taskId?: string | null;
 }
 
 export class UpsertTaskDto {
@@ -87,6 +105,7 @@ export class TasksController {
   constructor(
     private readonly service: TasksService,
     private readonly addressees: TaskAddresseesService,
+    private readonly items: AgendaItemsService,
   ) {}
 
   // ---- Meetings ---------------------------------------------------------
@@ -121,6 +140,89 @@ export class TasksController {
   @Delete('meetings/:id')
   removeMeeting(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.service.removeMeeting(tenantId, id);
+  }
+
+  // ---- Agenda items -----------------------------------------------------
+
+  @Get('meetings/:id/items')
+  listItems(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.items.list(user, id);
+  }
+
+  /** Whether THIS person may build the agenda or record what was decided. */
+  @Get('meetings/:id/rights')
+  async itemRights(
+    @Param('id') id: string,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const meeting = await this.service.getMeeting(tenantId, id);
+    return {
+      mayBuild: await this.items.mayBuild(user),
+      mayRecord: meeting ? await this.items.mayRecord(user, meeting) : false,
+    };
+  }
+
+  @Post('meetings/:id/items')
+  createItem(
+    @Param('id') id: string,
+    @Body() dto: UpsertItemDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.items.create(user, id, { ...dto, title: dto.title as string });
+  }
+
+  @Patch('items/:itemId')
+  updateItem(
+    @Param('itemId') itemId: string,
+    @Body() dto: UpsertItemDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.items.update(user, itemId, dto);
+  }
+
+  @Post('items/:itemId/move')
+  moveItem(
+    @Param('itemId') itemId: string,
+    @Body() dto: { direction: 'up' | 'down' },
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.items.move(user, itemId, dto.direction);
+  }
+
+  @Delete('items/:itemId')
+  removeItem(
+    @Param('itemId') itemId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.items.remove(user, itemId);
+  }
+
+  /**
+   * Approve it, and let the body know.
+   *
+   * The one act that turns a draft into an agenda: from here every elder sees
+   * the items, and word goes out with the day, the hour and the place — and
+   * NOT with the items themselves, by the same rule that governs every push
+   * here. Approving twice sends word once.
+   */
+  @Post('meetings/:id/approve')
+  approve(
+    @Param('id') id: string,
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.approveMeeting(tenantId, id, user);
+  }
+
+  /** Close it: what has no outcome travels to the next meeting. */
+  @Post('meetings/:id/close')
+  close(
+    @Param('id') id: string,
+    @TenantId() tenantId: string,
+    @Body() dto: { toMeetingId?: string | null },
+  ) {
+    return this.items.carryOver(tenantId, id, dto?.toMeetingId ?? null);
   }
 
   // ---- The agenda -------------------------------------------------------

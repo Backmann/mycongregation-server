@@ -25,6 +25,8 @@ describe('TaskRemindersService.runDue', () => {
       { find: async () => tasks } as never,
       // The congregation, for the language the words are written in.
       { findOne: async () => ({ language: 'ru' }) } as never,
+      // Meetings — the day-before reminder looks here; none in these tests.
+      { find: async () => [] } as never,
       { membersOf: async () => [{ id: 'p1', userId: 'u1' }] } as never,
       { notify } as never,
     );
@@ -134,6 +136,43 @@ describe('TaskRemindersService.runDue', () => {
     expect(sent.body).toContain('Объявления');
   });
 
+  it('reminds the body the evening before its own meeting', async () => {
+    // Lionel was right that this matters more than the notice of approval:
+    // «the agenda is ready» is useful once, «the meeting is tomorrow» is
+    // useful the evening before.
+    const notify = jest.fn(
+      async (_input: Record<string, unknown>) => undefined,
+    );
+    // In the order the service declares them: tasks, congregations, meetings,
+    // addressees, notifications.
+    const service = new TaskRemindersService(
+      { find: async () => [] } as never,
+      { findOne: async () => ({ language: 'ru' }) } as never,
+      {
+        find: async () => [
+          {
+            id: 'm1',
+            congregationId: 'c1',
+            date: '2026-08-13',
+            startTime: '19:00',
+            placeText: 'Bunsenstr. 46',
+          },
+        ],
+      } as never,
+      {
+        membersOf: async () => [],
+        membersOfKind: async () => [{ id: 'p1', userId: 'u1' }],
+      } as never,
+      { notify } as never,
+    );
+
+    await service.runDue(at('2026-08-12T09:00:00Z'));
+
+    const sent = notify.mock.calls[0][0] as { title: string; key: string };
+    expect(sent.title).toBe('Завтра встреча совета старейшин');
+    expect(sent.key).toBe('meeting-tomorrow:m1');
+  });
+
   it('says nothing when nobody it reaches has a login', async () => {
     const notify = jest.fn(
       async (_input: Record<string, unknown>) => undefined,
@@ -145,6 +184,8 @@ describe('TaskRemindersService.runDue', () => {
         ],
       } as never,
       { findOne: async () => ({ language: 'ru' }) } as never,
+      // Meetings — the day-before reminder looks here; none in these tests.
+      { find: async () => [] } as never,
       { membersOf: async () => [{ id: 'p9', userId: null }] } as never,
       { notify } as never,
     );

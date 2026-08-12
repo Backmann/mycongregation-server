@@ -100,6 +100,43 @@ export class TasksService {
     return this.meetings.save(entity);
   }
 
+  getMeeting(
+    congregationId: string,
+    id: string,
+  ): Promise<EldersMeeting | null> {
+    return this.meetings.findOne({ where: { id, congregationId } });
+  }
+
+  /**
+   * Turn a draft into an agenda, and tell the body.
+   *
+   * The word carries the day, the hour and the place — and NOT the items, by
+   * the same rule that governs every push in this app: it shows on a locked
+   * screen the family can see. Approving twice sends word once; the key sees
+   * to that, so a coordinator who taps again out of doubt does not summon
+   * everybody a second time.
+   */
+  async approveMeeting(
+    congregationId: string,
+    id: string,
+    user: { id: string },
+  ): Promise<EldersMeeting> {
+    const meeting = await this.meetings.findOne({
+      where: { id, congregationId },
+    });
+    if (!meeting) throw new NotFoundException('Meeting not found');
+
+    const firstTime = !meeting.approvedAt;
+    meeting.approvedAt = meeting.approvedAt ?? new Date();
+    meeting.approvedById = meeting.approvedById ?? user.id;
+    const saved = await this.meetings.save(meeting);
+
+    if (firstTime) {
+      void this.reminders.announceAgendaApproved(saved).catch(() => undefined);
+    }
+    return saved;
+  }
+
   async updateMeeting(
     congregationId: string,
     id: string,

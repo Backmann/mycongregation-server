@@ -10,6 +10,7 @@ import {
   coerceLanguage,
   SupportedLanguage,
 } from '../common/i18n/supported-languages';
+import { EldersMeeting } from '../entities/elders-meeting.entity';
 
 /**
  * Reminders for the body's own work — the thing this module shipped without.
@@ -52,6 +53,8 @@ const STR: Record<
   SupportedLanguage,
   {
     assigned: string;
+    agendaReady: string;
+    meetingTomorrow: string;
     tomorrow: string;
     soon: string;
     overdue: string;
@@ -60,6 +63,8 @@ const STR: Record<
 > = {
   ru: {
     assigned: 'Вам поручена задача',
+    agendaReady: 'Повестка готова',
+    meetingTomorrow: 'Завтра встреча совета старейшин',
     tomorrow: 'Задача на завтра',
     soon: 'Задача сегодня',
     overdue: 'Задача просрочена',
@@ -67,6 +72,8 @@ const STR: Record<
   },
   en: {
     assigned: 'A task has been given to you',
+    agendaReady: 'The agenda is ready',
+    meetingTomorrow: 'The elders meet tomorrow',
     tomorrow: 'A task is due tomorrow',
     soon: 'A task is due today',
     overdue: 'A task is overdue',
@@ -74,6 +81,8 @@ const STR: Record<
   },
   de: {
     assigned: 'Dir wurde eine Aufgabe übertragen',
+    agendaReady: 'Die Tagesordnung ist fertig',
+    meetingTomorrow: 'Morgen ist die Ältestenzusammenkunft',
     tomorrow: 'Eine Aufgabe ist morgen fällig',
     soon: 'Eine Aufgabe ist heute fällig',
     overdue: 'Eine Aufgabe ist überfällig',
@@ -121,6 +130,8 @@ export class TaskRemindersService {
     private readonly tasks: Repository<ElderTask>,
     @InjectRepository(Congregation)
     private readonly congregations: Repository<Congregation>,
+    @InjectRepository(EldersMeeting)
+    private readonly meetings: Repository<EldersMeeting>,
     private readonly addressees: TaskAddresseesService,
     private readonly notifications: NotificationsService,
   ) {}
@@ -148,6 +159,50 @@ export class TaskRemindersService {
   /** Cards → the user accounts behind them; a card with no login reaches nobody. */
   private userIdsOf(members: Publisher[]): string[] {
     return members.map((p) => p.userId).filter((id): id is string => !!id);
+  }
+
+  /**
+   * The agenda is settled — every elder is told when and where, and no more.
+   *
+   * The items themselves never travel: this notification lands on a locked
+   * screen, and the questions a body of elders discusses are the last thing
+   * that belongs there. Whoever wants them opens the app.
+   */
+  async announceAgendaApproved(meeting: {
+    id: string;
+    congregationId: string;
+    date: string;
+    startTime: string | null;
+    placeText: string | null;
+  }): Promise<void> {
+    const elders = await this.addressees.membersOfKind(
+      meeting.congregationId,
+      'body_of_elders',
+    );
+    const userIds = this.userIdsOf(elders);
+    if (userIds.length === 0) return;
+
+    const lang = await this.languageOf(meeting.congregationId);
+    await this.notifications.notify({
+      tenantId: meeting.congregationId,
+      userIds,
+      title: STR[lang].agendaReady,
+      body: this.meetingLine(meeting),
+      data: { type: 'agenda_approved', meetingId: meeting.id },
+      kind: 'elders_meeting',
+      key: `agenda-approved:${meeting.id}`,
+    });
+  }
+
+  /** «12 августа · 19:00 · Bunsenstr. 46» — the three facts of a meeting. */
+  private meetingLine(meeting: {
+    date: string;
+    startTime: string | null;
+    placeText: string | null;
+  }): string {
+    return [meeting.date, meeting.startTime, meeting.placeText]
+      .filter(Boolean)
+      .join(' · ');
   }
 
   /** Told at once, so the notice is notice rather than a rush. */
@@ -223,7 +278,44 @@ export class TaskRemindersService {
       sent += 1;
     }
 
+    sent += await this.remindOfMeetings(tomorrow);
+
     if (sent > 0) this.logger.log(`task reminders: ${sent}`);
+    return sent;
+  }
+
+  /**
+   * «The elders meet tomorrow» — for the meeting itself, not its work.
+   *
+   * Lionel asked for this and was right that it matters more than the notice
+   * of approval: knowing the agenda is ready is useful once, and knowing the
+   * meeting is tomorrow is useful the evening before.
+   */
+  private async remindOfMeetings(tomorrow: string): Promise<number> {
+    const meetings = await this.meetings.find({
+      where: { date: tomorrow, approvedAt: Not(IsNull()) },
+    });
+    let sent = 0;
+    for (const meeting of meetings) {
+      const elders = await this.addressees.membersOfKind(
+        meeting.congregationId,
+        'body_of_elders',
+      );
+      const userIds = this.userIdsOf(elders);
+      if (userIds.length === 0) continue;
+
+      const lang = await this.languageOf(meeting.congregationId);
+      await this.notifications.notify({
+        tenantId: meeting.congregationId,
+        userIds,
+        title: STR[lang].meetingTomorrow,
+        body: this.meetingLine(meeting),
+        data: { type: 'elders_meeting_tomorrow', meetingId: meeting.id },
+        kind: 'elders_meeting',
+        key: `meeting-tomorrow:${meeting.id}`,
+      });
+      sent += 1;
+    }
     return sent;
   }
 
