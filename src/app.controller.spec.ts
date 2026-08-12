@@ -16,7 +16,12 @@ describe('AppController', () => {
 
   describe('root', () => {
     it('should return "Hello World!"', () => {
-      expect(appController.getHello()).toBe('Hello World!');
+      const root = appController.getHello();
+      expect(root).toContain('mycongregation API');
+      expect(root).toContain('https://mycongregation.org');
+      // The front door names the service and points at the app. It must NOT
+      // list routes: that would hand a map to whoever was merely curious.
+      expect(root).not.toMatch(/\/api\/[a-z]/);
     });
   });
 
