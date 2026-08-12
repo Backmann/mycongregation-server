@@ -7,6 +7,9 @@ import { TasksController } from './tasks.controller';
 import { Publisher } from '../entities/publisher.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { TaskAddresseesService } from './task-addressees.service';
+import { Congregation } from '../entities/congregation.entity';
+import { ElderTaskCalendarLog } from '../entities/elder-task-calendar-log.entity';
+import { CalendarTasksService } from './calendar-tasks.service';
 
 @Module({
   imports: [
@@ -15,10 +18,12 @@ import { TaskAddresseesService } from './task-addressees.service';
       EldersMeeting,
       Publisher,
       Responsibility,
+      Congregation,
+      ElderTaskCalendarLog,
     ]),
   ],
   controllers: [TasksController],
-  providers: [TasksService, TaskAddresseesService],
-  exports: [TasksService, TaskAddresseesService],
+  providers: [TasksService, TaskAddresseesService, CalendarTasksService],
+  exports: [TasksService, TaskAddresseesService, CalendarTasksService],
 })
 export class TasksModule {}

@@ -5,6 +5,7 @@ import { PushNotificationsService } from '../push-notifications/push-notificatio
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CleaningRemindersService } from '../cleaning/cleaning-reminders.service';
+import { CalendarTasksService } from '../tasks/calendar-tasks.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -16,6 +17,7 @@ export class ScheduledJobsService {
     private readonly notifications: NotificationsService,
     private readonly auditLogService: AuditLogService,
     private readonly cleaningReminders: CleaningRemindersService,
+    private readonly calendarTasks: CalendarTasksService,
   ) {}
 
   /**
@@ -59,6 +61,26 @@ export class ScheduledJobsService {
   }
 
   /** Prune the outbox nightly at 04:15 UTC — see NotificationsService. */
+  /**
+   * Put the calendar's own work on the list.
+   *
+   * Nightly and early, so a thing that starts today is there before anybody
+   * opens the app. Creating is idempotent — a period already offered is
+   * skipped — so running twice costs nothing and a missed night catches up by
+   * itself.
+   */
+  @Cron('30 3 * * *', {
+    name: 'calendar-tasks',
+    timeZone: 'Europe/Berlin',
+  })
+  async handleCalendarTasks(): Promise<void> {
+    try {
+      await this.calendarTasks.ensureForToday();
+    } catch (e) {
+      this.logger.error(`calendar tasks failed: ${String(e)}`);
+    }
+  }
+
   @Cron('15 4 * * *', {
     name: 'notification-outbox-cleanup',
     timeZone: 'UTC',

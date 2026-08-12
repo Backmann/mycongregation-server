@@ -6,9 +6,11 @@ import { PushNotificationsModule } from '../push-notifications/push-notification
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { CleaningModule } from '../cleaning/cleaning.module';
+import { TasksModule } from '../tasks/tasks.module';
 
 @Module({
   imports: [
+    TasksModule,
     PublishersModule,
     PushNotificationsModule,
     NotificationsModule,

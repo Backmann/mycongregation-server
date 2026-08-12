@@ -54,6 +54,7 @@ describe('ScheduledJobsService', () => {
       notificationsService as any,
       auditLogService as any,
       { runDueReminders: jest.fn() } as any,
+      { ensureForToday: jest.fn(async () => 0) } as never,
     );
   });
 
