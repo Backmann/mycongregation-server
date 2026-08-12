@@ -4,6 +4,7 @@ import { In, Repository } from 'typeorm';
 import { ElderTask } from '../entities/elder-task.entity';
 import { EldersMeeting } from '../entities/elders-meeting.entity';
 import { Publisher } from '../entities/publisher.entity';
+import { TaskAddresseesService } from './task-addressees.service';
 
 export interface AgendaResult {
   meeting: EldersMeeting | null;
@@ -70,6 +71,7 @@ export class TasksService {
     private readonly meetings: Repository<EldersMeeting>,
     @InjectRepository(Publisher)
     private readonly publishers: Repository<Publisher>,
+    private readonly addressees: TaskAddresseesService,
   ) {}
 
   // ---- Meetings ---------------------------------------------------------
@@ -123,14 +125,50 @@ export class TasksService {
 
   // ---- Tasks ------------------------------------------------------------
 
-  listTasks(
+  /**
+   * The list, with WHOM each task reaches worked out.
+   *
+   * The two bodies carry no stored names, so the screen cannot tell whether a
+   * task is «mine» without asking who is in them today. Resolving it here means
+   * one lookup for the whole page instead of one per card, and means the app
+   * never has to know the rule.
+   */
+  async listTasks(
     congregationId: string,
     status?: 'open' | 'done',
-  ): Promise<ElderTask[]> {
-    return this.tasks.find({
+  ): Promise<(ElderTask & { members: { id: string }[] })[]> {
+    const rows = await this.tasks.find({
       where: { congregationId, ...(status ? { status } : {}) },
+      relations: { assignees: true },
       order: { dueDate: 'ASC', createdAt: 'DESC' },
     });
+
+    // Both bodies are read once, not per task.
+    const committee = rows.some((r) => r.assigneeKind === 'service_committee')
+      ? await this.addressees.membersOfKind(congregationId, 'service_committee')
+      : [];
+    const body = rows.some((r) => r.assigneeKind === 'body_of_elders')
+      ? await this.addressees.membersOfKind(congregationId, 'body_of_elders')
+      : [];
+
+    return rows.map((task) => ({
+      ...task,
+      members:
+        task.assigneeKind === 'service_committee'
+          ? committee
+          : task.assigneeKind === 'body_of_elders'
+            ? body
+            : (task.assignees ?? []),
+    })) as (ElderTask & { members: { id: string }[] })[];
+  }
+
+  /** Every open task this brother is on, however it was addressed. */
+  async myTasks(
+    congregationId: string,
+    publisherId: string,
+  ): Promise<ElderTask[]> {
+    const all = await this.listTasks(congregationId, 'open');
+    return all.filter((t) => t.members.some((m) => m.id === publisherId));
   }
 
   async createTask(

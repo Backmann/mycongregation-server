@@ -8,6 +8,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { TasksService } from '../tasks/tasks.service';
 
 /**
  * Aggregated "my" views for the signed-in member. Open to any authenticated
@@ -20,6 +21,7 @@ export class MeController {
     private readonly service: MeService,
     private readonly notifications: NotificationsService,
     private readonly dataRights: DataRightsService,
+    private readonly tasks: TasksService,
   ) {}
 
   @Get('assignments')
@@ -64,6 +66,26 @@ export class MeController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.myPublisher(tenantId, user.id);
+  }
+
+  /**
+   * The open tasks put on ME — and nothing else.
+   *
+   * The tasks section belongs to the elders, and that stays: a brother has no
+   * business reading what the body is working through. But a task given to him
+   * and invisible to him is not a task, it is a telephone call somebody still
+   * has to make. This route is the narrow answer: his own, whichever way they
+   * were addressed, and refused by the server to anybody asking about another.
+   */
+  @Get('tasks')
+  async myTasks(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const me = await this.service.myPublisher(tenantId, user.id);
+    const card = (me as { publisher?: { id?: string } })?.publisher;
+    if (!card?.id) return [];
+    return this.tasks.myTasks(tenantId, card.id);
   }
 
   /**

@@ -1,5 +1,6 @@
 import { TaskAddresseesService } from './task-addressees.service';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
+import { TasksService } from './tasks.service';
 
 /**
  * The membership is READ, never stored — replace the secretary and a task
@@ -122,5 +123,30 @@ describe('TaskAddresseesService', () => {
     });
 
     expect(await service.auditObjection('c1', 'p2')).toBeNull();
+  });
+});
+
+/**
+ * The list resolves whom each task reaches, so the screen never has to know
+ * the rule and «мои» can be worked out without a lookup per card.
+ */
+describe('TasksService.myTasks', () => {
+  it('finds tasks reaching me through a body, not only by name', async () => {
+    const rows = [
+      { id: 't1', assigneeKind: 'body_of_elders', assignees: [] },
+      { id: 't2', assigneeKind: 'people', assignees: [{ id: 'p-other' }] },
+      { id: 't3', assigneeKind: 'people', assignees: [{ id: 'p-me' }] },
+    ];
+    const service = new TasksService(
+      { find: async () => rows } as never,
+      {} as never,
+      {} as never,
+      { membersOfKind: async () => [{ id: 'p-me' }] } as never,
+    );
+
+    const mine = await service.myTasks('c1', 'p-me');
+
+    // t1 through the body, t3 by name; t2 belongs to somebody else.
+    expect(mine.map((t) => t.id).sort()).toEqual(['t1', 't3']);
   });
 });

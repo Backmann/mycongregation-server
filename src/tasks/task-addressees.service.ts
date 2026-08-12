@@ -65,6 +65,19 @@ export class TaskAddresseesService {
     });
   }
 
+  /** Whoever is in a body right now — asked once for a whole page. */
+  async membersOfKind(
+    congregationId: string,
+    kind: 'service_committee' | 'body_of_elders',
+  ): Promise<Publisher[]> {
+    return kind === 'service_committee'
+      ? this.byResponsibility(
+          congregationId,
+          TaskAddresseesService.SERVICE_COMMITTEE,
+        )
+      : this.elders(congregationId);
+  }
+
   /** Whom this task reaches, whichever way it was addressed. */
   async membersOf(task: ElderTask): Promise<Publisher[]> {
     if (task.assigneeKind === 'service_committee') {

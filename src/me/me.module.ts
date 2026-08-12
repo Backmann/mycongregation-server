@@ -17,9 +17,11 @@ import { MeService } from './me.service';
 import { MeController } from './me.controller';
 import { DataRightsService } from './data-rights.service';
 import { CongregationClockModule } from '../common/congregation-clock.module';
+import { TasksModule } from '../tasks/tasks.module';
 
 @Module({
   imports: [
+    TasksModule,
     CongregationClockModule,
     NotificationsModule,
     AuditLogModule,

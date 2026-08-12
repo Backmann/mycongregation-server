@@ -50,6 +50,7 @@ function svc(tasks: ElderTask[], meetings: EldersMeeting[]) {
     // Publishers — only reached when a task names brothers, which the agenda
     // tests never do.
     { find: async () => [] } as never,
+    { membersOfKind: async () => [] } as never,
   );
 }
 

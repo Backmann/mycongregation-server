@@ -28,6 +28,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { TaskAddresseesService } from './task-addressees.service';
 
 const AREAS = [
   'ministry',
@@ -83,7 +84,10 @@ export class UpsertTaskDto {
 @UseGuards(RolesGuard)
 @Roles(UserRole.ADMIN, UserRole.ELDER)
 export class TasksController {
-  constructor(private readonly service: TasksService) {}
+  constructor(
+    private readonly service: TasksService,
+    private readonly addressees: TaskAddresseesService,
+  ) {}
 
   // ---- Meetings ---------------------------------------------------------
 
@@ -135,6 +139,27 @@ export class TasksController {
     @Query('status') status?: 'open' | 'done',
   ) {
     return this.service.listTasks(tenantId, status);
+  }
+
+  /**
+   * Why a brother must not audit the accounts, per brother.
+   *
+   * Asked by the form as the choice is made, so the answer arrives before the
+   * save rather than as a refusal after it. Two of the three are refusals and
+   * one is advice — the caller is told which, and the wording is the app's.
+   */
+  @Get('audit-objections')
+  async auditObjections(
+    @TenantId() tenantId: string,
+    @Query('publisherIds') publisherIds?: string,
+  ) {
+    const ids = (publisherIds ?? '').split(',').filter(Boolean);
+    const out: Record<string, string> = {};
+    for (const id of ids) {
+      const reason = await this.addressees.auditObjection(tenantId, id);
+      if (reason) out[id] = reason;
+    }
+    return out;
   }
 
   @Post()
