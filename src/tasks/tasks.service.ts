@@ -1,8 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { ElderTask } from '../entities/elder-task.entity';
 import { EldersMeeting } from '../entities/elders-meeting.entity';
+import { Publisher } from '../entities/publisher.entity';
 
 export interface AgendaResult {
   meeting: EldersMeeting | null;
@@ -22,6 +23,44 @@ export interface AgendaResult {
  * stops being opened. A meeting is the rhythm the body already has, so the
  * list is built to feed it.
  */
+/**
+ * What a caller may set on a task.
+ *
+ * Wider than the entity on purpose: `dueInDays` and `dueInMonths` never reach
+ * the database — they are turned into a date on the way in.
+ */
+export interface TaskInput extends Partial<ElderTask> {
+  assigneePublisherIds?: string[];
+  dueInDays?: number;
+  dueInMonths?: number;
+}
+
+/**
+ * A period becomes a date at the moment of writing, and stays an ordinary
+ * date afterwards.
+ *
+ * «In three months» kept as a period would have to be recalculated on every
+ * read, and would silently move if anybody edited anything near it. Counted
+ * once, it is a deadline a person can see and shift — which is what everybody
+ * means when they say «by then».
+ */
+export function resolveDueDate(dto: {
+  dueDate?: string | null;
+  dueInDays?: number;
+  dueInMonths?: number;
+}): string | null {
+  if (dto.dueDate !== undefined && dto.dueDate !== null) return dto.dueDate;
+  const from = new Date();
+  if (dto.dueInDays) {
+    from.setDate(from.getDate() + dto.dueInDays);
+  } else if (dto.dueInMonths) {
+    from.setMonth(from.getMonth() + dto.dueInMonths);
+  } else {
+    return dto.dueDate ?? null;
+  }
+  return from.toISOString().slice(0, 10);
+}
+
 @Injectable()
 export class TasksService {
   constructor(
@@ -29,6 +68,8 @@ export class TasksService {
     private readonly tasks: Repository<ElderTask>,
     @InjectRepository(EldersMeeting)
     private readonly meetings: Repository<EldersMeeting>,
+    @InjectRepository(Publisher)
+    private readonly publishers: Repository<Publisher>,
   ) {}
 
   // ---- Meetings ---------------------------------------------------------
@@ -94,7 +135,7 @@ export class TasksService {
 
   async createTask(
     congregationId: string,
-    dto: Partial<ElderTask> & { title: string },
+    dto: TaskInput & { title: string },
     userId: string | null,
   ): Promise<ElderTask> {
     const entity = this.tasks.create({
@@ -102,31 +143,79 @@ export class TasksService {
       title: dto.title,
       details: dto.details ?? null,
       area: dto.area ?? 'other',
-      assigneePublisherId: dto.assigneePublisherId ?? null,
-      dueDate: dto.dueDate ?? null,
+      assigneeKind: dto.assigneeKind ?? 'people',
+      // The old single field goes on being written: the first named brother.
+      // Nothing that reads it needs changing, and a task written before the
+      // list existed still reads the same way.
+      assigneePublisherId:
+        dto.assigneePublisherIds?.[0] ?? dto.assigneePublisherId ?? null,
+      dueDate: resolveDueDate(dto),
+      dueTime: dto.dueTime ?? null,
+      kind: dto.kind ?? null,
+      kindPeriod: dto.kindPeriod ?? null,
       eldersMeetingId: dto.eldersMeetingId ?? null,
       status: 'open',
       createdById: userId,
     });
+    entity.assignees = await this.resolveNamed(congregationId, dto);
     return this.tasks.save(entity);
+  }
+
+  /**
+   * The named brothers, and only for the kind that has names.
+   *
+   * The committee and the body carry none: their members are read from current
+   * responsibilities whenever the task is shown, so that replacing the
+   * secretary moves the task to whoever holds the office now. Storing the
+   * names would freeze a body that is not frozen.
+   */
+  private async resolveNamed(
+    congregationId: string,
+    dto: TaskInput,
+  ): Promise<Publisher[]> {
+    if ((dto.assigneeKind ?? 'people') !== 'people') return [];
+    const ids = dto.assigneePublisherIds ?? [];
+    if (ids.length === 0) return [];
+    return this.publishers.find({
+      where: { id: In(ids), congregationId },
+    });
   }
 
   async updateTask(
     congregationId: string,
     id: string,
-    dto: Partial<ElderTask>,
+    dto: TaskInput,
     userId: string | null,
   ): Promise<ElderTask> {
-    const entity = await this.tasks.findOne({ where: { id, congregationId } });
+    const entity = await this.tasks.findOne({
+      where: { id, congregationId },
+      relations: { assignees: true },
+    });
     if (!entity) throw new NotFoundException('Task not found');
 
     if (dto.title !== undefined) entity.title = dto.title;
     if (dto.details !== undefined) entity.details = dto.details ?? null;
     if (dto.area !== undefined) entity.area = dto.area;
-    if (dto.assigneePublisherId !== undefined) {
+    if (dto.assigneeKind !== undefined) {
+      entity.assigneeKind = dto.assigneeKind;
+      // Switching to a body clears the names rather than leaving them to sit
+      // invisibly behind it, waiting to reappear if the kind is switched back.
+      if (dto.assigneeKind !== 'people') entity.assignees = [];
+    }
+    if (dto.assigneePublisherIds !== undefined) {
+      entity.assignees = await this.resolveNamed(congregationId, {
+        ...dto,
+        assigneeKind: dto.assigneeKind ?? entity.assigneeKind,
+      });
+      entity.assigneePublisherId = entity.assignees[0]?.id ?? null;
+    } else if (dto.assigneePublisherId !== undefined) {
       entity.assigneePublisherId = dto.assigneePublisherId ?? null;
     }
+    if (dto.dueTime !== undefined) entity.dueTime = dto.dueTime ?? null;
     if (dto.dueDate !== undefined) entity.dueDate = dto.dueDate ?? null;
+    else if (dto.dueInDays !== undefined || dto.dueInMonths !== undefined) {
+      entity.dueDate = resolveDueDate(dto);
+    }
     if (dto.eldersMeetingId !== undefined) {
       entity.eldersMeetingId = dto.eldersMeetingId ?? null;
     }

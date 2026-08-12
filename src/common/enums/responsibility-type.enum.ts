@@ -30,4 +30,16 @@ export enum ResponsibilityType {
   DUTIES_COORDINATOR = 'duties_coordinator',
   /** Учёт посещаемости встреч — records the S-3 attendance figures. */
   ATTENDANCE_RECORDER = 'attendance_recorder',
+
+  /**
+   * Keeps the congregation's accounts.
+   *
+   * Recorded so the app knows who must NOT audit them: the one who keeps the
+   * books and the one who writes the letters are both barred from checking the
+   * books, and that is the whole reason this exists. It grants nothing.
+   */
+  ACCOUNTS_SERVANT = 'accounts_servant',
+
+  /** Stands in for the coordinator, including in putting a brother on the audit. */
+  BODY_COORDINATOR_ASSISTANT = 'body_coordinator_assistant',
 }

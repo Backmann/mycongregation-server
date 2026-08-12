@@ -47,6 +47,9 @@ function svc(tasks: ElderTask[], meetings: EldersMeeting[]) {
         meetings.find((m) => m.id === where.id) ?? null,
       createQueryBuilder: () => qb(meetings),
     } as never,
+    // Publishers — only reached when a task names brothers, which the agenda
+    // tests never do.
+    { find: async () => [] } as never,
   );
 }
 

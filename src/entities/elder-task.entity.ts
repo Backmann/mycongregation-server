@@ -1,15 +1,18 @@
 import {
-  Entity,
-  PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
-  UpdateDateColumn,
-  ManyToOne,
-  JoinColumn,
+  Entity,
   Index,
+  JoinColumn,
+  JoinTable,
+  ManyToMany,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
 } from 'typeorm';
 import { Congregation } from './congregation.entity';
 import { EldersMeeting } from './elders-meeting.entity';
+import { Publisher } from './publisher.entity';
 import { encryptedTransformer } from '../crypto/encrypted.transformer';
 
 /**
@@ -39,8 +42,30 @@ export type TaskArea =
   | 'teaching'
   | 'care'
   | 'organisation'
+  // Reading a letter to the congregation is neither organisation nor accounts,
+  // and it is the one kind of task with an hour attached to it.
+  | 'announcements'
   | 'accounts'
   | 'other';
+
+/**
+ * Whom the task is for.
+ *
+ * «people» carries names; the other two carry none and are resolved from
+ * current responsibilities each time they are read — an assignment can change
+ * hands, and the task follows the office rather than the person who held it
+ * when it was written.
+ */
+export type TaskAssigneeKind =
+  | 'people'
+  | 'service_committee'
+  | 'body_of_elders';
+
+/** The recurring things the app puts on the calendar itself. */
+export type TaskKind =
+  | 'accounts_audit'
+  | 'pioneer_service_review'
+  | 'service_year_review';
 
 @Entity('elder_tasks')
 @Index(['congregationId', 'status'])
@@ -66,8 +91,39 @@ export class ElderTask {
   area!: TaskArea;
 
   /** Optional on purpose — see the note above. */
+  /**
+   * Kept for what was written before assignees became a list, and still
+   * written alongside it so nothing that reads the old field breaks.
+   */
   @Column({ type: 'uuid', nullable: true })
   assigneePublisherId!: string | null;
+
+  @Column({ type: 'varchar', length: 20, default: 'people' })
+  assigneeKind!: TaskAssigneeKind;
+
+  /**
+   * The named brothers, when the kind is «people». Empty for the other two —
+   * their members are looked up, not stored.
+   */
+  @ManyToMany(() => Publisher)
+  @JoinTable({
+    name: 'elder_task_assignees',
+    joinColumn: { name: 'task_id' },
+    inverseJoinColumn: { name: 'publisher_id' },
+  })
+  assignees!: Publisher[];
+
+  /** «19:00» — what «two hours before» counts back from. */
+  @Column({ type: 'varchar', length: 5, nullable: true })
+  dueTime!: string | null;
+
+  /** Set only on tasks the app created; null on everything a person wrote. */
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  kind!: TaskKind | null;
+
+  /** Which turn of it — «2026-Q3», «2026» — so a period is created once. */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  kindPeriod!: string | null;
 
   @Column({ type: 'date', nullable: true })
   dueDate!: string | null;

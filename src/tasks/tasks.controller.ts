@@ -10,12 +10,16 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
-  IsIn,
+  IsArray,
   IsISO8601,
+  IsIn,
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
+  Min,
 } from 'class-validator';
 import { TasksService } from './tasks.service';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
@@ -30,9 +34,12 @@ const AREAS = [
   'teaching',
   'care',
   'organisation',
+  'announcements',
   'accounts',
   'other',
 ] as const;
+
+const ASSIGNEE_KINDS = ['people', 'service_committee', 'body_of_elders'];
 
 export class UpsertMeetingDto {
   @IsOptional() @IsISO8601() date?: string;
@@ -45,7 +52,21 @@ export class UpsertTaskDto {
   @IsOptional() @IsString() @MaxLength(8000) details?: string | null;
   @IsOptional() @IsIn(AREAS as unknown as string[]) area?: string;
   @IsOptional() @IsUUID() assigneePublisherId?: string | null;
+  @IsOptional() @IsIn(ASSIGNEE_KINDS) assigneeKind?: string;
+  /** Named brothers — only meaningful when the kind is «people». */
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  assigneePublisherIds?: string[];
   @IsOptional() @IsISO8601() dueDate?: string | null;
+  @IsOptional() @IsString() @MaxLength(5) dueTime?: string | null;
+  /**
+   * How far ahead, when the person names a period instead of a date. Turned
+   * into a plain date on save — from then on it is an ordinary deadline that
+   * can be seen and moved, which is what everybody expects of a date.
+   */
+  @IsOptional() @IsInt() @Min(1) @Max(60) dueInDays?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(60) dueInMonths?: number;
   @IsOptional() @IsUUID() eldersMeetingId?: string | null;
   @IsOptional() @IsIn(['open', 'done']) status?: 'open' | 'done';
 }
