@@ -90,4 +90,24 @@ export class User {
   updatedAt!: Date;
   @DeleteDateColumn({ type: 'timestamptz' })
   deletedAt!: Date | null;
+  /**
+   * What this person last signed in from — updated on EVERY request, beside
+   * the presence stamp, because it is the same kind of fact: it changes when
+   * he changes device or updates the app, and a screen showing it should not
+   * wait for a new session to learn that.
+   */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  clientPlatform!: string | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  clientKind!: string | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  clientOs!: string | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  clientAppVersion!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  clientSeenAt!: Date | null;
 }

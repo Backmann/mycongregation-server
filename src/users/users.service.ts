@@ -213,52 +213,14 @@ export class UsersService {
       .orderBy('user.created_at', 'ASC')
       .getMany();
 
-    // The most recently used living session of each person — one query for the
-    // whole list rather than one per row.
+    // What each person is using is read from HIS OWN ROW: it is written on
+    // every request, so the picture is right within a minute of him opening
+    // the app. It used to be read from his newest session, which is written
+    // only at sign-in or on a token refresh — and that is why a brother who
+    // had just installed the new build went on reading «Неизвестно».
     const currentBuild =
       this.config.get<string | null>('appVersion.current') ?? null;
-    const clients = new Map<string, PublicUser['lastClient']>();
-    if (rows.length > 0) {
-      const sessions = await this.usersRepo.manager
-        .getRepository(RefreshSession)
-        .createQueryBuilder('s')
-        // Every column the row is asked for below. Two of them went missing
-        // once already: a later patch rewrote this list from a tree where the
-        // wider version had not been saved, and the screen went on showing
-        // «Android» with no version while the database held «36» and «1.1.0»
-        // all along. A query that selects less than it reads is silent about
-        // it — the fields simply come back undefined.
-        .select([
-          's.userId',
-          's.clientPlatform',
-          's.clientKind',
-          's.clientOs',
-          's.clientAppVersion',
-          's.lastUsedAt',
-        ])
-        .where('s.user_id IN (:...ids)', { ids: rows.map((r) => r.id) })
-        .andWhere('s.client_platform IS NOT NULL')
-        // The NEWEST session, by whichever of its two dates is later.
-        //
-        // Ordering by last_used_at alone put a FRESH sign-in last: a session
-        // that has only just been created has never been used, so that column
-        // is null, and null sorts after every date. The row shown was then an
-        // older session — which is why a phone that had just signed in with the
-        // new app still read «Неизвестно», left over from the build before it.
-        .orderBy('GREATEST(s.last_used_at, s.created_at)', 'DESC')
-        .getMany();
-      for (const session of sessions) {
-        if (clients.has(session.userId)) continue;
-        clients.set(session.userId, {
-          platform: session.clientPlatform as string,
-          kind: session.clientKind as string,
-          os: session.clientOs,
-          appVersion: session.clientAppVersion,
-          outdated: behindCurrent(session.clientAppVersion, currentBuild),
-          at: session.lastUsedAt,
-        });
-      }
-    }
+
     // Select only non-encrypted columns so publisher names aren't decrypted.
     const pubs = await this.publishersRepo
       .createQueryBuilder('p')
@@ -281,7 +243,16 @@ export class UsersService {
         apptByUser.get(u.id) ?? null,
         now,
         cardByUser.get(u.id) ?? null,
-        clients.get(u.id) ?? null,
+        u.clientPlatform
+          ? {
+              platform: u.clientPlatform,
+              kind: u.clientKind ?? 'app',
+              os: u.clientOs,
+              appVersion: u.clientAppVersion,
+              outdated: behindCurrent(u.clientAppVersion, currentBuild),
+              at: u.clientSeenAt,
+            }
+          : null,
       );
       // Presence is recorded for everyone but masked for users who hide it —
       // except when they are viewing their own row.
