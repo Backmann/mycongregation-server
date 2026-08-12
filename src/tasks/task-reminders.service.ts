@@ -5,6 +5,11 @@ import { ElderTask } from '../entities/elder-task.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { TaskAddresseesService } from './task-addressees.service';
+import { Congregation } from '../entities/congregation.entity';
+import {
+  coerceLanguage,
+  SupportedLanguage,
+} from '../common/i18n/supported-languages';
 
 /**
  * Reminders for the body's own work — the thing this module shipped without.
@@ -29,6 +34,84 @@ import { TaskAddresseesService } from './task-addressees.service';
  * EVERY ADDRESSEE gets it — three for the committee, five for the body. At
  * those numbers it is not noise, and Lionel confirmed it plainly.
  */
+/**
+ * The words, on the server and in three languages.
+ *
+ * They cannot come from the app: a push is written when nobody is looking at a
+ * screen. My first version passed the KEYS — «task_assigned» — straight into
+ * the notification, and that is exactly what arrived on Lionel's phone.
+ *
+ * HOW MUCH THEY SAY is the careful part. The title of the task never travels:
+ * a push shows on a locked screen the family can see, and «care for publishers
+ * in special circumstances» is the most private material in this app. What
+ * does travel is the AREA — «Объявления», «Счета» — because a category is not
+ * a case, and without it «a task is due tomorrow» tells a brother nothing he
+ * can act on. He opens the app to read the rest.
+ */
+const STR: Record<
+  SupportedLanguage,
+  {
+    assigned: string;
+    tomorrow: string;
+    soon: string;
+    overdue: string;
+    withArea: (area: string, when: string) => string;
+  }
+> = {
+  ru: {
+    assigned: 'Вам поручена задача',
+    tomorrow: 'Задача на завтра',
+    soon: 'Задача сегодня',
+    overdue: 'Задача просрочена',
+    withArea: (area, when) => (when ? `${area} · ${when}` : area),
+  },
+  en: {
+    assigned: 'A task has been given to you',
+    tomorrow: 'A task is due tomorrow',
+    soon: 'A task is due today',
+    overdue: 'A task is overdue',
+    withArea: (area, when) => (when ? `${area} · ${when}` : area),
+  },
+  de: {
+    assigned: 'Dir wurde eine Aufgabe übertragen',
+    tomorrow: 'Eine Aufgabe ist morgen fällig',
+    soon: 'Eine Aufgabe ist heute fällig',
+    overdue: 'Eine Aufgabe ist überfällig',
+    withArea: (area, when) => (when ? `${area} · ${when}` : area),
+  },
+};
+
+/** Area names, said plainly. The category travels; the case does not. */
+const AREAS: Record<SupportedLanguage, Record<string, string>> = {
+  ru: {
+    ministry: 'Служение',
+    teaching: 'Обучение',
+    care: 'Забота',
+    organisation: 'Организация',
+    announcements: 'Объявления',
+    accounts: 'Счета',
+    other: 'Прочее',
+  },
+  en: {
+    ministry: 'Ministry',
+    teaching: 'Teaching',
+    care: 'Care',
+    organisation: 'Organisation',
+    announcements: 'Announcements',
+    accounts: 'Accounts',
+    other: 'Other',
+  },
+  de: {
+    ministry: 'Dienst',
+    teaching: 'Schulung',
+    care: 'Fürsorge',
+    organisation: 'Organisation',
+    announcements: 'Bekanntmachungen',
+    accounts: 'Konten',
+    other: 'Sonstiges',
+  },
+};
+
 @Injectable()
 export class TaskRemindersService {
   private readonly logger = new Logger(TaskRemindersService.name);
@@ -36,9 +119,31 @@ export class TaskRemindersService {
   constructor(
     @InjectRepository(ElderTask)
     private readonly tasks: Repository<ElderTask>,
+    @InjectRepository(Congregation)
+    private readonly congregations: Repository<Congregation>,
     private readonly addressees: TaskAddresseesService,
     private readonly notifications: NotificationsService,
   ) {}
+
+  /** The congregation's own language — a push is written with nobody looking. */
+  private async languageOf(congregationId: string): Promise<SupportedLanguage> {
+    const cong = await this.congregations.findOne({
+      where: { id: congregationId },
+      select: { id: true, language: true },
+    });
+    return coerceLanguage(cong?.language);
+  }
+
+  /** «Объявления · 13 августа» — the category and the day, and nothing more. */
+  private line(task: ElderTask, lang: SupportedLanguage): string {
+    const area = AREAS[lang][task.area] ?? AREAS[lang].other;
+    const when = task.dueDate
+      ? task.dueTime
+        ? `${task.dueDate} · ${task.dueTime}`
+        : task.dueDate
+      : '';
+    return STR[lang].withArea(area, when);
+  }
 
   /** Cards → the user accounts behind them; a card with no login reaches nobody. */
   private userIdsOf(members: Publisher[]): string[] {
@@ -51,11 +156,12 @@ export class TaskRemindersService {
     const userIds = this.userIdsOf(members);
     if (userIds.length === 0) return;
 
+    const lang = await this.languageOf(task.congregationId);
     await this.notifications.notify({
       tenantId: task.congregationId,
       userIds,
-      title: 'task_assigned',
-      body: 'task_assigned',
+      title: STR[lang].assigned,
+      body: this.line(task, lang),
       data: { type: 'task_assigned', taskId: task.id },
       kind: 'task',
       // Once per task per person, however often it is saved afterwards.
@@ -99,11 +205,12 @@ export class TaskRemindersService {
       if (userIds.length === 0) continue;
 
       const stage = late ? 'overdue' : soon ? 'soon' : 'tomorrow';
+      const lang = await this.languageOf(task.congregationId);
       await this.notifications.notify({
         tenantId: task.congregationId,
         userIds,
-        title: `task_${stage}`,
-        body: `task_${stage}`,
+        title: STR[lang][stage],
+        body: this.line(task, lang),
         data: { type: `task_${stage}`, taskId: task.id },
         kind: 'task',
         // The date in the overdue key is what makes it once a day: a reminder
