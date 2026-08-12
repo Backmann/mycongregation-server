@@ -1,3 +1,23 @@
+// The tasks service now names the reminder service, which reaches the push
+// service and the Expo SDK — ESM, and Jest's default transform does not touch
+// node_modules. The same stand-in the scheduled-jobs spec uses.
+jest.mock('expo-server-sdk', () => ({
+  Expo: class {
+    static isExpoPushToken() {
+      return true;
+    }
+    chunkPushNotifications(messages: unknown[]) {
+      return [messages];
+    }
+    sendPushNotificationsAsync() {
+      return Promise.resolve([]);
+    }
+    getPushNotificationReceiptsAsync() {
+      return Promise.resolve({});
+    }
+  },
+}));
+
 import { TasksService } from './tasks.service';
 import { ElderTask } from '../entities/elder-task.entity';
 import { EldersMeeting } from '../entities/elders-meeting.entity';
@@ -51,6 +71,7 @@ function svc(tasks: ElderTask[], meetings: EldersMeeting[]) {
     // tests never do.
     { find: async () => [] } as never,
     { membersOfKind: async () => [] } as never,
+    { announceAssignment: async () => undefined } as never,
   );
 }
 

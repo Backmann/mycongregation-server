@@ -1,0 +1,139 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { IsNull, Not, Repository } from 'typeorm';
+import { ElderTask } from '../entities/elder-task.entity';
+import { Publisher } from '../entities/publisher.entity';
+import { NotificationsService } from '../notifications/notifications.service';
+import { TaskAddresseesService } from './task-addressees.service';
+
+/**
+ * Reminders for the body's own work — the thing this module shipped without.
+ *
+ * Four moments, and each earns its place:
+ *
+ *   WHEN IT IS GIVEN. Otherwise a brother first hears of a task the day before
+ *   it is due, which is not notice, it is a rush.
+ *   THE DAY BEFORE. Time enough to do something about it.
+ *   TWO HOURS BEFORE, when an hour was set — the case Lionel named: an
+ *   announcement to be read at a meeting, remembered while there is still time
+ *   to find the paper.
+ *   AGAIN WHEN IT IS LATE. He asked for this in as many words. Once a day, not
+ *   every pass: a reminder that arrives hourly stops being read by the second
+ *   day, and then nothing is reminded of anything.
+ *
+ * NO TASK TEXT TRAVELS. Decided in July and unchanged: a push shows on a
+ * locked screen the family can see, and «care for publishers in special
+ * circumstances» is the most private thing in this app. The notification says
+ * that a task is due and nothing else; the words are behind the sign-in.
+ *
+ * EVERY ADDRESSEE gets it — three for the committee, five for the body. At
+ * those numbers it is not noise, and Lionel confirmed it plainly.
+ */
+@Injectable()
+export class TaskRemindersService {
+  private readonly logger = new Logger(TaskRemindersService.name);
+
+  constructor(
+    @InjectRepository(ElderTask)
+    private readonly tasks: Repository<ElderTask>,
+    private readonly addressees: TaskAddresseesService,
+    private readonly notifications: NotificationsService,
+  ) {}
+
+  /** Cards → the user accounts behind them; a card with no login reaches nobody. */
+  private userIdsOf(members: Publisher[]): string[] {
+    return members.map((p) => p.userId).filter((id): id is string => !!id);
+  }
+
+  /** Told at once, so the notice is notice rather than a rush. */
+  async announceAssignment(task: ElderTask): Promise<void> {
+    const members = await this.addressees.membersOf(task);
+    const userIds = this.userIdsOf(members);
+    if (userIds.length === 0) return;
+
+    await this.notifications.notify({
+      tenantId: task.congregationId,
+      userIds,
+      title: 'task_assigned',
+      body: 'task_assigned',
+      data: { type: 'task_assigned', taskId: task.id },
+      kind: 'task',
+      // Once per task per person, however often it is saved afterwards.
+      key: `task-assigned:${task.id}`,
+    });
+  }
+
+  /**
+   * The three time-based reminders, for one pass of the clock.
+   *
+   * Run often; each is guarded by a key, so a pass every fifteen minutes sends
+   * nothing twice. The overdue key carries the DATE, which is what makes it
+   * daily rather than hourly.
+   */
+  async runDue(now: Date = new Date()): Promise<number> {
+    const today = now.toISOString().slice(0, 10);
+    const tomorrow = new Date(now.getTime() + 86400000)
+      .toISOString()
+      .slice(0, 10);
+
+    const open = await this.tasks.find({
+      where: { status: 'open', dueDate: Not(IsNull()) },
+      relations: { assignees: true },
+    });
+
+    let sent = 0;
+    for (const task of open) {
+      if (!task.dueDate) continue;
+
+      const due = task.dueDate === tomorrow;
+      const late = task.dueDate < today;
+      const soon =
+        task.dueDate === today &&
+        !!task.dueTime &&
+        this.withinTwoHours(task, now);
+
+      if (!due && !late && !soon) continue;
+
+      const members = await this.addressees.membersOf(task);
+      const userIds = this.userIdsOf(members);
+      if (userIds.length === 0) continue;
+
+      const stage = late ? 'overdue' : soon ? 'soon' : 'tomorrow';
+      await this.notifications.notify({
+        tenantId: task.congregationId,
+        userIds,
+        title: `task_${stage}`,
+        body: `task_${stage}`,
+        data: { type: `task_${stage}`, taskId: task.id },
+        kind: 'task',
+        // The date in the overdue key is what makes it once a day: a reminder
+        // arriving hourly stops being read by the second day.
+        key:
+          stage === 'overdue'
+            ? `task-overdue:${task.id}:${today}`
+            : `task-${stage}:${task.id}`,
+      });
+      sent += 1;
+    }
+
+    if (sent > 0) this.logger.log(`task reminders: ${sent}`);
+    return sent;
+  }
+
+  /**
+   * Is the hour close enough to warn about.
+   *
+   * Two hours before, and not before that — a reminder given at breakfast for
+   * an evening meeting is forgotten by the evening, which is the failure the
+   * whole idea exists to prevent.
+   */
+  private withinTwoHours(task: ElderTask, now: Date): boolean {
+    if (!task.dueTime) return false;
+    const [h, m] = task.dueTime.split(':').map((n) => parseInt(n, 10));
+    if (!Number.isFinite(h)) return false;
+    const at = new Date(now);
+    at.setHours(h, Number.isFinite(m) ? m : 0, 0, 0);
+    const minutes = (at.getTime() - now.getTime()) / 60000;
+    return minutes > 0 && minutes <= 120;
+  }
+}

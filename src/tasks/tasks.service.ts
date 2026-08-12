@@ -5,6 +5,7 @@ import { ElderTask } from '../entities/elder-task.entity';
 import { EldersMeeting } from '../entities/elders-meeting.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { TaskAddresseesService } from './task-addressees.service';
+import { TaskRemindersService } from './task-reminders.service';
 
 export interface AgendaResult {
   meeting: EldersMeeting | null;
@@ -72,6 +73,7 @@ export class TasksService {
     @InjectRepository(Publisher)
     private readonly publishers: Repository<Publisher>,
     private readonly addressees: TaskAddresseesService,
+    private readonly reminders: TaskRemindersService,
   ) {}
 
   // ---- Meetings ---------------------------------------------------------
@@ -196,7 +198,11 @@ export class TasksService {
       createdById: userId,
     });
     entity.assignees = await this.resolveNamed(congregationId, dto);
-    return this.tasks.save(entity);
+    const saved = await this.tasks.save(entity);
+    // Told at once. Otherwise the first a brother hears of a task is the day
+    // before it is due, which is not notice but a rush.
+    void this.reminders.announceAssignment(saved).catch(() => undefined);
+    return saved;
   }
 
   /**

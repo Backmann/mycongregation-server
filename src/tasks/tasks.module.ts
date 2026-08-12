@@ -10,9 +10,12 @@ import { TaskAddresseesService } from './task-addressees.service';
 import { Congregation } from '../entities/congregation.entity';
 import { ElderTaskCalendarLog } from '../entities/elder-task-calendar-log.entity';
 import { CalendarTasksService } from './calendar-tasks.service';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { TaskRemindersService } from './task-reminders.service';
 
 @Module({
   imports: [
+    NotificationsModule,
     TypeOrmModule.forFeature([
       ElderTask,
       EldersMeeting,
@@ -23,7 +26,17 @@ import { CalendarTasksService } from './calendar-tasks.service';
     ]),
   ],
   controllers: [TasksController],
-  providers: [TasksService, TaskAddresseesService, CalendarTasksService],
-  exports: [TasksService, TaskAddresseesService, CalendarTasksService],
+  providers: [
+    TasksService,
+    TaskAddresseesService,
+    CalendarTasksService,
+    TaskRemindersService,
+  ],
+  exports: [
+    TasksService,
+    TaskAddresseesService,
+    CalendarTasksService,
+    TaskRemindersService,
+  ],
 })
 export class TasksModule {}

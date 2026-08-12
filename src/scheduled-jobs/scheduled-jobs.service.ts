@@ -6,6 +6,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CleaningRemindersService } from '../cleaning/cleaning-reminders.service';
 import { CalendarTasksService } from '../tasks/calendar-tasks.service';
+import { TaskRemindersService } from '../tasks/task-reminders.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -18,6 +19,7 @@ export class ScheduledJobsService {
     private readonly auditLogService: AuditLogService,
     private readonly cleaningReminders: CleaningRemindersService,
     private readonly calendarTasks: CalendarTasksService,
+    private readonly taskReminders: TaskRemindersService,
   ) {}
 
   /**
@@ -69,6 +71,25 @@ export class ScheduledJobsService {
    * skipped — so running twice costs nothing and a missed night catches up by
    * itself.
    */
+  /**
+   * The body's own reminders — given, tomorrow, two hours before, still late.
+   *
+   * Every fifteen minutes because «two hours before» needs a fine enough sieve;
+   * each reminder carries a key, so a pass that finds nothing new sends
+   * nothing at all.
+   */
+  @Cron('*/15 * * * *', {
+    name: 'task-reminders',
+    timeZone: 'Europe/Berlin',
+  })
+  async handleTaskReminders(): Promise<void> {
+    try {
+      await this.taskReminders.runDue();
+    } catch (e) {
+      this.logger.error(`task reminders failed: ${String(e)}`);
+    }
+  }
+
   @Cron('30 3 * * *', {
     name: 'calendar-tasks',
     timeZone: 'Europe/Berlin',

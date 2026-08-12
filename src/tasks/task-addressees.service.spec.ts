@@ -1,3 +1,23 @@
+// The tasks service now names the reminder service, which reaches the push
+// service and the Expo SDK — ESM, and Jest's default transform does not touch
+// node_modules. The same stand-in the scheduled-jobs spec uses.
+jest.mock('expo-server-sdk', () => ({
+  Expo: class {
+    static isExpoPushToken() {
+      return true;
+    }
+    chunkPushNotifications(messages: unknown[]) {
+      return [messages];
+    }
+    sendPushNotificationsAsync() {
+      return Promise.resolve([]);
+    }
+    getPushNotificationReceiptsAsync() {
+      return Promise.resolve({});
+    }
+  },
+}));
+
 import { TaskAddresseesService } from './task-addressees.service';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { TasksService } from './tasks.service';
@@ -142,6 +162,7 @@ describe('TasksService.myTasks', () => {
       {} as never,
       {} as never,
       { membersOfKind: async () => [{ id: 'p-me' }] } as never,
+      { announceAssignment: async () => undefined } as never,
     );
 
     const mine = await service.myTasks('c1', 'p-me');
