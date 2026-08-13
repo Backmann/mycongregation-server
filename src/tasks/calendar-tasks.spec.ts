@@ -69,6 +69,33 @@ describe('plansDueBy', () => {
     expect(plan?.due).toEqual({ month: 6, day: 30 });
   });
 
+  it('offers nothing whose deadline has already gone by', () => {
+    // Lionel's case, exactly. Switched on 13 August, the first nightly pass
+    // looked back over the year and offered the pioneers review (due 1 March),
+    // the December–February audit (due 31 March) and the March–May one (due 30
+    // June) — overdue by 165, 135 and 44 days on the day they appeared.
+    const plans = plansDueBy(on('2026-08-13'));
+
+    expect(plans.some((p) => p.kind === 'pioneer_service_review')).toBe(false);
+    expect(plans.some((p) => p.kind === 'accounts_audit')).toBe(false);
+    // And nothing else has come round yet: the service-year review starts on
+    // the 20th.
+    expect(plans).toEqual([]);
+  });
+
+  it('still offers what is running now', () => {
+    // The guard must not swallow the ordinary case: on the day a thing appears
+    // its deadline is still ahead.
+    const march = plansDueBy(on('2026-03-01'));
+    expect(march.some((p) => p.kind === 'accounts_audit')).toBe(true);
+
+    const feb = plansDueBy(on('2026-02-20'));
+    expect(feb.some((p) => p.kind === 'pioneer_service_review')).toBe(true);
+
+    const aug = plansDueBy(on('2026-08-25'));
+    expect(aug.some((p) => p.kind === 'service_year_review')).toBe(true);
+  });
+
   it('names each quarter once, so two are never the same period', () => {
     const audits = plansDueBy(on('2026-12-15')).filter(
       (p) => p.kind === 'accounts_audit',

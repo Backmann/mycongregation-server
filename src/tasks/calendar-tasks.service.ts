@@ -75,8 +75,28 @@ export function plansDueBy(today: Date): CalendarTaskPlan[] {
   const reached = (m: number, d: number) =>
     month > m || (month === m && day >= d);
 
+  /**
+   * Has its own deadline already gone by.
+   *
+   * «It appears once its start date is reached» is right for a job that runs
+   * every night — but on the FIRST night it looks back over the whole year and
+   * offers everything at once, deadline and all. Switched on in August, it put
+   * three items on the list overdue by 165, 135 and 44 days: work whose season
+   * had passed months before the app knew about it.
+   *
+   * So a period whose deadline is behind us is not offered. Somebody who wants
+   * it anyway can write it himself; an app should not open by announcing
+   * failures nobody could have avoided.
+   *
+   * The cost, stated plainly: were the nightly job broken for a whole month,
+   * that month's work would go unoffered. That is a larger fault than a missed
+   * task and would announce itself in other ways.
+   */
+  const stillDue = (m: number, d: number) =>
+    month < m || (month === m && day <= d);
+
   // Review of the pioneers' ministry — appears mid-February, due 1 March.
-  if (reached(2, 15)) {
+  if (reached(2, 15) && stillDue(3, 1)) {
     out.push({
       kind: 'pioneer_service_review',
       period: String(year),
@@ -89,7 +109,7 @@ export function plansDueBy(today: Date): CalendarTaskPlan[] {
 
   // End of the service year — appears 20 August, due the 31st. Lionel was
   // precise about this: not September, and «без промедления».
-  if (reached(8, 20)) {
+  if (reached(8, 20) && stillDue(8, 31)) {
     out.push({
       kind: 'service_year_review',
       period: String(year),
@@ -104,6 +124,8 @@ export function plansDueBy(today: Date): CalendarTaskPlan[] {
   // CHECKED, not the month of the checking.
   for (const q of AUDIT_QUARTERS) {
     if (!reached(q.checkMonth, 1)) continue;
+    // The deadline is the last day of the checking month.
+    if (!stillDue(q.checkMonth, lastDayOf(year, q.checkMonth))) continue;
     // The quarter ending in February belongs to the year it ended in, which is
     // the year the check happens — the label follows the check, so December's
     // work and March's cannot collide.
