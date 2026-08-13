@@ -40,6 +40,8 @@ describe('AgendaItemsService', () => {
         meetings as never,
         responsibilities as never,
         publishers as never,
+        // Tasks — only reached when a question becomes one.
+        { createTask: jest.fn(async () => ({ id: 'task-1' })) } as never,
       ),
       items,
     };
@@ -129,6 +131,58 @@ describe('AgendaItemsService', () => {
       minuteTakerPublisherId: null,
     };
     expect(await service.mayRecord(elder, meeting as never)).toBe(true);
+  });
+
+  it('turns a question into work, carrying its area with it', async () => {
+    // The area is the reason it lives on the question at all: a task cannot be
+    // saved without one, and asking again at this moment would be asking for
+    // something already known.
+    // Typed loosely: the point of the test is WHAT was passed, not its shape.
+    const createTask = jest.fn(
+      async (_cong: string, _input: Record<string, unknown>, _by: string) => ({
+        id: 'task-9',
+      }),
+    );
+    const items = {
+      findOne: jest.fn(async () => ({
+        id: 'i1',
+        congregationId: 'c1',
+        meetingId: 'm1',
+        title: 'вопрос о счетах',
+        area: 'accounts',
+        sourceText: 'km 3/24',
+      })),
+      save: jest.fn(async (x: unknown) => x),
+    };
+    const service = new AgendaItemsService(
+      items as never,
+      {
+        findOne: jest.fn(async () => ({
+          id: 'm1',
+          congregationId: 'c1',
+          minuteTakerPublisherId: null,
+        })),
+      } as never,
+      { count: jest.fn(async () => 1) } as never,
+      { findOne: jest.fn(async () => null) } as never,
+      { createTask } as never,
+    );
+
+    const saved = await service.makeTask(elder, 'i1', {
+      assigneePublisherIds: ['p1'],
+      dueDate: '2026-09-01',
+    });
+
+    expect(createTask.mock.calls[0][1]).toMatchObject({
+      title: 'вопрос о счетах',
+      area: 'accounts',
+      assigneePublisherIds: ['p1'],
+      dueDate: '2026-09-01',
+    });
+    // The item remembers what it became; deleting that task later does not
+    // erase the record that something was decided here.
+    expect(saved.outcome).toBe('task');
+    expect(saved.taskId).toBe('task-9');
   });
 
   it('carries the unsettled to the next meeting and settles nothing itself', async () => {

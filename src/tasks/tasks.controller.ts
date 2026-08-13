@@ -30,6 +30,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { TaskAddresseesService } from './task-addressees.service';
 import { AgendaItemsService } from './agenda-items.service';
+import type { TaskArea } from '../entities/elder-task.entity';
 
 const AREAS = [
   'ministry',
@@ -55,6 +56,7 @@ export class UpsertMeetingDto {
 
 export class UpsertItemDto {
   @IsOptional() @IsString() @MaxLength(300) title?: string;
+  @IsOptional() @IsIn(AREAS as unknown as string[]) area?: TaskArea;
   @IsOptional() @IsString() @MaxLength(300) sourceText?: string | null;
   @IsOptional() @IsString() @MaxLength(500) sourceUrl?: string | null;
   @IsOptional() @IsUUID() presenterPublisherId?: string | null;
@@ -179,6 +181,22 @@ export class TasksController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.items.update(user, itemId, dto);
+  }
+
+  /** «Стал задачей» — the outcome that leaves the meeting with work in hand. */
+  @Post('items/:itemId/make-task')
+  makeTask(
+    @Param('itemId') itemId: string,
+    @Body()
+    dto: {
+      assigneePublisherIds?: string[];
+      assigneeKind?: 'people' | 'service_committee' | 'body_of_elders';
+      dueDate?: string | null;
+      details?: string | null;
+    },
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.items.makeTask(user, itemId, dto);
   }
 
   @Post('items/:itemId/move')

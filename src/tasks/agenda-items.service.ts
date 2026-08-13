@@ -13,11 +13,14 @@ import {
 import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
+import { TaskArea } from '../entities/elder-task.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { TasksService } from './tasks.service';
 
 export interface ItemInput {
   title?: string;
+  area?: TaskArea;
   sourceText?: string | null;
   sourceUrl?: string | null;
   presenterPublisherId?: string | null;
@@ -57,6 +60,7 @@ export class AgendaItemsService {
     private readonly responsibilities: Repository<Responsibility>,
     @InjectRepository(Publisher)
     private readonly publishers: Repository<Publisher>,
+    private readonly tasks: TasksService,
   ) {}
 
   /** Does this person hold any of these assignments right now. */
@@ -173,6 +177,7 @@ export class AgendaItemsService {
         sourceUrl: dto.sourceUrl ?? null,
         presenterPublisherId: dto.presenterPublisherId ?? null,
         minutes: dto.minutes ?? 10,
+        area: dto.area ?? 'other',
         createdById: user.id,
       }),
     );
@@ -202,11 +207,65 @@ export class AgendaItemsService {
       item.presenterPublisherId = dto.presenterPublisherId ?? null;
     }
     if (dto.minutes !== undefined) item.minutes = dto.minutes;
+    if (dto.area !== undefined) item.area = dto.area;
     if (dto.outcome !== undefined) item.outcome = dto.outcome ?? null;
     if (dto.outcomeNote !== undefined) {
       item.outcomeNote = dto.outcomeNote ?? null;
     }
     if (dto.taskId !== undefined) item.taskId = dto.taskId ?? null;
+    return this.items.save(item);
+  }
+
+  /**
+   * Turn a question into work — the point of the whole agenda.
+   *
+   * What was decided leaves the meeting with a name, a brother and a date on
+   * it, instead of as words nobody can act on. The title, the details and the
+   * AREA come from the question itself; only the two facts a question does not
+   * carry — whom and by when — are asked for.
+   *
+   * The task is created through the ordinary service, so it obeys every rule
+   * an ordinary task obeys, and it announces itself to whoever it lands on.
+   * The item keeps a pointer to it; deleting that task later does not erase
+   * the record that something was decided here.
+   */
+  async makeTask(
+    user: AuthenticatedUser,
+    id: string,
+    dto: {
+      assigneePublisherIds?: string[];
+      assigneeKind?: 'people' | 'service_committee' | 'body_of_elders';
+      dueDate?: string | null;
+      details?: string | null;
+    },
+  ): Promise<EldersMeetingItem> {
+    const item = await this.items.findOne({
+      where: { id, congregationId: user.congregationId },
+    });
+    if (!item) throw new NotFoundException('Item not found');
+    const meeting = item.meetingId
+      ? await this.meetingOf(user.congregationId, item.meetingId)
+      : null;
+    if (!meeting || !(await this.mayRecord(user, meeting))) {
+      throw new ForbiddenException('Not allowed');
+    }
+
+    const task = await this.tasks.createTask(
+      user.congregationId,
+      {
+        title: item.title,
+        details: dto.details ?? item.sourceText ?? null,
+        area: item.area,
+        assigneeKind: dto.assigneeKind ?? 'people',
+        assigneePublisherIds: dto.assigneePublisherIds ?? [],
+        dueDate: dto.dueDate ?? null,
+        eldersMeetingId: item.meetingId,
+      },
+      user.id,
+    );
+
+    item.outcome = 'task';
+    item.taskId = task.id;
     return this.items.save(item);
   }
 

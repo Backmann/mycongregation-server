@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { EldersMeeting } from './elders-meeting.entity';
 import { Publisher } from './publisher.entity';
+import type { TaskArea } from './elder-task.entity';
 import { encryptedTransformer } from '../crypto/encrypted.transformer';
 
 /** What became of an item once it was discussed. */
@@ -47,6 +48,14 @@ export class EldersMeetingItem {
 
   @Column({ type: 'text', transformer: encryptedTransformer })
   title!: string;
+
+  /**
+   * What the question is about — and what the task inherits when it becomes
+   * one. Shown on the agenda too: a bare list of titles never said whether a
+   * question was about accounts or about somebody's care.
+   */
+  @Column({ type: 'varchar', length: 20, default: 'other' })
+  area!: TaskArea;
 
   /** «km 3/24, стр. 5» — as written. */
   @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
