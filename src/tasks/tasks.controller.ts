@@ -52,6 +52,8 @@ export class UpsertMeetingDto {
   @IsOptional() @IsUUID() hallId?: string | null;
   @IsOptional() @IsString() @MaxLength(300) placeText?: string | null;
   @IsOptional() @IsUUID() minuteTakerPublisherId?: string | null;
+  @IsOptional() @IsUUID() openingPrayerPublisherId?: string | null;
+  @IsOptional() @IsUUID() closingPrayerPublisherId?: string | null;
 }
 
 export class UpsertItemDto {
@@ -118,16 +120,20 @@ export class TasksController {
   }
 
   @Post('meetings')
-  createMeeting(
+  async createMeeting(
     @TenantId() tenantId: string,
     @Body() dto: UpsertMeetingDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.createMeeting(
+    const meeting = await this.service.createMeeting(
       tenantId,
-      { date: dto.date as string, startTime: dto.startTime, note: dto.note },
+      { ...dto, date: dto.date as string },
       user?.id ?? null,
     );
+    // A new meeting takes up whatever was carried over and had nowhere to go:
+    // a question left from May must not wait until somebody notices it.
+    await this.items.adoptWaiting(tenantId, meeting.id);
+    return meeting;
   }
 
   @Patch('meetings/:id')

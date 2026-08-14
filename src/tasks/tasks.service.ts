@@ -31,6 +31,18 @@ export interface AgendaResult {
  * Wider than the entity on purpose: `dueInDays` and `dueInMonths` never reach
  * the database — they are turned into a date on the way in.
  */
+/** Everything a caller may set on a meeting. */
+export interface MeetingInput {
+  date?: string;
+  startTime?: string | null;
+  note?: string | null;
+  hallId?: string | null;
+  placeText?: string | null;
+  minuteTakerPublisherId?: string | null;
+  openingPrayerPublisherId?: string | null;
+  closingPrayerPublisherId?: string | null;
+}
+
 export interface TaskInput extends Partial<ElderTask> {
   assigneePublisherIds?: string[];
   dueInDays?: number;
@@ -87,7 +99,7 @@ export class TasksService {
 
   async createMeeting(
     congregationId: string,
-    dto: { date: string; startTime?: string | null; note?: string | null },
+    dto: MeetingInput & { date: string },
     userId: string | null,
   ): Promise<EldersMeeting> {
     const entity = this.meetings.create({
@@ -95,8 +107,19 @@ export class TasksService {
       date: dto.date,
       startTime: dto.startTime ?? null,
       note: dto.note ?? null,
+      // These four went missing once already: the form offered them, the
+      // request carried them, and the service quietly dropped every one —
+      // a field written nowhere looks exactly like a field written wrongly.
+      hallId: dto.hallId ?? null,
+      placeText: dto.placeText ?? null,
+      minuteTakerPublisherId: dto.minuteTakerPublisherId ?? null,
+      openingPrayerPublisherId: dto.openingPrayerPublisherId ?? null,
+      closingPrayerPublisherId: dto.closingPrayerPublisherId ?? null,
       createdById: userId,
     });
+    // Adopting whatever has been waiting is done by the CONTROLLER: the items
+    // service already depends on this one, and reaching back would close a
+    // circle between them.
     return this.meetings.save(entity);
   }
 
@@ -140,7 +163,7 @@ export class TasksService {
   async updateMeeting(
     congregationId: string,
     id: string,
-    dto: { date?: string; startTime?: string | null; note?: string | null },
+    dto: MeetingInput,
   ): Promise<EldersMeeting> {
     const entity = await this.meetings.findOne({
       where: { id, congregationId },
@@ -149,6 +172,17 @@ export class TasksService {
     if (dto.date !== undefined) entity.date = dto.date;
     if (dto.startTime !== undefined) entity.startTime = dto.startTime ?? null;
     if (dto.note !== undefined) entity.note = dto.note ?? null;
+    if (dto.hallId !== undefined) entity.hallId = dto.hallId ?? null;
+    if (dto.placeText !== undefined) entity.placeText = dto.placeText ?? null;
+    if (dto.minuteTakerPublisherId !== undefined) {
+      entity.minuteTakerPublisherId = dto.minuteTakerPublisherId ?? null;
+    }
+    if (dto.openingPrayerPublisherId !== undefined) {
+      entity.openingPrayerPublisherId = dto.openingPrayerPublisherId ?? null;
+    }
+    if (dto.closingPrayerPublisherId !== undefined) {
+      entity.closingPrayerPublisherId = dto.closingPrayerPublisherId ?? null;
+    }
     return this.meetings.save(entity);
   }
 

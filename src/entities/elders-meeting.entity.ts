@@ -61,6 +61,13 @@ export class EldersMeeting {
   @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   placeText!: string | null;
 
+  /** Who prays — named before the meeting, so nobody is asked at the door. */
+  @Column({ type: 'uuid', nullable: true })
+  openingPrayerPublisherId!: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  closingPrayerPublisherId!: string | null;
+
   /** Who keeps the record — the secretary unless somebody else is named. */
   @Column({ type: 'uuid', nullable: true })
   minuteTakerPublisherId!: string | null;
