@@ -126,6 +126,11 @@ export class TasksController {
     @Body() dto: UpsertMeetingDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
+    // Naming the evening is building the agenda, and asks what changing
+    // one asks: the coordinator, his assistant, or an administrator. It
+    // was open to every elder, and adoptWaiting below made that costly —
+    // a meeting takes up every carried-over question the moment it exists.
+    await this.mustBuild(user);
     const meeting = await this.service.createMeeting(
       tenantId,
       { ...dto, date: dto.date as string },
@@ -142,7 +147,7 @@ export class TasksController {
    *
    * They were open to every elder — an oversight, and the kind that only shows
    * itself the day somebody deletes an evening he did not arrange. The guard
-   * on the class admits elders; inside, these three ask for more.
+   * on the class admits elders; inside, they ask for more.
    */
   @Patch('meetings/:id')
   async updateMeeting(
