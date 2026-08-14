@@ -11,6 +11,11 @@ import {
   SupportedLanguage,
 } from '../common/i18n/supported-languages';
 import { EldersMeeting } from '../entities/elders-meeting.entity';
+import {
+  DEFAULT_CONGREGATION_TIMEZONE,
+  minutesOfDayIn,
+  todayIn,
+} from '../common/congregation-clock';
 
 /**
  * Reminders for the body's own work — the thing this module shipped without.
@@ -136,6 +141,15 @@ export class TaskRemindersService {
     private readonly notifications: NotificationsService,
   ) {}
 
+  /** The congregation's own clock — «two hours before» is local, not ours. */
+  private async timezoneOf(congregationId: string): Promise<string> {
+    const cong = await this.congregations.findOne({
+      where: { id: congregationId },
+      select: { id: true, timezone: true },
+    });
+    return cong?.timezone || DEFAULT_CONGREGATION_TIMEZONE;
+  }
+
   /** The congregation's own language — a push is written with nobody looking. */
   private async languageOf(congregationId: string): Promise<SupportedLanguage> {
     const cong = await this.congregations.findOne({
@@ -232,10 +246,13 @@ export class TaskRemindersService {
    * daily rather than hourly.
    */
   async runDue(now: Date = new Date()): Promise<number> {
-    const today = now.toISOString().slice(0, 10);
-    const tomorrow = new Date(now.getTime() + 86400000)
-      .toISOString()
-      .slice(0, 10);
+    // Local days too: at 01:00 in Berlin the server's «today» is still
+    // yesterday, and a reminder for tomorrow would go out a day early.
+    const today = todayIn(now, DEFAULT_CONGREGATION_TIMEZONE);
+    const tomorrow = todayIn(
+      new Date(now.getTime() + 86400000),
+      DEFAULT_CONGREGATION_TIMEZONE,
+    );
 
     // Only the days that can produce a reminder: yesterday-and-earlier for
     // the overdue nudge, today for «two hours before», tomorrow for the
@@ -256,10 +273,11 @@ export class TaskRemindersService {
 
       const due = task.dueDate === tomorrow;
       const late = task.dueDate < today;
+      const timezone = await this.timezoneOf(task.congregationId);
       const soon =
         task.dueDate === today &&
         !!task.dueTime &&
-        this.withinTwoHours(task, now);
+        this.withinTwoHours(task, now, timezone);
 
       if (!due && !late && !soon) continue;
 
@@ -334,13 +352,25 @@ export class TaskRemindersService {
    * an evening meeting is forgotten by the evening, which is the failure the
    * whole idea exists to prevent.
    */
-  private withinTwoHours(task: ElderTask, now: Date): boolean {
+  private withinTwoHours(
+    task: ElderTask,
+    now: Date,
+    timezone: string,
+  ): boolean {
     if (!task.dueTime) return false;
     const [h, m] = task.dueTime.split(':').map((n) => parseInt(n, 10));
     if (!Number.isFinite(h)) return false;
-    const at = new Date(now);
-    at.setHours(h, Number.isFinite(m) ? m : 0, 0, 0);
-    const minutes = (at.getTime() - now.getTime()) / 60000;
-    return minutes > 0 && minutes <= 120;
+
+    // The congregation's own clock, not the server's.
+    //
+    // «Two hours before seven» meant two hours before seven WHERE THE SERVER
+    // STANDS, which is right for one congregation in Germany and wrong for the
+    // next one anywhere else — and the second congregation is the whole point
+    // of the coming autumn. The hour a brother was given is the hour on his
+    // own wall.
+    const nowMinutes = minutesOfDayIn(now, timezone);
+    const dueMinutes = h * 60 + (Number.isFinite(m) ? m : 0);
+    const ahead = dueMinutes - nowMinutes;
+    return ahead > 0 && ahead <= 120;
   }
 }

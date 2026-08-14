@@ -17,6 +17,7 @@ import { TaskArea } from '../entities/elder-task.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { TasksService } from './tasks.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 export interface ItemInput {
   title?: string;
@@ -61,6 +62,7 @@ export class AgendaItemsService {
     @InjectRepository(Publisher)
     private readonly publishers: Repository<Publisher>,
     private readonly tasks: TasksService,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   /** Does this person hold any of these assignments right now. */
@@ -167,7 +169,7 @@ export class AgendaItemsService {
       where: { congregationId: user.congregationId, meetingId },
       order: { position: 'DESC' },
     });
-    return this.items.save(
+    const saved = await this.items.save(
       this.items.create({
         congregationId: user.congregationId,
         meetingId,
@@ -181,6 +183,8 @@ export class AgendaItemsService {
         createdById: user.id,
       }),
     );
+    await this.note('create', saved, null, ['area', 'minutes']);
+    return saved;
   }
 
   async update(
@@ -200,6 +204,12 @@ export class AgendaItemsService {
       : await this.mayBuild(user);
     if (!allowed) throw new ForbiddenException('Not allowed');
 
+    const before = {
+      area: item.area,
+      minutes: item.minutes,
+      outcome: item.outcome,
+      presenterPublisherId: item.presenterPublisherId,
+    };
     if (dto.title !== undefined) item.title = dto.title;
     if (dto.sourceText !== undefined) item.sourceText = dto.sourceText ?? null;
     if (dto.sourceUrl !== undefined) item.sourceUrl = dto.sourceUrl ?? null;
@@ -213,7 +223,9 @@ export class AgendaItemsService {
       item.outcomeNote = dto.outcomeNote ?? null;
     }
     if (dto.taskId !== undefined) item.taskId = dto.taskId ?? null;
-    return this.items.save(item);
+    const saved = await this.items.save(item);
+    await this.note('update', saved, before, Object.keys(dto));
+    return saved;
   }
 
   /**
@@ -307,7 +319,69 @@ export class AgendaItemsService {
   async remove(user: AuthenticatedUser, id: string): Promise<void> {
     if (!(await this.mayBuild(user)))
       throw new ForbiddenException('Not allowed');
+    const item = await this.items.findOne({
+      where: { id, congregationId: user.congregationId },
+    });
+    if (item) await this.note('delete', item, null, []);
     await this.items.delete({ id, congregationId: user.congregationId });
+  }
+
+  /**
+   * Write it down — WITHOUT the question itself.
+   *
+   * Everything else in this app is journalled and the agenda was not; that is
+   * the gap this closes. But the journal is read by every administrator, and
+   * the title of a question the body discusses is the most revealing line in
+   * the database. So the entry records that AN ITEM was added, changed or
+   * removed, with its area, its minutes and its outcome — never its words.
+   * Whoever needs those opens the agenda, where the rights already decide who
+   * may look.
+   */
+  private async note(
+    action: 'create' | 'update' | 'delete',
+    item: EldersMeetingItem,
+    before: Record<string, unknown> | null,
+    fields: string[],
+  ): Promise<void> {
+    const after = {
+      area: item.area,
+      minutes: item.minutes,
+      outcome: item.outcome,
+      presenterPublisherId: item.presenterPublisherId,
+    };
+    const kept = fields.filter((f) => f in after);
+    try {
+      if (action === 'create') {
+        await this.auditLog.logCreate({
+          tenantId: item.congregationId,
+          entityType: 'agenda_item',
+          entityId: item.id,
+          subjectId: item.presenterPublisherId,
+          after,
+        });
+      } else if (action === 'delete') {
+        await this.auditLog.logEvent({
+          tenantId: item.congregationId,
+          entityType: 'agenda_item',
+          entityId: item.id,
+          action: 'DELETE',
+          subjectId: item.presenterPublisherId,
+          detail: after,
+        });
+      } else {
+        await this.auditLog.logUpdate({
+          tenantId: item.congregationId,
+          entityType: 'agenda_item',
+          entityId: item.id,
+          subjectId: item.presenterPublisherId,
+          before: before ?? {},
+          after,
+          fields: kept.length > 0 ? kept : Object.keys(after),
+        });
+      }
+    } catch {
+      // A journal that fails must never take the work down with it.
+    }
   }
 
   /**

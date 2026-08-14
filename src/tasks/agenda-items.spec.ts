@@ -42,6 +42,12 @@ describe('AgendaItemsService', () => {
         publishers as never,
         // Tasks — only reached when a question becomes one.
         { createTask: jest.fn(async () => ({ id: 'task-1' })) } as never,
+        // The journal — every write goes through it now, without the words.
+        {
+          logCreate: jest.fn(async () => undefined),
+          logUpdate: jest.fn(async () => undefined),
+          logDelete: jest.fn(async () => undefined),
+        } as never,
       ),
       items,
     };
@@ -166,6 +172,11 @@ describe('AgendaItemsService', () => {
       { count: jest.fn(async () => 1) } as never,
       { findOne: jest.fn(async () => null) } as never,
       { createTask } as never,
+      {
+        logCreate: jest.fn(async () => undefined),
+        logUpdate: jest.fn(async () => undefined),
+        logDelete: jest.fn(async () => undefined),
+      } as never,
     );
 
     const saved = await service.makeTask(elder, 'i1', {

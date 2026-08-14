@@ -24,7 +24,9 @@ describe('TaskRemindersService.runDue', () => {
     const service = new TaskRemindersService(
       { find: async () => tasks } as never,
       // The congregation, for the language the words are written in.
-      { findOne: async () => ({ language: 'ru' }) } as never,
+      {
+        findOne: async () => ({ language: 'ru', timezone: 'Europe/Berlin' }),
+      } as never,
       // Meetings — the day-before reminder looks here; none in these tests.
       { find: async () => [] } as never,
       { membersOf: async () => [{ id: 'p1', userId: 'u1' }] } as never,
@@ -57,9 +59,43 @@ describe('TaskRemindersService.runDue', () => {
       },
     ]);
 
-    await service.runDue(at('2026-08-12T17:30:00'));
+    // 17:30 in Berlin — an hour and a half before a seven o'clock meeting.
+    await service.runDue(at('2026-08-12T15:30:00Z'));
 
     expect(notify.mock.calls[0][0]).toMatchObject({ key: 'task-soon:t2' });
+  });
+
+  it('counts the two hours on the congregation own clock', async () => {
+    // «Two hours before seven» used to mean two hours before seven where the
+    // SERVER stands — right for one congregation in Germany, wrong for the
+    // next one anywhere else. The hour a brother was given is the hour on his
+    // own wall.
+    const notify = jest.fn(
+      async (_input: Record<string, unknown>) => undefined,
+    );
+    const service = new TaskRemindersService(
+      {
+        find: async () => [
+          {
+            id: 't-tz',
+            congregationId: 'c1',
+            dueDate: '2026-08-12',
+            dueTime: '19:00',
+          },
+        ],
+      } as never,
+      {
+        findOne: async () => ({ language: 'ru', timezone: 'Asia/Tbilisi' }),
+      } as never,
+      { find: async () => [] } as never,
+      { membersOf: async () => [{ id: 'p1', userId: 'u1' }] } as never,
+      { notify } as never,
+    );
+
+    // 15:30 UTC is 17:30 in Berlin — but 19:30 in Tbilisi, where seven has
+    // already passed. Nothing is sent.
+    await service.runDue(at('2026-08-12T15:30:00Z'));
+    expect(notify).not.toHaveBeenCalled();
   });
 
   it('says nothing at breakfast about an evening meeting', async () => {
@@ -147,7 +183,9 @@ describe('TaskRemindersService.runDue', () => {
     // addressees, notifications.
     const service = new TaskRemindersService(
       { find: async () => [] } as never,
-      { findOne: async () => ({ language: 'ru' }) } as never,
+      {
+        findOne: async () => ({ language: 'ru', timezone: 'Europe/Berlin' }),
+      } as never,
       {
         find: async () => [
           {
@@ -183,7 +221,9 @@ describe('TaskRemindersService.runDue', () => {
           { id: 't6', congregationId: 'c1', dueDate: '2026-08-13' },
         ],
       } as never,
-      { findOne: async () => ({ language: 'ru' }) } as never,
+      {
+        findOne: async () => ({ language: 'ru', timezone: 'Europe/Berlin' }),
+      } as never,
       // Meetings — the day-before reminder looks here; none in these tests.
       { find: async () => [] } as never,
       { membersOf: async () => [{ id: 'p9', userId: null }] } as never,
