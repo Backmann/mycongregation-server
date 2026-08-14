@@ -14,10 +14,16 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { TaskRemindersService } from './task-reminders.service';
 import { EldersMeetingItem } from '../entities/elders-meeting-item.entity';
 import { AgendaItemsService } from './agenda-items.service';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 
 @Module({
   imports: [
     NotificationsModule,
+    // The agenda writes to the journal now — and a service can only be
+    // injected if its module is imported. Nothing caught this: the tests build
+    // the service by hand, and the compiler sees only types. It showed itself
+    // where such things always do, at the first start after deploying.
+    AuditLogModule,
     TypeOrmModule.forFeature([
       ElderTask,
       EldersMeeting,
