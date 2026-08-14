@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Not, Repository } from 'typeorm';
+import { And, IsNull, LessThanOrEqual, Not, Repository } from 'typeorm';
 import { ElderTask } from '../entities/elder-task.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -237,8 +237,16 @@ export class TaskRemindersService {
       .toISOString()
       .slice(0, 10);
 
+    // Only the days that can produce a reminder: yesterday-and-earlier for
+    // the overdue nudge, today for «two hours before», tomorrow for the
+    // day-before. Reading EVERY open task with a date meant the whole history
+    // of every congregation, every quarter of an hour, to send at most a
+    // handful — and it grows for ever.
     const open = await this.tasks.find({
-      where: { status: 'open', dueDate: Not(IsNull()) },
+      where: {
+        status: 'open',
+        dueDate: And(Not(IsNull()), LessThanOrEqual(tomorrow)),
+      },
       relations: { assignees: true },
     });
 

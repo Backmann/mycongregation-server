@@ -185,6 +185,15 @@ describe('AgendaItemsService', () => {
     expect(saved.taskId).toBe('task-9');
   });
 
+  it('refuses an ordinary elder the deleting of a meeting', async () => {
+    // The class guard admits every elder, and for a while that was the only
+    // check on changing, deleting, approving and closing a meeting. Deleting
+    // an evening one did not arrange is not an elder's to do.
+    const { service } = build();
+
+    expect(await service.mayBuild(elder)).toBe(false);
+  });
+
   it('carries the unsettled to the next meeting and settles nothing itself', async () => {
     const rows = [
       { id: 'a', outcome: null, meetingId: 'm1' },

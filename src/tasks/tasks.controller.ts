@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -136,18 +137,38 @@ export class TasksController {
     return meeting;
   }
 
+  /**
+   * Changing and deleting a meeting belong to whoever builds the agenda.
+   *
+   * They were open to every elder — an oversight, and the kind that only shows
+   * itself the day somebody deletes an evening he did not arrange. The guard
+   * on the class admits elders; inside, these three ask for more.
+   */
   @Patch('meetings/:id')
-  updateMeeting(
+  async updateMeeting(
     @TenantId() tenantId: string,
     @Param('id') id: string,
     @Body() dto: UpsertMeetingDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
+    await this.mustBuild(user);
     return this.service.updateMeeting(tenantId, id, dto);
   }
 
   @Delete('meetings/:id')
-  removeMeeting(@TenantId() tenantId: string, @Param('id') id: string) {
+  async removeMeeting(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.mustBuild(user);
     return this.service.removeMeeting(tenantId, id);
+  }
+
+  private async mustBuild(user: AuthenticatedUser): Promise<void> {
+    if (!(await this.items.mayBuild(user))) {
+      throw new ForbiddenException('Not allowed');
+    }
   }
 
   // ---- Agenda items -----------------------------------------------------
@@ -231,21 +252,24 @@ export class TasksController {
    * here. Approving twice sends word once.
    */
   @Post('meetings/:id/approve')
-  approve(
+  async approve(
     @Param('id') id: string,
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
+    await this.mustBuild(user);
     return this.service.approveMeeting(tenantId, id, user);
   }
 
   /** Close it: what has no outcome travels to the next meeting. */
   @Post('meetings/:id/close')
-  close(
+  async close(
     @Param('id') id: string,
     @TenantId() tenantId: string,
     @Body() dto: { toMeetingId?: string | null },
+    @CurrentUser() user: AuthenticatedUser,
   ) {
+    await this.mustBuild(user);
     return this.items.carryOver(tenantId, id, dto?.toMeetingId ?? null);
   }
 

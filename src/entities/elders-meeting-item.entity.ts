@@ -38,7 +38,13 @@ export class EldersMeetingItem {
   @Column({ type: 'uuid', nullable: true })
   meetingId!: string | null;
 
-  @ManyToOne(() => EldersMeeting, { onDelete: 'SET NULL', nullable: true })
+  /**
+   * CASCADE, not SET NULL. A question exists only as part of an agenda, so
+   * deleting the agenda is a decision about the question too — detaching them
+   * meant the next meeting adopted what had just been thrown away. Tasks are
+   * different and still survive: a task is work somebody owes.
+   */
+  @ManyToOne(() => EldersMeeting, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'meeting_id' })
   meeting!: EldersMeeting | null;
 
