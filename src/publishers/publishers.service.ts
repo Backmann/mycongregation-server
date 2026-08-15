@@ -30,9 +30,6 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { ServiceReport } from '../entities/service-report.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
-import { Assignment } from '../entities/assignment.entity';
-import { Duty } from '../entities/duty.entity';
-import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { Gender } from '../common/enums/gender.enum';
@@ -1167,22 +1164,64 @@ export class PublishersService {
    * such publishers must be marked departed via remove() instead. Intended for
    * clean-up of mistaken / duplicate records only. Admin-gated in the controller.
    */
+
+  /**
+   * Every row in the database that points at this publisher, asked of the
+   * schema, not remembered.
+   *
+   * A hand-written list of tables is wrong the day a table is added, and this
+   * one was wrong long before that: it named five relations out of nineteen,
+   * and none of the five that delete rows on CASCADE. Reading
+   * information_schema costs one extra query on an action taken a few times a
+   * year, and it cannot fall behind the database it is asking.
+   *
+   * Returns [] when nothing points at the card — the only case in which
+   * destroying it is what the caller thinks it is.
+   */
+  private async whatHoldsPublisher(
+    id: string,
+  ): Promise<{ table: string; count: number }[]> {
+    const mgr = this.publishersRepo.manager;
+    const fks: { table_name: string; column_name: string }[] = await mgr.query(
+      `SELECT DISTINCT tc.table_name, kcu.column_name
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage kcu
+           ON tc.constraint_name = kcu.constraint_name
+          AND tc.constraint_schema = kcu.constraint_schema
+         JOIN information_schema.constraint_column_usage ccu
+           ON tc.constraint_name = ccu.constraint_name
+          AND tc.constraint_schema = ccu.constraint_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+          AND ccu.table_name = 'publishers'`,
+    );
+
+    const held: { table: string; count: number }[] = [];
+    for (const fk of fks) {
+      // Table and column names come from information_schema, never from a
+      // request; quoted all the same.
+      const selfRef = fk.table_name === 'publishers' ? ' AND "id" <> $1' : '';
+      const rows: { n: string }[] = await mgr.query(
+        `SELECT COUNT(*)::text AS n FROM "${fk.table_name}" WHERE "${fk.column_name}" = $1${selfRef}`,
+        [id],
+      );
+      const n = Number(rows[0]?.n ?? '0');
+      if (n > 0) held.push({ table: fk.table_name, count: n });
+    }
+    held.sort((a, b) => b.count - a.count || a.table.localeCompare(b.table));
+    return held;
+  }
+
   async purge(tenantId: string, id: string): Promise<{ deleted: true }> {
     await this.findOne(tenantId, id);
-    const mgr = this.publishersRepo.manager;
-    const [reports, asPub, asAsst, duties, fsm] = await Promise.all([
-      this.reportsRepo.count({ where: { publisherId: id } }),
-      mgr.getRepository(Assignment).count({ where: { publisherId: id } }),
-      mgr
-        .getRepository(Assignment)
-        .count({ where: { assistantPublisherId: id } }),
-      mgr.getRepository(Duty).count({ where: { publisherId: id } }),
-      mgr
-        .getRepository(FieldServiceMeeting)
-        .count({ where: { conductorPublisherId: id } }),
-    ]);
-    if (reports + asPub + asAsst + duties + fsm > 0) {
-      throw new BadRequestException('publisher_has_history');
+    const holders = await this.whatHoldsPublisher(id);
+    if (holders.length > 0) {
+      // Named, not merely refused: an elder facing «has history» cannot tell
+      // what to clear, and a wall is how a strict rule turns into people
+      // marking duplicates as departed instead.
+      throw new BadRequestException(
+        'publisher_has_history: ' +
+          holders.map((h) => `${h.table}=${h.count}`).join(', '),
+      );
     }
     // The one action here that truly destroys something. It is refused while
     // any history points at the person, so what goes is a card with nothing
