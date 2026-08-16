@@ -10,6 +10,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'crypto';
+import {
+  makeInviteCode,
+  formatInviteCode,
+  hashInviteCode,
+} from '../auth/invite-code';
 import { MailService } from '../mail/mail.service';
 import * as bcrypt from 'bcrypt';
 import { User } from '../entities/user.entity';
@@ -793,7 +798,44 @@ export class UsersService {
     const base =
       this.config.get<string>('PUBLIC_APP_URL') ?? 'https://mycongregation.org';
     const link = `${base}/reset-password?token=${token}`;
-    await this.mailService.sendInvite(email, lang, link);
+
+    // The second door. Same room, same 72 hours — but this one can be
+    // walked through inside the app, which is where the phone already is.
+    const code = makeInviteCode();
+    await this.usersRepo.update(userId, {
+      inviteCodeHash: hashInviteCode(code),
+      inviteCodeExpiresAt: expiresAt,
+      inviteCodeAttempts: 0,
+    });
+
+    await this.mailService.sendInvite(
+      email,
+      lang,
+      link,
+      formatInviteCode(code),
+      expiresAt,
+    );
+  }
+
+  /** One wrong guess, counted. */
+  async countInviteAttempt(userId: string, attempts: number): Promise<void> {
+    await this.usersRepo.update(userId, { inviteCodeAttempts: attempts });
+  }
+
+  /**
+   * The password is set and BOTH doors are closed — the code and the link.
+   * They were issued together for one purpose; leaving the link alive after
+   * the code was used would keep a way in that nobody is watching.
+   */
+  async completeInvite(userId: string, passwordHash: string): Promise<void> {
+    await this.usersRepo.update(userId, {
+      passwordHash,
+      inviteCodeHash: null,
+      inviteCodeExpiresAt: null,
+      inviteCodeAttempts: 0,
+      resetTokenHash: null,
+      resetTokenExpiresAt: null,
+    });
   }
 
   private hashPassword(password: string): Promise<string> {

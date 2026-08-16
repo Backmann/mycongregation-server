@@ -1,3 +1,4 @@
+import { Throttle } from '@nestjs/throttler';
 import {
   Body,
   Controller,
@@ -20,7 +21,7 @@ import { RefreshDto } from './dto/refresh.dto';
 import { UpdateMeDto } from './dto/update-me.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
-import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ResetPasswordDto, RedeemInviteDto } from './dto/reset-password.dto';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import type { AuthenticatedUser } from './decorators/current-user.decorator';
@@ -138,6 +139,21 @@ export class AuthController {
   @Post('reset-password')
   resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto.token, dto.password);
+  }
+
+  /**
+   * The invitation, finished where the person already is.
+   *
+   * Public by necessity — nobody has a session yet, that is the point of it —
+   * and rate-limited hard for the same reason. Five wrong codes end that code;
+   * the throttler ends the guessing.
+   */
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 600000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('invite/redeem')
+  redeemInvite(@Body() dto: RedeemInviteDto) {
+    return this.authService.redeemInvite(dto.email, dto.code, dto.password);
   }
 
   @Get('me')

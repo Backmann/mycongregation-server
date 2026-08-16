@@ -25,6 +25,11 @@ import { UpdateMeDto } from './dto/update-me.dto';
 import type { AuthenticatedUser } from './decorators/current-user.decorator';
 import { LoginDto } from './dto/login.dto';
 import { passwordProblem } from './password-policy';
+import {
+  hashInviteCode,
+  normalizeInviteCode,
+  INVITE_MAX_ATTEMPTS,
+} from './invite-code';
 import type { ClientInfo } from './read-client';
 
 interface RefreshTokenPayload {
@@ -254,6 +259,72 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(password, rounds);
     await this.usersService.completePasswordReset(user.id, passwordHash);
     await this.revokeAllSessions(user.id);
+    return this.issueTokens(user);
+  }
+
+  /**
+   * Finish an invitation from inside the app.
+   *
+   * Answers the same way the link path does — with a session — because the
+   * same thing has been proven: whoever holds the mailbox holds the code.
+   *
+   * What is DELIBERATELY not told apart on the reader's screen: no such
+   * address, wrong code, expired code, code already used. All four say the
+   * same thing, or the form becomes a way to ask us which addresses exist. The
+   * log says which it was; the reader is told what to do about it. That is the
+   * rule this project arrived at after three password incidents in a row.
+   *
+   * The remaining count IS returned, and that is not a leak: it only ever
+   * appears once a real code for a real address has been offered and refused,
+   * and being told «four left» is the difference between a form that is strict
+   * and a form that seems broken.
+   */
+  async redeemInvite(email: string, rawCode: string, password: string) {
+    const address = email.toLowerCase().trim();
+    const code = normalizeInviteCode(rawCode);
+    const refuse = (why: string) => {
+      this.logger.warn(`invite refused for ${address}: ${why}`);
+      return new BadRequestException({ code: 'INVITE_INVALID' });
+    };
+
+    const user = await this.usersService.findByEmail(address);
+    if (!user) throw refuse('no such account');
+    if (!user.isActive) throw refuse('account disabled');
+    if (!user.inviteCodeHash) throw refuse('no code issued or already used');
+    if (
+      !user.inviteCodeExpiresAt ||
+      user.inviteCodeExpiresAt.getTime() <= Date.now()
+    ) {
+      throw refuse('code expired');
+    }
+    if (user.inviteCodeAttempts >= INVITE_MAX_ATTEMPTS) {
+      throw refuse('too many attempts');
+    }
+
+    if (hashInviteCode(code) !== user.inviteCodeHash) {
+      const attempts = user.inviteCodeAttempts + 1;
+      await this.usersService.countInviteAttempt(user.id, attempts);
+      const left = INVITE_MAX_ATTEMPTS - attempts;
+      this.logger.warn(
+        `invite refused for ${address}: wrong code (${left} left)`,
+      );
+      throw new BadRequestException({
+        code: 'INVITE_WRONG_CODE',
+        attemptsLeft: left,
+      });
+    }
+
+    // The password is judged before the code is spent: a refusal here should
+    // cost the reader another try at typing, not another invitation.
+    const problem = passwordProblem(password, user.email);
+    if (problem) {
+      throw new BadRequestException({ code: 'WEAK_PASSWORD', problem });
+    }
+
+    const rounds = this.config.get<number>('bcrypt.rounds') ?? 12;
+    const passwordHash = await bcrypt.hash(password, rounds);
+    await this.usersService.completeInvite(user.id, passwordHash);
+    this.logger.log(`invite redeemed for ${address}`);
     return this.issueTokens(user);
   }
 

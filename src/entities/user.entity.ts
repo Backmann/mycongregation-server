@@ -84,6 +84,25 @@ export class User {
 
   @Column({ type: 'timestamptz', nullable: true })
   resetTokenExpiresAt!: Date | null;
+
+  @Column({
+    name: 'invite_code_hash',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+  })
+  inviteCodeHash!: string | null;
+
+  @Column({
+    name: 'invite_code_expires_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  inviteCodeExpiresAt!: Date | null;
+
+  /** Five wrong guesses and the code is spent — see AuthService.redeemInvite. */
+  @Column({ name: 'invite_code_attempts', type: 'int', default: 0 })
+  inviteCodeAttempts!: number;
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
   @UpdateDateColumn({ type: 'timestamptz' })

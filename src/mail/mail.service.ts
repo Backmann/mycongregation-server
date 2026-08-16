@@ -26,11 +26,21 @@ interface Strings {
   footerAuto: string;
   invite: Message;
   reset: Message;
+  /** Only the invitation carries a code; the reset does not. */
+  codeLead: string;
+  codeHint: string;
+  codeValid: string;
+  orBrowser: string;
 }
 
 const STRINGS: Record<Lang, Strings> = {
   ru: {
     brand: 'MyCongregation.org',
+    codeLead: 'Установите приложение и введите этот код:',
+    codeHint:
+      'В приложении на экране входа нажмите «Меня пригласили» и введите код. Пароль вы придумаете сами на следующем шаге.',
+    codeValid: 'Код и ссылка действуют до',
+    orBrowser: 'Читаете с компьютера? Откройте ссылку:',
     greeting: 'Здравствуйте!',
     linkHint: 'Если кнопка не открывается, скопируйте ссылку в браузер:',
     footerAuto: 'Это автоматическое сообщение, отвечать на него не нужно.',
@@ -59,6 +69,11 @@ const STRINGS: Record<Lang, Strings> = {
   },
   en: {
     brand: 'MyCongregation.org',
+    codeLead: 'Install the app and enter this code:',
+    codeHint:
+      'On the sign-in screen tap «I was invited» and enter the code. You will choose your own password on the next step.',
+    codeValid: 'The code and the link are valid until',
+    orBrowser: 'Reading on a computer? Open the link:',
     greeting: 'Hello!',
     linkHint: "If the button doesn't work, copy this link into your browser:",
     footerAuto: 'This is an automated message — no need to reply.',
@@ -87,6 +102,11 @@ const STRINGS: Record<Lang, Strings> = {
   },
   de: {
     brand: 'MyCongregation.org',
+    codeLead: 'Installiere die App und gib diesen Code ein:',
+    codeHint:
+      'Tippe im Anmeldebildschirm auf «Ich wurde eingeladen» und gib den Code ein. Dein Passwort wählst du im nächsten Schritt selbst.',
+    codeValid: 'Code und Link sind gültig bis',
+    orBrowser: 'Liest du am Computer? Öffne den Link:',
     greeting: 'Hallo!',
     linkHint:
       'Falls die Schaltfläche nicht funktioniert, kopieren Sie den Link in Ihren Browser:',
@@ -158,7 +178,22 @@ export class MailService {
   }
 
   /** Branded, email-client-safe HTML for one message. */
-  private renderHtml(s: Strings, m: Message, link: string): string {
+  /** Formats the day the code stops working, for the reader. */
+  private until(lang: Strings, when?: Date): string {
+    if (!when) return '';
+    void lang;
+    const d = when;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  private renderHtml(
+    s: Strings,
+    m: Message,
+    link: string,
+    code?: string,
+    expiresAt?: Date,
+  ): string {
     const p =
       'font-size:15px;line-height:1.6;color:#334155;margin:0 0 14px;' +
       'font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;';
@@ -176,7 +211,8 @@ export class MailService {
 <h1 style="font-size:20px;margin:0 0 14px;color:#0f172a;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${m.title}</h1>
 <p style="${p}">${s.greeting}</p>
 <p style="${p}">${m.intro}</p>
-<p style="${p}">${m.lead}</p>
+<p style="${p}">${code ? s.codeLead : m.lead}</p>
+${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f172a;text-align:center;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 12px;margin:0 0 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${code}</p><p style="${small}margin:0 0 14px;">${s.codeHint}</p>${expiresAt ? `<p style="${small}margin:0 0 14px;">${s.codeValid} ${this.until(s, expiresAt)}</p>` : ''}<p style="${p}">${s.orBrowser}</p>` : ''}
 <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:20px auto 8px;"><tr>
 <td bgcolor="#15788f" style="border-radius:10px;">
 <a href="${link}" style="display:inline-block;padding:13px 30px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;border-radius:10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${m.button}</a>
@@ -194,13 +230,31 @@ export class MailService {
 </table>`;
   }
 
-  private renderText(s: Strings, m: Message, link: string): string {
+  private renderText(
+    s: Strings,
+    m: Message,
+    link: string,
+    code?: string,
+    expiresAt?: Date,
+  ): string {
     return [
       s.greeting,
       '',
       m.intro,
       '',
-      m.lead,
+      ...(code
+        ? [
+            s.codeLead,
+            code,
+            '',
+            s.codeHint,
+            ...(expiresAt
+              ? [`${s.codeValid} ${this.until(s, expiresAt)}`]
+              : []),
+            '',
+            s.orBrowser,
+          ]
+        : [m.lead]),
       link,
       '',
       m.validity,
@@ -240,15 +294,21 @@ export class MailService {
     return true;
   }
 
-  async sendInvite(to: string, lang: string, link: string): Promise<void> {
+  async sendInvite(
+    to: string,
+    lang: string,
+    link: string,
+    code?: string,
+    expiresAt?: Date,
+  ): Promise<void> {
     const s = STRINGS[lang as Lang] ?? STRINGS.ru;
     const m = s.invite;
     try {
       await this.deliver(
         to,
         m.subject,
-        this.renderHtml(s, m, link),
-        this.renderText(s, m, link),
+        this.renderHtml(s, m, link, code, expiresAt),
+        this.renderText(s, m, link, code, expiresAt),
       );
     } catch (e) {
       this.logger.warn(
