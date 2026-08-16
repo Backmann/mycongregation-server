@@ -27,6 +27,8 @@ interface Strings {
   invite: Message;
   reset: Message;
   /** Only the invitation carries a code; the reset does not. */
+  installLead: string;
+  installButton: string;
   codeLead: string;
   codeHint: string;
   codeValid: string;
@@ -36,7 +38,10 @@ interface Strings {
 const STRINGS: Record<Lang, Strings> = {
   ru: {
     brand: 'MyCongregation.org',
-    codeLead: 'Установите приложение и введите этот код:',
+    installLead:
+      'Откройте эту страницу на телефоне — там будет то, что нужно для вашего устройства:',
+    installButton: 'Как установить',
+    codeLead: 'Затем откройте приложение и введите этот код:',
     codeHint:
       'В приложении на экране входа нажмите «Меня пригласили» и введите код. Пароль вы придумаете сами на следующем шаге.',
     codeValid: 'Код и ссылка действуют до',
@@ -69,7 +74,10 @@ const STRINGS: Record<Lang, Strings> = {
   },
   en: {
     brand: 'MyCongregation.org',
-    codeLead: 'Install the app and enter this code:',
+    installLead:
+      'Open this page on your phone — it shows what your device needs:',
+    installButton: 'How to install',
+    codeLead: 'Then open the app and enter this code:',
     codeHint:
       'On the sign-in screen tap «I was invited» and enter the code. You will choose your own password on the next step.',
     codeValid: 'The code and the link are valid until',
@@ -102,11 +110,14 @@ const STRINGS: Record<Lang, Strings> = {
   },
   de: {
     brand: 'MyCongregation.org',
-    codeLead: 'Installiere die App und gib diesen Code ein:',
+    installLead:
+      'Öffnen Sie diese Seite auf Ihrem Telefon — dort steht, was Ihr Gerät braucht:',
+    installButton: 'So wird installiert',
+    codeLead: 'Öffnen Sie dann die App und geben Sie diesen Code ein:',
     codeHint:
-      'Tippe im Anmeldebildschirm auf «Ich wurde eingeladen» und gib den Code ein. Dein Passwort wählst du im nächsten Schritt selbst.',
+      'Tippen Sie im Anmeldebildschirm auf «Ich wurde eingeladen» und geben Sie den Code ein. Ihr Passwort wählen Sie im nächsten Schritt selbst.',
     codeValid: 'Code und Link sind gültig bis',
-    orBrowser: 'Liest du am Computer? Öffne den Link:',
+    orBrowser: 'Lesen Sie am Computer? Öffnen Sie den Link:',
     greeting: 'Hallo!',
     linkHint:
       'Falls die Schaltfläche nicht funktioniert, kopieren Sie den Link in Ihren Browser:',
@@ -193,6 +204,7 @@ export class MailService {
     link: string,
     code?: string,
     expiresAt?: Date,
+    installUrl?: string,
   ): string {
     const p =
       'font-size:15px;line-height:1.6;color:#334155;margin:0 0 14px;' +
@@ -211,13 +223,14 @@ export class MailService {
 <h1 style="font-size:20px;margin:0 0 14px;color:#0f172a;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${m.title}</h1>
 <p style="${p}">${s.greeting}</p>
 <p style="${p}">${m.intro}</p>
+${code && installUrl ? `<p style="${p}">${s.installLead}</p><table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:16px auto 18px;"><tr><td bgcolor="#15788f" style="border-radius:10px;"><a href="${installUrl}" style="display:inline-block;padding:13px 30px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;border-radius:10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${s.installButton}</a></td></tr></table><p style="${small}word-break:break-all;margin:0 0 16px;">${installUrl}</p>` : ''}
 <p style="${p}">${code ? s.codeLead : m.lead}</p>
 ${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f172a;text-align:center;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 12px;margin:0 0 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${code}</p><p style="${small}margin:0 0 14px;">${s.codeHint}</p>${expiresAt ? `<p style="${small}margin:0 0 14px;">${s.codeValid} ${this.until(s, expiresAt)}</p>` : ''}<p style="${p}">${s.orBrowser}</p>` : ''}
 <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:20px auto 8px;"><tr>
 <td bgcolor="#15788f" style="border-radius:10px;">
 <a href="${link}" style="display:inline-block;padding:13px 30px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;border-radius:10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${m.button}</a>
 </td></tr></table>
-<p style="${small}text-align:center;margin:6px 0 16px;">${m.validity}</p>
+<p style="${small}text-align:center;margin:6px 0 16px;">${expiresAt ? '' : m.validity}</p>
 <p style="${small}margin:0 0 6px;">${s.linkHint}</p>
 <p style="font-size:13px;color:#0369a1;word-break:break-all;background:#f8fafc;border:1px solid #eef2f6;border-radius:8px;padding:10px 12px;margin:0 0 12px;">${link}</p>
 </td></tr>
@@ -236,12 +249,14 @@ ${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f1
     link: string,
     code?: string,
     expiresAt?: Date,
+    installUrl?: string,
   ): string {
     return [
       s.greeting,
       '',
       m.intro,
       '',
+      ...(code && installUrl ? [s.installLead, installUrl, ''] : []),
       ...(code
         ? [
             s.codeLead,
@@ -257,8 +272,7 @@ ${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f1
         : [m.lead]),
       link,
       '',
-      m.validity,
-      '',
+      ...(expiresAt ? [] : [m.validity, '']),
       m.ignore,
       s.footerAuto,
     ].join('\n');
@@ -300,6 +314,7 @@ ${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f1
     link: string,
     code?: string,
     expiresAt?: Date,
+    installUrl?: string,
   ): Promise<void> {
     const s = STRINGS[lang as Lang] ?? STRINGS.ru;
     const m = s.invite;
@@ -307,8 +322,8 @@ ${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f1
       await this.deliver(
         to,
         m.subject,
-        this.renderHtml(s, m, link, code, expiresAt),
-        this.renderText(s, m, link, code, expiresAt),
+        this.renderHtml(s, m, link, code, expiresAt, installUrl),
+        this.renderText(s, m, link, code, expiresAt, installUrl),
       );
     } catch (e) {
       this.logger.warn(

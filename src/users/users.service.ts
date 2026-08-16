@@ -808,12 +808,17 @@ export class UsersService {
       inviteCodeAttempts: 0,
     });
 
+    // The same setting the version endpoint hands out, so the letter
+    // cannot point somewhere the app is no longer given away from.
+    const installUrl = this.config.get<string>('appVersion.downloadUrl');
+
     await this.mailService.sendInvite(
       email,
       lang,
       link,
       formatInviteCode(code),
       expiresAt,
+      installUrl,
     );
   }
 
