@@ -328,6 +328,36 @@ export class AuthService {
     return this.issueTokens(user);
   }
 
+  /**
+   * Send a fresh invitation code to an address that is still waiting for one.
+   *
+   * Returns nothing, always, and throws nothing the caller can tell apart —
+   * the answer is identical for an unknown address, a disabled account, one
+   * that already has a password, and a successful send. The log is where the
+   * difference is recorded.
+   *
+   * A fresh code also resets the attempt counter, which matters more than the
+   * code itself: whoever needs this most is the person who has just used the
+   * last of five tries.
+   */
+  async resendInvite(email: string): Promise<void> {
+    const address = email.toLowerCase().trim();
+    const note = (why: string) =>
+      this.logger.warn(`invite resend for ${address}: ${why}`);
+
+    const user = await this.usersService.findByEmailWithPassword(address);
+    if (!user) return note('no such account');
+    if (!user.isActive) return note('account disabled');
+    if (user.passwordHash) {
+      // Not an invitation any more. «Забыли пароль» is that door, and this one
+      // must not become a way to mail people who did not ask.
+      return note('password already set — not resending');
+    }
+
+    await this.usersService.sendInvitation(user.id, user.email);
+    this.logger.log(`invite resent to ${address}`);
+  }
+
   async updateMe(userId: string, dto: UpdateMeDto): Promise<AuthenticatedUser> {
     if (dto.uiLanguage !== undefined) {
       await this.usersService.updateUiLanguage(userId, dto.uiLanguage);

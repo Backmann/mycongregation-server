@@ -38,3 +38,9 @@ export class RedeemInviteDto {
   @MaxLength(200)
   password!: string;
 }
+
+/** Asking for a fresh invitation code. The address, and nothing else. */
+export class ResendInviteDto {
+  @IsEmail()
+  email!: string;
+}

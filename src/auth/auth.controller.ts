@@ -21,7 +21,11 @@ import { RefreshDto } from './dto/refresh.dto';
 import { UpdateMeDto } from './dto/update-me.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
-import { ResetPasswordDto, RedeemInviteDto } from './dto/reset-password.dto';
+import {
+  ResetPasswordDto,
+  RedeemInviteDto,
+  ResendInviteDto,
+} from './dto/reset-password.dto';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import type { AuthenticatedUser } from './decorators/current-user.decorator';
@@ -154,6 +158,23 @@ export class AuthController {
   @Post('invite/redeem')
   redeemInvite(@Body() dto: RedeemInviteDto) {
     return this.authService.redeemInvite(dto.email, dto.code, dto.password);
+  }
+
+  /**
+   * A fresh invitation code, asked for by the person who needs it.
+   *
+   * Answers 200 and the same body no matter what happened — see
+   * AuthService.resendInvite. Throttled harder than redeeming: sending mail on
+   * a stranger's behalf deserves a tighter leash than guessing a code, which
+   * dies on its own after five tries.
+   */
+  @Public()
+  @Throttle({ default: { limit: 3, ttl: 600000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('invite/resend')
+  async resendInvite(@Body() dto: ResendInviteDto) {
+    await this.authService.resendInvite(dto.email);
+    return { ok: true };
   }
 
   @Get('me')
