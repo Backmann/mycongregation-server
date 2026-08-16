@@ -27,6 +27,7 @@ interface Strings {
   invite: Message;
   reset: Message;
   /** Only the invitation carries a code; the reset does not. */
+  newestLetter: string;
   installLead: string;
   installButton: string;
   codeLead: string;
@@ -38,12 +39,14 @@ interface Strings {
 const STRINGS: Record<Lang, Strings> = {
   ru: {
     brand: 'MyCongregation.org',
+    newestLetter:
+      'Если писем с приглашением несколько — откройте самое новое: код из прежних уже не работает.',
     installLead:
       'Откройте эту страницу на телефоне — там будет то, что нужно для вашего устройства:',
     installButton: 'Как установить',
     codeLead: 'Затем откройте приложение и введите этот код:',
     codeHint:
-      'В приложении на экране входа нажмите «Меня пригласили» и введите код. Пароль вы придумаете сами на следующем шаге.',
+      'В приложении нажмите «Вас пригласили?» вверху экрана входа и введите код. Пароль вы придумаете сами на следующем шаге.',
     codeValid: 'Код и ссылка действуют до',
     orBrowser: 'Читаете с компьютера? Откройте ссылку:',
     greeting: 'Здравствуйте!',
@@ -74,12 +77,14 @@ const STRINGS: Record<Lang, Strings> = {
   },
   en: {
     brand: 'MyCongregation.org',
+    newestLetter:
+      'If several invitation letters arrived, open the newest — codes from earlier ones no longer work.',
     installLead:
       'Open this page on your phone — it shows what your device needs:',
     installButton: 'How to install',
     codeLead: 'Then open the app and enter this code:',
     codeHint:
-      'On the sign-in screen tap «I was invited» and enter the code. You will choose your own password on the next step.',
+      'Tap «Were you invited?» at the top of the sign-in screen and enter the code. You will choose your own password on the next step.',
     codeValid: 'The code and the link are valid until',
     orBrowser: 'Reading on a computer? Open the link:',
     greeting: 'Hello!',
@@ -110,12 +115,14 @@ const STRINGS: Record<Lang, Strings> = {
   },
   de: {
     brand: 'MyCongregation.org',
+    newestLetter:
+      'Sind mehrere Einladungen angekommen, öffnen Sie die neueste — Codes aus älteren gelten nicht mehr.',
     installLead:
       'Öffnen Sie diese Seite auf Ihrem Telefon — dort steht, was Ihr Gerät braucht:',
     installButton: 'So wird installiert',
     codeLead: 'Öffnen Sie dann die App und geben Sie diesen Code ein:',
     codeHint:
-      'Tippen Sie im Anmeldebildschirm auf «Ich wurde eingeladen» und geben Sie den Code ein. Ihr Passwort wählen Sie im nächsten Schritt selbst.',
+      'Tippen Sie oben im Anmeldebildschirm auf «Wurden Sie eingeladen?» und geben Sie den Code ein. Ihr Passwort wählen Sie im nächsten Schritt selbst.',
     codeValid: 'Code und Link sind gültig bis',
     orBrowser: 'Lesen Sie am Computer? Öffnen Sie den Link:',
     greeting: 'Hallo!',
@@ -225,7 +232,7 @@ export class MailService {
 <p style="${p}">${m.intro}</p>
 ${code && installUrl ? `<p style="${p}">${s.installLead}</p><table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:16px auto 18px;"><tr><td bgcolor="#15788f" style="border-radius:10px;"><a href="${installUrl}" style="display:inline-block;padding:13px 30px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;border-radius:10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${s.installButton}</a></td></tr></table><p style="${small}word-break:break-all;margin:0 0 16px;">${installUrl}</p>` : ''}
 <p style="${p}">${code ? s.codeLead : m.lead}</p>
-${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f172a;text-align:center;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 12px;margin:0 0 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${code}</p><p style="${small}margin:0 0 14px;">${s.codeHint}</p>${expiresAt ? `<p style="${small}margin:0 0 14px;">${s.codeValid} ${this.until(s, expiresAt)}</p>` : ''}<p style="${p}">${s.orBrowser}</p>` : ''}
+${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f172a;text-align:center;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 12px;margin:0 0 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${code}</p><p style="${small}margin:0 0 14px;">${s.codeHint}</p><p style="${small}margin:0 0 14px;">${s.newestLetter}</p>${expiresAt ? `<p style="${small}margin:0 0 14px;">${s.codeValid} ${this.until(s, expiresAt)}</p>` : ''}<p style="${p}">${s.orBrowser}</p>` : ''}
 <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:20px auto 8px;"><tr>
 <td bgcolor="#15788f" style="border-radius:10px;">
 <a href="${link}" style="display:inline-block;padding:13px 30px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;border-radius:10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${m.button}</a>
@@ -263,6 +270,7 @@ ${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f1
             code,
             '',
             s.codeHint,
+            s.newestLetter,
             ...(expiresAt
               ? [`${s.codeValid} ${this.until(s, expiresAt)}`]
               : []),
