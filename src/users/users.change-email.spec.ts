@@ -2,7 +2,7 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { MailService } from '../mail/mail.service';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { User } from '../entities/user.entity';
 import { Publisher } from '../entities/publisher.entity';
@@ -68,14 +68,20 @@ describe('UsersService.changeEmailByAdmin', () => {
     expect(repo.save).not.toHaveBeenCalled();
   });
 
-  it('rejects an email already taken by another account', async () => {
+  it('accepts an address another account already uses', async () => {
+    // The opposite of what this test used to demand. A shared family mailbox
+    // is the ordinary case now: identity is the login name, and the address
+    // only says where the letter goes. Refusing here was what left one of a
+    // married couple without a login of her own.
     repo.findOne
       .mockResolvedValueOnce({ ...baseUser })
       .mockResolvedValueOnce({ id: 'u2', email: 'kvachekd@gmail.com' });
-    await expect(
-      service.changeEmailByAdmin('u1', 'kvachekd@gmail.com', 'cong-1'),
-    ).rejects.toThrow(ConflictException);
-    expect(repo.save).not.toHaveBeenCalled();
+
+    await service.changeEmailByAdmin('u1', 'kvachekd@gmail.com', 'cong-1');
+
+    expect(repo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ email: 'kvachekd@gmail.com' }),
+    );
   });
 
   it('throws NotFound for a user outside the congregation', async () => {

@@ -33,7 +33,15 @@ const makeUsersRepo = (): MockRepo<User> => ({
   create: jest.fn().mockImplementation((x) => x),
   save: jest.fn().mockImplementation(async (x) => x),
   update: jest.fn().mockResolvedValue({ affected: 1 }),
-  createQueryBuilder: jest.fn(),
+  // Settling a login name asks whether a candidate is taken, so every path
+  // that creates an account now reaches a query builder.
+  createQueryBuilder: jest.fn(() => ({
+    addSelect: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    getOne: jest.fn().mockResolvedValue(null),
+    getMany: jest.fn().mockResolvedValue([]),
+    getCount: jest.fn().mockResolvedValue(0),
+  })) as unknown as jest.Mock,
 });
 
 const makePublishersRepo = (): MockRepo<Publisher> => ({
@@ -384,8 +392,13 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
       expect((result as any).passwordHash).toBeUndefined();
     });
 
-    it('throws ConflictException when email already exists (pre-check)', async () => {
+    it('lets a second account use a mailbox somebody already uses', async () => {
+      // This used to be refused, and that refusal is what stopped a wife from
+      // being given a login at all: the family had one address between them.
+      // Identity moved to the login name; the address only says where letters
+      // go, and two people may read the same inbox.
       (repo.findOne as jest.Mock).mockResolvedValue(userFixture());
+
       await expect(
         service.createUserByAdmin(
           {
@@ -396,9 +409,28 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
           CONG,
           ADMIN_ID,
         ),
-      ).rejects.toBeInstanceOf(ConflictException);
-      expect(repo.save).not.toHaveBeenCalled();
-      expect(audit.logCreate).not.toHaveBeenCalled();
+      ).resolves.toBeDefined();
+      expect(repo.save).toHaveBeenCalled();
+    });
+
+    it('gives every new account a login name', async () => {
+      // Nothing else in the system will fill this in later. An account without
+      // one is an account nobody can name, and its owner cannot sign in by
+      // anything but an address they may not have.
+      (repo.findOne as jest.Mock).mockResolvedValue(null);
+
+      await service.createUserByAdmin(
+        {
+          email: 'Backmannleo@Gmail.com',
+          password: 'verysecret',
+          role: UserRole.PUBLISHER,
+        },
+        CONG,
+        ADMIN_ID,
+      );
+
+      const created = (repo.create as jest.Mock).mock.calls[0][0];
+      expect(created.loginName).toBe('backmannleo');
     });
 
     it('respects explicit uiLanguage when provided', async () => {

@@ -112,6 +112,13 @@ export class AuthService {
         // congregation could end up unable to sign in with the address he
         // reads on his own screen.
         email: dto.email.trim().toLowerCase(),
+        // The first account of a congregation needs a name like every other:
+        // it has no publisher card to build one from, so the address supplies
+        // it. Missing this would leave the one person who can fix everything
+        // else unable to sign in by name.
+        loginName: await this.usersService.settleLoginNameFor({
+          email: dto.email,
+        }),
         passwordHash,
         role: UserRole.ADMIN,
         isActive: true,
@@ -143,10 +150,16 @@ export class AuthService {
 
   async login(dto: LoginDto, ip = 'unknown', client?: ClientInfo) {
     const FIFTEEN_MIN = 15 * 60 * 1000;
-    const email = dto.email.toLowerCase().trim();
-    // 6 attempts / 15 min, by email and by IP.
+    // A login name or an address — whichever the person has. `email` is the
+    // older name of the same field, still sent by app builds in people's
+    // pockets today.
+    const identifier = (dto.login ?? dto.email ?? '').toLowerCase().trim();
+    if (identifier === '') {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    // 6 attempts / 15 min, by identifier and by IP.
     if (
-      !this.allowLogin(`login:email:${email}`, 6, FIFTEEN_MIN) ||
+      !this.allowLogin(`login:id:${identifier}`, 6, FIFTEEN_MIN) ||
       !this.allowLogin(`login:ip:${ip}`, 6, FIFTEEN_MIN)
     ) {
       throw new HttpException(
@@ -154,7 +167,16 @@ export class AuthService {
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
-    const user = await this.usersService.findByEmailWithPassword(dto.email);
+    const { user, shared } = await this.usersService.findForLogin(identifier);
+    if (shared) {
+      // The one refusal that says something, because it is the one the person
+      // can act on: their address is a family mailbox and cannot say which of
+      // them is signing in. It admits that the address is used more than once
+      // here — to somebody who already knows the address — and that is worth
+      // less than leaving a couple stuck at their own front door.
+      this.logger.warn(`login refused for ${identifier}: address is shared`);
+      throw new UnauthorizedException({ code: 'LOGIN_SHARED_EMAIL' });
+    }
     // The PAGE must keep saying one thing — telling a stranger «no such
     // address» turns the login form into a way of testing addresses. But the
     // four reasons are worlds apart for whoever is asked to help, and nobody
@@ -163,18 +185,21 @@ export class AuthService {
     //
     // So: one answer on screen, the reason in the log.
     const refuse = (reason: string): never => {
-      this.logger.warn(`login refused for ${email}: ${reason}`);
+      this.logger.warn(`login refused for ${identifier}: ${reason}`);
       throw new UnauthorizedException('Invalid credentials');
     };
-    if (!user) return refuse('no account with this address');
+    if (!user) return refuse('no account with this name or address');
     if (!user.isActive) return refuse('account is switched off');
     if (!user.passwordHash) {
       return refuse('no password has been set (invited but never completed?)');
     }
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
     if (!ok) return refuse('wrong password');
-    // Successful login clears the email counter.
-    this.loginAttempts.delete(`login:email:${email}`);
+    // Successful login clears this identifier's counter — the SAME key the
+    // limiter above writes. It used to clear `login:email:…` while the limiter
+    // counted something else, which would have left a successful sign-in
+    // counting against the next one.
+    this.loginAttempts.delete(`login:id:${identifier}`);
     await this.usersService.touchLastLogin(user.id);
     return this.issueTokens(user, undefined, client);
   }

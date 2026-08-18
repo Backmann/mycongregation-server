@@ -5,6 +5,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { PASSWORD_MIN_LENGTH } from '../../auth/password-policy';
 /**
  * Manage an existing login linked to a publisher: reset the password,
  * toggle administrator status, enable/disable the account, and/or grant or
@@ -12,14 +13,14 @@ import {
  * ones are applied.
  */
 export class UpdateAccessDto {
-  /** New login email — e.g. to fix a typo. Must be unique. */
+  /** Where this account's letters go — e.g. to fix a typo. May be shared. */
   @IsOptional()
   @IsEmail()
   @MaxLength(255)
   email?: string;
 
   @IsOptional()
-  @MinLength(8)
+  @MinLength(PASSWORD_MIN_LENGTH)
   @MaxLength(128)
   password?: string;
   @IsOptional()

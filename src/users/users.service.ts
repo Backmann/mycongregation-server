@@ -25,6 +25,12 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { PresenceService } from '../presence/presence.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { passwordProblem } from '../auth/password-policy';
+import {
+  loginNameFrom,
+  loginNameFromEmail,
+  looksLikeEmail,
+  settleLoginName,
+} from './login-name';
 import { RefreshSession } from '../entities/refresh-session.entity';
 
 /**
@@ -34,6 +40,11 @@ import { RefreshSession } from '../entities/refresh-session.entity';
 export interface PublicUser {
   id: string;
   email: string;
+  /**
+   * What this person types to sign in. Shown to administrators so that
+   * «я забыл имя входа» is one question to an elder rather than a dead end.
+   */
+  loginName: string | null;
   role: UserRole;
   isActive: boolean;
   uiLanguage: string;
@@ -123,6 +134,7 @@ function toPublicUser(
     lastClient,
     id: u.id,
     email: u.email,
+    loginName: u.loginName ?? null,
     role: u.role,
     isActive: u.isActive,
     uiLanguage: u.uiLanguage,
@@ -185,6 +197,73 @@ export class UsersService {
         email: email.trim().toLowerCase(),
       })
       .getOne();
+  }
+
+  /**
+   * Who is trying to sign in — by login name, or by address as before.
+   *
+   * The two are told apart by the @ and nothing else, so the answer never
+   * depends on what happens to be in the database.
+   *
+   * `shared` is the case the address alone can no longer answer: now that an
+   * address may belong to several logins (a couple with one mailbox), it stops
+   * being enough to say who you are. We do NOT try each password in turn —
+   * that would work, but it makes one person's wrong password count against
+   * the other's rate limit, and turns a forgotten password into two letters.
+   * The person is asked for their name instead, which they have.
+   */
+  async findForLogin(
+    identifier: string,
+  ): Promise<{ user: User | null; shared: boolean }> {
+    const value = identifier.trim().toLowerCase();
+    if (value === '') return { user: null, shared: false };
+
+    if (!looksLikeEmail(value)) {
+      const user = await this.usersRepo
+        .createQueryBuilder('user')
+        .addSelect('user.passwordHash')
+        .where('LOWER(user.login_name) = :name', { name: value })
+        .getOne();
+      return { user, shared: false };
+    }
+
+    const matches = await this.usersRepo
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('LOWER(user.email) = :email', { email: value })
+      .getMany();
+    if (matches.length > 1) return { user: null, shared: true };
+    return { user: matches[0] ?? null, shared: false };
+  }
+
+  /** Is this login name free? Deleted accounts do not hold one — see the index. */
+  private async loginNameTaken(candidate: string): Promise<boolean> {
+    const count = await this.usersRepo
+      .createQueryBuilder('user')
+      .where('LOWER(user.login_name) = :name', { name: candidate })
+      .getCount();
+    return count > 0;
+  }
+
+  /**
+   * A name for a new account, from the card if there is one and from the
+   * address if there is not.
+   *
+   * Every path that creates a login comes through here. Two paths deciding
+   * this separately is the shape of every account bug we have had: one of them
+   * always ends up doing half the job.
+   */
+  async settleLoginNameFor(input: {
+    firstName?: string | null;
+    lastName?: string | null;
+    email?: string | null;
+  }): Promise<string> {
+    const fromCard = loginNameFrom(input.lastName, input.firstName);
+    const preferred =
+      fromCard !== '' ? fromCard : loginNameFromEmail(input.email);
+    return settleLoginName(preferred, (candidate) =>
+      this.loginNameTaken(candidate),
+    );
   }
 
   touchLastLogin(id: string): Promise<unknown> {
@@ -360,12 +439,17 @@ export class UsersService {
   ): Promise<PublicUser> {
     const email = dto.email.trim().toLowerCase();
 
-    // Pre-check for the common case (clean 409 even though the DB UNIQUE
-    // constraint is the actual source of truth).
-    const existing = await this.usersRepo.findOne({ where: { email } });
-    if (existing) {
-      throw new ConflictException('A user with this email already exists');
-    }
+    // The address may now repeat: a couple with one mailbox, a parent reading
+    // a child's letters. Identity moved to the login name, and THAT is what is
+    // checked for collisions below.
+    //
+    // The card is read before the account is saved, because its surname and
+    // given name are what the login name is built from.
+    const card = dto.publisherId
+      ? await this.publishersRepo.findOne({
+          where: { id: dto.publisherId, congregationId },
+        })
+      : null;
 
     const passwordHash = dto.password
       ? await this.hashPassword(dto.password)
@@ -374,6 +458,11 @@ export class UsersService {
     const user = this.usersRepo.create({
       congregationId,
       email,
+      loginName: await this.settleLoginNameFor({
+        firstName: card?.firstName,
+        lastName: card?.lastName,
+        email,
+      }),
       passwordHash,
       role: dto.role,
       isActive: true,
@@ -384,26 +473,32 @@ export class UsersService {
       await this.usersRepo.save(user);
       // Link the card in the same breath as creating the account. Doing it
       // afterwards is what left orphans: two steps, and the second forgotten.
-      if (dto.publisherId) {
-        const card = await this.publishersRepo.findOne({
-          where: { id: dto.publisherId, congregationId },
-        });
-        if (card && !card.userId) {
-          card.userId = user.id;
-          await this.publishersRepo.save(card);
-        }
+      if (card && !card.userId) {
+        card.userId = user.id;
+        await this.publishersRepo.save(card);
       }
     } catch (err) {
-      // Race-condition fallback: another request inserted the same email
-      // between our pre-check and save. The UNIQUE constraint catches it.
+      // Race-condition fallback: two requests settled on the same login name
+      // between the check and the save. The partial unique index catches it,
+      // and one retry is enough — the loser now sees the winner's name taken.
       if (
         err instanceof QueryFailedError &&
         (err as QueryFailedError & { code?: string }).code ===
           PG_UNIQUE_VIOLATION
       ) {
-        throw new ConflictException('A user with this email already exists');
+        user.loginName = await this.settleLoginNameFor({
+          firstName: card?.firstName,
+          lastName: card?.lastName,
+          email,
+        });
+        await this.usersRepo.save(user);
+        if (card && !card.userId) {
+          card.userId = user.id;
+          await this.publishersRepo.save(card);
+        }
+      } else {
+        throw err;
       }
-      throw err;
     }
 
     await this.auditLog.logCreate({
@@ -559,9 +654,9 @@ export class UsersService {
   }
 
   /**
-   * Change a user's login email (admin action) — e.g. to fix a typo made
-   * when access was granted. Normalized to lowercase; must not collide
-   * with any other account.
+   * Change where a user's letters go (admin action) — e.g. to fix a typo made
+   * when access was granted, or to point an account at a family mailbox.
+   * Normalized to lowercase. It may be an address another account also uses.
    */
   async changeEmailByAdmin(
     id: string,
@@ -576,24 +671,11 @@ export class UsersService {
     if (user.email === email) {
       return;
     }
-    const existing = await this.usersRepo.findOne({ where: { email } });
-    if (existing) {
-      throw new ConflictException('A user with this email already exists');
-    }
+    // No collision check any more: an address is where letters go, and two
+    // people may share a mailbox. Whoever signs in with a shared address is
+    // asked for their login name instead — see findForLogin.
     user.email = email;
-    try {
-      await this.usersRepo.save(user);
-    } catch (err) {
-      // Race-condition fallback, same as createUserByAdmin.
-      if (
-        err instanceof QueryFailedError &&
-        (err as QueryFailedError & { code?: string }).code ===
-          PG_UNIQUE_VIOLATION
-      ) {
-        throw new ConflictException('A user with this email already exists');
-      }
-      throw err;
-    }
+    await this.usersRepo.save(user);
   }
 
   // ---- Password reset (forgot password) ----

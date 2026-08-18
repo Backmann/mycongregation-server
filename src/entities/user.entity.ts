@@ -21,8 +21,26 @@ export class User {
   @ManyToOne(() => Congregation, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'congregation_id' })
   congregation!: Congregation;
-  @Column({ type: 'varchar', length: 255, unique: true })
+  /**
+   * The address is DELIVERY, not identity — see login_name below.
+   *
+   * It was UNIQUE from the first migration, which is what made a shared family
+   * mailbox impossible: a husband and wife could not both have a login. The
+   * uniqueness is gone; a lowered index remains for the lookup's sake.
+   */
+  @Column({ type: 'varchar', length: 255 })
   email!: string;
+
+  /**
+   * What this person types to sign in. Unique across every congregation,
+   * because at the login screen we do not yet know which one they belong to.
+   *
+   * Nullable in the schema only: every path that creates an account fills it
+   * in, and a null would show up as an account nobody can name. See
+   * UsersService.settleLoginNameFor.
+   */
+  @Column({ name: 'login_name', type: 'varchar', length: 64, nullable: true })
+  loginName!: string | null;
   @Column({ type: 'varchar', length: 255, select: false, nullable: true })
   passwordHash!: string | null;
   @Column({

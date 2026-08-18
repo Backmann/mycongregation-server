@@ -159,6 +159,8 @@ export type RecomputeNotify = 'never' | 'onClosingDay' | 'always';
 export interface AccessSummary {
   hasAccess: boolean;
   email: string | null;
+  /** What this person types to sign in — so an elder can read it back to them. */
+  loginName: string | null;
   role: UserRole | null;
   isActive: boolean | null;
   lastLoginAt: Date | null;
@@ -809,6 +811,7 @@ export class PublishersService {
       return {
         hasAccess: false,
         email: null,
+        loginName: null,
         role: null,
         isActive: null,
         lastLoginAt: null,
@@ -822,6 +825,7 @@ export class PublishersService {
     return {
       hasAccess: true,
       email: user.email,
+      loginName: user.loginName ?? null,
       role: user.role,
       isActive: user.isActive,
       lastLoginAt: user.lastLoginAt,
