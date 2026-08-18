@@ -116,7 +116,10 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Post('forgot-password')
   forgotPassword(@Body() dto: ForgotPasswordDto, @Req() req: Request) {
-    return this.authService.forgotPassword(dto.email, req.ip ?? 'unknown');
+    return this.authService.forgotPassword(
+      dto.login ?? dto.email ?? '',
+      req.ip ?? 'unknown',
+    );
   }
 
   /**

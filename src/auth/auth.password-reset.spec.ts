@@ -27,6 +27,8 @@ describe('AuthService — password reset', () => {
   let service: AuthService;
   let users: {
     findByEmail: jest.Mock;
+    findAllForReset: jest.Mock;
+    firstNameOf: jest.Mock;
     setPasswordResetToken: jest.Mock;
     findByValidResetToken: jest.Mock;
     completePasswordReset: jest.Mock;
@@ -43,6 +45,10 @@ describe('AuthService — password reset', () => {
   beforeEach(async () => {
     users = {
       findByEmail: jest.fn(),
+      // A forgotten password is now looked up by login name OR address, and an
+      // address may serve several accounts — so the lookup answers with a list.
+      findAllForReset: jest.fn().mockResolvedValue([]),
+      firstNameOf: jest.fn().mockResolvedValue(null),
       setPasswordResetToken: jest.fn().mockResolvedValue(undefined),
       findByValidResetToken: jest.fn(),
       completePasswordReset: jest.fn().mockResolvedValue(undefined),
@@ -81,7 +87,7 @@ describe('AuthService — password reset', () => {
   });
 
   it('answers a generic OK for an unknown email and sends nothing', async () => {
-    users.findByEmail.mockResolvedValue(null);
+    users.findAllForReset.mockResolvedValue([]);
     const res = await service.forgotPassword('ghost@nowhere.org', '1.2.3.4');
     expect(res).toEqual({ ok: true });
     expect(mail.sendPasswordReset).not.toHaveBeenCalled();
@@ -89,13 +95,15 @@ describe('AuthService — password reset', () => {
   });
 
   it('sends nothing for a deactivated account', async () => {
-    users.findByEmail.mockResolvedValue({ ...activeUser, isActive: false });
+    users.findAllForReset.mockResolvedValue([
+      { ...activeUser, isActive: false },
+    ]);
     await service.forgotPassword(activeUser.email, '1.2.3.4');
     expect(mail.sendPasswordReset).not.toHaveBeenCalled();
   });
 
   it('stores only the sha256 of the token and mails a 1-hour link', async () => {
-    users.findByEmail.mockResolvedValue({ ...activeUser });
+    users.findAllForReset.mockResolvedValue([{ ...activeUser }]);
     const before = Date.now();
     await service.forgotPassword('  LIONEL@mycongregation.org ', '1.2.3.4');
 
@@ -118,7 +126,7 @@ describe('AuthService — password reset', () => {
   });
 
   it('rate-limits to 3 mails per email per hour', async () => {
-    users.findByEmail.mockResolvedValue({ ...activeUser });
+    users.findAllForReset.mockResolvedValue([{ ...activeUser }]);
     for (let i = 0; i < 4; i++) {
       await service.forgotPassword(activeUser.email, '1.2.3.4');
     }

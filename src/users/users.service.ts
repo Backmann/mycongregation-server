@@ -260,6 +260,23 @@ export class UsersService {
     return { user: matches[0] ?? null, shared: false };
   }
 
+  /**
+   * Every account a forgotten-password request could mean.
+   *
+   * A login name means exactly one. An address may mean several now, and all
+   * of them get a letter — each naming its own reader, so one shared mailbox
+   * does not become a puzzle.
+   */
+  async findAllForReset(identifier: string): Promise<User[]> {
+    const value = identifier.trim().toLowerCase();
+    if (value === '') return [];
+    const column = looksLikeEmail(value) ? 'user.email' : 'user.login_name';
+    return this.usersRepo
+      .createQueryBuilder('user')
+      .where(`LOWER(${column}) = :value`, { value })
+      .getMany();
+  }
+
   /** Is this login name free? Deleted accounts do not hold one — see the index. */
   private async loginNameTaken(candidate: string): Promise<boolean> {
     const count = await this.usersRepo
@@ -1019,15 +1036,32 @@ export class UsersService {
     // cannot point somewhere the app is no longer given away from.
     const installUrl = this.config.get<string>('appVersion.downloadUrl');
 
-    await this.mailService.sendInvite(
-      address,
-      lang,
-      link,
-      formatInviteCode(code),
+    await this.mailService.sendInvite(address, lang, link, {
+      code: formatInviteCode(code),
       expiresAt,
       installUrl,
-    );
+      // Who this letter is for, and what they will type to sign in. Both matter
+      // most in the case that made all of this necessary: a husband and wife
+      // with one mailbox, who would otherwise receive two identical letters
+      // and no way to tell which is whose.
+      recipientName: await this.firstNameOf(userId),
+      loginName: user?.loginName ?? null,
+    });
     return { ...issued, sentTo: address };
+  }
+
+  /**
+   * The person's own first name, for a letter to say hello with.
+   *
+   * Null when no card stands behind the account — an administrator who is not
+   * a publisher here — and then the letter greets without a name, as before.
+   */
+  async firstNameOf(userId: string): Promise<string | null> {
+    const card = await this.publishersRepo.findOne({
+      where: { userId },
+      select: { id: true, firstName: true },
+    });
+    return card?.firstName ?? null;
   }
 
   /**

@@ -19,9 +19,37 @@ interface Message {
   ignore: string;
 }
 
+/**
+ * The parts of a letter that depend on who is reading it.
+ *
+ * An object rather than four more positional arguments: the seventh
+ * `undefined` in a row is how a letter ends up addressed to nobody.
+ */
+interface LetterExtras {
+  code?: string;
+  expiresAt?: Date;
+  installUrl?: string;
+  /** How to say hello — the person's own first name. */
+  recipientName?: string | null;
+  /** What this person types to sign in; the letter is where they learn it. */
+  loginName?: string | null;
+}
+
 interface Strings {
   brand: string;
   greeting: string;
+  /**
+   * The same hello, with a name in it.
+   *
+   * Not a nicety: a husband and wife share one mailbox, and two identical
+   * letters arriving in it are a puzzle. The name at the top says which is
+   * whose before anything else is read.
+   */
+  greetingNamed: string;
+  /** «Your name for signing in:» — the one place a person learns it. */
+  loginNameLead: string;
+  /** Says plainly that this, and not the address, is what to type. */
+  loginNameHint: string;
   linkHint: string;
   footerAuto: string;
   invite: Message;
@@ -39,6 +67,10 @@ interface Strings {
 const STRINGS: Record<Lang, Strings> = {
   ru: {
     brand: 'MyCongregation.org',
+    greetingNamed: 'Здравствуйте, {{name}}!',
+    loginNameLead: 'Ваше имя для входа:',
+    loginNameHint:
+      'Именно это имя нужно вводить при входе в приложение — не адрес почты. Запишите его: адрес у вас может быть общий с кем-то из семьи, а имя принадлежит только вам.',
     newestLetter:
       'Если писем с приглашением несколько — откройте самое новое: код из прежних уже не работает.',
     installLead:
@@ -77,6 +109,10 @@ const STRINGS: Record<Lang, Strings> = {
   },
   en: {
     brand: 'MyCongregation.org',
+    greetingNamed: 'Hello, {{name}}!',
+    loginNameLead: 'Your name for signing in:',
+    loginNameHint:
+      'This name, not the e-mail address, is what to type when signing in. Do write it down: an address may be shared with someone in the family, but this name is yours alone.',
     newestLetter:
       'If several invitation letters arrived, open the newest — codes from earlier ones no longer work.',
     installLead:
@@ -115,6 +151,10 @@ const STRINGS: Record<Lang, Strings> = {
   },
   de: {
     brand: 'MyCongregation.org',
+    greetingNamed: 'Hallo, {{name}}!',
+    loginNameLead: 'Ihr Name für die Anmeldung:',
+    loginNameHint:
+      'Dieser Name, nicht die E-Mail-Adresse, wird bei der Anmeldung eingegeben. Notieren Sie ihn: eine Adresse teilt man womöglich mit der Familie, dieser Name gehört nur Ihnen.',
     newestLetter:
       'Sind mehrere Einladungen angekommen, öffnen Sie die neueste — Codes aus älteren gelten nicht mehr.',
     installLead:
@@ -209,10 +249,12 @@ export class MailService {
     s: Strings,
     m: Message,
     link: string,
-    code?: string,
-    expiresAt?: Date,
-    installUrl?: string,
+    extra: LetterExtras = {},
   ): string {
+    const { code, expiresAt, installUrl, recipientName, loginName } = extra;
+    const hello = recipientName
+      ? s.greetingNamed.replace('{{name}}', recipientName)
+      : s.greeting;
     const p =
       'font-size:15px;line-height:1.6;color:#334155;margin:0 0 14px;' +
       'font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;';
@@ -228,7 +270,7 @@ export class MailService {
 </td></tr>
 <tr><td style="padding:26px 32px 4px;">
 <h1 style="font-size:20px;margin:0 0 14px;color:#0f172a;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${m.title}</h1>
-<p style="${p}">${s.greeting}</p>
+<p style="${p}">${hello}</p>
 <p style="${p}">${m.intro}</p>
 ${code && installUrl ? `<p style="${p}">${s.installLead}</p><table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:16px auto 18px;"><tr><td bgcolor="#15788f" style="border-radius:10px;"><a href="${installUrl}" style="display:inline-block;padding:13px 30px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;border-radius:10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${s.installButton}</a></td></tr></table><p style="${small}word-break:break-all;margin:0 0 16px;">${installUrl}</p>` : ''}
 <p style="${p}">${code ? s.codeLead : m.lead}</p>
@@ -238,6 +280,15 @@ ${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f1
 <a href="${link}" style="display:inline-block;padding:13px 30px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;border-radius:10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${m.button}</a>
 </td></tr></table>
 <p style="${small}text-align:center;margin:6px 0 16px;">${expiresAt ? '' : m.validity}</p>
+${
+  loginName
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:4px 0 18px;"><tr><td style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:12px;padding:14px 16px;">
+<p style="${small}margin:0 0 6px;">${s.loginNameLead}</p>
+<p style="font-size:19px;font-weight:700;color:#0c4a6e;margin:0 0 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${loginName}</p>
+<p style="${small}margin:0;">${s.loginNameHint}</p>
+</td></tr></table>`
+    : ''
+}
 <p style="${small}margin:0 0 6px;">${s.linkHint}</p>
 <p style="font-size:13px;color:#0369a1;word-break:break-all;background:#f8fafc;border:1px solid #eef2f6;border-radius:8px;padding:10px 12px;margin:0 0 12px;">${link}</p>
 </td></tr>
@@ -254,12 +305,13 @@ ${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f1
     s: Strings,
     m: Message,
     link: string,
-    code?: string,
-    expiresAt?: Date,
-    installUrl?: string,
+    extra: LetterExtras = {},
   ): string {
+    const { code, expiresAt, installUrl, recipientName, loginName } = extra;
     return [
-      s.greeting,
+      recipientName
+        ? s.greetingNamed.replace('{{name}}', recipientName)
+        : s.greeting,
       '',
       m.intro,
       '',
@@ -281,6 +333,10 @@ ${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f1
       link,
       '',
       ...(expiresAt ? [] : [m.validity, '']),
+      ...(loginName
+        ? ['', s.loginNameLead, loginName, '', s.loginNameHint]
+        : []),
+      '',
       m.ignore,
       s.footerAuto,
     ].join('\n');
@@ -320,9 +376,7 @@ ${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f1
     to: string,
     lang: string,
     link: string,
-    code?: string,
-    expiresAt?: Date,
-    installUrl?: string,
+    extra: LetterExtras = {},
   ): Promise<void> {
     const s = STRINGS[lang as Lang] ?? STRINGS.ru;
     const m = s.invite;
@@ -330,8 +384,8 @@ ${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f1
       await this.deliver(
         to,
         m.subject,
-        this.renderHtml(s, m, link, code, expiresAt, installUrl),
-        this.renderText(s, m, link, code, expiresAt, installUrl),
+        this.renderHtml(s, m, link, extra),
+        this.renderText(s, m, link, extra),
       );
     } catch (e) {
       this.logger.warn(
@@ -340,10 +394,17 @@ ${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f1
     }
   }
 
+  /**
+   * A reset letter also names its reader, and for the same reason: one mailbox
+   * may serve two accounts, and «somebody asked to reset a password» is no use
+   * when two people share it. The login name is repeated here too — forgetting
+   * it is a likelier reason to be locked out than forgetting a password.
+   */
   async sendPasswordReset(
     to: string,
     lang: string,
     link: string,
+    extra: LetterExtras = {},
   ): Promise<void> {
     const s = STRINGS[lang as Lang] ?? STRINGS.ru;
     const m = s.reset;
@@ -351,8 +412,8 @@ ${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f1
       const sent = await this.deliver(
         to,
         m.subject,
-        this.renderHtml(s, m, link),
-        this.renderText(s, m, link),
+        this.renderHtml(s, m, link, extra),
+        this.renderText(s, m, link, extra),
       );
       if (sent) this.logger.log(`Password reset mail sent to ${to}`);
     } catch (err) {

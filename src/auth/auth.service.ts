@@ -220,38 +220,61 @@ export class AuthService {
   }
 
   /**
-   * Always resolves to the same generic OK — never reveals whether the
-   * email exists. Over-limit and unknown-email requests are dropped
-   * silently for the same reason.
+   * A letter to whoever has forgotten a password.
+   *
+   * Takes a login name OR an address, because after this month those are two
+   * different things and a person may remember either one.
+   *
+   * A SHARED address gets a letter for EACH account it serves. That reads odd
+   * written down, but consider the mailbox: a husband and wife who both forgot
+   * are the likely case, and each letter now says whose it is and what name to
+   * sign in with. Sending only one, or none, would leave one of them stuck
+   * with nothing to act on.
+   *
+   * An account with no address at all resolves silently: nothing can be sent,
+   * and their password is reset by an elder. The screen says so.
+   *
+   * Always resolves to the same generic OK — never reveals whether an account
+   * exists. Over-limit and unknown requests are dropped silently for the same
+   * reason.
    */
-  async forgotPassword(rawEmail: string, ip: string): Promise<{ ok: true }> {
-    const email = rawEmail.trim().toLowerCase();
+  async forgotPassword(
+    rawIdentifier: string,
+    ip: string,
+  ): Promise<{ ok: true }> {
+    const identifier = rawIdentifier.trim().toLowerCase();
     const HOUR = 60 * 60 * 1000;
     if (
       !this.allowReset(`fp:ip:${ip}`, 10, HOUR) ||
-      !this.allowReset(`fp:email:${email}`, 3, HOUR)
+      !this.allowReset(`fp:id:${identifier}`, 3, HOUR)
     ) {
       return { ok: true };
     }
-    const user = await this.usersService.findByEmail(email);
-    // No address, nowhere to send: an account whose owner was given a code by
-    // hand recovers through an elder, not through a letter. Same silent OK as
-    // every other miss here — this page tells nobody who exists.
-    if (!user || !user.isActive || !user.email) {
-      return { ok: true };
-    }
-    const token = randomBytes(32).toString('hex');
-    const tokenHash = createHash('sha256').update(token).digest('hex');
-    const expiresAt = new Date(Date.now() + HOUR);
-    await this.usersService.setPasswordResetToken(
-      user.id,
-      tokenHash,
-      expiresAt,
-    );
+
+    const recipients = await this.usersService.findAllForReset(identifier);
     const base =
       this.config.get<string>('PUBLIC_APP_URL') ?? 'https://mycongregation.org';
-    const link = `${base}/reset-password?token=${token}`;
-    await this.mailService.sendPasswordReset(user.email, user.uiLanguage, link);
+
+    for (const user of recipients) {
+      if (!user.isActive || !user.email) continue;
+      const token = randomBytes(32).toString('hex');
+      const tokenHash = createHash('sha256').update(token).digest('hex');
+      const expiresAt = new Date(Date.now() + HOUR);
+      await this.usersService.setPasswordResetToken(
+        user.id,
+        tokenHash,
+        expiresAt,
+      );
+      await this.mailService.sendPasswordReset(
+        user.email,
+        user.uiLanguage,
+        `${base}/reset-password?token=${token}`,
+        {
+          recipientName: await this.usersService.firstNameOf(user.id),
+          loginName: user.loginName,
+        },
+      );
+    }
     return { ok: true };
   }
 

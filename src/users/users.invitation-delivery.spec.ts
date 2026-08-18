@@ -32,7 +32,11 @@ describe('UsersService.sendInvitation', () => {
         { provide: getRepositoryToken(User), useValue: repo },
         {
           provide: getRepositoryToken(Publisher),
-          useValue: { createQueryBuilder: jest.fn() },
+          // The letter greets the reader by name, so the card is read too.
+          useValue: {
+            createQueryBuilder: jest.fn(),
+            findOne: jest.fn().mockResolvedValue({ firstName: 'Вера' }),
+          },
         },
         {
           provide: MailService,
