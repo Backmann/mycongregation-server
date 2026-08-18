@@ -39,6 +39,9 @@ describe('PublishersService.grantAccess — the card address', () => {
           invitation: undefined,
         })),
         suggestLoginName: () => 'sidorova.vera',
+        // Granting access on an address somebody else uses now writes to that
+        // somebody — see UsersService.noticeMailboxNowShared.
+        noticeMailboxNowShared: jest.fn(),
       },
     });
     return { service, publisher, save };

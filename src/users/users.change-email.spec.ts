@@ -10,7 +10,11 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 
 describe('UsersService.changeEmailByAdmin', () => {
   let service: UsersService;
-  let repo: { findOne: jest.Mock; save: jest.Mock };
+  let repo: {
+    findOne: jest.Mock;
+    save: jest.Mock;
+    createQueryBuilder: jest.Mock;
+  };
 
   const baseUser = {
     id: 'u1',
@@ -21,6 +25,13 @@ describe('UsersService.changeEmailByAdmin', () => {
   beforeEach(async () => {
     repo = {
       findOne: jest.fn(),
+      // Changing an address may make a mailbox shared, and then the person
+      // already using it gets a letter — so this path reaches the database.
+      createQueryBuilder: jest.fn(() => ({
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([]),
+      })),
       save: jest.fn().mockImplementation(async (x) => x),
     };
     const moduleRef = await Test.createTestingModule({

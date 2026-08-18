@@ -54,6 +54,16 @@ interface Strings {
   footerAuto: string;
   invite: Message;
   reset: Message;
+  /**
+   * Sent to whoever ALREADY used an address, at the moment it starts serving a
+   * second login too.
+   *
+   * Nobody should learn that their way in has changed by failing to get in.
+   * The address stops identifying a single person the instant it is shared, so
+   * the person who has been signing in with it for months needs telling — by
+   * us, at that moment, without anybody having to remember to do it.
+   */
+  shared: Message;
   /** Only the invitation carries a code; the reset does not. */
   newestLetter: string;
   installLead: string;
@@ -94,6 +104,17 @@ const STRINGS: Record<Lang, Strings> = {
       validity: 'Ссылка действует 72 часа.',
       ignore:
         'Если вы не ожидали это приглашение, просто проигнорируйте письмо.',
+    },
+    shared: {
+      subject: 'Как вы теперь входите — mycongregation.org',
+      title: 'Входите по имени',
+      intro:
+        'Этим почтовым ящиком теперь пользуются два входа в приложение — ваш и кого-то ещё, чаще всего из вашей семьи. Поэтому по адресу почты войти больше нельзя: он не говорит, кто именно из вас входит.',
+      lead: 'Пароль у вас прежний, менять его не нужно. Входите так:',
+      button: 'Открыть приложение',
+      validity: '',
+      ignore:
+        'Если непонятно, о чём это письмо, спросите у администратора собрания — он подскажет.',
     },
     reset: {
       subject: 'Восстановление пароля — mycongregation.org',
@@ -136,6 +157,17 @@ const STRINGS: Record<Lang, Strings> = {
       validity: 'The link is valid for 72 hours.',
       ignore:
         'If you were not expecting this invitation, simply ignore this email.',
+    },
+    shared: {
+      subject: 'How you sign in from now on — mycongregation.org',
+      title: 'Sign in with your name',
+      intro:
+        'This mailbox now serves two logins to the app — yours and somebody else\u2019s, most often a family member\u2019s. An address can therefore no longer be used to sign in: it does not say which of you is signing in.',
+      lead: 'Your password is unchanged. Sign in like this:',
+      button: 'Open the app',
+      validity: '',
+      ignore:
+        'If this letter makes no sense to you, ask the congregation administrator — they will help.',
     },
     reset: {
       subject: 'Password reset — mycongregation.org',
@@ -180,6 +212,17 @@ const STRINGS: Record<Lang, Strings> = {
       validity: 'Der Link ist 72 Stunden gültig.',
       ignore:
         'Wenn Sie diese Einladung nicht erwartet haben, ignorieren Sie diese E-Mail einfach.',
+    },
+    shared: {
+      subject: 'So melden Sie sich künftig an — mycongregation.org',
+      title: 'Melden Sie sich mit Ihrem Namen an',
+      intro:
+        'Dieses Postfach wird nun von zwei Zugängen zur App genutzt — Ihrem und dem einer weiteren Person, meist aus Ihrer Familie. Eine Anmeldung mit der Adresse ist deshalb nicht mehr möglich: sie sagt nicht, wer von Ihnen sich anmeldet.',
+      lead: 'Ihr Passwort bleibt unverändert. So melden Sie sich an:',
+      button: 'App öffnen',
+      validity: '',
+      ignore:
+        'Wenn Sie mit diesem Brief nichts anfangen können, fragen Sie den Versammlungsadministrator — er hilft Ihnen weiter.',
     },
     reset: {
       subject: 'Passwort zurücksetzen — mycongregation.org',
@@ -390,6 +433,36 @@ ${
     } catch (e) {
       this.logger.warn(
         `sendInvite failed for to=${to}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  /**
+   * «Your mailbox now serves two logins — sign in with your name.»
+   *
+   * The one letter here nobody asked for. It goes out precisely when somebody's
+   * habit stops working, so that they hear it from us rather than from a
+   * refusal at the sign-in screen.
+   */
+  async sendSharedMailboxNotice(
+    to: string,
+    lang: string,
+    extra: LetterExtras = {},
+  ): Promise<void> {
+    const s = STRINGS[lang as Lang] ?? STRINGS.ru;
+    const m = s.shared;
+    const link = 'https://mycongregation.org/app/';
+    try {
+      const sent = await this.deliver(
+        to,
+        m.subject,
+        this.renderHtml(s, m, link, extra),
+        this.renderText(s, m, link, extra),
+      );
+      if (sent) this.logger.log(`shared-mailbox notice sent to ${to}`);
+    } catch (err) {
+      this.logger.warn(
+        `shared-mailbox notice failed for ${to}: ${(err as Error).message}`,
       );
     }
   }

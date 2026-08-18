@@ -901,6 +901,10 @@ export class PublishersService {
     publisher.userId = created.id;
     await this.publishersRepo.save(publisher);
 
+    // The people who were already using this mailbox learn about it now, from
+    // us — before they next try the address and are told no.
+    await this.usersService.noticeMailboxNowShared(email, created.id);
+
     // Only when asked, and never over an address the card already holds: a
     // borrowed mailbox must not quietly become somebody's contact address.
     // Note what is NOT touched — contactsConfirmedAt. An address typed by an

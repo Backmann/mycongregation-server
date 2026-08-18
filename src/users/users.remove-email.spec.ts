@@ -21,6 +21,7 @@ describe('UsersService.changeEmailByAdmin — an address may be removed', () => 
     Object.assign(service, {
       usersRepo: { save },
       findByIdInCongregation: jest.fn(async () => user),
+      noticeMailboxNowShared: jest.fn(),
     });
     return { service, save, user };
   };

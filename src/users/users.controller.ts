@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
@@ -57,6 +58,21 @@ export class UsersController {
     @CurrentUser() current: AuthenticatedUser,
   ) {
     return this.usersService.createUserByAdmin(dto, congregationId, current.id);
+  }
+
+  /**
+   * Who else already signs in with this address.
+   *
+   * Asked by the grant-access form as the elder types, so it can say what will
+   * happen to somebody else BEFORE it happens. Admin-only and scoped to the
+   * congregation — outside it, this would be a way to probe for addresses.
+   */
+  @Get('email-in-use')
+  whoElseUses(
+    @Query('email') email: string,
+    @TenantId() congregationId: string,
+  ) {
+    return this.usersService.whoElseUses(email ?? '', congregationId);
   }
 
   /**

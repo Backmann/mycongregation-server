@@ -729,6 +729,8 @@ export class UsersService {
     // asked for their login name instead — see findForLogin.
     user.email = email;
     await this.usersRepo.save(user);
+    // Same event as granting access on a shared address, so the same notice.
+    await this.noticeMailboxNowShared(email, user.id);
   }
 
   /**
@@ -1072,6 +1074,97 @@ export class UsersService {
       select: { id: true, firstName: true },
     });
     return card?.firstName ?? null;
+  }
+
+  /**
+   * «Who else already uses this address?» — for the form, before it acts.
+   *
+   * Returns the login names and the people behind them, so the elder can be
+   * told what granting access on this address WILL DO to somebody else, while
+   * he can still choose otherwise. Admin-only, and scoped to his congregation:
+   * an address from another congregation is none of his business, and the
+   * answer would be a way of probing for one.
+   */
+  async whoElseUses(
+    email: string,
+    congregationId: string,
+  ): Promise<{ loginName: string | null; displayName: string | null }[]> {
+    const value = email.trim().toLowerCase();
+    if (value === '') return [];
+    const rows = await this.usersRepo
+      .createQueryBuilder('user')
+      .where('LOWER(user.email) = :value', { value })
+      .andWhere('user.congregation_id = :cid', { cid: congregationId })
+      .getMany();
+    const out: { loginName: string | null; displayName: string | null }[] = [];
+    for (const u of rows) {
+      const card = await this.publishersRepo.findOne({
+        where: { userId: u.id },
+        select: { id: true, firstName: true, lastName: true },
+      });
+      out.push({
+        loginName: u.loginName ?? null,
+        displayName: card
+          ? [card.lastName, card.firstName].filter(Boolean).join(' ').trim()
+          : null,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Every other live account this address already serves.
+   *
+   * Asked before a login is created, so the interface can warn, and again
+   * after, so the people already using it can be told.
+   */
+  async othersUsingEmail(
+    email: string,
+    exceptUserId?: string,
+  ): Promise<User[]> {
+    const value = email.trim().toLowerCase();
+    if (value === '') return [];
+    const rows = await this.usersRepo
+      .createQueryBuilder('user')
+      .where('LOWER(user.email) = :value', { value })
+      .getMany();
+    return rows.filter((u) => u.id !== exceptUserId);
+  }
+
+  /**
+   * Tell whoever was already using this mailbox that it now serves two logins.
+   *
+   * Called at the moment sharing begins — creating a login on somebody else's
+   * address, or moving an account onto one. Nobody has to remember: the person
+   * whose habit just broke hears it from us, not from a refusal at the sign-in
+   * screen. Failure to send must not undo the thing that succeeded, so this
+   * swallows its own errors and leaves a line in the log.
+   */
+  async noticeMailboxNowShared(
+    email: string | null,
+    newUserId: string,
+  ): Promise<void> {
+    if (!email) return;
+    const others = await this.othersUsingEmail(email, newUserId);
+    for (const other of others) {
+      if (!other.isActive || !other.email) continue;
+      try {
+        await this.mailService.sendSharedMailboxNotice(
+          other.email,
+          other.uiLanguage ?? 'ru',
+          {
+            recipientName: await this.firstNameOf(other.id),
+            loginName: other.loginName,
+          },
+        );
+      } catch (err: unknown) {
+        this.logger.warn(
+          `could not tell ${other.loginName ?? other.id} the mailbox is now ` +
+            'shared: ' +
+            (err instanceof Error ? err.message : String(err)),
+        );
+      }
+    }
   }
 
   /**
