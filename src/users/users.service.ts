@@ -28,6 +28,7 @@ import { passwordProblem } from '../auth/password-policy';
 import {
   loginNameFrom,
   loginNameFromEmail,
+  loginNameProblem,
   looksLikeEmail,
   settleLoginName,
 } from './login-name';
@@ -701,6 +702,82 @@ export class UsersService {
     // asked for their login name instead — see findForLogin.
     user.email = email;
     await this.usersRepo.save(user);
+  }
+
+  /**
+   * Correct what somebody types to sign in (admin action).
+   *
+   * Transliteration cannot know that a man born Бакманн writes himself
+   * Backmann on every document he owns, so the generated name is a starting
+   * point and this is the correction. The old name stops working at once —
+   * there is no second name, and pretending otherwise would mean two ways in
+   * to one account, one of which nobody maintains.
+   *
+   * Which is why the interface must say it plainly: correct the name BEFORE
+   * telling anybody what it is.
+   */
+  async changeLoginNameByAdmin(
+    id: string,
+    rawName: string,
+    congregationId: string,
+    actorUserId: string,
+  ): Promise<PublicUser> {
+    const user = await this.findByIdInCongregation(id, congregationId);
+    if (user.isOwner) {
+      throw new ForbiddenException('The owner account is protected');
+    }
+    const loginName = rawName.trim().toLowerCase();
+    const problem = loginNameProblem(loginName);
+    if (problem) {
+      throw new BadRequestException({ code: 'BAD_LOGIN_NAME', problem });
+    }
+    const before = user.loginName ?? null;
+    if (before === loginName) return toPublicUser(user);
+
+    if (await this.loginNameTaken(loginName)) {
+      throw new ConflictException({ code: 'LOGIN_NAME_TAKEN' });
+    }
+
+    user.loginName = loginName;
+    try {
+      await this.usersRepo.save(user);
+    } catch (err) {
+      // Two administrators settling on the same name at once. The partial
+      // unique index is the one that actually decides.
+      if (
+        err instanceof QueryFailedError &&
+        (err as QueryFailedError & { code?: string }).code ===
+          PG_UNIQUE_VIOLATION
+      ) {
+        throw new ConflictException({ code: 'LOGIN_NAME_TAKEN' });
+      }
+      throw err;
+    }
+
+    await this.auditLog.logUpdate({
+      tenantId: congregationId,
+      entityType: 'user',
+      entityId: user.id,
+      actorUserId,
+      before: { loginName: before },
+      after: { loginName },
+      fields: ['loginName'],
+    });
+
+    return toPublicUser(user);
+  }
+
+  /**
+   * What this account's login name WOULD be if generated now — the starting
+   * point an administrator corrects, so the field is never empty.
+   */
+  suggestLoginName(input: {
+    firstName?: string | null;
+    lastName?: string | null;
+    email?: string | null;
+  }): string {
+    const fromCard = loginNameFrom(input.lastName, input.firstName);
+    return fromCard !== '' ? fromCard : loginNameFromEmail(input.email);
   }
 
   // ---- Password reset (forgot password) ----

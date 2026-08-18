@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
+import { ChangeLoginNameDto } from './dto/change-login-name.dto';
 import { LinkPublisherDto } from './dto/link-publisher.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
@@ -56,6 +57,25 @@ export class UsersController {
     @CurrentUser() current: AuthenticatedUser,
   ) {
     return this.usersService.createUserByAdmin(dto, congregationId, current.id);
+  }
+
+  /**
+   * Correct the login name. Separate from the address on purpose: identity and
+   * delivery are different things, and one call for both is what confused them.
+   */
+  @Patch(':id/login-name')
+  changeLoginName(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: ChangeLoginNameDto,
+    @TenantId() congregationId: string,
+    @CurrentUser() current: AuthenticatedUser,
+  ) {
+    return this.usersService.changeLoginNameByAdmin(
+      id,
+      dto.loginName,
+      congregationId,
+      current.id,
+    );
   }
 
   @Patch(':id/role')

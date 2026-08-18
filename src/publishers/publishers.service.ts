@@ -162,6 +162,14 @@ export interface AccessSummary {
   /** What this person types to sign in — so an elder can read it back to them. */
   loginName: string | null;
   /**
+   * What the name WOULD be if generated from this card right now.
+   *
+   * The starting point for a correction, so the field is never empty and the
+   * ordinary case is one tap. Transliteration cannot know that a man writes
+   * himself Backmann on every document he owns.
+   */
+  suggestedLoginName: string;
+  /**
    * The invitation code, present ONLY in the answer to granting access or
    * asking for a fresh one — never when simply reading the card.
    *
@@ -826,6 +834,10 @@ export class PublishersService {
         hasAccess: false,
         email: null,
         loginName: null,
+        suggestedLoginName: this.usersService.suggestLoginName({
+          firstName: publisher.firstName,
+          lastName: publisher.lastName,
+        }),
         role: null,
         isActive: null,
         lastLoginAt: null,
@@ -840,6 +852,11 @@ export class PublishersService {
       hasAccess: true,
       email: user.email,
       loginName: user.loginName ?? null,
+      suggestedLoginName: this.usersService.suggestLoginName({
+        firstName: publisher.firstName,
+        lastName: publisher.lastName,
+        email: user.email,
+      }),
       role: user.role,
       isActive: user.isActive,
       lastLoginAt: user.lastLoginAt,
@@ -909,6 +926,14 @@ export class PublishersService {
     const publisher = await this.findOne(tenantId, id);
     if (!publisher.userId) {
       throw new NotFoundException('This person has no app access');
+    }
+    if (dto.loginName !== undefined) {
+      await this.usersService.changeLoginNameByAdmin(
+        publisher.userId,
+        dto.loginName,
+        tenantId,
+        actor.id,
+      );
     }
     if (dto.email !== undefined) {
       await this.usersService.changeEmailByAdmin(

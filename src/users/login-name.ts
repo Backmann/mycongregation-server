@@ -193,3 +193,36 @@ export async function settleLoginName(
 export function looksLikeEmail(identifier: string): boolean {
   return identifier.includes('@');
 }
+
+/** Why a hand-typed login name cannot be used. Null when it is fine. */
+export type LoginNameProblem =
+  | 'tooShort'
+  | 'tooLong'
+  | 'badCharacters'
+  | 'edgeDot';
+
+/** Shortest a login name may be — long enough not to be a typo away from another. */
+export const LOGIN_NAME_MIN = 3;
+
+/**
+ * Judge a name somebody typed in by hand.
+ *
+ * The generated ones cannot fail this — they are built from the same alphabet.
+ * It exists for the correction: `bakmann.lionel` becoming `backmann.lionel`,
+ * because transliteration cannot know how a man spells his own name in the
+ * country he lives in.
+ *
+ * Dots are allowed inside and nowhere else; nothing else joins two words as
+ * quietly. No capitals, because two names differing only in case would look
+ * identical read aloud, and reading it aloud is how these travel.
+ */
+export function loginNameProblem(name: string): LoginNameProblem | null {
+  const value = name.trim().toLowerCase();
+  if (value.length < LOGIN_NAME_MIN) return 'tooShort';
+  if (value.length > LOGIN_NAME_MAX) return 'tooLong';
+  if (!/^[a-z0-9.]+$/.test(value)) return 'badCharacters';
+  if (value.startsWith('.') || value.endsWith('.') || value.includes('..')) {
+    return 'edgeDot';
+  }
+  return null;
+}

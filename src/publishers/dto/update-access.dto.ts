@@ -2,9 +2,12 @@ import {
   IsBoolean,
   IsEmail,
   IsOptional,
+  IsString,
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { LOGIN_NAME_MAX } from '../../users/login-name';
 import { PASSWORD_MIN_LENGTH } from '../../auth/password-policy';
 /**
  * Manage an existing login linked to a publisher: reset the password,
@@ -18,6 +21,19 @@ export class UpdateAccessDto {
   @IsEmail()
   @MaxLength(255)
   email?: string;
+
+  /**
+   * Correct the login name — same rule and same implementation as
+   * PATCH /users/:id/login-name. Two doors, one lock: a second implementation
+   * is how «Дать доступ» and «Пользователи» came to behave differently.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(LOGIN_NAME_MAX)
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.toLowerCase().trim() : value,
+  )
+  loginName?: string;
 
   @IsOptional()
   @MinLength(PASSWORD_MIN_LENGTH)
