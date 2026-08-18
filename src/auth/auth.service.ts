@@ -25,16 +25,12 @@ import { UpdateMeDto } from './dto/update-me.dto';
 import type { AuthenticatedUser } from './decorators/current-user.decorator';
 import { LoginDto } from './dto/login.dto';
 import { passwordProblem } from './password-policy';
-import {
-  hashInviteCode,
-  normalizeInviteCode,
-  INVITE_MAX_ATTEMPTS,
-} from './invite-code';
+import { normalizeInviteCode } from './invite-code';
 import type { ClientInfo } from './read-client';
 
 interface RefreshTokenPayload {
   sub: string;
-  email: string;
+  email: string | null;
   role: UserRole;
   congregationId: string;
   tokenType: 'refresh';
@@ -238,7 +234,10 @@ export class AuthService {
       return { ok: true };
     }
     const user = await this.usersService.findByEmail(email);
-    if (!user || !user.isActive) {
+    // No address, nowhere to send: an account whose owner was given a code by
+    // hand recovers through an elder, not through a letter. Same silent OK as
+    // every other miss here — this page tells nobody who exists.
+    if (!user || !user.isActive || !user.email) {
       return { ok: true };
     }
     const token = randomBytes(32).toString('hex');
@@ -276,7 +275,7 @@ export class AuthService {
     if (!user) {
       throw new BadRequestException('Invalid or expired reset link');
     }
-    const problem = passwordProblem(password, user.email);
+    const problem = passwordProblem(password, user.email ?? undefined);
     if (problem) {
       throw new BadRequestException({ code: 'WEAK_PASSWORD', problem });
     }
@@ -304,44 +303,55 @@ export class AuthService {
    * and being told «four left» is the difference between a form that is strict
    * and a form that seems broken.
    */
-  async redeemInvite(email: string, rawCode: string, password: string) {
-    const address = email.toLowerCase().trim();
-    const code = normalizeInviteCode(rawCode);
+  /** Sliding-window limiter for code guessing; key -> recent attempt times. */
+  private readonly inviteAttempts = new Map<string, number[]>();
+
+  /**
+   * Finish an invitation from inside the app, with the code and nothing else.
+   *
+   * The address used to be required here, purely to find the account before
+   * checking the code against it. That made this door useless to the people it
+   * matters most for — the ones who have no address to type. The code finds
+   * the account by itself.
+   *
+   * What that costs, said plainly: the five-attempts-per-account counter can
+   * no longer work, because a wrong code belongs to no account. The limit is
+   * per source instead. It is not the weaker arrangement it sounds like — a
+   * wrong guess now identifies nobody, so an attacker cannot even aim.
+   *
+   * App builds already installed still SEND an address with the code. The
+   * request shape keeps accepting it and this method never sees it — refusing
+   * those requests would strand whoever is mid-invitation on the day this
+   * ships.
+   */
+  async redeemInvite(code: string, password: string, ip = 'unknown') {
+    const FIFTEEN_MIN = 15 * 60 * 1000;
+    if (!this.allowLogin(`invite:ip:${ip}`, 10, FIFTEEN_MIN)) {
+      throw new HttpException(
+        'Too many attempts. Please try again later.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const clean = normalizeInviteCode(code);
     const refuse = (why: string) => {
-      this.logger.warn(`invite refused for ${address}: ${why}`);
+      this.logger.warn(`invite refused: ${why}`);
       return new BadRequestException({ code: 'INVITE_INVALID' });
     };
 
-    const user = await this.usersService.findByEmail(address);
-    if (!user) throw refuse('no such account');
+    const user = await this.usersService.findByInviteCode(clean);
+    if (!user) throw refuse('no account holds this code');
     if (!user.isActive) throw refuse('account disabled');
-    if (!user.inviteCodeHash) throw refuse('no code issued or already used');
     if (
       !user.inviteCodeExpiresAt ||
       user.inviteCodeExpiresAt.getTime() <= Date.now()
     ) {
       throw refuse('code expired');
     }
-    if (user.inviteCodeAttempts >= INVITE_MAX_ATTEMPTS) {
-      throw refuse('too many attempts');
-    }
-
-    if (hashInviteCode(code) !== user.inviteCodeHash) {
-      const attempts = user.inviteCodeAttempts + 1;
-      await this.usersService.countInviteAttempt(user.id, attempts);
-      const left = INVITE_MAX_ATTEMPTS - attempts;
-      this.logger.warn(
-        `invite refused for ${address}: wrong code (${left} left)`,
-      );
-      throw new BadRequestException({
-        code: 'INVITE_WRONG_CODE',
-        attemptsLeft: left,
-      });
-    }
 
     // The password is judged before the code is spent: a refusal here should
     // cost the reader another try at typing, not another invitation.
-    const problem = passwordProblem(password, user.email);
+    const problem = passwordProblem(password, user.email ?? undefined);
     if (problem) {
       throw new BadRequestException({ code: 'WEAK_PASSWORD', problem });
     }
@@ -349,7 +359,7 @@ export class AuthService {
     const rounds = this.config.get<number>('bcrypt.rounds') ?? 12;
     const passwordHash = await bcrypt.hash(password, rounds);
     await this.usersService.completeInvite(user.id, passwordHash);
-    this.logger.log(`invite redeemed for ${address}`);
+    this.logger.log(`invite redeemed by ${user.loginName ?? user.id}`);
     return this.issueTokens(user);
   }
 
@@ -379,7 +389,7 @@ export class AuthService {
       return note('password already set — not resending');
     }
 
-    await this.usersService.sendInvitation(user.id, user.email);
+    await this.usersService.sendInvitation(user.id);
     this.logger.log(`invite resent to ${address}`);
   }
 

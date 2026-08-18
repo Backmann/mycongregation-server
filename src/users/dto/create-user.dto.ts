@@ -13,11 +13,17 @@ import { SUPPORTED_LANGUAGES } from '../../common/i18n/supported-languages';
 import { PASSWORD_MIN_LENGTH } from '../../auth/password-policy';
 
 export class CreateUserDto {
+  /**
+   * Where this account's letters go. Optional, and often absent: most of this
+   * congregation has no address written down anywhere, and an account without
+   * one is invited by a code handed over in person.
+   */
+  @IsOptional()
   @IsEmail()
   @Transform(({ value }) =>
     typeof value === 'string' ? value.toLowerCase().trim() : value,
   )
-  email!: string;
+  email?: string;
 
   /**
    * Initial password set by the admin. Must be communicated to the user

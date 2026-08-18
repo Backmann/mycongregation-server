@@ -39,7 +39,8 @@ import { RefreshSession } from '../entities/refresh-session.entity';
  */
 export interface PublicUser {
   id: string;
-  email: string;
+  /** Where letters go, or null: most of this congregation has no address. */
+  email: string | null;
   /**
    * What this person types to sign in. Shown to administrators so that
    * «я забыл имя входа» is one question to an elder rather than a dead end.
@@ -145,6 +146,28 @@ function toPublicUser(
     updatedAt: u.updatedAt,
     appointment,
   };
+}
+
+/**
+ * What an invitation produced: the code to hand over, when it dies, and the
+ * address it was mailed to — null when there was nowhere to mail it.
+ */
+export interface InvitationIssued {
+  code: string;
+  expiresAt: Date;
+  sentTo: string | null;
+}
+
+/**
+ * A new account, plus the invitation it was born with.
+ *
+ * The code travels back with the account or not at all: only its hash is
+ * stored, so nothing can look it up afterwards. That is deliberate — a code
+ * that could be read out of the database twice would be a password lying in
+ * a table — but it means whoever needs to show it must be handed it here.
+ */
+export interface CreatedUser extends PublicUser {
+  invitation?: InvitationIssued;
 }
 
 /** Postgres unique-violation SQLSTATE code. */
@@ -436,8 +459,8 @@ export class UsersService {
     dto: CreateUserDto,
     congregationId: string,
     actorUserId: string,
-  ): Promise<PublicUser> {
-    const email = dto.email.trim().toLowerCase();
+  ): Promise<CreatedUser> {
+    const email = dto.email?.trim().toLowerCase() || null;
 
     // The address may now repeat: a couple with one mailbox, a parent reading
     // a child's letters. Identity moved to the login name, and THAT is what is
@@ -525,18 +548,20 @@ export class UsersService {
     // a bad minute must not undo a login that was created correctly. The
     // administrator sees «Пароль не задан» on the row either way and can set
     // one by hand.
+    let invitation: InvitationIssued | undefined;
     if (!dto.password) {
       try {
-        await this.sendInvitation(user.id, user.email);
+        invitation = await this.sendInvitation(user.id);
       } catch (err: unknown) {
         this.logger.warn(
-          `invitation for a new login ${user.email} could not be sent: ` +
+          `invitation for a new login ${user.loginName ?? user.id} could not ` +
+            'be issued: ' +
             (err instanceof Error ? err.message : String(err)),
         );
       }
     }
 
-    return toPublicUser(user);
+    return { ...toPublicUser(user), invitation };
   }
 
   async updateRoleByAdmin(
@@ -735,7 +760,7 @@ export class UsersService {
     }
     // The same bar as a person setting his own: an administrator handing out
     // «12345678» by telephone is exactly the case worth stopping.
-    const problem = passwordProblem(newPassword, user.email);
+    const problem = passwordProblem(newPassword, user.email ?? undefined);
     if (problem) {
       throw new BadRequestException({ code: 'WEAK_PASSWORD', problem });
     }
@@ -806,7 +831,7 @@ export class UsersService {
     if (!ok) {
       throw new BadRequestException('Current password is incorrect');
     }
-    const problem = passwordProblem(newPassword, user.email);
+    const problem = passwordProblem(newPassword, user.email ?? undefined);
     if (problem) {
       throw new BadRequestException({ code: 'WEAK_PASSWORD', problem });
     }
@@ -866,10 +891,21 @@ export class UsersService {
   }
 
   /**
-   * Issue a 72h invitation token for an account and email the link, so
-   * the invited person sets their own password via /reset-password.
+   * Issue an invitation: a code that works inside the app, and a link for
+   * whoever is at a computer. Valid for 72 hours.
+   *
+   * It decides ON ITS OWN whether a letter goes out, and that is the whole
+   * point of the change: the address used to arrive as an argument, so each of
+   * the four callers decided separately whether to send — and one of them
+   * would eventually decide wrongly for an account that has no address. Now
+   * there is one answer, in one place.
+   *
+   * The code comes back either way, so an elder can read it out to somebody
+   * standing in front of him. For an account with no address that is the ONLY
+   * way in, which is why this returns it rather than logging it: a live
+   * credential in a log file is a credential lying about in the open.
    */
-  async sendInvitation(userId: string, email: string): Promise<void> {
+  async sendInvitation(userId: string): Promise<InvitationIssued> {
     const THREE_DAYS = 72 * 60 * 60 * 1000;
     const token = randomBytes(32).toString('hex');
     const tokenHash = createHash('sha256').update(token).digest('hex');
@@ -887,26 +923,52 @@ export class UsersService {
     await this.usersRepo.update(userId, {
       inviteCodeHash: hashInviteCode(code),
       inviteCodeExpiresAt: expiresAt,
-      inviteCodeAttempts: 0,
     });
+
+    const issued: InvitationIssued = {
+      code: formatInviteCode(code),
+      expiresAt,
+      sentTo: null,
+    };
+
+    const address = user?.email ?? null;
+    if (!address) {
+      // Nowhere to send is not a failure. It is the ordinary case for most of
+      // this congregation, and the code above is what they will be given.
+      return issued;
+    }
 
     // The same setting the version endpoint hands out, so the letter
     // cannot point somewhere the app is no longer given away from.
     const installUrl = this.config.get<string>('appVersion.downloadUrl');
 
     await this.mailService.sendInvite(
-      email,
+      address,
       lang,
       link,
       formatInviteCode(code),
       expiresAt,
       installUrl,
     );
+    return { ...issued, sentTo: address };
   }
 
-  /** One wrong guess, counted. */
-  async countInviteAttempt(userId: string, attempts: number): Promise<void> {
-    await this.usersRepo.update(userId, { inviteCodeAttempts: attempts });
+  /**
+   * Whose invitation this code is.
+   *
+   * The code identifies the account on its own — nobody has to say who they
+   * are first. That is what lets somebody with no address finish an
+   * invitation: there is nothing else about them to type.
+   *
+   * A wrong code matches no row, so it does not even reveal WHO was being
+   * guessed at. What guards this is the size of the space (eight characters
+   * from an alphabet of thirty-one) and the limit on attempts per address the
+   * guessing comes from.
+   */
+  findByInviteCode(code: string): Promise<User | null> {
+    return this.usersRepo.findOne({
+      where: { inviteCodeHash: hashInviteCode(code) },
+    });
   }
 
   /**
@@ -919,7 +981,6 @@ export class UsersService {
       passwordHash,
       inviteCodeHash: null,
       inviteCodeExpiresAt: null,
-      inviteCodeAttempts: 0,
       resetTokenHash: null,
       resetTokenExpiresAt: null,
     });

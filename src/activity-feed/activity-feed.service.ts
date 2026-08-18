@@ -281,6 +281,9 @@ function formatUserName(u: any): string | null {
     return combined || null;
   }
   if (u.name) return u.name;
+  // The login name before the address: it exists for every account, and an
+  // account with no address would otherwise have nothing to show at all.
+  if (u.loginName) return u.loginName;
   if (u.email) return u.email;
   return null;
 }

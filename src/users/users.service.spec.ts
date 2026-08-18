@@ -4,7 +4,6 @@ import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
@@ -296,7 +295,11 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
       (repo.findOne as jest.Mock).mockResolvedValue(null);
       const sendInvitation = jest
         .spyOn(service, 'sendInvitation')
-        .mockResolvedValue(undefined);
+        .mockResolvedValue({
+          code: 'K7QM-3XPD',
+          expiresAt: new Date('2026-08-21T10:00:00Z'),
+          sentTo: null,
+        });
 
       await service.createUserByAdmin(
         { email: 'new@example.org', role: UserRole.PUBLISHER } as never,
@@ -311,7 +314,11 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
       (repo.findOne as jest.Mock).mockResolvedValue(null);
       const sendInvitation = jest
         .spyOn(service, 'sendInvitation')
-        .mockResolvedValue(undefined);
+        .mockResolvedValue({
+          code: 'K7QM-3XPD',
+          expiresAt: new Date('2026-08-21T10:00:00Z'),
+          sentTo: null,
+        });
 
       await service.createUserByAdmin(
         {

@@ -353,9 +353,13 @@ export class JournalService {
     const fullName = (p: Publisher) =>
       [p.lastName, p.firstName].filter(Boolean).join(' ').trim();
 
-    // Email last: a name is better, but an address beats a bare id when the
-    // account has no card behind it.
-    for (const u of users) if (u.email) names.set(u.id, u.email);
+    // Weakest first, so the card's real name overwrites it below. A login name
+    // reads better than an address and, unlike one, every account has it —
+    // without this an account with no address signed the journal as a bare id.
+    for (const u of users) {
+      const fallback = u.loginName ?? u.email;
+      if (fallback) names.set(u.id, fallback);
+    }
     for (const p of byUserId) {
       const name = fullName(p);
       if (name && p.userId) names.set(p.userId, name);

@@ -149,15 +149,22 @@ export class AuthController {
    * The invitation, finished where the person already is.
    *
    * Public by necessity — nobody has a session yet, that is the point of it —
-   * and rate-limited hard for the same reason. Five wrong codes end that code;
-   * the throttler ends the guessing.
+   * and rate-limited hard for the same reason. The code alone says who this
+   * is, so no address is asked for: the people this door was built for have
+   * none. Guessing is limited per source, here and in the service.
    */
   @Public()
   @Throttle({ default: { limit: 10, ttl: 600000 } })
   @HttpCode(HttpStatus.OK)
   @Post('invite/redeem')
-  redeemInvite(@Body() dto: RedeemInviteDto) {
-    return this.authService.redeemInvite(dto.email, dto.code, dto.password);
+  redeemInvite(@Body() dto: RedeemInviteDto, @Req() req: Request) {
+    // dto.email is deliberately not passed on: the code identifies the
+    // account by itself, and older app builds still send an address.
+    return this.authService.redeemInvite(
+      dto.code,
+      dto.password,
+      req.ip ?? 'unknown',
+    );
   }
 
   /**

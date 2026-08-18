@@ -27,9 +27,14 @@ export class User {
    * It was UNIQUE from the first migration, which is what made a shared family
    * mailbox impossible: a husband and wife could not both have a login. The
    * uniqueness is gone; a lowered index remains for the lookup's sake.
+   *
+   * And it may be missing altogether. Most of this congregation has no address
+   * written down anywhere; their invitation is a code handed over in person,
+   * and their password, if forgotten, is reset by an elder rather than by a
+   * letter. That is the honest cost, and it is smaller than having no login.
    */
-  @Column({ type: 'varchar', length: 255 })
-  email!: string;
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  email!: string | null;
 
   /**
    * What this person types to sign in. Unique across every congregation,
@@ -118,7 +123,15 @@ export class User {
   })
   inviteCodeExpiresAt!: Date | null;
 
-  /** Five wrong guesses and the code is spent — see AuthService.redeemInvite. */
+  /**
+   * Superseded, and kept only so a migration is not needed to drop it.
+   *
+   * It counted wrong guesses against ONE account, which worked while an
+   * address said which account was being guessed at. The code now identifies
+   * the account by itself, so a wrong code belongs to nobody and there is
+   * nothing to count it against. Guessing is limited per source instead —
+   * see AuthService.redeemInvite.
+   */
   @Column({ name: 'invite_code_attempts', type: 'int', default: 0 })
   inviteCodeAttempts!: number;
   @CreateDateColumn({ type: 'timestamptz' })

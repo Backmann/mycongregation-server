@@ -1,4 +1,5 @@
 import {
+  IsOptional,
   IsString,
   Length,
   Matches,
@@ -21,12 +22,18 @@ export class ResetPasswordDto {
   password!: string;
 }
 
-/** Finishing an invitation from inside the app: address, code, new password. */
+/**
+ * Finishing an invitation from inside the app: the code and a new password.
+ *
+ * The address is optional and unused — the code identifies the account by
+ * itself. It stays in the shape only because app builds already installed
+ * still send it, and rejecting those would strand whoever is mid-invitation
+ * on the day this ships.
+ */
 export class RedeemInviteDto {
-  // No @Transform here: redeemInvite lowercases and trims the address itself,
-  // and one place doing it is easier to trust than two.
+  @IsOptional()
   @IsEmail()
-  email!: string;
+  email?: string;
 
   @IsString()
   @MinLength(8)

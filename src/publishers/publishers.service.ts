@@ -161,6 +161,20 @@ export interface AccessSummary {
   email: string | null;
   /** What this person types to sign in — so an elder can read it back to them. */
   loginName: string | null;
+  /**
+   * The invitation code, present ONLY in the answer to granting access or
+   * asking for a fresh one — never when simply reading the card.
+   *
+   * It is on the screen because for somebody with no address that is the only
+   * way in: the elder reads it out, writes it down, sends it in a message.
+   * Where a letter did go out, it is shown anyway — a letter can be missed,
+   * and the person is often standing right there.
+   */
+  inviteCode?: string;
+  /** Where the letter went, or null when there was nowhere to send it. */
+  inviteSentTo?: string | null;
+  /** When the code stops working. */
+  inviteExpiresAt?: Date;
   role: UserRole | null;
   isActive: boolean | null;
   lastLoginAt: Date | null;
@@ -843,25 +857,24 @@ export class PublishersService {
     if (publisher.userId) {
       throw new ConflictException('This person already has app access');
     }
-    const email = (dto.email ?? publisher.email ?? '').trim();
-    if (!email) {
-      throw new BadRequestException(
-        'An email address is required to grant access',
-      );
-    }
+    // An address is no longer required. Most of this congregation has none
+    // written down, and demanding one left the choice between refusing them a
+    // login and inventing an address that reaches nobody. What replaces it is
+    // the code below, handed over in person.
+    const email = (dto.email ?? publisher.email ?? '').trim() || null;
     const role = dto.isAdmin
       ? UserRole.ADMIN
       : deriveRoleFromAppointment(publisher.appointment);
 
     if (!dto.sendInvite && !dto.password) {
       throw new BadRequestException(
-        'Provide a password or enable the email invitation',
+        'Provide a password or enable the invitation',
       );
     }
 
     const created = await this.usersService.createUserByAdmin(
       {
-        email,
+        email: email ?? undefined,
         password: dto.sendInvite ? undefined : dto.password,
         role,
       },
@@ -871,12 +884,20 @@ export class PublishersService {
     publisher.userId = created.id;
     await this.publishersRepo.save(publisher);
 
-    if (dto.sendInvite) {
-      // sendInvitation: issue a 72h token and email the link.
-      await this.usersService.sendInvitation(created.id, email);
-    }
+    const summary = await this.getAccess(tenantId, id);
 
-    return this.getAccess(tenantId, id);
+    // createUserByAdmin already invited this account — it must, or an account
+    // with no password is born unenterable. Asking for another invitation here
+    // would issue a SECOND code and silently kill the first: exactly the kind
+    // of thing nobody notices until an elder reads out a code that is dead.
+    const issued = created.invitation;
+    if (!issued) return summary;
+    return {
+      ...summary,
+      inviteCode: issued.code,
+      inviteSentTo: issued.sentTo,
+      inviteExpiresAt: issued.expiresAt,
+    };
   }
 
   async updateAccess(
@@ -935,9 +956,12 @@ export class PublishersService {
   }
 
   /**
-   * Re-issue a fresh 72h invitation link and email it — for someone whose
-   * original invite expired before they set a password. Reuses the same
-   * invitation flow as first-time access.
+   * A fresh invitation — for someone whose code expired, or who never got the
+   * letter, or who has no address and simply needs the code read out again.
+   *
+   * The new code replaces the old one, which stops working. That is why the
+   * answer carries it: an elder who cannot see what he has just issued would
+   * have to ask for another, and kill this one too.
    */
   async resendInvite(tenantId: string, id: string): Promise<AccessSummary> {
     const publisher = await this.findOne(tenantId, id);
@@ -948,8 +972,13 @@ export class PublishersService {
       publisher.userId,
       tenantId,
     );
-    await this.usersService.sendInvitation(user.id, user.email);
-    return this.getAccess(tenantId, id);
+    const issued = await this.usersService.sendInvitation(user.id);
+    return {
+      ...(await this.getAccess(tenantId, id)),
+      inviteCode: issued.code,
+      inviteSentTo: issued.sentTo,
+      inviteExpiresAt: issued.expiresAt,
+    };
   }
 
   /**

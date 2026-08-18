@@ -33,7 +33,10 @@ describe('AuthService.resendInvite', () => {
 
     await service.resendInvite('A@B.C ');
 
-    expect(sendInvitation).toHaveBeenCalledWith('u1', 'a@b.c');
+    // The address is no longer passed in: sendInvitation reads the account and
+    // decides for itself whether there is anywhere to send. Four callers each
+    // deciding that separately is how one of them ends up deciding wrongly.
+    expect(sendInvitation).toHaveBeenCalledWith('u1');
   });
 
   it('refuses to mail an account that already has a password', async () => {

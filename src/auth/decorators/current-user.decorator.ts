@@ -3,7 +3,8 @@ import { UserRole } from '../../common/enums/user-role.enum';
 
 export interface AuthenticatedUser {
   id: string;
-  email: string;
+  /** Null for an account with no address of its own — see User.email. */
+  email: string | null;
   role: UserRole;
   congregationId: string;
   uiLanguage: string;
