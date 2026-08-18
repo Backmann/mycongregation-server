@@ -699,7 +699,13 @@ export class UsersService {
   /**
    * Change where a user's letters go (admin action) — e.g. to fix a typo made
    * when access was granted, or to point an account at a family mailbox.
-   * Normalized to lowercase. It may be an address another account also uses.
+   *
+   * An EMPTY value removes the address, which is now a real thing to want: it
+   * is optional, somebody may ask for theirs to be taken off, and the account
+   * keeps working — its owner signs in by name and an elder resets a forgotten
+   * password. What is refused is a value that is neither empty nor an address,
+   * because that silently breaks delivery and nobody would find out until a
+   * letter failed to arrive.
    */
   async changeEmailByAdmin(
     id: string,
@@ -710,7 +716,11 @@ export class UsersService {
     if (user.isOwner) {
       throw new ForbiddenException('The owner account is protected');
     }
-    const email = rawEmail.trim().toLowerCase();
+    const trimmed = rawEmail.trim().toLowerCase();
+    const email: string | null = trimmed === '' ? null : trimmed;
+    if (email !== null && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new BadRequestException({ code: 'BAD_EMAIL' });
+    }
     if (user.email === email) {
       return;
     }

@@ -901,6 +901,17 @@ export class PublishersService {
     publisher.userId = created.id;
     await this.publishersRepo.save(publisher);
 
+    // Only when asked, and never over an address the card already holds: a
+    // borrowed mailbox must not quietly become somebody's contact address.
+    // Note what is NOT touched — contactsConfirmedAt. An address typed by an
+    // elder to deliver a code is not the person confirming their own details,
+    // and the yearly contacts check must not count it as one.
+    if (dto.saveEmailToCard && email && !publisher.email) {
+      publisher.email = email;
+      publisher.lastEditedById = actor.id;
+      await this.publishersRepo.save(publisher);
+    }
+
     const summary = await this.getAccess(tenantId, id);
 
     // createUserByAdmin already invited this account — it must, or an account

@@ -1,6 +1,5 @@
 import {
   IsBoolean,
-  IsEmail,
   IsOptional,
   IsString,
   MaxLength,
@@ -16,9 +15,14 @@ import { PASSWORD_MIN_LENGTH } from '../../auth/password-policy';
  * ones are applied.
  */
 export class UpdateAccessDto {
-  /** Where this account's letters go — e.g. to fix a typo. May be shared. */
+  /**
+   * Where this account's letters go. May be shared with another account, and
+   * may be EMPTY: an address is optional now, and somebody who asks to have
+   * theirs removed must be able to have it removed. Validated in the service,
+   * because @IsEmail cannot express «a valid address, or nothing».
+   */
   @IsOptional()
-  @IsEmail()
+  @IsString()
   @MaxLength(255)
   email?: string;
 

@@ -31,4 +31,17 @@ export class GrantAccessDto {
   @IsOptional()
   @IsBoolean()
   sendInvite?: boolean;
+
+  /**
+   * Also write this address onto the publisher's card.
+   *
+   * Asked for rather than assumed, because the card's address is a PRIVATE
+   * field the elders read as «how to reach this person». An address borrowed
+   * for one delivery — a wife's letter sent to her husband's mailbox — is not
+   * that, and writing it there would have the secretary confirming it as hers
+   * at the yearly contacts check.
+   */
+  @IsOptional()
+  @IsBoolean()
+  saveEmailToCard?: boolean;
 }
