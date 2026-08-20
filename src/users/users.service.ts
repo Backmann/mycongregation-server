@@ -279,6 +279,37 @@ export class UsersService {
       .getMany();
   }
 
+  /**
+   * The name for a new account: the one an elder typed, or one built from the
+   * card.
+   *
+   * A typed name is judged and refused if it cannot be used — silently
+   * replacing it with a generated one would leave the elder telling somebody a
+   * name that is not theirs.
+   */
+  private async chooseLoginName(
+    requested: string | undefined,
+    card: Publisher | null,
+    email: string | null,
+  ): Promise<string> {
+    const wanted = requested?.trim().toLowerCase();
+    if (wanted) {
+      const problem = loginNameProblem(wanted);
+      if (problem) {
+        throw new BadRequestException({ code: 'BAD_LOGIN_NAME', problem });
+      }
+      if (await this.loginNameTaken(wanted)) {
+        throw new ConflictException({ code: 'LOGIN_NAME_TAKEN' });
+      }
+      return wanted;
+    }
+    return this.settleLoginNameFor({
+      firstName: card?.firstName,
+      lastName: card?.lastName,
+      email,
+    });
+  }
+
   /** Is this login name free? Deleted accounts do not hold one — see the index. */
   private async loginNameTaken(candidate: string): Promise<boolean> {
     const count = await this.usersRepo
@@ -521,11 +552,10 @@ export class UsersService {
     const user = this.usersRepo.create({
       congregationId,
       email,
-      loginName: await this.settleLoginNameFor({
-        firstName: card?.firstName,
-        lastName: card?.lastName,
-        email,
-      }),
+      // The elder's correction wins when he made one — he is looking at the
+      // person's own spelling of their name, which transliteration cannot
+      // know. Otherwise the name is built from the card as usual.
+      loginName: await this.chooseLoginName(dto.loginName, card, email),
       passwordHash,
       role: dto.role,
       isActive: true,
@@ -549,11 +579,7 @@ export class UsersService {
         (err as QueryFailedError & { code?: string }).code ===
           PG_UNIQUE_VIOLATION
       ) {
-        user.loginName = await this.settleLoginNameFor({
-          firstName: card?.firstName,
-          lastName: card?.lastName,
-          email,
-        });
+        user.loginName = await this.chooseLoginName(dto.loginName, card, email);
         await this.usersRepo.save(user);
         if (card && !card.userId) {
           card.userId = user.id;

@@ -2,9 +2,12 @@ import {
   IsBoolean,
   IsEmail,
   IsOptional,
+  IsString,
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { LOGIN_NAME_MAX } from '../../users/login-name';
 import { PASSWORD_MIN_LENGTH } from '../../auth/password-policy';
 
 /**
@@ -16,6 +19,23 @@ export class GrantAccessDto {
   @IsOptional()
   @IsEmail()
   email?: string;
+
+  /**
+   * The name this publisher will sign in with — corrected by the elder before
+   * anybody is told what it is.
+   *
+   * It was missing here entirely: the form has offered the field since the
+   * screen was rebuilt, and the request was refused outright by validation
+   * («property loginName should not exist»). Omitted, the name is generated
+   * from the publisher's card as before.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(LOGIN_NAME_MAX)
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.toLowerCase().trim() : value,
+  )
+  loginName?: string;
 
   @IsOptional()
   @MinLength(PASSWORD_MIN_LENGTH)

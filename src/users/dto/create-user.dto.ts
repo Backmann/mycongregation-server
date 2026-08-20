@@ -5,6 +5,7 @@ import {
   IsIn,
   IsOptional,
   IsString,
+  MaxLength,
   MinLength,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
@@ -24,6 +25,19 @@ export class CreateUserDto {
     typeof value === 'string' ? value.toLowerCase().trim() : value,
   )
   email?: string;
+
+  /**
+   * What this person will type to sign in. Generated from the publisher's card
+   * when omitted — which is the ordinary case; this is for the correction an
+   * elder makes before the name has been told to anybody.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.toLowerCase().trim() : value,
+  )
+  loginName?: string;
 
   /**
    * Initial password set by the admin. Must be communicated to the user

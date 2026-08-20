@@ -926,6 +926,9 @@ export class PublishersService {
     const created = await this.usersService.createUserByAdmin(
       {
         email: email ?? undefined,
+        // Carried through at last: the field has been on the screen since the
+        // rebuild, and the server refused the whole request because of it.
+        loginName: dto.loginName,
         password: dto.sendInvite ? undefined : dto.password,
         role,
       },
