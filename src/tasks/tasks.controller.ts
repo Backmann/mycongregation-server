@@ -43,7 +43,13 @@ const AREAS = [
   'other',
 ] as const;
 
-const ASSIGNEE_KINDS = ['people', 'service_committee', 'body_of_elders'];
+const ASSIGNEE_KINDS = [
+  'people',
+  'service_committee',
+  'body_of_elders',
+] as const;
+/** The same three values as a type, so a DTO can carry them onward. */
+type AssigneeKind = (typeof ASSIGNEE_KINDS)[number];
 
 export class UpsertMeetingDto {
   @IsOptional() @IsISO8601() date?: string;
@@ -71,12 +77,47 @@ export class UpsertItemDto {
   @IsOptional() @IsUUID() taskId?: string | null;
 }
 
+/**
+ * Turning an agenda item into a task.
+ *
+ * A class, not a type written inline in the signature — and the difference is
+ * not style. ValidationPipe reads DECORATORS at runtime; a type annotation
+ * leaves nothing behind to read, so a body typed that way was passed through
+ * untouched: unknown fields kept, strings where arrays belong, no bounds. It
+ * was the only route of thirteen here without a guard on its body.
+ */
+export class MakeTaskDto {
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  assigneePublisherIds?: string[];
+
+  @IsOptional()
+  @IsIn(ASSIGNEE_KINDS as unknown as string[])
+  assigneeKind?: AssigneeKind;
+
+  @IsOptional() @IsISO8601() dueDate?: string | null;
+  @IsOptional() @IsString() @MaxLength(8000) details?: string | null;
+}
+
+/** Which way an item moves in the agenda. */
+export class MoveItemDto {
+  @IsIn(['up', 'down']) direction!: 'up' | 'down';
+}
+
+/** Where an unfinished item goes — a named meeting, or the next one. */
+export class CarryOverDto {
+  @IsOptional() @IsUUID() toMeetingId?: string | null;
+}
+
 export class UpsertTaskDto {
   @IsOptional() @IsString() @MaxLength(300) title?: string;
   @IsOptional() @IsString() @MaxLength(8000) details?: string | null;
   @IsOptional() @IsIn(AREAS as unknown as string[]) area?: string;
   @IsOptional() @IsUUID() assigneePublisherId?: string | null;
-  @IsOptional() @IsIn(ASSIGNEE_KINDS) assigneeKind?: string;
+  @IsOptional()
+  @IsIn(ASSIGNEE_KINDS as unknown as string[])
+  assigneeKind?: AssigneeKind;
   /** Named brothers — only meaningful when the kind is «people». */
   @IsOptional()
   @IsArray()
@@ -219,13 +260,7 @@ export class TasksController {
   @Post('items/:itemId/make-task')
   makeTask(
     @Param('itemId') itemId: string,
-    @Body()
-    dto: {
-      assigneePublisherIds?: string[];
-      assigneeKind?: 'people' | 'service_committee' | 'body_of_elders';
-      dueDate?: string | null;
-      details?: string | null;
-    },
+    @Body() dto: MakeTaskDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.items.makeTask(user, itemId, dto);
@@ -234,7 +269,7 @@ export class TasksController {
   @Post('items/:itemId/move')
   moveItem(
     @Param('itemId') itemId: string,
-    @Body() dto: { direction: 'up' | 'down' },
+    @Body() dto: MoveItemDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.items.move(user, itemId, dto.direction);
@@ -271,7 +306,7 @@ export class TasksController {
   async close(
     @Param('id') id: string,
     @TenantId() tenantId: string,
-    @Body() dto: { toMeetingId?: string | null },
+    @Body() dto: CarryOverDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     await this.mustBuild(user);
