@@ -219,6 +219,15 @@ export class PublishersController {
     return this.publishersService.resendInvite(tenantId, id);
   }
 
+  /** Call back an invitation that has not been used. Admin only, like the rest. */
+  @Post(':id/access/revoke-invite')
+  revokeInvite(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @TenantId() tenantId: string,
+  ) {
+    return this.publishersService.revokeInvite(tenantId, id);
+  }
+
   @UseGuards(ResponsibilityGuard)
   @RequireResponsibility(ResponsibilityType.SECRETARY)
   @Post()

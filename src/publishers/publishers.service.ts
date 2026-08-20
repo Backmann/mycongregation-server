@@ -183,6 +183,17 @@ export interface AccessSummary {
   inviteSentTo?: string | null;
   /** When the code stops working. */
   inviteExpiresAt?: Date;
+  /**
+   * An invitation that is still waiting to be used, if any — always present
+   * when reading the card, unlike inviteCode.
+   *
+   * Without it the elder has no way to tell «I invited her yesterday, she has
+   * not got round to it» from «the code expired, issue another». Both look
+   * identical: an account with no last-login.
+   */
+  invitePendingUntil?: Date | null;
+  /** Whether a password has ever been set — i.e. whether they ever got in. */
+  hasPassword?: boolean;
   role: UserRole | null;
   isActive: boolean | null;
   lastLoginAt: Date | null;
@@ -848,10 +859,17 @@ export class PublishersService {
       publisher.userId,
       tenantId,
     );
+    const pending =
+      user.inviteCodeExpiresAt &&
+      user.inviteCodeExpiresAt.getTime() > Date.now()
+        ? user.inviteCodeExpiresAt
+        : null;
     return {
       hasAccess: true,
       email: user.email,
       loginName: user.loginName ?? null,
+      invitePendingUntil: pending,
+      hasPassword: !!user.passwordHash,
       suggestedLoginName: this.usersService.suggestLoginName({
         firstName: publisher.firstName,
         lastName: publisher.lastName,
@@ -889,6 +907,22 @@ export class PublishersService {
       );
     }
 
+    // BEFORE the account is created, because creating it sends the invitation,
+    // and the letter looks at the card to decide whether this address is the
+    // person's own. Saved afterwards, their own address would be treated as
+    // borrowed and the letter would arrive without a link for no reason.
+    //
+    // Only when asked, and never over an address the card already holds: a
+    // borrowed mailbox must not quietly become somebody's contact address.
+    // Note what is NOT touched — contactsConfirmedAt. An address typed by an
+    // elder to deliver a code is not the person confirming their own details,
+    // and the yearly contacts check must not count it as one.
+    if (dto.saveEmailToCard && email && !publisher.email) {
+      publisher.email = email;
+      publisher.lastEditedById = actor.id;
+      await this.publishersRepo.save(publisher);
+    }
+
     const created = await this.usersService.createUserByAdmin(
       {
         email: email ?? undefined,
@@ -904,17 +938,6 @@ export class PublishersService {
     // The people who were already using this mailbox learn about it now, from
     // us — before they next try the address and are told no.
     await this.usersService.noticeMailboxNowShared(email, created.id);
-
-    // Only when asked, and never over an address the card already holds: a
-    // borrowed mailbox must not quietly become somebody's contact address.
-    // Note what is NOT touched — contactsConfirmedAt. An address typed by an
-    // elder to deliver a code is not the person confirming their own details,
-    // and the yearly contacts check must not count it as one.
-    if (dto.saveEmailToCard && email && !publisher.email) {
-      publisher.email = email;
-      publisher.lastEditedById = actor.id;
-      await this.publishersRepo.save(publisher);
-    }
 
     const summary = await this.getAccess(tenantId, id);
 
@@ -992,6 +1015,25 @@ export class PublishersService {
         actor.id,
       );
     }
+    return this.getAccess(tenantId, id);
+  }
+
+  /**
+   * Call back an invitation that has not been used.
+   *
+   * The code went to the wrong mailbox, or was read out to the wrong person,
+   * or simply is not wanted any more. Until now the only way to kill a code
+   * was to issue another one — which leaves a live code either way.
+   *
+   * The account stays. It has no password yet, so nobody can enter it; a new
+   * invitation can be issued whenever the elder is ready.
+   */
+  async revokeInvite(tenantId: string, id: string): Promise<AccessSummary> {
+    const publisher = await this.findOne(tenantId, id);
+    if (!publisher.userId) {
+      throw new NotFoundException('This person has no app access');
+    }
+    await this.usersService.revokeInvitation(publisher.userId, tenantId);
     return this.getAccess(tenantId, id);
   }
 

@@ -33,6 +33,15 @@ interface LetterExtras {
   recipientName?: string | null;
   /** What this person types to sign in; the letter is where they learn it. */
   loginName?: string | null;
+  /**
+   * True when this letter is going to a mailbox the reader shares with the
+   * person it is about — a wife's invitation sent to her husband's address.
+   *
+   * Then the letter carries NO link. A link signs its clicker in; a code has
+   * to be typed by the person it belongs to. And it says out loud who the
+   * code is for, so whoever opens it knows to pass it on.
+   */
+  borrowedMailbox?: boolean;
 }
 
 interface Strings {
@@ -53,6 +62,8 @@ interface Strings {
   linkHint: string;
   footerAuto: string;
   invite: Message;
+  /** One line for a letter that landed in somebody else's mailbox. */
+  passItOn: string;
   reset: Message;
   /**
    * Sent to whoever ALREADY used an address, at the moment it starts serving a
@@ -85,6 +96,8 @@ interface Strings {
 const STRINGS: Record<Lang, Strings> = {
   ru: {
     brand: 'MyCongregation.org',
+    passItOn:
+      'Это письмо пришло на общий почтовый ящик. Код предназначен человеку, названному выше, — передайте письмо ему. Ссылки для входа здесь нет: код нужно ввести в приложении на своём телефоне.',
     greetingNamed: 'Здравствуйте, {{name}}!',
     loginNameLead: 'Ваше имя для входа:',
     loginNameHint:
@@ -149,6 +162,8 @@ const STRINGS: Record<Lang, Strings> = {
   },
   en: {
     brand: 'MyCongregation.org',
+    passItOn:
+      'This letter arrived in a shared mailbox. The code belongs to the person named above — please pass it on to them. There is no sign-in link here: the code has to be typed into the app on their own phone.',
     greetingNamed: 'Hello, {{name}}!',
     loginNameLead: 'Your name for signing in:',
     loginNameHint:
@@ -213,6 +228,8 @@ const STRINGS: Record<Lang, Strings> = {
   },
   de: {
     brand: 'MyCongregation.org',
+    passItOn:
+      'Dieser Brief kam in einem gemeinsamen Postfach an. Der Code gehört der oben genannten Person — bitte geben Sie ihn weiter. Einen Anmeldelink gibt es hier nicht: der Code wird in der App auf ihrem eigenen Telefon eingegeben.',
     greetingNamed: 'Hallo, {{name}}!',
     loginNameLead: 'Ihr Name für die Anmeldung:',
     loginNameHint:
@@ -335,7 +352,14 @@ export class MailService {
     link: string,
     extra: LetterExtras = {},
   ): string {
-    const { code, expiresAt, installUrl, recipientName, loginName } = extra;
+    const {
+      code,
+      expiresAt,
+      installUrl,
+      recipientName,
+      loginName,
+      borrowedMailbox,
+    } = extra;
     const hello = recipientName
       ? s.greetingNamed.replace('{{name}}', recipientName)
       : s.greeting;
@@ -359,11 +383,15 @@ export class MailService {
 ${code && installUrl ? `<p style="${p}">${s.installLead}</p><table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:16px auto 18px;"><tr><td bgcolor="#15788f" style="border-radius:10px;"><a href="${installUrl}" style="display:inline-block;padding:13px 30px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;border-radius:10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${s.installButton}</a></td></tr></table><p style="${small}word-break:break-all;margin:0 0 16px;">${installUrl}</p>` : ''}
 <p style="${p}">${code ? s.codeLead : m.lead}</p>
 ${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f172a;text-align:center;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 12px;margin:0 0 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${code}</p><p style="${small}margin:0 0 14px;">${s.codeHint}</p><p style="${small}margin:0 0 14px;">${s.newestLetter}</p>${expiresAt ? `<p style="${small}margin:0 0 14px;">${s.codeValid} ${this.until(s, expiresAt)}</p>` : ''}<p style="${p}">${s.orBrowser}</p>` : ''}
-<table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:20px auto 8px;"><tr>
+${
+  link
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:20px auto 8px;"><tr>
 <td bgcolor="#15788f" style="border-radius:10px;">
 <a href="${link}" style="display:inline-block;padding:13px 30px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;border-radius:10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${m.button}</a>
 </td></tr></table>
-<p style="${small}text-align:center;margin:6px 0 16px;">${expiresAt ? '' : m.validity}</p>
+<p style="${small}text-align:center;margin:6px 0 16px;">${expiresAt ? '' : m.validity}</p>`
+    : ''
+}
 ${
   loginName
     ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:4px 0 18px;"><tr><td style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:12px;padding:14px 16px;">
@@ -373,8 +401,12 @@ ${
 </td></tr></table>`
     : ''
 }
-<p style="${small}margin:0 0 6px;">${s.linkHint}</p>
-<p style="font-size:13px;color:#0369a1;word-break:break-all;background:#f8fafc;border:1px solid #eef2f6;border-radius:8px;padding:10px 12px;margin:0 0 12px;">${link}</p>
+${
+  borrowedMailbox
+    ? `<p style="${small}background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:11px 13px;margin:0 0 12px;color:#92400e;">${s.passItOn}</p>`
+    : `<p style="${small}margin:0 0 6px;">${s.linkHint}</p>
+<p style="font-size:13px;color:#0369a1;word-break:break-all;background:#f8fafc;border:1px solid #eef2f6;border-radius:8px;padding:10px 12px;margin:0 0 12px;">${link}</p>`
+}
 </td></tr>
 <tr><td style="padding:18px 32px 26px;background:#f8fafc;border-top:1px solid #eef2f6;">
 <p style="font-size:12px;color:#94a3b8;margin:0 0 6px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${m.ignore}</p>
@@ -391,7 +423,14 @@ ${
     link: string,
     extra: LetterExtras = {},
   ): string {
-    const { code, expiresAt, installUrl, recipientName, loginName } = extra;
+    const {
+      code,
+      expiresAt,
+      installUrl,
+      recipientName,
+      loginName,
+      borrowedMailbox,
+    } = extra;
     return [
       recipientName
         ? s.greetingNamed.replace('{{name}}', recipientName)
@@ -411,10 +450,12 @@ ${
               ? [`${s.codeValid} ${this.until(s, expiresAt)}`]
               : []),
             '',
-            s.orBrowser,
+            // «Or open it in a browser» — but there is nothing to open when
+            // the letter carries no link.
+            ...(borrowedMailbox ? [] : [s.orBrowser]),
           ]
         : [m.lead]),
-      link,
+      ...(borrowedMailbox ? [s.passItOn] : [link]),
       '',
       ...(expiresAt ? [] : [m.validity, '']),
       ...(loginName

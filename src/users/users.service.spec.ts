@@ -282,9 +282,16 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
       (repo.findOne as jest.Mock).mockResolvedValue(u);
       const result = await service.findByIdInCongregation('u-1', CONG);
       expect(result).toBe(u);
-      expect(repo.findOne).toHaveBeenCalledWith({
-        where: { id: 'u-1', congregationId: CONG },
-      });
+      expect(repo.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'u-1', congregationId: CONG } }),
+      );
+      // passwordHash is select:false, so it has to be asked for by name — a
+      // reader that merely checks !!user.passwordHash would otherwise conclude
+      // «no password» for every account there is.
+      const call = (repo.findOne as jest.Mock).mock.calls[0][0] as {
+        select?: Record<string, boolean>;
+      };
+      expect(call.select?.passwordHash).toBe(true);
     });
 
     it('throws NotFoundException when user is in another congregation', async () => {

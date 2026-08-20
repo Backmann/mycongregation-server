@@ -396,12 +396,32 @@ export class UsersService {
    * Throws NotFoundException if no match — including when the user exists
    * in another congregation (multi-tenancy enforcement).
    */
+  /**
+   * `passwordHash` is `select: false`, so it is absent unless asked for — and
+   * a reader that merely checks `!!user.passwordHash` would quietly conclude
+   * «no password» for everybody. Asked for here because the access card needs
+   * to say whether this person ever got in; the hash itself never leaves.
+   */
   async findByIdInCongregation(
     id: string,
     congregationId: string,
   ): Promise<User> {
     const user = await this.usersRepo.findOne({
       where: { id, congregationId },
+      select: {
+        id: true,
+        congregationId: true,
+        email: true,
+        loginName: true,
+        role: true,
+        isActive: true,
+        isOwner: true,
+        uiLanguage: true,
+        lastLoginAt: true,
+        canViewPrivateData: true,
+        passwordHash: true,
+        inviteCodeExpiresAt: true,
+      },
     });
     if (!user) {
       throw new NotFoundException('User not found');
@@ -1084,15 +1104,36 @@ export class UsersService {
     // cannot point somewhere the app is no longer given away from.
     const installUrl = this.config.get<string>('appVersion.downloadUrl');
 
-    await this.mailService.sendInvite(address, lang, link, {
+    /**
+     * Is this the person's OWN mailbox, or one they borrow?
+     *
+     * It decides whether the letter may carry a link. The link signs its
+     * clicker straight in — that is the whole point of it on a computer — so
+     * in a mailbox shared with somebody else it is a way into another person's
+     * account for whoever opens the letter first. A code cannot do that: it
+     * has to be typed on the phone of the person it belongs to.
+     *
+     * The publisher's own card is what «own» means here. A borrowed mailbox
+     * gets the code, the name, and a line asking whoever reads it to pass it
+     * on — and no link at all.
+     */
+    const card = await this.publishersRepo.findOne({
+      where: { userId },
+      select: { id: true, firstName: true, email: true },
+    });
+    const ownAddress =
+      !!card?.email && card.email.trim().toLowerCase() === address;
+
+    await this.mailService.sendInvite(address, lang, ownAddress ? link : '', {
       code: formatInviteCode(code),
       expiresAt,
       installUrl,
+      borrowedMailbox: !ownAddress,
       // Who this letter is for, and what they will type to sign in. Both matter
       // most in the case that made all of this necessary: a husband and wife
       // with one mailbox, who would otherwise receive two identical letters
       // and no way to tell which is whose.
-      recipientName: await this.firstNameOf(userId),
+      recipientName: card?.firstName ?? null,
       loginName: user?.loginName ?? null,
     });
     return { ...issued, sentTo: address };
@@ -1201,6 +1242,26 @@ export class UsersService {
         );
       }
     }
+  }
+
+  /**
+   * Cancel a waiting invitation: both doors, the code and the link.
+   *
+   * Issued together for one purpose, so they are called back together —
+   * leaving the link alive after killing the code would keep a way in that
+   * nobody is watching, which is the same reasoning as completeInvite.
+   */
+  async revokeInvitation(
+    userId: string,
+    congregationId: string,
+  ): Promise<void> {
+    await this.findByIdInCongregation(userId, congregationId);
+    await this.usersRepo.update(userId, {
+      inviteCodeHash: null,
+      inviteCodeExpiresAt: null,
+      resetTokenHash: null,
+      resetTokenExpiresAt: null,
+    });
   }
 
   /**
