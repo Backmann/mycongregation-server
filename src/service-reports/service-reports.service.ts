@@ -22,6 +22,7 @@ import {
 } from '../common/report-month-window';
 import { reportingPublisherWhere } from '../common/reporting-publishers';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { reviewPioneerYear, PioneerYearReview } from './pioneer-year-review';
 import { todayIn } from '../common/congregation-clock';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import {
@@ -1414,6 +1415,68 @@ export class ServiceReportsService {
    * `year`), plus a per-month breakdown for the trend. Same audience as the
    * monthly summary (admin/secretary).
    */
+  /**
+   * Where each regular pioneer stands in the service year — the working screen
+   * behind the calendar task «Обзор служения общих пионеров».
+   *
+   * Open to every elder, because the task is addressed to the service
+   * committee and its members are elders; the brothers who do the work should
+   * not have to ask somebody else to read the numbers to them.
+   */
+  async getPioneerYearReview(
+    tenantId: string,
+    user: AuthenticatedUser,
+    serviceYear: number,
+  ): Promise<PioneerYearReview> {
+    const ctx = await this.buildPermissionContext(tenantId, user);
+    if (!ctx.alwaysView) {
+      throw new ForbiddenException(
+        "Only elders may review the pioneers' service year.",
+      );
+    }
+
+    const pioneers = await this.publishersRepo.find({
+      where: { congregationId: tenantId, pioneerType: PioneerType.REGULAR },
+    });
+    const today = await this.clock.todayFor(tenantId);
+    if (pioneers.length === 0) {
+      return reviewPioneerYear(serviceYear, today, []);
+    }
+
+    const reports = await this.reportsRepo.find({
+      where: {
+        congregationId: tenantId,
+        publisherId: In(pioneers.map((p) => p.id)),
+        reportMonth: Between(
+          `${serviceYear - 1}-09-01`,
+          `${serviceYear}-08-01`,
+        ),
+      },
+    });
+
+    const byPublisher = new Map<string, typeof reports>();
+    for (const r of reports) {
+      const list = byPublisher.get(r.publisherId) ?? [];
+      list.push(r);
+      byPublisher.set(r.publisherId, list);
+    }
+
+    return reviewPioneerYear(
+      serviceYear,
+      today,
+      pioneers.map((p) => ({
+        publisherId: p.id,
+        displayName: [p.lastName, p.firstName].filter(Boolean).join(' ').trim(),
+        pioneerSince: p.pioneerSince,
+        months: (byPublisher.get(p.id) ?? []).map((r) => ({
+          reportMonth: r.reportMonth.slice(0, 10),
+          hours: r.hoursReported,
+          note: r.notes,
+        })),
+      })),
+    );
+  }
+
   async getYearSummary(
     tenantId: string,
     user: AuthenticatedUser,

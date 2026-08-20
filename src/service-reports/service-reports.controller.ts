@@ -127,6 +127,27 @@ export class ServiceReportsController {
     );
   }
 
+  /**
+   * The pioneers' standing in a service year. Defaults to the current one,
+   * counted the way the year runs: September belongs to the NEXT year's label.
+   */
+  @Get('pioneer-year-review')
+  getPioneerYearReview(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('year') yearRaw?: string,
+  ) {
+    const now = new Date();
+    const defaultYear =
+      now.getUTCMonth() >= 8 ? now.getUTCFullYear() + 1 : now.getUTCFullYear();
+    const year = yearRaw ? parseInt(yearRaw, 10) || defaultYear : defaultYear;
+    return this.serviceReportsService.getPioneerYearReview(
+      tenantId,
+      user,
+      year,
+    );
+  }
+
   @Get('year-summary')
   getYearSummary(
     @TenantId() tenantId: string,

@@ -199,6 +199,32 @@ export class TasksService {
   // ---- Tasks ------------------------------------------------------------
 
   /**
+   * The names behind `done_by_id`, in one query for the whole page.
+   *
+   * A publisher's card first, because that is how the brothers know each
+   * other; an account with no card falls back to null rather than a guess.
+   */
+  private async namesOfClosers(
+    congregationId: string,
+    rows: ElderTask[],
+  ): Promise<Map<string, string>> {
+    const ids = [...new Set(rows.map((r) => r.doneById).filter(Boolean))];
+    if (ids.length === 0) return new Map();
+
+    const cards = await this.publishers.find({
+      where: { congregationId, userId: In(ids as string[]) },
+      select: { id: true, userId: true, firstName: true, lastName: true },
+    });
+    const names = new Map<string, string>();
+    for (const c of cards) {
+      if (!c.userId) continue;
+      const full = [c.lastName, c.firstName].filter(Boolean).join(' ').trim();
+      if (full) names.set(c.userId, full);
+    }
+    return names;
+  }
+
+  /**
    * The list, with WHOM each task reaches worked out.
    *
    * The two bodies carry no stored names, so the screen cannot tell whether a
@@ -224,8 +250,16 @@ export class TasksService {
       ? await this.addressees.membersOfKind(congregationId, 'body_of_elders')
       : [];
 
+    // Who closed each finished task. The columns were filled from the day the
+    // module shipped and never left the server, so a done card could only say
+    // «Просрочено на 8 дней» — true of the deadline, useless about the work.
+    const closerNames = await this.namesOfClosers(congregationId, rows);
+
     return rows.map((task) => ({
       ...task,
+      doneByName: task.doneById
+        ? (closerNames.get(task.doneById) ?? null)
+        : null,
       members:
         task.assigneeKind === 'service_committee'
           ? committee
