@@ -184,6 +184,26 @@ describe('reviewPioneerYear', () => {
     expect(review.collectingMonth).toBeNull();
   });
 
+  it('puts the notes in the order the service year runs', () => {
+    // The year starts in September, so September comes FIRST. Left in database
+    // order the card read «июнь, июль, сентябрь», which looks like an error.
+    const review = reviewPioneerYear(2026, '2026-08-20', [
+      person({
+        months: [
+          { reportMonth: '2026-06-01', hours: 50, note: 'июнь' },
+          { reportMonth: '2025-09-01', hours: 50, note: 'сентябрь' },
+          { reportMonth: '2026-01-01', hours: 50, note: 'январь' },
+        ],
+      }),
+    ]);
+
+    expect(review.rows[0].notes.map((n) => n.note)).toEqual([
+      'сентябрь',
+      'январь',
+      'июнь',
+    ]);
+  });
+
   it('carries the notes, because that is where credit hours are written', () => {
     // We do not model credit; a pioneer writes it in his own note and the
     // brothers read it. So the notes have to travel with the numbers.

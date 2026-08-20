@@ -141,8 +141,12 @@ export function reviewPioneerYear(
         ? null
         : Math.max(0, PIONEER_YEAR_MINIMUM - hours),
       short: !startedMidYear && hours < PIONEER_YEAR_MINIMUM,
+      // In the order the year runs, not the order the database happened to
+      // return them: on screen «июнь, июль, сентябрь» reads as a mistake,
+      // because September is the FIRST month of the service year, not the last.
       notes: inYear
         .filter((m) => (m.note ?? '').trim() !== '')
+        .sort((x, y) => x.reportMonth.localeCompare(y.reportMonth))
         .map((m) => ({ reportMonth: m.reportMonth, note: m.note!.trim() })),
     };
   });
