@@ -17,7 +17,13 @@ describe('AuthService.redeemInvite — the code says who this is', () => {
     const issued: unknown[] = [];
     const service = Object.create(AuthService.prototype) as AuthService;
     Object.assign(service, {
-      usersService: { findByInviteCode, completeInvite },
+      usersService: {
+        findByInviteCode,
+        completeInvite,
+        // Setting a password by code ends the account's other sessions — the
+        // lost phone must not keep the way in it already had.
+        revokeAllSessions: jest.fn(),
+      },
       config: { get: () => 4 },
       logger: { warn: jest.fn(), log: jest.fn() },
       loginAttempts: new Map<string, number[]>(),

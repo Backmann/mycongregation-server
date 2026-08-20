@@ -64,6 +64,14 @@ interface Strings {
    * us, at that moment, without anybody having to remember to do it.
    */
   shared: Message;
+  /**
+   * Sent to somebody whose password was set by an elder, not by themselves.
+   *
+   * Usually agreed beforehand — «я тебе задам пароль, запиши» — and then this
+   * is merely a confirmation. When it was not agreed, it is the only way the
+   * owner of the account finds out at all.
+   */
+  passwordSet: Message;
   /** Only the invitation carries a code; the reset does not. */
   newestLetter: string;
   installLead: string;
@@ -104,6 +112,17 @@ const STRINGS: Record<Lang, Strings> = {
       validity: 'Ссылка действует 72 часа.',
       ignore:
         'Если вы не ожидали это приглашение, просто проигнорируйте письмо.',
+    },
+    passwordSet: {
+      subject: 'Вам задали новый пароль — mycongregation.org',
+      title: 'Пароль изменён',
+      intro:
+        'Администратор собрания задал для вашей учётной записи новый пароль — обычно об этом договариваются заранее, и он сообщает пароль вам лично. Все устройства, где вы были в приложении, вышли: войдите заново с новым паролем.',
+      lead: 'Входите так:',
+      button: 'Открыть приложение',
+      validity: '',
+      ignore:
+        'Если вы ни о чём не договаривались и не понимаете, почему это письмо пришло, — свяжитесь с администратором собрания.',
     },
     shared: {
       subject: 'Как вы теперь входите — mycongregation.org',
@@ -157,6 +176,17 @@ const STRINGS: Record<Lang, Strings> = {
       validity: 'The link is valid for 72 hours.',
       ignore:
         'If you were not expecting this invitation, simply ignore this email.',
+    },
+    passwordSet: {
+      subject: 'A new password was set for you — mycongregation.org',
+      title: 'Your password has been changed',
+      intro:
+        'The congregation administrator has set a new password for your account — usually this is agreed beforehand and they tell you the password in person. Every device you were signed in on has been signed out: sign in again with the new password.',
+      lead: 'Sign in like this:',
+      button: 'Open the app',
+      validity: '',
+      ignore:
+        'If you agreed to nothing of the sort and do not know why this letter arrived, contact the congregation administrator.',
     },
     shared: {
       subject: 'How you sign in from now on — mycongregation.org',
@@ -212,6 +242,17 @@ const STRINGS: Record<Lang, Strings> = {
       validity: 'Der Link ist 72 Stunden gültig.',
       ignore:
         'Wenn Sie diese Einladung nicht erwartet haben, ignorieren Sie diese E-Mail einfach.',
+    },
+    passwordSet: {
+      subject: 'Für Sie wurde ein neues Passwort gesetzt — mycongregation.org',
+      title: 'Ihr Passwort wurde geändert',
+      intro:
+        'Der Versammlungsadministrator hat für Ihr Konto ein neues Passwort gesetzt — üblicherweise wird das vorher abgesprochen und er nennt Ihnen das Passwort persönlich. Alle Geräte, auf denen Sie angemeldet waren, wurden abgemeldet: melden Sie sich mit dem neuen Passwort neu an.',
+      lead: 'So melden Sie sich an:',
+      button: 'App öffnen',
+      validity: '',
+      ignore:
+        'Wenn nichts dergleichen abgesprochen war und Sie nicht wissen, warum dieser Brief kam, wenden Sie sich an den Versammlungsadministrator.',
     },
     shared: {
       subject: 'So melden Sie sich künftig an — mycongregation.org',
@@ -433,6 +474,38 @@ ${
     } catch (e) {
       this.logger.warn(
         `sendInvite failed for to=${to}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  /**
+   * «An elder set you a new password.»
+   *
+   * Same shape as the shared-mailbox notice, and for the same reason: somebody
+   * else changed how this person gets in, so this person hears it from us.
+   */
+  async sendPasswordSetByAdmin(
+    to: string,
+    lang: string,
+    extra: LetterExtras = {},
+  ): Promise<void> {
+    const s = STRINGS[lang as Lang] ?? STRINGS.ru;
+    const m = s.passwordSet;
+    const link = 'https://mycongregation.org/app/';
+    try {
+      const sent = await this.deliver(
+        to,
+        m.subject,
+        this.renderHtml(s, m, link, extra),
+        this.renderText(s, m, link, extra),
+      );
+      if (sent) this.logger.log(`password-set notice sent to ${to}`);
+    } catch (err) {
+      // Never let a letter undo the reset itself: the elder has already told
+      // the person their new password, and failing here would leave the
+      // account with the OLD one.
+      this.logger.warn(
+        `password-set notice failed for ${to}: ${(err as Error).message}`,
       );
     }
   }

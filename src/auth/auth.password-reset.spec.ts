@@ -30,6 +30,7 @@ describe('AuthService — password reset', () => {
     findAllForReset: jest.Mock;
     firstNameOf: jest.Mock;
     setPasswordResetToken: jest.Mock;
+    revokeAllSessions: jest.Mock;
     findByValidResetToken: jest.Mock;
     completePasswordReset: jest.Mock;
   };
@@ -50,6 +51,9 @@ describe('AuthService — password reset', () => {
       findAllForReset: jest.fn().mockResolvedValue([]),
       firstNameOf: jest.fn().mockResolvedValue(null),
       setPasswordResetToken: jest.fn().mockResolvedValue(undefined),
+      // Ending every session lives in UsersService now, so that an elder's
+      // reset and this one do the same thing rather than nearly the same.
+      revokeAllSessions: jest.fn().mockResolvedValue(undefined),
       findByValidResetToken: jest.fn(),
       completePasswordReset: jest.fn().mockResolvedValue(undefined),
     };

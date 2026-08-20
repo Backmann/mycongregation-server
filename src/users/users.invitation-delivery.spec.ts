@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { MailService } from '../mail/mail.service';
 import { UsersService } from './users.service';
 import { User } from '../entities/user.entity';
+import { RefreshSession } from '../entities/refresh-session.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
 
@@ -37,6 +38,12 @@ describe('UsersService.sendInvitation', () => {
             createQueryBuilder: jest.fn(),
             findOne: jest.fn().mockResolvedValue({ firstName: 'Вера' }),
           },
+        },
+        {
+          provide: getRepositoryToken(RefreshSession),
+          // Setting a password now ends the account's open sessions — one
+          // implementation for both the self-service and the elder's path.
+          useValue: { update: jest.fn().mockResolvedValue({ affected: 0 }) },
         },
         {
           provide: MailService,

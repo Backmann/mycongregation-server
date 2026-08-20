@@ -382,6 +382,10 @@ export class AuthService {
     const rounds = this.config.get<number>('bcrypt.rounds') ?? 12;
     const passwordHash = await bcrypt.hash(password, rounds);
     await this.usersService.completeInvite(user.id, passwordHash);
+    // A code sets a password, so it ends the old sessions like any other
+    // password change — this is the way back in for a lost phone, and the
+    // phone must not keep its own way in.
+    await this.revokeAllSessions(user.id);
     this.logger.log(`invite redeemed by ${user.loginName ?? user.id}`);
     return this.issueTokens(user);
   }
@@ -553,11 +557,15 @@ export class AuthService {
       .update({ familyId, revokedAt: IsNull() }, { revokedAt: new Date() });
   }
 
-  /** Used on password reset and when the account itself is no longer valid. */
+  /**
+   * Used on password reset and when the account itself is no longer valid.
+   *
+   * Delegates rather than repeats: an elder's reset needs exactly the same
+   * thing, and a second copy is how the two drifted apart in the first place —
+   * this path revoked sessions from the day it was written, that one never did.
+   */
   private async revokeAllSessions(userId: string): Promise<void> {
-    await this.dataSource
-      .getRepository(RefreshSession)
-      .update({ userId, revokedAt: IsNull() }, { revokedAt: new Date() });
+    await this.usersService.revokeAllSessions(userId);
   }
 
   private signAccessToken(user: User): string {

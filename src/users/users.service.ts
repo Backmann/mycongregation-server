@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository } from 'typeorm';
+import { IsNull, QueryFailedError, Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'crypto';
 import {
@@ -19,6 +19,7 @@ import { MailService } from '../mail/mail.service';
 import * as bcrypt from 'bcrypt';
 import { User } from '../entities/user.entity';
 import { Publisher } from '../entities/publisher.entity';
+import { RefreshSession } from '../entities/refresh-session.entity';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -32,7 +33,6 @@ import {
   looksLikeEmail,
   settleLoginName,
 } from './login-name';
-import { RefreshSession } from '../entities/refresh-session.entity';
 
 /**
  * Public projection of a User — excludes sensitive fields (passwordHash)
@@ -182,6 +182,8 @@ export class UsersService {
     @InjectRepository(User) private readonly usersRepo: Repository<User>,
     @InjectRepository(Publisher)
     private readonly publishersRepo: Repository<Publisher>,
+    @InjectRepository(RefreshSession)
+    private readonly sessionsRepo: Repository<RefreshSession>,
     private readonly auditLog: AuditLogService,
     private readonly config: ConfigService,
     private readonly mailService: MailService,
@@ -853,6 +855,21 @@ export class UsersService {
     );
   }
 
+  /**
+   * End every open session of one account.
+   *
+   * Lives here, in ONE place, because two of them is how the paths drift: the
+   * self-service reset revoked sessions from the day it was written, while an
+   * elder's reset quietly did not — so a lost phone kept its way in for up to
+   * thirty days after the password was changed to lock it out.
+   */
+  async revokeAllSessions(userId: string): Promise<void> {
+    await this.sessionsRepo.update(
+      { userId, revokedAt: IsNull() },
+      { revokedAt: new Date() },
+    );
+  }
+
   async resetPasswordByAdmin(
     targetId: string,
     newPassword: string,
@@ -873,6 +890,25 @@ export class UsersService {
 
     const passwordHash = await this.hashPassword(newPassword);
     await this.usersRepo.update(targetId, { passwordHash });
+
+    // A password an elder sets is often set BECAUSE the old way in is no
+    // longer trusted — a lost phone, a shared password. Leaving the old
+    // sessions alive would defeat the very reason for doing it.
+    await this.revokeAllSessions(targetId);
+
+    // And the owner of the account learns about it from us. Somebody else
+    // changing your password is worth a letter, even when it was agreed
+    // beforehand; when it was not, this is the only way they find out.
+    if (user.email && actorUserId !== targetId) {
+      await this.mailService.sendPasswordSetByAdmin(
+        user.email,
+        user.uiLanguage,
+        {
+          recipientName: await this.firstNameOf(user.id),
+          loginName: user.loginName,
+        },
+      );
+    }
 
     // Mask the hash — never store the actual hash in the audit log.
     // logRawUpdate (no auto-diff) is required here because logUpdate would

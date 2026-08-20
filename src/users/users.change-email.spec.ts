@@ -5,6 +5,7 @@ import { MailService } from '../mail/mail.service';
 import { NotFoundException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { User } from '../entities/user.entity';
+import { RefreshSession } from '../entities/refresh-session.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
 
@@ -41,6 +42,12 @@ describe('UsersService.changeEmailByAdmin', () => {
         {
           provide: getRepositoryToken(Publisher),
           useValue: { createQueryBuilder: jest.fn() },
+        },
+        {
+          provide: getRepositoryToken(RefreshSession),
+          // Setting a password now ends the account's open sessions — one
+          // implementation for both the self-service and the elder's path.
+          useValue: { update: jest.fn().mockResolvedValue({ affected: 0 }) },
         },
         {
           provide: MailService,

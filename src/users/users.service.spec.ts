@@ -10,6 +10,7 @@ import {
 import * as bcrypt from 'bcrypt';
 import { UsersService } from './users.service';
 import { User } from '../entities/user.entity';
+import { RefreshSession } from '../entities/refresh-session.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -44,6 +45,9 @@ const makeUsersRepo = (): MockRepo<User> => ({
 });
 
 const makePublishersRepo = (): MockRepo<Publisher> => ({
+  // A letter now greets its reader by name, so paths that send one read the
+  // card as well — see UsersService.firstNameOf.
+  findOne: jest.fn().mockResolvedValue(null),
   createQueryBuilder: jest.fn(() => ({
     select: jest.fn().mockReturnThis(),
     where: jest.fn().mockReturnThis(),
@@ -96,9 +100,17 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
           useValue: makePublishersRepo(),
         },
         {
+          provide: getRepositoryToken(RefreshSession),
+          // Setting a password now ends the account's open sessions — one
+          // implementation for both the self-service and the elder's path.
+          useValue: { update: jest.fn().mockResolvedValue({ affected: 0 }) },
+        },
+        {
           provide: MailService,
           useValue: {
             sendInvite: jest.fn().mockResolvedValue(undefined),
+            // An elder setting somebody's password now tells them so.
+            sendPasswordSetByAdmin: jest.fn().mockResolvedValue(undefined),
             sendPasswordReset: jest.fn().mockResolvedValue(undefined),
           },
         },
@@ -803,6 +815,10 @@ describe('UsersService.linkPublisher', () => {
         UsersService,
         { provide: getRepositoryToken(User), useValue: users },
         { provide: getRepositoryToken(Publisher), useValue: publishers },
+        {
+          provide: getRepositoryToken(RefreshSession),
+          useValue: { update: jest.fn().mockResolvedValue({ affected: 0 }) },
+        },
         {
           provide: MailService,
           useValue: {
