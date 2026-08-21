@@ -71,6 +71,17 @@ export class PioneerSchoolController {
     return this.service.removeHelper(tenantId, id, user);
   }
 
+  /** «Отменить» right after removing one. Same permission as removing. */
+  @Post('helpers/:id/restore')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  restoreHelper(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.restoreHelper(tenantId, id, user);
+  }
+
   @Get()
   list(@TenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser) {
     return this.service.findAll(tenantId, user);

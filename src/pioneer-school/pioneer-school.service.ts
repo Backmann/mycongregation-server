@@ -781,6 +781,32 @@ export class PioneerSchoolService {
     await this.helpersRepo.softDelete(id);
   }
 
+  /**
+   * Undo a removal — the same act, backwards.
+   *
+   * The row was only hidden, so nothing has to be rebuilt: his name is still
+   * on the schools he served and the duty rows still point at him. What was
+   * missing was a way to say «not that one» in the second after the tap, and
+   * without it the only way back was the database.
+   *
+   * Restoring one that was never removed does nothing and says so quietly:
+   * pressing «Отменить» twice must not become an error message.
+   */
+  async restoreHelper(
+    tenantId: string,
+    id: string,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    this.assertCanEdit(user);
+    const helper = await this.helpersRepo.findOne({
+      where: { id, congregationId: tenantId },
+      withDeleted: true,
+    });
+    if (!helper) throw new NotFoundException('Helper not found');
+    if (!helper.deletedAt) return;
+    await this.helpersRepo.restore(id);
+  }
+
   /** A helper's name for the journal — an id in a journal explains nothing. */
   private async helperName(
     tenantId: string,
