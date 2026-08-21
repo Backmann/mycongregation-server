@@ -31,17 +31,11 @@ import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { TaskAddresseesService } from './task-addressees.service';
 import { AgendaItemsService } from './agenda-items.service';
-import type { TaskArea } from '../entities/elder-task.entity';
+import { TASK_AREAS, type TaskArea } from './task-areas';
 
-const AREAS = [
-  'ministry',
-  'teaching',
-  'care',
-  'organisation',
-  'announcements',
-  'accounts',
-  'other',
-] as const;
+// The one list, shared with the entity's type and checked against the
+// database's own constraints by task-areas.spec.ts.
+const AREAS = TASK_AREAS;
 
 const ASSIGNEE_KINDS = [
   'people',
@@ -65,7 +59,7 @@ export class UpsertMeetingDto {
 
 export class UpsertItemDto {
   @IsOptional() @IsString() @MaxLength(300) title?: string;
-  @IsOptional() @IsIn(AREAS as unknown as string[]) area?: TaskArea;
+  @IsOptional() @IsIn(AREAS) area?: TaskArea;
   @IsOptional() @IsString() @MaxLength(300) sourceText?: string | null;
   @IsOptional() @IsString() @MaxLength(500) sourceUrl?: string | null;
   @IsOptional() @IsUUID() presenterPublisherId?: string | null;
@@ -93,7 +87,7 @@ export class MakeTaskDto {
   assigneePublisherIds?: string[];
 
   @IsOptional()
-  @IsIn(ASSIGNEE_KINDS as unknown as string[])
+  @IsIn(ASSIGNEE_KINDS)
   assigneeKind?: AssigneeKind;
 
   @IsOptional() @IsISO8601() dueDate?: string | null;
@@ -113,10 +107,10 @@ export class CarryOverDto {
 export class UpsertTaskDto {
   @IsOptional() @IsString() @MaxLength(300) title?: string;
   @IsOptional() @IsString() @MaxLength(8000) details?: string | null;
-  @IsOptional() @IsIn(AREAS as unknown as string[]) area?: string;
+  @IsOptional() @IsIn(AREAS) area?: string;
   @IsOptional() @IsUUID() assigneePublisherId?: string | null;
   @IsOptional()
-  @IsIn(ASSIGNEE_KINDS as unknown as string[])
+  @IsIn(ASSIGNEE_KINDS)
   assigneeKind?: AssigneeKind;
   /** Named brothers — only meaningful when the kind is «people». */
   @IsOptional()

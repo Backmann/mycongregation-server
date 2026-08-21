@@ -37,16 +37,12 @@ import { encryptedTransformer } from '../crypto/encrypted.transformer';
  * or telephone number. It lies unreadable in the database, so a stolen copy
  * discloses nothing, and the same transformer already guards the journal.
  */
-export type TaskArea =
-  | 'ministry'
-  | 'teaching'
-  | 'care'
-  | 'organisation'
-  // Reading a letter to the congregation is neither organisation nor accounts,
-  // and it is the one kind of task with an hour attached to it.
-  | 'announcements'
-  | 'accounts'
-  | 'other';
+// The list itself lives in src/tasks/task-areas.ts, with the database's own
+// CHECK constraints guarded by a test against it. Imported and re-exported
+// here because every reader of this entity expects the type beside the column
+// it types.
+import type { TaskArea } from '../tasks/task-areas';
+export type { TaskArea };
 
 /**
  * Whom the task is for.
