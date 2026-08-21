@@ -7,6 +7,7 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { CleaningRemindersService } from '../cleaning/cleaning-reminders.service';
 import { CalendarTasksService } from '../tasks/calendar-tasks.service';
 import { TaskRemindersService } from '../tasks/task-reminders.service';
+import { GroupVisitTasksService } from '../field-service-meetings/group-visit-tasks.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -20,6 +21,7 @@ export class ScheduledJobsService {
     private readonly cleaningReminders: CleaningRemindersService,
     private readonly calendarTasks: CalendarTasksService,
     private readonly taskReminders: TaskRemindersService,
+    private readonly groupVisitTasks: GroupVisitTasksService,
   ) {}
 
   /**
@@ -85,6 +87,9 @@ export class ScheduledJobsService {
   async handleTaskReminders(): Promise<void> {
     try {
       await this.taskReminders.runDue();
+      // Raised when a group has gone the service year without a visit, and
+      // lowered again by itself when one is planned.
+      await this.groupVisitTasks.ensureForToday();
     } catch (e) {
       this.logger.error(`task reminders failed: ${String(e)}`);
     }

@@ -39,6 +39,52 @@ export class ServiceOverseerService {
     private readonly groups: Repository<ServiceGroup>,
   ) {}
 
+  /**
+   * Everything the reminder needs, from the one place that already knows it.
+   *
+   * `today` is passed in rather than read here so the caller — the nightly
+   * pass — can say which congregation's day it is, the same lesson the task
+   * reminders learned the hard way.
+   */
+  async groupsAtRisk(
+    congregationId: string,
+    serviceYear: number,
+    today: string,
+  ): Promise<GroupsAtRisk> {
+    const answer = await this.groupVisits(congregationId, serviceYear, today);
+
+    const THREE_MONTHS = 92 * 24 * 60 * 60 * 1000;
+    const young = await this.groups.find({
+      where: { congregationId },
+      select: { id: true, createdAt: true },
+    });
+    const tooNewIds = new Set(
+      young
+        .filter(
+          (g) => Date.now() - new Date(g.createdAt).getTime() < THREE_MONTHS,
+        )
+        .map((g) => g.id),
+    );
+
+    /**
+     * A planned visit only covers the year it falls in.
+     *
+     * `nextVisitDate` is the next one of ANY year — right for the page, which
+     * simply says when he is coming. Here it would let a visit planned for
+     * September tick off the August that is ending: the group would be counted
+     * as seen this year on the strength of something happening in the next.
+     */
+    const { last } = serviceYearBounds(serviceYear);
+    const waiting = answer.groups.filter(
+      (g) =>
+        g.visitsThisYear === 0 &&
+        !(g.nextVisitDate && g.nextVisitDate <= last) &&
+        !tooNewIds.has(g.serviceGroupId),
+    );
+
+    return { serviceYear, waiting, tooNew: tooNewIds.size };
+  }
+
   async groupVisits(
     congregationId: string,
     serviceYear: number,
@@ -110,6 +156,25 @@ export class ServiceOverseerService {
 }
 
 /** September through August, the year the app already counts by. */
+/**
+ * Which groups still have no visit this service year, and none planned.
+ *
+ * The SAME answer the page gives, asked a different way — deliberately built
+ * on groupVisits rather than beside it. Two counts of «has this group been
+ * visited» would agree all year and disagree at the edge of it, and we would
+ * meet the disagreement as a complaint rather than as a test.
+ *
+ * A group younger than three months is not counted as missed: it has not had
+ * a year to be visited in, and naming it would be an accusation about nothing.
+ */
+export interface GroupsAtRisk {
+  serviceYear: number;
+  /** Groups with neither a visit nor a planned one this service year. */
+  waiting: GroupVisitRow[];
+  /** Groups too new to be judged — shown for honesty, never counted. */
+  tooNew: number;
+}
+
 export function serviceYearBounds(serviceYear: number): {
   first: string;
   last: string;

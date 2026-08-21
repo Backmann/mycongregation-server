@@ -117,6 +117,23 @@ export class TaskAddresseesService {
    * unattended task falling silent is worse than one notice too many.
    */
   async remindees(task: ElderTask): Promise<Publisher[]> {
+    /**
+     * The group-visit task is addressed by NAME — it is their work, and the
+     * list should say whose. But an appointment can change in February, and
+     * then the names on a task written in May belong to a brother who no
+     * longer serves. So the REMINDER asks who holds the responsibility today.
+     *
+     * The same split as everywhere here: whom the task is for, and whom we
+     * wake about it, are two questions.
+     */
+    if (task.kind === 'service_overseer_visits') {
+      const nowServing = await this.byResponsibility(task.congregationId, [
+        ResponsibilityType.SERVICE_OVERSEER,
+        ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+      ]);
+      if (nowServing.length > 0) return nowServing;
+    }
+
     const assigned = await this.membersOf(task);
     if (assigned.length > 0) return assigned;
 

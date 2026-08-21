@@ -56,6 +56,8 @@ describe('ScheduledJobsService', () => {
       { runDueReminders: jest.fn() } as any,
       { ensureForToday: jest.fn(async () => 0) } as never,
       { runDue: jest.fn(async () => 0) } as never,
+      // The group-visit task pass, raised and lowered by the data itself.
+      { ensureForToday: jest.fn(async () => 0) } as never,
     );
   });
 

@@ -61,7 +61,11 @@ export type TaskAssigneeKind =
 export type TaskKind =
   | 'accounts_audit'
   | 'pioneer_service_review'
-  | 'service_year_review';
+  | 'service_year_review'
+  // Not from the calendar like the three above: raised when a group has gone
+  // a service year without a visit, and lowered when one is planned. Lives in
+  // field-service-meetings, the module that knows what a visit is.
+  | 'service_overseer_visits';
 
 @Entity('elder_tasks')
 @Index(['congregationId', 'status'])

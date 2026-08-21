@@ -7,10 +7,12 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { CleaningModule } from '../cleaning/cleaning.module';
 import { TasksModule } from '../tasks/tasks.module';
+import { FieldServiceMeetingsModule } from '../field-service-meetings/field-service-meetings.module';
 
 @Module({
   imports: [
     TasksModule,
+    FieldServiceMeetingsModule,
     PublishersModule,
     PushNotificationsModule,
     NotificationsModule,

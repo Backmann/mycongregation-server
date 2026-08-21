@@ -18,6 +18,10 @@ import { ServiceOverseerController } from './service-overseer.controller';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
+import { ElderTask } from '../entities/elder-task.entity';
+import { ElderTaskCalendarLog } from '../entities/elder-task-calendar-log.entity';
+import { Congregation } from '../entities/congregation.entity';
+import { GroupVisitTasksService } from './group-visit-tasks.service';
 
 @Module({
   imports: [
@@ -28,6 +32,11 @@ import { AuditLogModule } from '../audit-log/audit-log.module';
       Responsibility,
       Publisher,
       ServiceGroup,
+      // The group-visit task is written here, by the module that knows what a
+      // visit is; the tasks module keeps owning only the shape of a task.
+      ElderTask,
+      ElderTaskCalendarLog,
+      Congregation,
     ]),
     PushNotificationsModule,
     NotificationsModule,
@@ -44,7 +53,9 @@ import { AuditLogModule } from '../audit-log/audit-log.module';
     FieldServiceMonthThemesService,
     FieldServiceTemplateService,
     ServiceOverseerService,
+    GroupVisitTasksService,
     ResponsibilityGuard,
   ],
+  exports: [GroupVisitTasksService],
 })
 export class FieldServiceMeetingsModule {}
