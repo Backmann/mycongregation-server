@@ -39,6 +39,20 @@ export class TaskAddresseesService {
     ResponsibilityType.SERVICE_OVERSEER,
   ];
 
+  /**
+   * Who hears about a task nobody was given.
+   *
+   * Such a task reached NOBODY: the list of addressees came out empty and the
+   * reminder pass skipped it in silence — and a task nobody has taken is
+   * precisely the one that gets forgotten. The coordinator keeps the body's
+   * agenda, so it is his; his assistant too when one is appointed, so that a
+   * fortnight away does not mean a fortnight of silence.
+   */
+  static readonly UNASSIGNED_FALLBACK = [
+    ResponsibilityType.BODY_COORDINATOR,
+    ResponsibilityType.BODY_COORDINATOR_ASSISTANT,
+  ];
+
   /** Cards of whoever holds any of these responsibilities right now. */
   private async byResponsibility(
     congregationId: string,
@@ -90,6 +104,28 @@ export class TaskAddresseesService {
       return this.elders(task.congregationId);
     }
     return task.assignees ?? [];
+  }
+
+  /**
+   * Whom a REMINDER reaches — the same people, except when there are none.
+   *
+   * Kept apart from membersOf on purpose. «Whom is this task for» and «whom do
+   * we wake up about it» are different questions, and answering the first with
+   * the coordinator would put his name on somebody else's work.
+   *
+   * When even the coordinator's chair is empty, the whole body hears: an
+   * unattended task falling silent is worse than one notice too many.
+   */
+  async remindees(task: ElderTask): Promise<Publisher[]> {
+    const assigned = await this.membersOf(task);
+    if (assigned.length > 0) return assigned;
+
+    const coordinators = await this.byResponsibility(
+      task.congregationId,
+      TaskAddresseesService.UNASSIGNED_FALLBACK,
+    );
+    if (coordinators.length > 0) return coordinators;
+    return this.elders(task.congregationId);
   }
 
   /**

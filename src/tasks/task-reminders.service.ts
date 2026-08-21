@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { And, IsNull, LessThanOrEqual, Not, Repository } from 'typeorm';
+import { And, In, IsNull, LessThanOrEqual, Not, Repository } from 'typeorm';
 import { ElderTask } from '../entities/elder-task.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -246,11 +246,11 @@ export class TaskRemindersService {
    * daily rather than hourly.
    */
   async runDue(now: Date = new Date()): Promise<number> {
-    // Local days too: at 01:00 in Berlin the server's «today» is still
-    // yesterday, and a reminder for tomorrow would go out a day early.
-    const today = todayIn(now, DEFAULT_CONGREGATION_TIMEZONE);
-    const tomorrow = todayIn(
-      new Date(now.getTime() + 86400000),
+    // The widest «tomorrow» any congregation can have, used only to narrow the
+    // query. Which day a task actually belongs to is decided BELOW, in that
+    // congregation's own zone.
+    const latestTomorrow = todayIn(
+      new Date(now.getTime() + 2 * 86400000),
       DEFAULT_CONGREGATION_TIMEZONE,
     );
 
@@ -262,7 +262,7 @@ export class TaskRemindersService {
     const open = await this.tasks.find({
       where: {
         status: 'open',
-        dueDate: And(Not(IsNull()), LessThanOrEqual(tomorrow)),
+        dueDate: And(Not(IsNull()), LessThanOrEqual(latestTomorrow)),
       },
       relations: { assignees: true },
     });
@@ -271,9 +271,21 @@ export class TaskRemindersService {
     for (const task of open) {
       if (!task.dueDate) continue;
 
+      /**
+       * «Today» and «tomorrow» in the CONGREGATION's zone, not the server's.
+       *
+       * The hour was already judged locally; the DAY was not — both boundaries
+       * were computed once, in Europe/Berlin, for everybody. With one
+       * congregation in Berlin that is invisibly correct. The second one, in
+       * another zone, would get «tomorrow» on the wrong evening — and nothing
+       * about the message would look wrong.
+       */
+      const timezone = await this.timezoneOf(task.congregationId);
+      const today = todayIn(now, timezone);
+      const tomorrow = todayIn(new Date(now.getTime() + 86400000), timezone);
+
       const due = task.dueDate === tomorrow;
       const late = task.dueDate < today;
-      const timezone = await this.timezoneOf(task.congregationId);
       const soon =
         task.dueDate === today &&
         !!task.dueTime &&
@@ -281,7 +293,9 @@ export class TaskRemindersService {
 
       if (!due && !late && !soon) continue;
 
-      const members = await this.addressees.membersOf(task);
+      // remindees, not membersOf: a task nobody was given still has to be
+      // remembered by somebody, and until now it was remembered by no one.
+      const members = await this.addressees.remindees(task);
       const userIds = this.userIdsOf(members);
       if (userIds.length === 0) continue;
 
@@ -304,7 +318,7 @@ export class TaskRemindersService {
       sent += 1;
     }
 
-    sent += await this.remindOfMeetings(tomorrow);
+    sent += await this.remindOfMeetings(now);
 
     if (sent > 0) this.logger.log(`task reminders: ${sent}`);
     return sent;
@@ -317,12 +331,26 @@ export class TaskRemindersService {
    * of approval: knowing the agenda is ready is useful once, and knowing the
    * meeting is tomorrow is useful the evening before.
    */
-  private async remindOfMeetings(tomorrow: string): Promise<number> {
+  private async remindOfMeetings(now: Date): Promise<number> {
+    // Two days wide in the server's zone, then narrowed per congregation —
+    // same reasoning as the tasks above: the day belongs to the congregation.
+    const window = [0, 1, 2].map((d) =>
+      todayIn(
+        new Date(now.getTime() + d * 86400000),
+        DEFAULT_CONGREGATION_TIMEZONE,
+      ),
+    );
     const meetings = await this.meetings.find({
-      where: { date: tomorrow, approvedAt: Not(IsNull()) },
+      where: { date: In(window), approvedAt: Not(IsNull()) },
     });
     let sent = 0;
     for (const meeting of meetings) {
+      const timezone = await this.timezoneOf(meeting.congregationId);
+      const tomorrowThere = todayIn(
+        new Date(now.getTime() + 86400000),
+        timezone,
+      );
+      if (meeting.date !== tomorrowThere) continue;
       const elders = await this.addressees.membersOfKind(
         meeting.congregationId,
         'body_of_elders',

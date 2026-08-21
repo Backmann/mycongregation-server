@@ -29,7 +29,7 @@ describe('TaskRemindersService.runDue', () => {
       } as never,
       // Meetings — the day-before reminder looks here; none in these tests.
       { find: async () => [] } as never,
-      { membersOf: async () => [{ id: 'p1', userId: 'u1' }] } as never,
+      { remindees: async () => [{ id: 'p1', userId: 'u1' }] } as never,
       { notify } as never,
     );
     return { service, notify };
@@ -88,7 +88,7 @@ describe('TaskRemindersService.runDue', () => {
         findOne: async () => ({ language: 'ru', timezone: 'Asia/Tbilisi' }),
       } as never,
       { find: async () => [] } as never,
-      { membersOf: async () => [{ id: 'p1', userId: 'u1' }] } as never,
+      { remindees: async () => [{ id: 'p1', userId: 'u1' }] } as never,
       { notify } as never,
     );
 
@@ -198,7 +198,7 @@ describe('TaskRemindersService.runDue', () => {
         ],
       } as never,
       {
-        membersOf: async () => [],
+        remindees: async () => [],
         membersOfKind: async () => [{ id: 'p1', userId: 'u1' }],
       } as never,
       { notify } as never,
@@ -226,7 +226,7 @@ describe('TaskRemindersService.runDue', () => {
       } as never,
       // Meetings — the day-before reminder looks here; none in these tests.
       { find: async () => [] } as never,
-      { membersOf: async () => [{ id: 'p9', userId: null }] } as never,
+      { remindees: async () => [{ id: 'p9', userId: null }] } as never,
       { notify } as never,
     );
 
