@@ -14,7 +14,7 @@ import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
  * Reading is open to any signed-in member: the figures are about the meeting,
  * not about anybody in particular, and the congregation hears them read out
  * anyway. Writing belongs to the secretary, to whoever holds the attendance
- * responsibility, and to admins, who always pass.
+ * responsibility OR stands in for him, and to admins, who always pass.
  */
 @Controller('meeting-attendance')
 export class MeetingAttendanceController {
@@ -56,6 +56,7 @@ export class MeetingAttendanceController {
   @RequireResponsibility(
     ResponsibilityType.SECRETARY,
     ResponsibilityType.ATTENDANCE_RECORDER,
+    ResponsibilityType.ATTENDANCE_RECORDER_ASSISTANT,
   )
   record(
     @TenantId() congregationId: string,

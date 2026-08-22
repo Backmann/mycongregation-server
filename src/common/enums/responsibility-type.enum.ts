@@ -32,6 +32,17 @@ export enum ResponsibilityType {
   ATTENDANCE_RECORDER = 'attendance_recorder',
 
   /**
+   * Помощник по учёту посещаемости — the same figure, the same card.
+   *
+   * The count is taken AT the meeting and wants entering while it is still in
+   * somebody's hand, so one brother away on a Thursday is enough for a week to
+   * go unrecorded. One assistant, like the coordinator's and the service
+   * overseer's: administrators and the secretary can enter it too, so a second
+   * stand-in would be a name on a list nobody needs.
+   */
+  ATTENDANCE_RECORDER_ASSISTANT = 'attendance_recorder_assistant',
+
+  /**
    * Keeps the congregation's accounts.
    *
    * Recorded so the app knows who must NOT audit them: the one who keeps the
