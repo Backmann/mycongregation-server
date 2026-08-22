@@ -42,4 +42,27 @@ export enum ResponsibilityType {
 
   /** Stands in for the coordinator, including in putting a brother on the audit. */
   BODY_COORDINATOR_ASSISTANT = 'body_coordinator_assistant',
+
+  /**
+   * Руководитель изучения «Сторожевой башни» — he conducts it every weekend.
+   *
+   * These three were declared in the APP months ago and never here, so the app
+   * offered them and the server would have refused them: the mirror image of
+   * the two that were added here and forgotten there. The compiler found it
+   * the moment a screen was asked to account for every type.
+   */
+  WT_STUDY_CONDUCTOR = 'wt_study_conductor',
+
+  /**
+   * Помощник руководителя изучения — and there may be SEVERAL of them.
+   *
+   * The one responsibility here held by more than one brother at a time: he
+   * stands in when the conductor is away, and a congregation keeps a couple of
+   * men able to do it. Every other type has exactly one holder — see
+   * SINGLE_HOLDER in the service.
+   */
+  WT_STUDY_CONDUCTOR_BACKUP = 'wt_study_conductor_backup',
+
+  /** Брат, дающий советы — counsels the student assignments. No assistant. */
+  ADVISER = 'adviser',
 }

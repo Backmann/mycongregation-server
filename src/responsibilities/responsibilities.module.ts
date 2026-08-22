@@ -3,12 +3,16 @@ import { AuditLogModule } from '../audit-log/audit-log.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Responsibility } from '../entities/responsibility.entity';
 import { User } from '../entities/user.entity';
+import { Publisher } from '../entities/publisher.entity';
 import { ResponsibilitiesService } from './responsibilities.service';
 import { ResponsibilitiesController } from './responsibilities.controller';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Responsibility, User]), AuditLogModule],
+  imports: [
+    TypeOrmModule.forFeature([Responsibility, User, Publisher]),
+    AuditLogModule,
+  ],
   controllers: [ResponsibilitiesController],
   providers: [ResponsibilitiesService, ResponsibilityGuard],
   // Export the service, the guard, and the Responsibility repository so that
