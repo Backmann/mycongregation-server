@@ -78,6 +78,11 @@ describe('SongsService.bulkImport', () => {
         store.set(s.number, s);
         return s;
       }),
+      // The import now also asks what the congregation already has, to name
+      // the songs a new songbook no longer mentions.
+      find: jest.fn(async () =>
+        [...store.values()].filter((s) => s.isActive !== false),
+      ),
     };
     const service = new SongsService(repo as unknown as Repository<Song>);
     return { service, store };

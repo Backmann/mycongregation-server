@@ -19,6 +19,27 @@ export interface BulkImportResult {
   unchanged: number;
   invalid: number;
   examples: Array<{ number: number; title: string }>;
+  /** The numbers that were not there before. */
+  addedNumbers: number[];
+  /** What changed, in both wordings, so the reader can see it is right. */
+  renamed: Array<{ number: number; from: string; to: string }>;
+  /**
+   * Songs the congregation has that this list does not mention.
+   *
+   * The import only adds and updates; nothing is ever removed. So a songbook
+   * that dropped a song left it standing, unchanged and unremarked — and the
+   * screen said «unchanged», which was true of the row and misleading about
+   * the songbook. Named here, and left to the reader to decide: removing a
+   * song is a decision, not arithmetic.
+   */
+  missingNumbers: number[];
+  /**
+   * Lines that looked like a song and could not be read as one.
+   *
+   * The count alone was no use — the same silence that hid a missing week of
+   * December for a year. Here they are, in the reader's own paste.
+   */
+  invalidLines: string[];
 }
 
 /** Header line of a pasted song block: "ПЕСНЯ 35" (RU), "SONG 35", "LIED 35". */
@@ -34,9 +55,12 @@ const SONG_HEADER = /^(?:ПЕСНЯ|ПІСНЯ|SONG|LIED)\s+(\d+)\s*(.*)$/i;
 export function parseSongList(text: string): {
   items: Array<{ number: number; title: string }>;
   invalid: number;
+  /** The offending lines themselves, so a refusal can be acted on. */
+  invalidLines: string[];
 } {
   const lines = text.split(/\r?\n/).map((l) => l.trim());
   const items: Array<{ number: number; title: string }> = [];
+  const invalidLines: string[] = [];
   let invalid = 0;
 
   for (let i = 0; i < lines.length; i++) {
@@ -59,13 +83,14 @@ export function parseSongList(text: string): {
 
     if (!title || number < 1 || number > 999 || title.length > 300) {
       invalid++;
+      if (invalidLines.length < 20) invalidLines.push(lines[i]);
       continue;
     }
 
     items.push({ number, title });
   }
 
-  return { items, invalid };
+  return { items, invalid, invalidLines };
 }
 
 @Injectable()
@@ -147,11 +172,13 @@ export class SongsService {
   }
 
   async bulkImport(text: string): Promise<BulkImportResult> {
-    const { items, invalid } = parseSongList(text);
+    const { items, invalid, invalidLines } = parseSongList(text);
 
     let created = 0;
     let updated = 0;
     let unchanged = 0;
+    const addedNumbers: number[] = [];
+    const renamed: Array<{ number: number; from: string; to: string }> = [];
 
     for (const item of items) {
       const existing = await this.repo.findOne({
@@ -159,6 +186,15 @@ export class SongsService {
       });
       if (existing) {
         if (existing.title !== item.title || !existing.isActive) {
+          if (existing.title !== item.title) {
+            // Both wordings, because «12 обновлено» is a number the reader
+            // cannot check and «было … стало …» is something he can.
+            renamed.push({
+              number: item.number,
+              from: existing.title,
+              to: item.title,
+            });
+          }
           existing.title = item.title;
           existing.isActive = true;
           await this.repo.save(existing);
@@ -174,6 +210,7 @@ export class SongsService {
         });
         await this.repo.save(song);
         created++;
+        addedNumbers.push(item.number);
       }
     }
 
@@ -182,6 +219,22 @@ export class SongsService {
         `updated=${updated}, unchanged=${unchanged}, invalid=${invalid}`,
     );
 
+    // What the congregation has that the pasted list never mentioned. Only
+    // asked when something was actually imported: an empty paste must not
+    // report the whole songbook as missing.
+    let missingNumbers: number[] = [];
+    if (items.length > 0) {
+      const pasted = new Set(items.map((i) => i.number));
+      const active = await this.repo.find({
+        where: { isActive: true },
+        select: { id: true, number: true },
+        order: { number: 'ASC' },
+      });
+      missingNumbers = active
+        .map((s) => s.number)
+        .filter((n) => !pasted.has(n));
+    }
+
     return {
       parsed: items.length,
       created,
@@ -189,6 +242,10 @@ export class SongsService {
       unchanged,
       invalid,
       examples: items.slice(0, 5),
+      addedNumbers,
+      renamed,
+      missingNumbers,
+      invalidLines,
     };
   }
 }
