@@ -63,6 +63,9 @@ export class MwbImportService {
       lastWeek: string;
     }[]
   > {
+    const yearAgo = new Date(Date.now() - 366 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
     const rows = await this.assignmentsRepo
       .createQueryBuilder('a')
       .select('a.week_start_date', 'week')
@@ -70,6 +73,10 @@ export class MwbImportService {
       .where('a.congregation_id = :congregationId', { congregationId })
       .andWhere('a.deleted_at IS NULL')
       .andWhere("a.event_type IN ('midweek','weekend')")
+      // A year back is as far as anybody looks when asking «до какого месяца
+      // программа загружена» — and it keeps this from scanning the whole
+      // history of the congregation every time the screen opens.
+      .andWhere('a.week_start_date >= :from', { from: yearAgo })
       .groupBy('a.week_start_date')
       .orderBy('a.week_start_date', 'ASC')
       .getRawMany<{ week: string; parts: string }>();

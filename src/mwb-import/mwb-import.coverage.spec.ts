@@ -72,6 +72,34 @@ describe('MwbImportService.coverage', () => {
     expect(september.parts).toBe(23);
   });
 
+  it('asks only for the last year, not for the whole history', async () => {
+    // Opened from the profile, this runs on a table that grows every week. A
+    // year back answers «до какого месяца загружено» and keeps the query from
+    // scanning everything the congregation has ever scheduled.
+    const service = build([]);
+    const qb = {
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      groupBy: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getRawMany: jest.fn().mockResolvedValue([]),
+    };
+    (
+      service as unknown as {
+        assignmentsRepo: { createQueryBuilder: jest.Mock };
+      }
+    ).assignmentsRepo.createQueryBuilder = jest.fn(() => qb);
+
+    await service.coverage('c1');
+
+    const bounded = qb.andWhere.mock.calls.find((c) =>
+      String(c[0]).includes('week_start_date'),
+    );
+    expect(bounded).toBeDefined();
+  });
+
   it('says nothing at all when nothing has been imported', async () => {
     const service = build([]);
 

@@ -36,7 +36,13 @@ export class SpecialEventsService {
       qb.withDeleted();
     }
 
-    if (query.all !== 'true') {
+    if (query.since) {
+      // Everything from that date on, past and future — narrower than «all»,
+      // wider than «only what is still ahead».
+      qb.andWhere('COALESCE(e.end_date, e.date) >= :since', {
+        since: query.since,
+      });
+    } else if (query.all !== 'true') {
       const today = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'Europe/Berlin',
       }).format(new Date());
