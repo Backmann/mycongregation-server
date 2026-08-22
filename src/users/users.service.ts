@@ -19,6 +19,7 @@ import { MailService } from '../mail/mail.service';
 import * as bcrypt from 'bcrypt';
 import { User } from '../entities/user.entity';
 import { Publisher } from '../entities/publisher.entity';
+import { Gender } from '../common/enums/gender.enum';
 import { RefreshSession } from '../entities/refresh-session.entity';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -59,6 +60,15 @@ export interface PublicUser {
   updatedAt: Date;
   /** Appointment of the linked publisher (null when no publisher is linked). */
   appointment: PublisherAppointment | null;
+  /**
+   * Of the linked publisher, or null when there is no card.
+   *
+   * Here for one screen: congregational responsibilities are held by brothers,
+   * and the picker offered every account in the congregation — sisters with a
+   * login among them. Not a private field in the sense the card's contacts
+   * are: the roster shows it to everybody who can see a name.
+   */
+  gender: Gender | null;
   /**
    * The publisher card this account speaks for, or null.
    *
@@ -129,8 +139,10 @@ function toPublicUser(
   now: number = Date.now(),
   publisherId: string | null = null,
   lastClient: PublicUser['lastClient'] = null,
+  gender: Gender | null = null,
 ): PublicUser {
   return {
+    gender,
     publisherId,
     hasPassword: !!u.passwordHash,
     lastClient,
@@ -382,16 +394,18 @@ export class UsersService {
     // Select only non-encrypted columns so publisher names aren't decrypted.
     const pubs = await this.publishersRepo
       .createQueryBuilder('p')
-      .select(['p.id', 'p.userId', 'p.appointment'])
+      .select(['p.id', 'p.userId', 'p.appointment', 'p.gender'])
       .where('p.congregation_id = :cid', { cid: congregationId })
       .andWhere('p.user_id IS NOT NULL')
       .getMany();
     const apptByUser = new Map<string, PublisherAppointment>();
     const cardByUser = new Map<string, string>();
+    const genderByUser = new Map<string, Gender>();
     for (const p of pubs) {
       if (p.userId) {
         apptByUser.set(p.userId, p.appointment);
         cardByUser.set(p.userId, p.id);
+        genderByUser.set(p.userId, p.gender);
       }
     }
     const now = Date.now();
@@ -411,6 +425,7 @@ export class UsersService {
               at: u.clientSeenAt,
             }
           : null,
+        genderByUser.get(u.id) ?? null,
       );
       // Presence is recorded for everyone but masked for users who hide it —
       // except when they are viewing their own row.
