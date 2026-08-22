@@ -38,6 +38,13 @@ export interface ParsedWorkbook {
   year: number;
   weeks: ParsedWeek[];
   errors: string[];
+  /**
+   * Files that look like a week and could not be read as one.
+   *
+   * Not errors — the import goes on — but not silence either: a week dropped
+   * without a word is a week nobody knows to look for.
+   */
+  warnings: string[];
 }
 
 // ---------- Russian month names ----------
@@ -85,9 +92,33 @@ export function parseWeekRange(
     .replace(/\s+/g, ' ')
     .trim();
 
+  /**
+   * The week that crosses into the new year, written out in full:
+   * «28 ДЕКАБРЯ 2026 ГОДА — 3 ЯНВАРЯ 2027 ГОДА».
+   *
+   * Every other week is short — «21—27 ДЕКАБРЯ» — and this one is not, so it
+   * matched nothing and was dropped in silence. Once a year, the last week of
+   * December simply failed to import and nobody could see why.
+   *
+   * The years are taken from the TEXT, not from the file name: the publication
+   * itself says the week starts in one year and ends in the next, and that is
+   * more trustworthy than arithmetic on the file name.
+   */
   let m = normalized.match(
-    /^(\d+)\s+([А-Яа-яё]+)\s*-\s*(\d+)\s+([А-Яа-яё]+)$/u,
+    /^(\d+)\s+([А-Яа-яё]+)\s+(\d{4})\s*(?:года?|г\.?)?\s*-\s*(\d+)\s+([А-Яа-яё]+)\s+(\d{4})\s*(?:года?|г\.?)?$/iu,
   );
+  if (m) {
+    const [, sd, sm, sy, ed, em, ey] = m;
+    const startMonth = MONTHS_RU[sm];
+    const endMonth = MONTHS_RU[em];
+    if (!startMonth || !endMonth) return null;
+    return {
+      start: formatISO(parseInt(sy, 10), startMonth, parseInt(sd, 10)),
+      end: formatISO(parseInt(ey, 10), endMonth, parseInt(ed, 10)),
+    };
+  }
+
+  m = normalized.match(/^(\d+)\s+([А-Яа-яё]+)\s*-\s*(\d+)\s+([А-Яа-яё]+)$/u);
   if (m) {
     const [, sd, sm, ed, em] = m;
     const startMonth = MONTHS_RU[sm];
@@ -241,6 +272,13 @@ function classify(
   }
 
   return { partKey: 'unknown', partOrder: 0, confidence: 'unknown' };
+}
+
+/** The first heading of a file, for a warning that names what it could not read. */
+function headingOf(content: string): string | null {
+  const $ = cheerio.load(content, { xmlMode: true });
+  const h1 = $('h1').first().text().replace(/\s+/g, ' ').trim();
+  return h1 || null;
 }
 
 // ---------- Per-file parser ----------
@@ -457,13 +495,31 @@ export function parseMwbBuffer(
     year: resolvedYear,
     weeks: [],
     errors: [],
+    warnings: [],
   };
 
   for (const entry of weeklyEntries) {
     const content = entry.getData().toString('utf8');
     try {
       const week = parseWeeklyFile(entry.entryName, content, resolvedYear);
-      if (week) result.weeks.push(week);
+      if (week) {
+        result.weeks.push(week);
+      } else {
+        /**
+         * A file that looks like a week and did not parse says so now.
+         *
+         * Returning null in silence is how the last week of December went
+         * missing every year: nothing failed, the week simply was not there,
+         * and there was no way to tell an unreadable heading from a file that
+         * holds no week at all.
+         */
+        const heading = headingOf(content);
+        if (heading && /\d/.test(heading)) {
+          result.warnings.push(
+            `${entry.entryName}: week heading not understood: "${heading}"`,
+          );
+        }
+      }
     } catch (err: any) {
       result.errors.push(`${entry.entryName}: ${err.message}`);
     }

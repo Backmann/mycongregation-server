@@ -90,8 +90,33 @@ export function parseDateRange(
     .replace(/\s+/g, ' ')
     .trim();
 
-  // Cross-month: "29 ИЮНЯ - 5 ИЮЛЯ 2026"
+  /**
+   * Crossing into the next year, written out in full — the one week a year
+   * that carries both years: «28 ДЕКАБРЯ 2026 ГОДА - 3 ЯНВАРЯ 2027 ГОДА».
+   *
+   * Tried first because the shorter patterns below cannot match it at all: a
+   * year and the word «года» stand between the month and the dash. It matched
+   * nothing, the study article was skipped, and the weekend of that week came
+   * out empty every December.
+   */
   let m = normalized.match(
+    /(\d+)\s+([А-Яа-яё]+)\s+(\d{4})\s*(?:года?|г\.?)?\s*-\s*(\d+)\s+([А-Яа-яё]+)\s+(\d{4})\s*(?:года?|г\.?)?/iu,
+  );
+  if (m) {
+    const [, sd, sm, sy, ed, em, ey] = m;
+    const startMonth = MONTHS_RU[sm];
+    const endMonth = MONTHS_RU[em];
+    if (!startMonth || !endMonth) return null;
+    const year = parseInt(sy, 10);
+    return {
+      start: formatISO(year, startMonth, parseInt(sd, 10)),
+      end: formatISO(parseInt(ey, 10), endMonth, parseInt(ed, 10)),
+      year,
+    };
+  }
+
+  // Cross-month: "29 ИЮНЯ - 5 ИЮЛЯ 2026"
+  m = normalized.match(
     /(\d+)\s+([А-Яа-яё]+)\s*-\s*(\d+)\s+([А-Яа-яё]+)\s+(\d{4})/u,
   );
   if (m) {
