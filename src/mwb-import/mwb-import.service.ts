@@ -42,6 +42,69 @@ export class MwbImportService {
     private readonly assignmentsRepo: Repository<Assignment>,
   ) {}
 
+  /**
+   * Which weeks already have a programme, month by month.
+   *
+   * The import screen had no memory: it looked identical whether September was
+   * loaded or nothing was, and the only way to find out was to leave and page
+   * through the schedule. Loading the same workbook twice is harmless — filled
+   * parts are skipped — but not knowing is what makes somebody do it.
+   *
+   * Counted from the assignments themselves rather than from a log of imports:
+   * a log would answer «what did I upload», and the question is «what does the
+   * congregation have».
+   */
+  async coverage(congregationId: string): Promise<
+    {
+      month: string;
+      weeks: number;
+      parts: number;
+      firstWeek: string;
+      lastWeek: string;
+    }[]
+  > {
+    const rows = await this.assignmentsRepo
+      .createQueryBuilder('a')
+      .select('a.week_start_date', 'week')
+      .addSelect('COUNT(*)', 'parts')
+      .where('a.congregation_id = :congregationId', { congregationId })
+      .andWhere('a.deleted_at IS NULL')
+      .andWhere("a.event_type IN ('midweek','weekend')")
+      .groupBy('a.week_start_date')
+      .orderBy('a.week_start_date', 'ASC')
+      .getRawMany<{ week: string; parts: string }>();
+
+    const byMonth = new Map<
+      string,
+      { weeks: number; parts: number; first: string; last: string }
+    >();
+    for (const row of rows) {
+      const week =
+        typeof row.week === 'string' ? row.week.slice(0, 10) : row.week;
+      // The MONTH of the week's Monday. A week straddling two months belongs
+      // to the one it starts in — the same way the workbooks are named.
+      const month = week.slice(0, 7);
+      const acc = byMonth.get(month) ?? {
+        weeks: 0,
+        parts: 0,
+        first: week,
+        last: week,
+      };
+      acc.weeks += 1;
+      acc.parts += Number(row.parts);
+      acc.last = week;
+      byMonth.set(month, acc);
+    }
+
+    return [...byMonth.entries()].map(([month, a]) => ({
+      month,
+      weeks: a.weeks,
+      parts: a.parts,
+      firstWeek: a.first,
+      lastWeek: a.last,
+    }));
+  }
+
   async import(
     congregationId: string,
     fileBuffer: Buffer,

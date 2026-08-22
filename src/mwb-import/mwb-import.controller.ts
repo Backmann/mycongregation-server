@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Get,
   Post,
   UploadedFile,
   UseGuards,
@@ -20,6 +21,17 @@ const MAX_EPUB_BYTES = 25 * 1024 * 1024; // 25 MB
 @Controller('mwb-import')
 export class MwbImportController {
   constructor(private readonly service: MwbImportService) {}
+
+  /**
+   * What the congregation already has, so the screen can say so before
+   * anybody picks a file. Elders read it; only admins and elders get here.
+   */
+  @Get('coverage')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  coverage(@TenantId() congregationId: string) {
+    return this.service.coverage(congregationId);
+  }
 
   @Post('upload')
   @UseGuards(RolesGuard)
