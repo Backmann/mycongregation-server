@@ -5,7 +5,9 @@ import {
   IsISO8601,
   IsOptional,
   Max,
+  MaxLength,
   Min,
+  IsString,
 } from 'class-validator';
 
 /**
@@ -25,6 +27,23 @@ export class RetireMissingDto {
   @IsOptional()
   @IsISO8601()
   from?: string;
+
+  /**
+   * The last day of a temporary restriction. Omitted when the talk is set
+   * aside for good — the ordinary instruction.
+   */
+  @IsOptional()
+  @IsISO8601()
+  until?: string;
+
+  /**
+   * Where this came from: «Объявления и напоминания, май 2026». Stored on the
+   * talk, so the answer to «на основании чего» is beside the fact itself.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
 
   @IsArray()
   @ArrayMaxSize(999)

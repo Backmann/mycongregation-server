@@ -317,6 +317,30 @@ export class PublicTalksService {
   }
 
   /**
+   * The last time talks were set aside — and on what grounds.
+   *
+   * Setting talks aside happens once or twice a year, so by the time somebody
+   * asks «на основании чего», nobody remembers. The journal has recorded it
+   * from the first; this simply reads it back.
+   */
+  async lastRetirement(tenantId: string): Promise<LastImport | null> {
+    const rows = await this.auditLog.findForEntity(
+      tenantId,
+      'public_talk_catalog',
+      IMPORT_LOG_ID,
+    );
+    // Newest first, and only the ones that set talks aside — an import writes
+    // against the same entity.
+    const latest = rows.find((r) => r.action === 'DELETE');
+    if (!latest) return null;
+    return {
+      at: new Date(latest.createdAt).toISOString(),
+      actorName: latest.actorName ?? null,
+      detail: latest.after ?? null,
+    };
+  }
+
+  /**
    * Retire the talks a new catalogue no longer lists.
    *
    * Deliberately a separate act from importing: it is the answer to «какие
@@ -473,21 +497,37 @@ export class PublicTalksService {
     return out;
   }
 
+  /**
+   * Set these talks aside — from a date, optionally until one, and for a
+   * stated reason.
+   *
+   * `until` makes it temporary: the talk returns by itself the day after, so
+   * nobody has to remember to restore it. `reason` is the announcement this
+   * came from — «Объявления и напоминания, май 2026» — and it is the sentence
+   * the coordinator repeats to whoever asks a year later.
+   *
+   * A talk already set aside is UPDATED rather than skipped: a second
+   * instruction about the same talk usually means new dates or a new reason,
+   * and skipping it would silently keep the old ones.
+   */
   async retireMissing(
     tenantId: string,
     numbers: number[],
     actorUserId: string,
     from?: string,
+    until?: string | null,
+    reason?: string | null,
   ): Promise<{ retired: number }> {
     if (numbers.length === 0) return { retired: 0 };
     const talks = await this.repo.find({ where: { number: In(numbers) } });
     let retired = 0;
     for (const talk of talks) {
-      if (!talk.isActive) continue;
       talk.isActive = false;
-      // The date the instruction gave, so the catalogue can say «снята с
-      // 1 сентября 2026» rather than merely «снята».
+      // The dates the instruction gave, so the catalogue can say «не
+      // преподносить с 1 сентября по 31 декабря» rather than merely «снята».
       talk.retiredFrom = from ?? null;
+      talk.retiredUntil = until ?? null;
+      talk.retiredReason = reason ?? null;
       await this.repo.save(talk);
       retired++;
     }
@@ -497,7 +537,13 @@ export class PublicTalksService {
       entityId: IMPORT_LOG_ID,
       action: 'DELETE',
       actorUserId,
-      detail: { retiredNumbers: numbers.slice(0, 100), retired },
+      detail: {
+        retiredNumbers: numbers.slice(0, 100),
+        retired,
+        from: from ?? null,
+        until: until ?? null,
+        reason: reason ?? null,
+      },
     });
     return { retired };
   }

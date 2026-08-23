@@ -59,6 +59,12 @@ export class PublicTalksController {
    * What retiring these numbers would mean — titles, and the weeks where the
    * talks are still promised. Read-only: nothing is retired by asking.
    */
+  /** The last time talks were set aside, and on what grounds. */
+  @Get('last-retirement')
+  lastRetirement(@TenantId() congregationId: string) {
+    return this.service.lastRetirement(congregationId);
+  }
+
   @Post('retirement-preview')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.ELDER)
@@ -87,6 +93,8 @@ export class PublicTalksController {
       dto.numbers,
       user.id,
       dto.from,
+      dto.until,
+      dto.reason,
     );
   }
 

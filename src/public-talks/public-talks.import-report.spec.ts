@@ -161,12 +161,15 @@ describe('PublicTalksService.retireMissing', () => {
     expect(store.get(1)?.isActive).toBe(true);
   });
 
-  it('counts a talk already retired as nothing to do', async () => {
+  it('updates a talk that was already set aside, rather than skipping it', async () => {
+    // A second instruction about the same talk means new dates or a new
+    // reason. Skipping it would keep the old ones — and the old ones are what
+    // the coordinator would then quote to whoever asks.
     const { service } = build([{ number: 7, isActive: false }]);
 
-    await expect(service.retireMissing('c1', [7], 'u1')).resolves.toEqual({
-      retired: 0,
-    });
+    await expect(
+      service.retireMissing('c1', [7], 'u1', '2026-09-01'),
+    ).resolves.toEqual({ retired: 1 });
   });
 
   it('does nothing at all for an empty list', async () => {
