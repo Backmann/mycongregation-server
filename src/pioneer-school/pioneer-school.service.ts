@@ -631,12 +631,28 @@ export class PioneerSchoolService {
     const dateById = new Map(days.map((d) => [d.id, d.date.slice(0, 10)]));
     /** duty id -> the absence it should produce, or nothing. */
     const wanted = new Map<string, { publisherId: string; date: string }>();
+    /**
+     * One absence per brother per day, whatever number of duties he carries.
+     *
+     * A brother can hold two duties on the same school day — the microphone
+     * and the door, say. Keyed by duty, that wrote him TWO away-periods for
+     * one day, and his own home screen said «Тебя нет» twice under the same
+     * date. Both rows were true by the rule that made them and wrong about
+     * the fact they describe: he is away once.
+     *
+     * The first duty of the day owns the absence; the others produce none, so
+     * the reconciliation below deletes any extra rows left from before.
+     */
+    const claimed = new Set<string>();
     for (const duty of duties) {
       const publisherId = duty.helperId
         ? publisherByHelper.get(duty.helperId)
         : undefined;
       const date = dateById.get(duty.dayId);
       if (!publisherId || !date || !meetingDates.has(date)) continue;
+      const perPerson = `${publisherId}|${date}`;
+      if (claimed.has(perPerson)) continue;
+      claimed.add(perPerson);
       wanted.set(duty.id, { publisherId, date });
     }
 

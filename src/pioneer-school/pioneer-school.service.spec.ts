@@ -304,6 +304,120 @@ describe('PioneerSchoolService', () => {
       expect(absences.save).not.toHaveBeenCalled();
     });
 
+    it('writes ONE away-period for a brother holding two duties that day', async () => {
+      // He can hold the microphone and the door on the same school day. Keyed
+      // by duty, that wrote him two away-periods for one day, and his own home
+      // screen said «Тебя нет» twice under the same date — both rows true by
+      // the rule that made them, and wrong about the fact: he is away once.
+      days.find = jest.fn(async () => [school1Day()]);
+      days.findOne = jest.fn(async () => school1Day());
+      duties.find = jest.fn(async () => [
+        {
+          id: 'r1',
+          dayId: 'd1',
+          dutyType: DutyType.AV,
+          slotIndex: 0,
+          congregationId: 'cong-1',
+          helperId: 'h1',
+        },
+        {
+          id: 'r2',
+          dayId: 'd1',
+          dutyType: DutyType.AV,
+          slotIndex: 1,
+          congregationId: 'cong-1',
+          helperId: 'h1',
+        },
+      ]);
+      duties.findOne = jest.fn(async () => ({
+        id: 'r1',
+        dayId: 'd1',
+        dutyType: DutyType.AV,
+        slotIndex: 0,
+        congregationId: 'cong-1',
+        helperId: 'h1',
+      }));
+      helpers.find = jest.fn(async () => [
+        { id: 'h1', publisherId: 'pub-1', congregationId: 'cong-1' },
+      ]);
+      // assignDuty checks the helper exists before it writes.
+      helpers.findOne = jest.fn(async () => ({
+        id: 'h1',
+        congregationId: 'cong-1',
+      }));
+      meetingAttendance.pendingForWeek = jest.fn(async () => [
+        { date: '2026-11-25', eventType: EventType.MIDWEEK },
+      ]);
+
+      await assignAv();
+
+      expect(absences.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('removes an extra away-period written before that rule existed', async () => {
+      // The duplicates already in the database go on the next reconciliation:
+      // the second duty no longer claims an absence, so the row it owns is
+      // deleted like any other that lost its duty.
+      days.find = jest.fn(async () => [school1Day()]);
+      days.findOne = jest.fn(async () => school1Day());
+      duties.find = jest.fn(async () => [
+        {
+          id: 'r1',
+          dayId: 'd1',
+          dutyType: DutyType.AV,
+          slotIndex: 0,
+          congregationId: 'cong-1',
+          helperId: 'h1',
+        },
+        {
+          id: 'r2',
+          dayId: 'd1',
+          dutyType: DutyType.AV,
+          slotIndex: 1,
+          congregationId: 'cong-1',
+          helperId: 'h1',
+        },
+      ]);
+      duties.findOne = jest.fn(async () => ({
+        id: 'r1',
+        dayId: 'd1',
+        dutyType: DutyType.AV,
+        slotIndex: 0,
+        congregationId: 'cong-1',
+        helperId: 'h1',
+      }));
+      helpers.find = jest.fn(async () => [
+        { id: 'h1', publisherId: 'pub-1', congregationId: 'cong-1' },
+      ]);
+      // assignDuty checks the helper exists before it writes.
+      helpers.findOne = jest.fn(async () => ({
+        id: 'h1',
+        congregationId: 'cong-1',
+      }));
+      meetingAttendance.pendingForWeek = jest.fn(async () => [
+        { date: '2026-11-25', eventType: EventType.MIDWEEK },
+      ]);
+      absences.find = jest.fn(async () => [
+        {
+          id: 'abs-1',
+          pioneerSchoolDutyId: 'r1',
+          publisherId: 'pub-1',
+          startDate: '2026-11-25',
+        },
+        {
+          id: 'abs-2',
+          pioneerSchoolDutyId: 'r2',
+          publisherId: 'pub-1',
+          startDate: '2026-11-25',
+        },
+      ]);
+
+      await assignAv();
+
+      expect(absences.delete).toHaveBeenCalledWith('abs-2');
+      expect(absences.delete).not.toHaveBeenCalledWith('abs-1');
+    });
+
     it('says nothing about a brother from another congregation', async () => {
       withDuty('h1');
       helpers.find = jest.fn(async () => [
