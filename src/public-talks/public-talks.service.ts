@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { Assignment } from '../entities/assignment.entity';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 import { CreatePublicTalkDto } from './dto/create-public-talk.dto';
 import { UpdatePublicTalkDto } from './dto/update-public-talk.dto';
@@ -48,7 +49,37 @@ export interface BulkImportResult {
   unchanged: number;
   invalid: number;
   examples: Array<{ number: number; title: string }>;
+  /** Talks that were not in the catalogue before. */
+  added: Array<{ number: number; title: string }>;
+  /** Both wordings, so a change of title can be checked rather than trusted. */
+  renamed: Array<{ number: number; from: string; to: string }>;
+  /**
+   * Active talks the pasted list never mentions — the ones the brothers must
+   * be told not to give any more.
+   *
+   * NOT retired here. A partial paste would otherwise strike out the whole
+   * catalogue in one press, and «какие речи больше не говорим» is exactly the
+   * question that must not be answered by accident. The screen offers a button.
+   */
+  missing: Array<{ number: number; title: string }>;
+  /** The lines that could not be read, not merely how many. */
+  invalidLines: string[];
 }
+
+/** Who ran the last import and when — read back from the journal. */
+export interface LastImport {
+  at: string;
+  actorName: string | null;
+  detail: Record<string, unknown> | null;
+}
+
+/**
+ * The journal entry that stands for «the catalogue was imported».
+ *
+ * A fixed id because there is one catalogue: every import writes another row
+ * against it, so the history is simply the rows in order.
+ */
+const IMPORT_LOG_ID = '00000000-0000-0000-0000-0000000000c1';
 
 @Injectable()
 export class PublicTalksService {
@@ -59,6 +90,7 @@ export class PublicTalksService {
     private readonly repo: Repository<PublicTalk>,
     @InjectRepository(Assignment)
     private readonly assignmentsRepo: Repository<Assignment>,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   /**
@@ -211,10 +243,64 @@ export class PublicTalksService {
     return this.repo.save(existing);
   }
 
-  async bulkImport(text: string): Promise<BulkImportResult> {
+  /** When the catalogue was last imported, and by whom. */
+  async lastImport(tenantId: string): Promise<LastImport | null> {
+    const rows = await this.auditLog.findForEntity(
+      tenantId,
+      'public_talk_catalog',
+      IMPORT_LOG_ID,
+    );
+    const latest = rows[0];
+    if (!latest) return null;
+    return {
+      at: new Date(latest.createdAt).toISOString(),
+      actorName: latest.actorName ?? null,
+      detail: latest.after ?? null,
+    };
+  }
+
+  /**
+   * Retire the talks a new catalogue no longer lists.
+   *
+   * Deliberately a separate act from importing: it is the answer to «какие
+   * речи больше не говорим», and an answer that important should be given on
+   * purpose. Retired talks stay in the catalogue, marked, and can be brought
+   * back in one press.
+   */
+  async retireMissing(
+    tenantId: string,
+    numbers: number[],
+    actorUserId: string,
+  ): Promise<{ retired: number }> {
+    if (numbers.length === 0) return { retired: 0 };
+    const talks = await this.repo.find({ where: { number: In(numbers) } });
+    let retired = 0;
+    for (const talk of talks) {
+      if (!talk.isActive) continue;
+      talk.isActive = false;
+      await this.repo.save(talk);
+      retired++;
+    }
+    await this.auditLog.logEvent({
+      tenantId,
+      entityType: 'public_talk_catalog',
+      entityId: IMPORT_LOG_ID,
+      action: 'DELETE',
+      actorUserId,
+      detail: { retiredNumbers: numbers.slice(0, 100), retired },
+    });
+    return { retired };
+  }
+
+  async bulkImport(
+    text: string,
+    tenantId?: string,
+    actorUserId?: string,
+  ): Promise<BulkImportResult> {
     const lineRegex = /^\s*(\d+)\.\s*(.+?)\s*$/;
     const lines = text.split(/\r?\n/);
     const parsed: Array<{ number: number; title: string }> = [];
+    const invalidLines: string[] = [];
     let invalid = 0;
 
     for (const line of lines) {
@@ -223,7 +309,10 @@ export class PublicTalksService {
 
       const m = trimmed.match(lineRegex);
       if (!m) {
-        if (/^\d/.test(trimmed)) invalid++;
+        if (/^\d/.test(trimmed)) {
+          invalid++;
+          if (invalidLines.length < 20) invalidLines.push(trimmed);
+        }
         continue;
       }
 
@@ -237,6 +326,7 @@ export class PublicTalksService {
         title.length > 500
       ) {
         invalid++;
+        if (invalidLines.length < 20) invalidLines.push(trimmed);
         continue;
       }
 
@@ -246,6 +336,8 @@ export class PublicTalksService {
     let created = 0;
     let updated = 0;
     let unchanged = 0;
+    const added: Array<{ number: number; title: string }> = [];
+    const renamed: Array<{ number: number; from: string; to: string }> = [];
 
     for (const item of parsed) {
       const existing = await this.repo.findOne({
@@ -253,6 +345,13 @@ export class PublicTalksService {
       });
       if (existing) {
         if (existing.title !== item.title || !existing.isActive) {
+          if (existing.title !== item.title) {
+            renamed.push({
+              number: item.number,
+              from: existing.title,
+              to: item.title,
+            });
+          }
           existing.title = item.title;
           existing.isActive = true;
           await this.repo.save(existing);
@@ -268,6 +367,7 @@ export class PublicTalksService {
         });
         await this.repo.save(newTalk);
         created++;
+        added.push({ number: item.number, title: item.title });
       }
     }
 
@@ -276,6 +376,39 @@ export class PublicTalksService {
         `updated=${updated}, unchanged=${unchanged}, invalid=${invalid}`,
     );
 
+    // What the catalogue holds that this list never mentions. Asked only when
+    // something was actually imported: an empty paste must not report every
+    // talk in the catalogue as gone.
+    let missing: Array<{ number: number; title: string }> = [];
+    if (parsed.length > 0) {
+      const pasted = new Set(parsed.map((p) => p.number));
+      const active = await this.repo.find({
+        where: { isActive: true },
+        order: { number: 'ASC' },
+      });
+      missing = active
+        .filter((t) => !pasted.has(t.number))
+        .map((t) => ({ number: t.number, title: t.title }));
+    }
+
+    if (tenantId) {
+      await this.auditLog.logEvent({
+        tenantId,
+        entityType: 'public_talk_catalog',
+        entityId: IMPORT_LOG_ID,
+        action: 'RESTORE',
+        actorUserId: actorUserId ?? null,
+        detail: {
+          parsed: parsed.length,
+          created,
+          updated,
+          unchanged,
+          invalid,
+          missing: missing.length,
+        },
+      });
+    }
+
     return {
       parsed: parsed.length,
       created,
@@ -283,6 +416,10 @@ export class PublicTalksService {
       unchanged,
       invalid,
       examples: parsed.slice(0, 5),
+      added,
+      renamed,
+      missing,
+      invalidLines,
     };
   }
 }

@@ -14,6 +14,9 @@ import { PublicTalksService } from './public-talks.service';
 import { CreatePublicTalkDto } from './dto/create-public-talk.dto';
 import { UpdatePublicTalkDto } from './dto/update-public-talk.dto';
 import { BulkImportDto } from './dto/bulk-import.dto';
+import { RetireMissingDto } from './dto/retire-missing.dto';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -39,6 +42,28 @@ export class PublicTalksController {
     });
   }
 
+  /** When the catalogue was last imported, and by whom. */
+  @Get('last-import')
+  lastImport(@TenantId() congregationId: string) {
+    return this.service.lastImport(congregationId);
+  }
+
+  /**
+   * Retire the talks a new catalogue no longer lists — a deliberate act,
+   * separate from importing, because it answers «какие речи больше не
+   * говорим» and that must not happen by accident.
+   */
+  @Post('retire-missing')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  retireMissing(
+    @Body() dto: RetireMissingDto,
+    @TenantId() congregationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.retireMissing(congregationId, dto.numbers, user.id);
+  }
+
   @Get(':id')
   getById(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.getById(id);
@@ -54,8 +79,12 @@ export class PublicTalksController {
   @Post('bulk-import')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.ELDER)
-  bulkImport(@Body() dto: BulkImportDto) {
-    return this.service.bulkImport(dto.text);
+  bulkImport(
+    @Body() dto: BulkImportDto,
+    @TenantId() congregationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.bulkImport(dto.text, congregationId, user.id);
   }
 
   @Patch(':id')

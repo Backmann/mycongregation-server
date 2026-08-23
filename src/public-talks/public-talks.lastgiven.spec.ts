@@ -23,7 +23,10 @@ describe('PublicTalksService lastGiven (past weeks only)', () => {
     };
     const repo: any = { createQueryBuilder: jest.fn(() => qb) };
     const assignmentsRepo: any = { find: jest.fn(async () => histories) };
-    return new PublicTalksService(repo, assignmentsRepo);
+    // The journal now records who imported the catalogue and when; listing
+    // talks never touches it.
+    const auditLog: any = { logEvent: jest.fn(), findForEntity: jest.fn() };
+    return new PublicTalksService(repo, assignmentsRepo, auditLog);
   }
 
   it('ignores current/future-week assignment, uses the last past delivery', async () => {
