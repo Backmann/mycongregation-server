@@ -22,6 +22,16 @@ export class PublicTalk {
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;
 
+  /**
+   * The date from which this talk is no longer to be given.
+   *
+   * Null for a talk in use, and also for one retired by hand before this
+   * column existed — «снята», with no date to show. The instruction that
+   * arrives always carries one: «начиная с 1 сентября 2026 года».
+   */
+  @Column({ type: 'date', name: 'retired_from', nullable: true })
+  retiredFrom!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

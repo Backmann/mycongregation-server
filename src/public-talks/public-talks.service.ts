@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, MoreThanOrEqual, Repository } from 'typeorm';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -64,6 +64,27 @@ export interface BulkImportResult {
   missing: Array<{ number: number; title: string }>;
   /** The lines that could not be read, not merely how many. */
   invalidLines: string[];
+}
+
+/** One week where a talk is still planned after the date it is retired from. */
+export interface ScheduledUse {
+  publicTalkId: string;
+  weekStartDate: string;
+  speakerName: string | null;
+  speakerCongregation: string | null;
+}
+
+/** What retiring a list of numbers would mean, before it is done. */
+export interface RetirementPreview {
+  talks: Array<{
+    number: number;
+    title: string;
+    alreadyRetired: boolean;
+    scheduled: ScheduledUse[];
+  }>;
+  /** Numbers the catalogue has never heard of — a typo, or a stale catalogue. */
+  unknownNumbers: number[];
+  scheduled: ScheduledUse[];
 }
 
 /** Who ran the last import and when — read back from the journal. */
@@ -267,10 +288,84 @@ export class PublicTalksService {
    * purpose. Retired talks stay in the catalogue, marked, and can be brought
    * back in one press.
    */
+  /**
+   * What retiring these numbers would mean, BEFORE anything is retired.
+   *
+   * Two things the coordinator cannot see for himself: the titles behind
+   * thirty bare numbers, and which of those talks are already promised to
+   * somebody after the date. A speaker invited in July for the 13th of
+   * September is a telephone call, not a database row — so the app shows the
+   * call that has to be made and lets him make it.
+   */
+  async previewRetirement(
+    tenantId: string,
+    numbers: number[],
+    from: string,
+  ): Promise<RetirementPreview> {
+    if (numbers.length === 0) {
+      return { talks: [], unknownNumbers: [], scheduled: [] };
+    }
+    const found = await this.repo.find({
+      where: { number: In(numbers) },
+      order: { number: 'ASC' },
+    });
+    const byNumber = new Map(found.map((t) => [t.number, t]));
+
+    const scheduled = await this.scheduledAfter(
+      tenantId,
+      found.map((t) => t.id),
+      from,
+    );
+    const scheduledByTalk = new Map<string, ScheduledUse[]>();
+    for (const use of scheduled) {
+      const list = scheduledByTalk.get(use.publicTalkId) ?? [];
+      list.push(use);
+      scheduledByTalk.set(use.publicTalkId, list);
+    }
+
+    return {
+      talks: found.map((t) => ({
+        number: t.number,
+        title: t.title,
+        alreadyRetired: !t.isActive,
+        scheduled: scheduledByTalk.get(t.id) ?? [],
+      })),
+      // Said out loud rather than skipped: a number the catalogue does not
+      // have usually means a typo in the paste or a stale catalogue, and both
+      // are worth knowing before pressing the button.
+      unknownNumbers: numbers.filter((n) => !byNumber.has(n)),
+      scheduled,
+    };
+  }
+
+  /** Weeks on or after `from` where one of these talks is still planned. */
+  private async scheduledAfter(
+    congregationId: string,
+    talkIds: string[],
+    from: string,
+  ): Promise<ScheduledUse[]> {
+    if (talkIds.length === 0) return [];
+    const rows = await this.assignmentsRepo.find({
+      where: {
+        congregationId,
+        publicTalkId: In(talkIds),
+        weekStartDate: MoreThanOrEqual(from),
+      },
+      order: { weekStartDate: 'ASC' },
+    });
+    return rows.map((a) => ({
+      publicTalkId: a.publicTalkId as string,
+      weekStartDate: a.weekStartDate,
+      speakerName: a.speakerName ?? null,
+      speakerCongregation: a.speakerCongregation ?? null,
+    }));
+  }
+
   async retireMissing(
     tenantId: string,
     numbers: number[],
     actorUserId: string,
+    from?: string,
   ): Promise<{ retired: number }> {
     if (numbers.length === 0) return { retired: 0 };
     const talks = await this.repo.find({ where: { number: In(numbers) } });
@@ -278,6 +373,9 @@ export class PublicTalksService {
     for (const talk of talks) {
       if (!talk.isActive) continue;
       talk.isActive = false;
+      // The date the instruction gave, so the catalogue can say «снята с
+      // 1 сентября 2026» rather than merely «снята».
+      talk.retiredFrom = from ?? null;
       await this.repo.save(talk);
       retired++;
     }

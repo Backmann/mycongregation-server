@@ -1,4 +1,12 @@
-import { ArrayMaxSize, IsArray, IsInt, Max, Min } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsInt,
+  IsISO8601,
+  IsOptional,
+  Max,
+  Min,
+} from 'class-validator';
 
 /**
  * The talks to strike out of the catalogue — by number, exactly as the import
@@ -9,6 +17,15 @@ import { ArrayMaxSize, IsArray, IsInt, Max, Min } from 'class-validator';
  * the server to walk a list of any length.
  */
 export class RetireMissingDto {
+  /**
+   * The date from which they are not to be given — «начиная с 1 сентября
+   * 2026 года» in the instruction. Optional so that a talk retired by hand,
+   * with no such date, is still possible.
+   */
+  @IsOptional()
+  @IsISO8601()
+  from?: string;
+
   @IsArray()
   @ArrayMaxSize(999)
   @IsInt({ each: true })

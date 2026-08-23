@@ -15,6 +15,8 @@ import { CreatePublicTalkDto } from './dto/create-public-talk.dto';
 import { UpdatePublicTalkDto } from './dto/update-public-talk.dto';
 import { BulkImportDto } from './dto/bulk-import.dto';
 import { RetireMissingDto } from './dto/retire-missing.dto';
+import { RetirementPreviewDto } from './dto/retirement-preview.dto';
+import { parseRetirementList } from './retirement-list';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
@@ -53,6 +55,25 @@ export class PublicTalksController {
    * separate from importing, because it answers «какие речи больше не
    * говорим» and that must not happen by accident.
    */
+  /**
+   * What retiring these numbers would mean — titles, and the weeks where the
+   * talks are still promised. Read-only: nothing is retired by asking.
+   */
+  @Post('retirement-preview')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  retirementPreview(
+    @Body() dto: RetirementPreviewDto,
+    @TenantId() congregationId: string,
+  ) {
+    const { numbers } = parseRetirementList(dto.text ?? '');
+    return this.service.previewRetirement(
+      congregationId,
+      dto.numbers ?? numbers,
+      dto.from,
+    );
+  }
+
   @Post('retire-missing')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.ELDER)
@@ -61,7 +82,12 @@ export class PublicTalksController {
     @TenantId() congregationId: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.retireMissing(congregationId, dto.numbers, user.id);
+    return this.service.retireMissing(
+      congregationId,
+      dto.numbers,
+      user.id,
+      dto.from,
+    );
   }
 
   @Get(':id')
