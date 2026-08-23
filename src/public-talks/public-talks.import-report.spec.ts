@@ -35,6 +35,10 @@ describe('PublicTalksService.bulkImport — the report', () => {
     const service = new PublicTalksService(
       repo as unknown as Repository<PublicTalk>,
       { find: jest.fn(async () => []) } as never,
+      // The retirement preview reads the coordinator's log and the meeting
+      // settings as well; nothing else here touches them.
+      { find: jest.fn(async () => []) } as never,
+      { find: jest.fn(async () => []) } as never,
       { logEvent, findForEntity: jest.fn() } as unknown as AuditLogService,
     );
     return { service, store, logEvent, repo };
@@ -133,6 +137,8 @@ describe('PublicTalksService.retireMissing', () => {
     const service = new PublicTalksService(
       repo as unknown as Repository<PublicTalk>,
       { find: jest.fn() } as never,
+      { find: jest.fn(async () => []) } as never,
+      { find: jest.fn(async () => []) } as never,
       {
         logEvent: jest.fn(),
         findForEntity: jest.fn(),

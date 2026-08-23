@@ -26,7 +26,15 @@ describe('PublicTalksService lastGiven (past weeks only)', () => {
     // The journal now records who imported the catalogue and when; listing
     // talks never touches it.
     const auditLog: any = { logEvent: jest.fn(), findForEntity: jest.fn() };
-    return new PublicTalksService(repo, assignmentsRepo, auditLog);
+    const exchangeRepo: any = { find: jest.fn(async () => []) };
+    const settingsRepo: any = { find: jest.fn(async () => []) };
+    return new PublicTalksService(
+      repo,
+      assignmentsRepo,
+      exchangeRepo,
+      settingsRepo,
+      auditLog,
+    );
   }
 
   it('ignores current/future-week assignment, uses the last past delivery', async () => {

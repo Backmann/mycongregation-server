@@ -9,6 +9,23 @@ import { In, MoreThanOrEqual, Repository } from 'typeorm';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { TalkExchange } from '../entities/talk-exchange.entity';
+import { MeetingSettings } from '../entities/meeting-settings.entity';
+
+/** `2026-10-26` + 6 → `2026-11-01`. Dates only; no timezone enters here. */
+function addDaysISO(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** The Monday of the week a date falls in. */
+function mondayOfISO(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  const dow = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - dow);
+  return d.toISOString().slice(0, 10);
+}
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 import { CreatePublicTalkDto } from './dto/create-public-talk.dto';
 import { UpdatePublicTalkDto } from './dto/update-public-talk.dto';
@@ -70,8 +87,23 @@ export interface BulkImportResult {
 export interface ScheduledUse {
   publicTalkId: string;
   weekStartDate: string;
+  /**
+   * The date the talk is actually given.
+   *
+   * A week is stored by its Monday, so «26 октября» was shown for a talk that
+   * happens on Sunday the 1st of November — a date the coordinator cannot
+   * match against anything he knows. Resolved through the meeting-settings
+   * version in force for THAT week, so a congregation that moved its weekend
+   * meeting gets its own answer.
+   */
+  meetingDate: string;
   speakerName: string | null;
   speakerCongregation: string | null;
+  /**
+   * Where this came from: the weekend programme, a visiting speaker coming to
+   * us, or one of our brothers travelling with it.
+   */
+  source: 'programme' | 'incoming' | 'outgoing';
 }
 
 /** What retiring a list of numbers would mean, before it is done. */
@@ -111,6 +143,10 @@ export class PublicTalksService {
     private readonly repo: Repository<PublicTalk>,
     @InjectRepository(Assignment)
     private readonly assignmentsRepo: Repository<Assignment>,
+    @InjectRepository(TalkExchange)
+    private readonly exchangeRepo: Repository<TalkExchange>,
+    @InjectRepository(MeetingSettings)
+    private readonly settingsRepo: Repository<MeetingSettings>,
     private readonly auditLog: AuditLogService,
   ) {}
 
@@ -338,14 +374,24 @@ export class PublicTalksService {
     };
   }
 
-  /** Weeks on or after `from` where one of these talks is still planned. */
+  /**
+   * Everywhere on or after `from` where one of these talks is still promised.
+   *
+   * THREE places, not one. The weekend programme is the obvious one. The
+   * coordinator's log holds two more: a visiting speaker bringing the talk to
+   * us, and one of our own brothers travelling to another congregation with
+   * it. The last is the one that matters most and was missed entirely — he
+   * would have gone and given a talk that is no longer used, and nothing here
+   * would have said a word.
+   */
   private async scheduledAfter(
     congregationId: string,
     talkIds: string[],
     from: string,
   ): Promise<ScheduledUse[]> {
     if (talkIds.length === 0) return [];
-    const rows = await this.assignmentsRepo.find({
+
+    const assignments = await this.assignmentsRepo.find({
       where: {
         congregationId,
         publicTalkId: In(talkIds),
@@ -353,12 +399,78 @@ export class PublicTalksService {
       },
       order: { weekStartDate: 'ASC' },
     });
-    return rows.map((a) => ({
+
+    // The exchange log keeps a real DATE, not a week — it is the date the
+    // brother travels — so nothing has to be resolved for these.
+    const exchange = await this.exchangeRepo.find({
+      where: {
+        congregationId,
+        publicTalkId: In(talkIds),
+        date: MoreThanOrEqual(from),
+      },
+      order: { date: 'ASC' },
+    });
+
+    const weekendDow = await this.weekendDowByWeek(
+      congregationId,
+      assignments.map((a) => a.weekStartDate),
+    );
+
+    const fromProgramme: ScheduledUse[] = assignments.map((a) => ({
       publicTalkId: a.publicTalkId as string,
       weekStartDate: a.weekStartDate,
+      meetingDate: addDaysISO(
+        a.weekStartDate,
+        (weekendDow.get(a.weekStartDate) ?? 7) - 1,
+      ),
       speakerName: a.speakerName ?? null,
       speakerCongregation: a.speakerCongregation ?? null,
+      source: 'programme' as const,
     }));
+
+    const fromExchange: ScheduledUse[] = exchange.map((e) => ({
+      publicTalkId: e.publicTalkId as string,
+      weekStartDate: mondayOfISO(e.date),
+      meetingDate: e.date,
+      // Outgoing: our own brother, so his name comes from the linked card and
+      // is not repeated here — the screen looks it up. Incoming: the visiting
+      // speaker's own name, as the coordinator typed it.
+      speakerName: e.speakerName ?? null,
+      speakerCongregation: e.speakerCongregation ?? null,
+      source: (e.direction === 'outgoing' ? 'outgoing' : 'incoming') as
+        | 'outgoing'
+        | 'incoming',
+    }));
+
+    return [...fromProgramme, ...fromExchange].sort((a, b) =>
+      a.meetingDate.localeCompare(b.meetingDate),
+    );
+  }
+
+  /**
+   * Which weekday the weekend meeting fell on, per week.
+   *
+   * Read per week rather than once: a congregation that moved its meeting has
+   * several settings versions, and the one in force is the newest that starts
+   * on or before that week.
+   */
+  private async weekendDowByWeek(
+    congregationId: string,
+    weeks: string[],
+  ): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    if (weeks.length === 0) return out;
+    const versions = await this.settingsRepo.find({
+      where: { congregationId },
+      order: { effectiveFrom: 'ASC' },
+    });
+    for (const week of weeks) {
+      const inForce = [...versions]
+        .reverse()
+        .find((v) => v.effectiveFrom <= week);
+      out.set(week, inForce?.weekendDow ?? 7);
+    }
+    return out;
   }
 
   async retireMissing(

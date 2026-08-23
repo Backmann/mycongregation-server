@@ -25,6 +25,16 @@ describe('PublicTalksService.previewRetirement', () => {
       speakerName?: string;
       speakerCongregation?: string;
     }> = [],
+    exchange: Array<{
+      publicTalkId: string;
+      date: string;
+      direction: string;
+      speakerName?: string;
+      speakerCongregation?: string;
+    }> = [],
+    settings: Array<{ effectiveFrom: string; weekendDow: number }> = [
+      { effectiveFrom: '2000-01-01', weekendDow: 7 },
+    ],
   ) => {
     const store = new Map(
       talks.map((t) => [
@@ -43,6 +53,8 @@ describe('PublicTalksService.previewRetirement', () => {
     const service = new PublicTalksService(
       repo as unknown as Repository<PublicTalk>,
       assignmentsRepo as never,
+      { find: jest.fn(async () => exchange) } as never,
+      { find: jest.fn(async () => settings) } as never,
       {
         logEvent: jest.fn(),
         findForEntity: jest.fn(),
@@ -84,9 +96,109 @@ describe('PublicTalksService.previewRetirement', () => {
       {
         publicTalkId: 't92',
         weekStartDate: '2026-09-07',
+        // The Sunday, not the Monday the week is filed under: «26 октября»
+        // for a talk given on the 1st of November is a date the coordinator
+        // cannot match against anything he knows.
+        meetingDate: '2026-09-13',
         speakerName: 'Иванов',
         speakerCongregation: 'Хамм',
+        source: 'programme',
       },
+    ]);
+  });
+
+  it('uses the weekend day the congregation actually meets on', async () => {
+    // A congregation meeting on Saturday gets Saturday — read from the
+    // settings version in force for that week, not from a default.
+    const { service } = build(
+      [{ id: 't92', number: 92, title: 'Речь' }],
+      [{ publicTalkId: 't92', weekStartDate: '2026-09-07' }],
+      [],
+      [{ effectiveFrom: '2000-01-01', weekendDow: 6 }],
+    );
+
+    const out = await service.previewRetirement('c1', [92], '2026-09-01');
+
+    expect(out.talks[0].scheduled[0].meetingDate).toBe('2026-09-12');
+  });
+
+  it('follows a congregation that MOVED its weekend meeting', async () => {
+    // Two versions: Sunday until October, Saturday after. The week must be
+    // judged by the one in force for it.
+    const { service } = build(
+      [{ id: 't92', number: 92, title: 'Речь' }],
+      [{ publicTalkId: 't92', weekStartDate: '2026-10-26' }],
+      [],
+      [
+        { effectiveFrom: '2000-01-01', weekendDow: 7 },
+        { effectiveFrom: '2026-10-01', weekendDow: 6 },
+      ],
+    );
+
+    const out = await service.previewRetirement('c1', [92], '2026-09-01');
+
+    expect(out.talks[0].scheduled[0].meetingDate).toBe('2026-10-31');
+  });
+
+  it('finds a talk one of OUR brothers is taking to another congregation', async () => {
+    // The one that was missed entirely: he would have travelled and given a
+    // talk that is no longer used, and nothing would have said a word.
+    const { service } = build(
+      [{ id: 't92', number: 92, title: 'Речь' }],
+      [],
+      [
+        {
+          publicTalkId: 't92',
+          date: '2026-09-20',
+          direction: 'outgoing',
+          speakerName: null as unknown as string,
+        },
+      ],
+    );
+
+    const out = await service.previewRetirement('c1', [92], '2026-09-01');
+
+    expect(out.talks[0].scheduled[0]).toMatchObject({
+      meetingDate: '2026-09-20',
+      source: 'outgoing',
+    });
+  });
+
+  it('finds a visiting speaker bringing one to us', async () => {
+    const { service } = build(
+      [{ id: 't92', number: 92, title: 'Речь' }],
+      [],
+      [
+        {
+          publicTalkId: 't92',
+          date: '2026-09-20',
+          direction: 'incoming',
+          speakerName: 'Петров',
+          speakerCongregation: 'Дортмунд',
+        },
+      ],
+    );
+
+    const out = await service.previewRetirement('c1', [92], '2026-09-01');
+
+    expect(out.talks[0].scheduled[0]).toMatchObject({
+      source: 'incoming',
+      speakerName: 'Петров',
+    });
+  });
+
+  it('puts everything in date order, wherever it came from', async () => {
+    const { service } = build(
+      [{ id: 't92', number: 92, title: 'Речь' }],
+      [{ publicTalkId: 't92', weekStartDate: '2026-10-26' }],
+      [{ publicTalkId: 't92', date: '2026-09-20', direction: 'outgoing' }],
+    );
+
+    const out = await service.previewRetirement('c1', [92], '2026-09-01');
+
+    expect(out.talks[0].scheduled.map((u) => u.meetingDate)).toEqual([
+      '2026-09-20',
+      '2026-11-01',
     ]);
   });
 
@@ -153,6 +265,8 @@ describe('PublicTalksService.retireMissing — the date', () => {
     const service = new PublicTalksService(
       repo as unknown as Repository<PublicTalk>,
       { find: jest.fn() } as never,
+      { find: jest.fn(async () => []) } as never,
+      { find: jest.fn(async () => []) } as never,
       {
         logEvent: jest.fn(),
         findForEntity: jest.fn(),
