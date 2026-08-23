@@ -119,6 +119,18 @@ export interface RetirementPreview {
   scheduled: ScheduledUse[];
 }
 
+/** One decision about the catalogue: an import, a retirement, or a lifting. */
+export interface CatalogueEvent {
+  at: string;
+  actorName: string | null;
+  kind: 'import' | 'retire' | 'lift';
+  numbers: number[];
+  count: number;
+  from: string | null;
+  until: string | null;
+  reason: string | null;
+}
+
 /** Who ran the last import and when — read back from the journal. */
 export interface LastImport {
   at: string;
@@ -297,7 +309,90 @@ export class PublicTalksService {
   async reactivate(id: string): Promise<PublicTalk> {
     const existing = await this.getById(id);
     existing.isActive = true;
+    // The dates and the reason go with it. Left behind, a talk would come back
+    // to the catalogue still carrying «не преподносить с 1 сентября» — active
+    // and forbidden at once, which is a state nobody can act on.
+    existing.retiredFrom = null;
+    existing.retiredUntil = null;
+    existing.retiredReason = null;
     return this.repo.save(existing);
+  }
+
+  /**
+   * Lift a restriction because a letter said so — with the letter named.
+   *
+   * The mirror of setting talks aside, and it has to be, because the lifting
+   * comes the same way: from an instruction, about particular numbers, on
+   * stated grounds. Handled as its own act rather than as «edit the talk», so
+   * that a year later the journal answers both «почему сняли» and «почему
+   * вернули».
+   */
+  async liftRestriction(
+    tenantId: string,
+    numbers: number[],
+    actorUserId: string,
+    reason?: string | null,
+  ): Promise<{ lifted: number }> {
+    if (numbers.length === 0) return { lifted: 0 };
+    const talks = await this.repo.find({ where: { number: In(numbers) } });
+    let lifted = 0;
+    for (const talk of talks) {
+      if (talk.isActive && !talk.retiredFrom) continue;
+      talk.isActive = true;
+      talk.retiredFrom = null;
+      talk.retiredUntil = null;
+      talk.retiredReason = null;
+      await this.repo.save(talk);
+      lifted++;
+    }
+    await this.auditLog.logEvent({
+      tenantId,
+      entityType: 'public_talk_catalog',
+      entityId: IMPORT_LOG_ID,
+      action: 'RESTORE',
+      actorUserId,
+      detail: {
+        liftedNumbers: numbers.slice(0, 100),
+        lifted,
+        reason: reason ?? null,
+        kind: 'lift',
+      },
+    });
+    return { lifted };
+  }
+
+  /**
+   * Every decision about the catalogue, newest first.
+   *
+   * The screen used to show only the last one — and «в прошлый раз» is not the
+   * question a coordinator asks. He asks «на основании чего речь 92 снята», and
+   * that is answered by a list, each line naming its own letter.
+   */
+  async catalogueHistory(tenantId: string): Promise<CatalogueEvent[]> {
+    const rows = await this.auditLog.findForEntity(
+      tenantId,
+      'public_talk_catalog',
+      IMPORT_LOG_ID,
+    );
+    return rows.map((r) => {
+      const d = (r.after ?? {}) as Record<string, unknown>;
+      const isLift = d.kind === 'lift';
+      return {
+        at: new Date(r.createdAt).toISOString(),
+        actorName: r.actorName ?? null,
+        kind: isLift
+          ? ('lift' as const)
+          : r.action === 'DELETE'
+            ? ('retire' as const)
+            : ('import' as const),
+        numbers: ((isLift ? d.liftedNumbers : d.retiredNumbers) ??
+          []) as number[],
+        count: Number((isLift ? d.lifted : (d.retired ?? d.created)) ?? 0),
+        from: (d.from as string) ?? null,
+        until: (d.until as string) ?? null,
+        reason: (d.reason as string) ?? null,
+      };
+    });
   }
 
   /** When the catalogue was last imported, and by whom. */

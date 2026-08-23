@@ -16,6 +16,7 @@ import { UpdatePublicTalkDto } from './dto/update-public-talk.dto';
 import { BulkImportDto } from './dto/bulk-import.dto';
 import { RetireMissingDto } from './dto/retire-missing.dto';
 import { RetirementPreviewDto } from './dto/retirement-preview.dto';
+import { LiftRestrictionDto } from './dto/lift-restriction.dto';
 import { parseRetirementList } from './retirement-list';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -77,6 +78,33 @@ export class PublicTalksController {
       congregationId,
       dto.numbers ?? numbers,
       dto.from,
+    );
+  }
+
+  /** Every decision about the catalogue, newest first. */
+  @Get('history')
+  history(@TenantId() congregationId: string) {
+    return this.service.catalogueHistory(congregationId);
+  }
+
+  /**
+   * Lift a restriction because a letter said so. Its own act, not an edit:
+   * a year later the journal must answer «почему вернули» as well as «почему
+   * сняли».
+   */
+  @Post('lift-restriction')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  liftRestriction(
+    @Body() dto: LiftRestrictionDto,
+    @TenantId() congregationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.liftRestriction(
+      congregationId,
+      dto.numbers,
+      user.id,
+      dto.reason,
     );
   }
 
