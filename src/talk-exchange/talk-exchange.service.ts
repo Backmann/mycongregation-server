@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { Between, In, Repository } from 'typeorm';
+import { Between, MoreThanOrEqual, In, Repository } from 'typeorm';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Absence } from '../entities/absence.entity';
@@ -410,6 +410,55 @@ export class TalkExchangeService {
   }
 
   /**
+   * Build the journal from the programme, for every week from a date onwards.
+   *
+   * The two-way sync began on 23 June 2026. Weekend speakers entered BEFORE
+   * that day never produced a journal entry — nothing was deleted, the mirror
+   * simply did not exist yet. From the coordinator's chair that reads as data
+   * lost, and it is worse than lost: the programme says a brother came and the
+   * journal says nobody did.
+   *
+   * Idempotent by construction: it calls the same one-week sync used
+   * everywhere else, so a week that already agrees is left exactly as it is.
+   */
+  async rebuildFromProgramme(
+    tenantId: string,
+    from: string,
+  ): Promise<{ weeks: number; created: number }> {
+    const slots = await this.assignmentRepo.find({
+      where: {
+        congregationId: tenantId,
+        partKey: PUBLIC_TALK_PART_KEY,
+        weekStartDate: MoreThanOrEqual(from),
+      },
+      order: { weekStartDate: 'ASC' },
+    });
+
+    const before = await this.repo.count({
+      where: {
+        congregationId: tenantId,
+        direction: TalkExchangeDirection.INCOMING,
+        date: MoreThanOrEqual(from),
+      },
+    });
+
+    const weeks = [...new Set(slots.map((a) => a.weekStartDate))];
+    for (const week of weeks) {
+      await this.syncProgramToJournal(tenantId, week);
+    }
+
+    const after = await this.repo.count({
+      where: {
+        congregationId: tenantId,
+        direction: TalkExchangeDirection.INCOMING,
+        date: MoreThanOrEqual(from),
+      },
+    });
+
+    return { weeks: weeks.length, created: Math.max(0, after - before) };
+  }
+
+  /**
    * Keep the journal's incoming entry in sync with the program's weekend
    * public-talk slot for a week. Only invited speakers (free-text speakerName,
    * no local publisher) map to a "К нам" entry. Called after the schedule edits
@@ -449,8 +498,25 @@ export class TalkExchangeService {
     );
 
     if (!hasLocal && !hasInvited) {
-      // Program has no weekend speaker -> remove any journal incoming entry.
-      if (existing) await this.repo.softDelete(existing.id);
+      /**
+       * The programme has nobody for that weekend.
+       *
+       * A cancelled week means the entry should go — the meeting is not
+       * happening. But an EMPTY slot means «ещё не заполнили», and an entry
+       * carrying the coordinator's own work — a note, a host family, a named
+       * visiting speaker — must not be thrown away because the programme has
+       * not caught up yet. That would be the application undoing arrangements
+       * it did not make.
+       */
+      const cancelled = !!slot && slot.status === AssignmentStatus.CANCELLED;
+      const coordinatorsOwn =
+        !!existing &&
+        (!!existing.visitingSpeakerId ||
+          !!existing.hospitalityPublisherId ||
+          !!existing.note);
+      if (existing && (cancelled || !coordinatorsOwn)) {
+        await this.repo.softDelete(existing.id);
+      }
       return;
     }
 

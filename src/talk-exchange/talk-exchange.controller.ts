@@ -13,6 +13,7 @@ import {
 import { TalkExchangeService } from './talk-exchange.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { RebuildFromProgrammeDto } from './dto/rebuild-from-programme.dto';
 import { CreateTalkExchangeDto } from './dto/create-talk-exchange.dto';
 import { UpdateTalkExchangeDto } from './dto/update-talk-exchange.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
@@ -29,6 +30,20 @@ export class TalkExchangeController {
   @Get()
   list(@TenantId() tenantId: string) {
     return this.service.findAll(tenantId);
+  }
+
+  /**
+   * Rebuild the journal from the weekend programme, from a date onwards.
+   *
+   * For the years before the two-way sync existed: the programme knows who
+   * came, the journal does not, and only one of them can be believed.
+   */
+  @Post('rebuild-from-programme')
+  rebuildFromProgramme(
+    @TenantId() tenantId: string,
+    @Body() dto: RebuildFromProgrammeDto,
+  ) {
+    return this.service.rebuildFromProgramme(tenantId, dto.from);
   }
 
   @Get(':id')
