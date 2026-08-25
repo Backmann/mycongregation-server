@@ -231,3 +231,54 @@ describe('NotificationsService — what a person chose not to hear', () => {
     jest.useRealTimers();
   });
 });
+
+describe('NotificationsService — the dedupe key travels with the message', () => {
+  // A browser replaces a notification whose tag is already on screen. The
+  // service worker had nothing to tell two messages apart, so a cleaning
+  // reminder followed by a task assignment left only the task. The key that
+  // keeps this row from being sent twice is the right name for it — it was
+  // computed and stored, and simply never left the database.
+  it('passes the key on so the browser can tell two messages apart', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-15T16:00:00Z'));
+    const { svc, push } = makeService();
+
+    await svc.notify({
+      ...base,
+      userIds: ['u1'],
+      key: 'task-assigned:task-9',
+    });
+
+    const data = (push.sendToUsers as jest.Mock).mock.calls[0][4];
+    expect(data).toEqual({
+      type: 'report_reminder',
+      notificationKey: 'task-assigned:task-9',
+    });
+    jest.useRealTimers();
+  });
+
+  it('leaves the payload alone when there is no key', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-15T16:00:00Z'));
+    const { svc, push } = makeService();
+
+    await svc.notify({ ...base, userIds: ['u1'] });
+
+    const data = (push.sendToUsers as jest.Mock).mock.calls[0][4];
+    expect(data).toEqual({ type: 'report_reminder' });
+    jest.useRealTimers();
+  });
+
+  it('carries it through the overnight hold as well', async () => {
+    // Held at 03:00 and delivered by the tick — the same path, and the key
+    // must survive the wait.
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-15T02:30:00Z'));
+    const { svc, push } = makeService();
+    await svc.notify({ ...base, userIds: ['u1'], key: 'meeting-tomorrow:m1' });
+    expect(push.sendToUsers).not.toHaveBeenCalled();
+
+    await svc.deliverDue(new Date('2026-07-15T06:00:00Z'));
+
+    const data = (push.sendToUsers as jest.Mock).mock.calls[0][4];
+    expect(data.notificationKey).toBe('meeting-tomorrow:m1');
+    jest.useRealTimers();
+  });
+});

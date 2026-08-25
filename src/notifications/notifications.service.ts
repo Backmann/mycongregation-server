@@ -207,12 +207,26 @@ export class NotificationsService {
   /** Send one row and record what happened. */
   private async deliver(row: NotificationOutbox): Promise<void> {
     try {
+      // The dedupe key travels WITH the message.
+      //
+      // A browser groups notifications by a `tag`, and one with a tag already
+      // on screen REPLACES it. The service worker had no way to tell two
+      // messages apart — everything without a publisherId shared the tag
+      // 'notification' — so a cleaning reminder followed by a task assignment
+      // left only the task, and the first was gone before it was read.
+      //
+      // The key that keeps this row from being sent twice is exactly the
+      // right name for it: the same announcement replaces itself, different
+      // ones sit side by side. It was already computed and stored here; it
+      // simply never left the database.
       await this.push.sendToUsers(
         row.congregationId,
         [row.userId],
         row.title,
         row.body,
-        row.data,
+        row.dedupeKey
+          ? { ...row.data, notificationKey: row.dedupeKey }
+          : row.data,
       );
       await this.outboxRepo.update(
         { id: row.id },
