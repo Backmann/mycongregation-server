@@ -23,6 +23,7 @@ import { GenerateWeekDutiesDto } from './dto/generate-week-duties.dto';
 import { AssignDutyDto } from './dto/assign-duty.dto';
 import { CreateCustomDutyDto } from './dto/create-custom-duty.dto';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { MeetingKind, weekRules, WeekRules } from '../common/week-rules';
 
 /**
  * Non-blocking conflict warning codes returned when a publisher is assigned to
@@ -41,12 +42,6 @@ export interface DutyWithWarnings {
 export interface MicRuleWarning {
   code: 'mic_taken' | 'mic_capability_off';
   publisherName: string;
-}
-
-function addDaysISO(iso: string, days: number): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
 }
 
 @Injectable()
@@ -75,6 +70,57 @@ export class DutiesService {
    * version in force for that week, and a circuit-overseer visit that moves the
    * midweek meeting moves the deadline with it.
    */
+  /**
+   * What that week actually holds, asked of the one authority.
+   *
+   * This used to be fifteen lines of hand-written rule right here — the FOURTH
+   * copy of "which day is the midweek meeting, and does the visit move it". It
+   * agreed with the others by luck rather than by construction, and nothing
+   * tested it. The rule now lives in common/week-rules.ts, and this only asks.
+   *
+   * The events are re-tagged with the type they were QUERIED by rather than
+   * read off the row: each is fetched by an explicit filter, so the kind is
+   * already known, and the rules must not depend on a column a caller might
+   * not have selected.
+   */
+  private async rulesOfWeek(
+    congregationId: string,
+    weekStartDate: string,
+  ): Promise<WeekRules> {
+    const versions = await this.meetingRepo.find({
+      where: { congregationId },
+      order: { effectiveFrom: 'ASC' },
+    });
+    const visits = await this.specialEventRepo.find({
+      where: { congregationId, type: 'circuit_overseer_visit' },
+    });
+    const cancelling = await this.specialEventRepo.find({
+      where: [
+        { congregationId, type: 'regional_convention' },
+        { congregationId, type: 'circuit_assembly' },
+      ],
+    });
+    const memorials = await this.specialEventRepo.find({
+      where: { congregationId, type: 'memorial' },
+    });
+    const flagged = await this.specialEventRepo.find({
+      where: { congregationId, replacesMeeting: true },
+    });
+    return weekRules({
+      weekStart: weekStartDate,
+      versions,
+      events: [
+        ...visits.map((e) => ({ ...e, type: 'circuit_overseer_visit' })),
+        ...cancelling.map((e) => ({
+          ...e,
+          type: e.type ?? 'regional_convention',
+        })),
+        ...memorials.map((e) => ({ ...e, type: 'memorial' })),
+        ...flagged.map((e) => ({ ...e, replacesMeeting: true })),
+      ],
+    });
+  }
+
   private async assertEditable(
     congregationId: string,
     weekStartDate: string,
@@ -82,32 +128,16 @@ export class DutiesService {
   ): Promise<void> {
     if (eventType !== 'midweek' && eventType !== 'weekend') return;
 
-    const versions = await this.meetingRepo.find({
-      where: { congregationId },
-      order: { effectiveFrom: 'ASC' },
-    });
-    let version: MeetingSettings | null = null;
-    for (const v of versions) {
-      if (v.effectiveFrom <= weekStartDate) version = v;
-    }
-    if (!version) version = versions[0] ?? null;
-    if (!version) return;
+    const rules = await this.rulesOfWeek(congregationId, weekStartDate);
+    const held = rules.meetings.find((m) => m.kind === eventType);
+    // No such meeting that week — a convention, or the Memorial took it. There
+    // is nothing to freeze, and editing STAYS ALLOWED on purpose: duties made
+    // before the event was entered must remain removable, or a mistake would
+    // be locked in forever. Creating new ones is refused separately, in
+    // generateWeek.
+    if (!held) return;
 
-    let dow = eventType === 'midweek' ? version.midweekDow : version.weekendDow;
-    if (eventType === 'midweek') {
-      const weekEnd = addDaysISO(weekStartDate, 6);
-      const visits = await this.specialEventRepo.find({
-        where: { congregationId, type: 'circuit_overseer_visit' },
-      });
-      const visit = visits.find(
-        (e) => e.date <= weekEnd && (e.endDate ?? e.date) >= weekStartDate,
-      );
-      if (visit) dow = visit.coMidweekDow ?? 2;
-    }
-    if (!dow) return;
-
-    const meetingDate = addDaysISO(weekStartDate, dow - 1);
-    if (meetingDate < (await this.clock.todayFor(congregationId))) {
+    if (held.date < (await this.clock.todayFor(congregationId))) {
       // The refusal itself is worth recording: "who tried to change last
       // week's duties" is exactly the question the journal gets asked, and
       // until now every rejection vanished without trace.
@@ -203,6 +233,39 @@ export class DutiesService {
     dto: GenerateWeekDutiesDto,
   ): Promise<Duty[]> {
     await this.assertEditable(congregationId, dto.weekStartDate, dto.eventType);
+    // A meeting an EVENT took away has no duties to fill.
+    //
+    // Until now nothing on the server said so: the app generates these by
+    // itself when the schedule screen opens, and «на неделе конгресса
+    // обязанностей нет» rested entirely on one line in one client effect. Any
+    // other way in — a second screen, a retry, a future caller — walked
+    // straight past it.
+    //
+    // Judged by the EVENT, not by "is it in the list of meetings": a
+    // congregation whose meeting settings are not filled in yet also has no
+    // meetings in that list, and refusing there would stop a new congregation
+    // from setting itself up. The tests caught exactly that.
+    const kind: MeetingKind | null =
+      dto.eventType === EventType.MIDWEEK
+        ? 'midweek'
+        : dto.eventType === EventType.WEEKEND
+          ? 'weekend'
+          : null;
+    if (kind) {
+      const rules = await this.rulesOfWeek(congregationId, dto.weekStartDate);
+      const takenBy = !rules.meetingsHeld
+        ? 'congress'
+        : rules.memorialTakes === kind
+          ? 'memorial'
+          : rules.replacedBy(kind)
+            ? 'event'
+            : null;
+      if (takenBy) {
+        throw new ConflictException(
+          'That meeting is not held this week, so it has no duties.',
+        );
+      }
+    }
     const mics = await this.micCount(congregationId, dto.weekStartDate);
     const rows: Partial<Duty>[] = [];
     const base = {

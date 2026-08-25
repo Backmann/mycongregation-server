@@ -290,3 +290,158 @@ describe('DutiesService', () => {
     });
   });
 });
+
+describe('DutiesService — a meeting an event took away has no duties', () => {
+  // Nothing on the server said this until now: the app creates these by itself
+  // when the schedule screen opens, and «на неделе конгресса обязанностей нет»
+  // rested on one line in one client effect. Any other way in walked past it.
+  // A week in the FUTURE on purpose: the past-freeze rule fires first, and a
+  // past week would have every one of these refused for the wrong reason.
+  const WEEK = '2027-04-05'; // Monday; midweek Thursday 8th, weekend Sunday 11th
+
+  function build(events: any[]) {
+    const qb: any = {
+      insert: jest.fn().mockReturnThis(),
+      into: jest.fn().mockReturnThis(),
+      values: jest.fn().mockReturnThis(),
+      orIgnore: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({}),
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+      getRawOne: jest.fn().mockResolvedValue({ max: null }),
+    };
+    const svc = new DutiesService(
+      {
+        logCreate: jest.fn(),
+        logUpdate: jest.fn(),
+        logEvent: jest.fn(),
+      } as any,
+      { createQueryBuilder: jest.fn(() => qb), findOne: jest.fn() } as any,
+      { count: jest.fn().mockResolvedValue(0), findOne: jest.fn() } as any,
+      { findOne: jest.fn() } as any,
+      {
+        find: jest
+          .fn()
+          .mockResolvedValue([
+            { effectiveFrom: '2020-01-01', midweekDow: 4, weekendDow: 7 },
+          ]),
+        save: jest.fn(),
+      } as any,
+      {
+        findOne: jest
+          .fn()
+          .mockResolvedValue({ assignmentAutomationEnabled: false }),
+      } as any,
+      {
+        find: jest.fn(async (opts: any) => {
+          const where = opts.where;
+          const wanted = Array.isArray(where)
+            ? where.map((w: any) => w.type)
+            : [where.type];
+          if (!Array.isArray(where) && where.replacesMeeting) {
+            return events.filter((e) => e.replacesMeeting);
+          }
+          return events.filter((e) => wanted.includes(e.type));
+        }),
+      } as any,
+      clockStub(),
+    );
+    return { svc, qb };
+  }
+
+  it('refuses to generate them in a convention week', async () => {
+    const { svc, qb } = build([
+      {
+        type: 'regional_convention',
+        date: '2027-04-09',
+        endDate: '2027-04-11',
+      },
+    ]);
+    await expect(
+      svc.generateWeek('c1', { weekStartDate: WEEK, eventType: MIDWEEK }),
+    ).rejects.toThrow(ConflictException);
+    expect(qb.insert).not.toHaveBeenCalled();
+  });
+
+  it('refuses for the meeting the Memorial took, and allows the other one', async () => {
+    // Wednesday Memorial: the midweek meeting gives way, the weekend one is
+    // held as usual.
+    const events = [{ type: 'memorial', date: '2027-04-07', endDate: null }];
+    const a = build(events);
+    await expect(
+      a.svc.generateWeek('c1', { weekStartDate: WEEK, eventType: MIDWEEK }),
+    ).rejects.toThrow(ConflictException);
+
+    const b = build(events);
+    await b.svc.generateWeek('c1', {
+      weekStartDate: WEEK,
+      eventType: 'weekend' as any,
+    });
+    expect(b.qb.insert).toHaveBeenCalled();
+  });
+
+  it('refuses when an event flagged «в этот день обычной встречи нет» covers the day', async () => {
+    const { svc, qb } = build([
+      {
+        type: 'special_talk',
+        date: '2027-04-08',
+        endDate: null,
+        replacesMeeting: true,
+      },
+    ]);
+    await expect(
+      svc.generateWeek('c1', { weekStartDate: WEEK, eventType: MIDWEEK }),
+    ).rejects.toThrow(ConflictException);
+    expect(qb.insert).not.toHaveBeenCalled();
+  });
+
+  it('still generates them on an ordinary week', async () => {
+    const { svc, qb } = build([]);
+    await svc.generateWeek('c1', { weekStartDate: WEEK, eventType: MIDWEEK });
+    expect(qb.insert).toHaveBeenCalled();
+  });
+
+  it('lets a congregation with no meeting settings yet create them', async () => {
+    // A brand-new congregation has no settings, so no meeting appears in the
+    // week's list either. Refusing there would stop it from setting itself up
+    // — which is exactly what a first, too-broad version of this check did.
+    const qb: any = {
+      insert: jest.fn().mockReturnThis(),
+      into: jest.fn().mockReturnThis(),
+      values: jest.fn().mockReturnThis(),
+      orIgnore: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({}),
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+      getRawOne: jest.fn().mockResolvedValue({ max: null }),
+    };
+    const svc = new DutiesService(
+      {
+        logCreate: jest.fn(),
+        logUpdate: jest.fn(),
+        logEvent: jest.fn(),
+      } as any,
+      { createQueryBuilder: jest.fn(() => qb), findOne: jest.fn() } as any,
+      { count: jest.fn().mockResolvedValue(0), findOne: jest.fn() } as any,
+      { findOne: jest.fn() } as any,
+      { find: jest.fn().mockResolvedValue([]), save: jest.fn() } as any,
+      {
+        findOne: jest
+          .fn()
+          .mockResolvedValue({ assignmentAutomationEnabled: false }),
+      } as any,
+      { find: jest.fn().mockResolvedValue([]) } as any,
+      clockStub(),
+    );
+    await svc.generateWeek('c1', { weekStartDate: WEEK, eventType: MIDWEEK });
+    expect(qb.insert).toHaveBeenCalled();
+  });
+});
