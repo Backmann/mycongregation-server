@@ -13,6 +13,7 @@ import { AuxiliaryPioneersService } from '../auxiliary-pioneers/auxiliary-pionee
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 /**
  * The field-service part of a circuit-overseer visit, as everyone may see it.
@@ -141,6 +142,7 @@ export class CoVisitItemsService {
     private readonly publishersRepo: Repository<Publisher>,
     private readonly auxiliaryPioneersService: AuxiliaryPioneersService,
     private readonly auditLog: AuditLogService,
+    private readonly clock: CongregationClock,
   ) {}
 
   /**
@@ -187,7 +189,7 @@ export class CoVisitItemsService {
       })
       .andWhere('i.assigneePublisherId IS NOT NULL')
       .getMany();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = await this.clock.todayFor(congregationId);
     const map = new Map<
       string,
       {
@@ -254,7 +256,7 @@ export class CoVisitItemsService {
   async fieldService(
     congregationId: string,
   ): Promise<CoVisitFieldServiceWeek[]> {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = await this.clock.todayFor(congregationId);
     const visits = (
       await this.eventsRepo.find({
         where: { congregationId, type: 'circuit_overseer_visit' },
@@ -308,7 +310,7 @@ export class CoVisitItemsService {
     // The pioneer meeting is for every kind of pioneer: any active permanent
     // pioneer (regular / special / missionary) OR an auxiliary pioneer serving
     // this month. It concerns all of them directly.
-    const today = new Date().toISOString().slice(0, 10);
+    const today = await this.clock.todayFor(congregationId);
     const isAuxNow =
       await this.auxiliaryPioneersService.isActiveAuxiliaryPioneer(
         congregationId,

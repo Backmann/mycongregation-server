@@ -11,9 +11,11 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneers.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
+import { CongregationClockModule } from '../common/congregation-clock.module';
 
 @Module({
   imports: [
+    CongregationClockModule,
     TypeOrmModule.forFeature([
       CoVisitItem,
       SpecialEvent,

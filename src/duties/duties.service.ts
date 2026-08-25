@@ -181,7 +181,9 @@ export class DutiesService {
     congregationId: string,
     microphoneSlots: number,
   ): Promise<MeetingSettings> {
-    const today = new Date().toISOString().slice(0, 10);
+    // This picks the version it is about to SAVE onto, so an off-by-one day
+    // does not merely display wrong — it edits the wrong row.
+    const today = await this.clock.todayFor(congregationId);
     const settings = await this.effectiveSettings(congregationId, today);
     if (!settings) {
       throw new NotFoundException('No meeting settings to update');

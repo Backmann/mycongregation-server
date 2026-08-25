@@ -6,6 +6,8 @@ import { Publisher } from '../entities/publisher.entity';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { clockStub } from '../common/testing/clock-stub';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 jest.mock('../push-notifications/push-notifications.service', () => ({
   PushNotificationsService: class PushNotificationsServiceMock {},
@@ -33,6 +35,7 @@ async function buildService(rows: FieldServiceMeeting[]) {
   const moduleRef = await Test.createTestingModule({
     providers: [
       FieldServiceMeetingsService,
+      { provide: CongregationClock, useValue: clockStub() },
       { provide: getRepositoryToken(FieldServiceMeeting), useValue: repo },
       {
         provide: getRepositoryToken(Publisher),

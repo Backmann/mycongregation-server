@@ -3,6 +3,7 @@ jest.mock('expo-server-sdk', () => ({ Expo: class {} }));
 import { ForbiddenException } from '@nestjs/common';
 import { TasksController } from './tasks.controller';
 import { UserRole } from '../common/enums/user-role.enum';
+import { clockStub } from '../common/testing/clock-stub';
 
 const elder = {
   id: 'u-elder',
@@ -32,6 +33,7 @@ describe('TasksController — naming an elders meeting', () => {
       service as never,
       {} as never,
       items as never,
+      clockStub(),
     );
     return { controller, service, items };
   };

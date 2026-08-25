@@ -1,5 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { FieldServiceMeetingsService } from './field-service-meetings.service';
+import { clockStub } from '../common/testing/clock-stub';
 
 // expo-server-sdk (pulled in via the push service) is ESM-only and breaks
 // under Jest — mock the module before the service import resolves it.
@@ -44,6 +45,7 @@ describe('FieldServiceMeetingsService', () => {
       pushMock,
       notifyMock,
       auditMock,
+      clockStub(),
     );
 
     const out = await svc.list(CONG, { weekStart: '2026-05-18' });
@@ -72,6 +74,7 @@ describe('FieldServiceMeetingsService', () => {
       pushMock,
       notifyMock,
       auditMock,
+      clockStub(),
     );
 
     await svc.list(CONG, {});
@@ -93,6 +96,7 @@ describe('FieldServiceMeetingsService', () => {
       pushMock,
       notifyMock,
       auditMock,
+      clockStub(),
     );
 
     const out = await svc.create(CONG, {
@@ -121,6 +125,7 @@ describe('FieldServiceMeetingsService', () => {
       pushMock,
       notifyMock,
       auditMock,
+      clockStub(),
     );
 
     await expect(
@@ -148,6 +153,7 @@ describe('FieldServiceMeetingsService', () => {
       pushMock,
       notifyMock,
       auditMock,
+      clockStub(),
     );
 
     const out = await svc.update(CONG, 'm1', {
@@ -171,6 +177,7 @@ describe('FieldServiceMeetingsService', () => {
       pushMock,
       notifyMock,
       auditMock,
+      clockStub(),
     );
 
     await expect(svc.remove(CONG, 'missing')).rejects.toBeInstanceOf(
@@ -224,6 +231,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       push,
       notify,
       auditMock,
+      clockStub(),
     );
 
     await svc.create(CONG, {
@@ -266,6 +274,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       makePush(),
       makeNotify(),
       audit,
+      clockStub(),
     );
 
     await svc.update(CONG, 'm9', {
@@ -300,6 +309,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       makePush(),
       makeNotify(),
       audit,
+      clockStub(),
     );
 
     await svc.remove(CONG, 'm9');
@@ -324,6 +334,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       push,
       notify,
       auditMock,
+      clockStub(),
     );
 
     await svc.create(CONG, {
@@ -359,6 +370,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       push,
       notify,
       auditMock,
+      clockStub(),
     );
 
     await svc.update(CONG, 'm1', { conductorPublisherId: 'p-new' } as any);
@@ -382,6 +394,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       push,
       notify,
       auditMock,
+      clockStub(),
     );
 
     await svc.remove(CONG, 'm1');
@@ -406,6 +419,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       push,
       notify,
       auditMock,
+      clockStub(),
     );
 
     await svc.create(CONG, {

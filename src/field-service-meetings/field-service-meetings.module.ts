@@ -22,9 +22,11 @@ import { ElderTask } from '../entities/elder-task.entity';
 import { ElderTaskCalendarLog } from '../entities/elder-task-calendar-log.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { GroupVisitTasksService } from './group-visit-tasks.service';
+import { CongregationClockModule } from '../common/congregation-clock.module';
 
 @Module({
   imports: [
+    CongregationClockModule,
     TypeOrmModule.forFeature([
       FieldServiceMeeting,
       FieldServiceMonthTheme,

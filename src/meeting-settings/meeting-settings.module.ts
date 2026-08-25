@@ -5,9 +5,11 @@ import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { MeetingSettingsService } from './meeting-settings.service';
 import { MeetingSettingsController } from './meeting-settings.controller';
+import { CongregationClockModule } from '../common/congregation-clock.module';
 
 @Module({
   imports: [
+    CongregationClockModule,
     TypeOrmModule.forFeature([MeetingSettings, Congregation]),
     AuditLogModule,
   ],

@@ -1196,8 +1196,11 @@ export class PublishersService {
       PERMANENT.includes(publisher.pioneerType) &&
       !PERMANENT.includes(prevPioneerType);
     if (becamePermanent) {
+      // The congregation's own date, not the server's: closing the auxiliary
+      // period a month early would overlap the permanent one, which the note
+      // above forbids — and this WRITES, so a wrong day stays in the data.
       const fromMonth =
-        publisher.pioneerSince ?? new Date().toISOString().slice(0, 10);
+        publisher.pioneerSince ?? (await this.clock.todayFor(tenantId));
       await this.auxiliaryPioneersService.closeActiveForPublisher(
         tenantId,
         publisher.id,

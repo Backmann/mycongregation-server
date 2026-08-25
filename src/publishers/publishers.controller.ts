@@ -31,6 +31,7 @@ import { publicRosterPage } from './publisher-privacy';
 import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 @Controller('publishers')
 @UseGuards(RolesGuard)
@@ -38,6 +39,7 @@ export class PublishersController {
   constructor(
     private readonly publishersService: PublishersService,
     private readonly auxiliaryPioneersService: AuxiliaryPioneersService,
+    private readonly clock: CongregationClock,
   ) {}
 
   @UseGuards(ResponsibilityGuard)
@@ -174,7 +176,7 @@ export class PublishersController {
       await this.auxiliaryPioneersService.isActiveAuxiliaryPioneer(
         tenantId,
         publisher.id,
-        new Date().toISOString().slice(0, 10),
+        await this.clock.todayFor(tenantId),
       );
     return { ...result, isAuxiliaryPioneerNow };
   }

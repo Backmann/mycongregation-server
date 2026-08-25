@@ -6,6 +6,7 @@ import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { UpsertMeetingSettingsDto } from './dto/upsert-meeting-settings.dto';
 import { UpdateCongregationDto } from './dto/update-congregation.dto';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 @Injectable()
 export class MeetingSettingsService {
@@ -15,6 +16,7 @@ export class MeetingSettingsService {
     @InjectRepository(Congregation)
     private readonly congRepo: Repository<Congregation>,
     private readonly auditLog: AuditLogService,
+    private readonly clock: CongregationClock,
   ) {}
 
   private async getCongregation(tenantId: string): Promise<Congregation> {
@@ -70,7 +72,11 @@ export class MeetingSettingsService {
     tenantId: string,
     onDate?: string,
   ): Promise<MeetingSettings | null> {
-    const date = onDate ?? new Date().toISOString().slice(0, 10);
+    // Which version is in force is asked by nearly every screen, so the day
+    // has to be the congregation's own — between midnight and 02:00 in summer
+    // the server's UTC date is still yesterday, and a version that starts
+    // today would not yet count.
+    const date = onDate ?? (await this.clock.todayFor(tenantId));
     const rows = await this.repo.find({
       where: {
         congregationId: tenantId,

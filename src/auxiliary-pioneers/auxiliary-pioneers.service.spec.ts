@@ -14,6 +14,8 @@ import { SpecialEvent } from '../entities/special-event.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { setNow, restoreNow } from '../common/testing/set-now';
+import { clockStub } from '../common/testing/clock-stub';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 const CONG = 'cong-1';
 const admin = { id: 'u-admin', role: UserRole.ADMIN } as never;
@@ -54,6 +56,7 @@ describe('AuxiliaryPioneersService', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         AuxiliaryPioneersService,
+        { provide: CongregationClock, useValue: clockStub() },
         { provide: getRepositoryToken(AuxiliaryPioneer), useValue: repo },
         { provide: getRepositoryToken(Publisher), useValue: publisherRepo },
         {

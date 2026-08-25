@@ -4,6 +4,8 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { MeetingSettingsService } from './meeting-settings.service';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { Congregation } from '../entities/congregation.entity';
+import { clockStub } from '../common/testing/clock-stub';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 describe('MeetingSettingsService', () => {
   let service: MeetingSettingsService;
@@ -41,6 +43,7 @@ describe('MeetingSettingsService', () => {
           },
         },
         MeetingSettingsService,
+        { provide: CongregationClock, useValue: clockStub() },
         { provide: getRepositoryToken(MeetingSettings), useValue: repo },
         { provide: getRepositoryToken(Congregation), useValue: congRepo },
       ],

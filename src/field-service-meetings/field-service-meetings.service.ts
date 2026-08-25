@@ -9,6 +9,7 @@ import { Publisher } from '../entities/publisher.entity';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 /** Add n days to an ISO 'YYYY-MM-DD' date (UTC, calendar-safe). */
 function addDaysISO(iso: string, n: number): string {
@@ -78,6 +79,7 @@ export class FieldServiceMeetingsService {
     private readonly push: PushNotificationsService,
     private readonly notifications: NotificationsService,
     private readonly auditLog: AuditLogService,
+    private readonly clock: CongregationClock,
   ) {}
 
   /**
@@ -397,7 +399,7 @@ export class FieldServiceMeetingsService {
    */
   async conductorStats(congregationId: string): Promise<ConductorStat[]> {
     const meetings = await this.repo.find({ where: { congregationId } });
-    const today = new Date().toISOString().slice(0, 10);
+    const today = await this.clock.todayFor(congregationId);
     const map = new Map<
       string,
       { total: number; lastDate: string | null; nextDate: string | null }

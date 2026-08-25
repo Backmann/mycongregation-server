@@ -19,16 +19,23 @@ import type { MyAuxPioneerStatus } from './auxiliary-pioneers.service';
 import { CreateAuxiliaryPioneerDto } from './dto/create-auxiliary-pioneer.dto';
 import { StopAuxiliaryPioneerDto } from './dto/stop-auxiliary-pioneer.dto';
 import { UpdateAuxiliaryPioneerDto } from './dto/update-auxiliary-pioneer.dto';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 @Controller('auxiliary-pioneers')
 @UseGuards(JwtAuthGuard)
 export class AuxiliaryPioneersController {
-  constructor(private readonly service: AuxiliaryPioneersService) {}
+  constructor(
+    private readonly service: AuxiliaryPioneersService,
+    private readonly clock: CongregationClock,
+  ) {}
 
   /** Everyone serving in a given month (?month=YYYY-MM-DD), with hour goal. */
   @Get()
-  list(@TenantId() congregationId: string, @Query('month') month: string) {
-    const monthIso = month || new Date().toISOString().slice(0, 10);
+  async list(
+    @TenantId() congregationId: string,
+    @Query('month') month: string,
+  ) {
+    const monthIso = month || (await this.clock.todayFor(congregationId));
     return this.service.listForMonth(congregationId, monthIso);
   }
 
@@ -45,12 +52,12 @@ export class AuxiliaryPioneersController {
    * report form and the home badge); never the roster.
    */
   @Get('mine')
-  mine(
+  async mine(
     @TenantId() congregationId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Query('month') month: string,
   ): Promise<MyAuxPioneerStatus> {
-    const monthIso = month || new Date().toISOString().slice(0, 10);
+    const monthIso = month || (await this.clock.todayFor(congregationId));
     return this.service.myAuxiliaryPioneerStatus(
       congregationId,
       user,

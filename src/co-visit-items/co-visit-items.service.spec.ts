@@ -3,6 +3,7 @@ import {
   toCoVisitItemView,
 } from './co-visit-items.service';
 import type { CoVisitItem } from '../entities/co-visit-item.entity';
+import { clockStub } from '../common/testing/clock-stub';
 
 function item(partial: Partial<CoVisitItem>): CoVisitItem {
   return {
@@ -38,6 +39,7 @@ describe('CoVisitItemsService — a removed item is kept, not erased', () => {
       {} as any,
       {} as any,
       audit as never,
+      clockStub(),
     );
     return { svc, repo };
   };
@@ -191,6 +193,7 @@ describe('CoVisitItemsService.mine', () => {
       publishersRepo,
       auxService,
       { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
+      clockStub(),
     );
   }
   const base = {
@@ -307,6 +310,7 @@ describe('CoVisitItemsService.mine', () => {
       publishersRepo,
       auxService,
       { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
+      clockStub(),
     );
     expect((await svc.mine(CONG, USER))[0]?.items).toHaveLength(1);
   });
@@ -367,6 +371,7 @@ describe('CoVisitItemsService.hostStats', () => {
       {} as any,
       {} as any,
       { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
+      clockStub(),
     );
     const out = await svc.hostStats('c1');
     const p1lunch = out.find(
@@ -415,6 +420,7 @@ describe('CoVisitItemsService.hostStats — counted per kind', () => {
       {} as any,
       {} as any,
       { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
+      clockStub(),
     ).hostStats('c1');
   }
 
@@ -490,6 +496,7 @@ describe('CoVisitItemsService.mine — accommodation host & legacy copies', () =
       publishersRepo,
       auxService,
       { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
+      clockStub(),
     );
   }
 
@@ -568,6 +575,7 @@ describe('CoVisitItemsService.fieldService', () => {
         isActiveAuxiliaryPioneer: jest.fn(async () => false),
       } as any,
       { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
+      clockStub(),
     );
   }
 

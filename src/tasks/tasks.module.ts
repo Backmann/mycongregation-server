@@ -15,9 +15,11 @@ import { TaskRemindersService } from './task-reminders.service';
 import { EldersMeetingItem } from '../entities/elders-meeting-item.entity';
 import { AgendaItemsService } from './agenda-items.service';
 import { AuditLogModule } from '../audit-log/audit-log.module';
+import { CongregationClockModule } from '../common/congregation-clock.module';
 
 @Module({
   imports: [
+    CongregationClockModule,
     NotificationsModule,
     // The agenda writes to the journal now — and a service can only be
     // injected if its module is imported. Nothing caught this: the tests build

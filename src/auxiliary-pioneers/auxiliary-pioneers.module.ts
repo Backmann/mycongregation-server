@@ -7,9 +7,11 @@ import { AuxiliaryPioneer } from '../entities/auxiliary-pioneer.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
+import { CongregationClockModule } from '../common/congregation-clock.module';
 
 @Module({
   imports: [
+    CongregationClockModule,
     TypeOrmModule.forFeature([
       AuxiliaryPioneer,
       Publisher,

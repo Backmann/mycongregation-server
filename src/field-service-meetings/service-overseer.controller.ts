@@ -1,6 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { ServiceOverseerService } from './service-overseer.service';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 /**
  * Which groups the service overseer has visited, and which still wait.
@@ -11,14 +12,20 @@ import { ServiceOverseerService } from './service-overseer.service';
  */
 @Controller('service-overseer')
 export class ServiceOverseerController {
-  constructor(private readonly service: ServiceOverseerService) {}
+  constructor(
+    private readonly service: ServiceOverseerService,
+    private readonly clock: CongregationClock,
+  ) {}
 
   @Get('group-visits')
-  groupVisits(
+  async groupVisits(
     @TenantId() congregationId: string,
     @Query('serviceYear') serviceYear?: string,
   ) {
-    const today = new Date().toISOString().slice(0, 10);
+    // The service year turns over on 1 September. By the server's UTC clock
+    // that turn happens two hours late in a German summer, so a visit looked
+    // up just after midnight would be filed under the year that just ended.
+    const today = await this.clock.todayFor(congregationId);
     const year = Number(serviceYear) || currentServiceYear(today);
     return this.service.groupVisits(congregationId, year, today);
   }

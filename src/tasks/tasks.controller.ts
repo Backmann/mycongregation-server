@@ -32,6 +32,7 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { TaskAddresseesService } from './task-addressees.service';
 import { AgendaItemsService } from './agenda-items.service';
 import { TASK_AREAS, type TaskArea } from './task-areas';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 // The one list, shared with the entity's type and checked against the
 // database's own constraints by task-areas.spec.ts.
@@ -146,6 +147,7 @@ export class TasksController {
     private readonly service: TasksService,
     private readonly addressees: TaskAddresseesService,
     private readonly items: AgendaItemsService,
+    private readonly clock: CongregationClock,
   ) {}
 
   // ---- Meetings ---------------------------------------------------------
@@ -310,8 +312,11 @@ export class TasksController {
   // ---- The agenda -------------------------------------------------------
 
   @Get('agenda')
-  agenda(@TenantId() tenantId: string, @Query('meetingId') meetingId?: string) {
-    const today = new Date().toISOString().slice(0, 10);
+  async agenda(
+    @TenantId() tenantId: string,
+    @Query('meetingId') meetingId?: string,
+  ) {
+    const today = await this.clock.todayFor(tenantId);
     return this.service.agenda(tenantId, meetingId ?? null, today);
   }
 

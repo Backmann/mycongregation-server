@@ -25,6 +25,7 @@ import {
   monthKeyOf,
   REDUCED_HOUR_EVENT_TYPES,
 } from './auxiliary-pioneer-hours';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 /** The roles/responsibilities that may manage auxiliary pioneers. */
 const MANAGER_RESPONSIBILITIES = [
@@ -86,6 +87,7 @@ export class AuxiliaryPioneersService {
     @InjectRepository(SpecialEvent)
     private readonly eventRepo: Repository<SpecialEvent>,
     private readonly auditLog: AuditLogService,
+    private readonly clock: CongregationClock,
   ) {}
 
   /** Managers: admins, body coordinator, secretary, service overseer. */
@@ -338,8 +340,10 @@ export class AuxiliaryPioneersService {
     await this.assertCanManage(congregationId, user);
     const row = await this.repo.findOne({ where: { id, congregationId } });
     if (!row) throw new NotFoundException('Record not found.');
+    // WRITES the end month. The congregation's day, or a period stopped just
+    // after midnight on the 1st would be closed in the month before.
     const endMonth = this.normalizeMonth(
-      dto.endMonth ?? new Date().toISOString().slice(0, 10),
+      dto.endMonth ?? (await this.clock.todayFor(congregationId)),
     );
     if (endMonth < row.startMonth) {
       throw new BadRequestException('End month cannot precede start month.');

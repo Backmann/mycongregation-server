@@ -15,6 +15,7 @@ jest.mock('expo-server-sdk', () => {
 
 import { PublishersController } from './publishers.controller';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { clockStub } from '../common/testing/clock-stub';
 
 const TENANT = 'cong-1';
 const USER = { id: 'user-1', role: 'publisher' } as AuthenticatedUser;
@@ -25,7 +26,7 @@ function makeController(
     isActiveAuxiliaryPioneer: jest.fn().mockResolvedValue(false),
   },
 ) {
-  return new PublishersController(service as never, aux as never);
+  return new PublishersController(service as never, aux as never, clockStub());
 }
 
 describe('PublishersController.findAll — directory scoping', () => {
