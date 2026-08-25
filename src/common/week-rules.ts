@@ -33,8 +33,19 @@
  *     still the midweek meeting that goes. The other meeting that week is held
  *     as usual.
  *
- * Rule 1 wins over rule 3: in a convention week there is nothing left for the
- * Memorial to displace.
+ *  4. Any OTHER event carrying `replacesMeeting` ⇒ the meeting whose day it
+ *     COVERS is not held. By the covered day, not by the kind of day: a
+ *     special talk on a Saturday is an event of that Saturday, not of "the
+ *     weekend in general", so it cannot stand in for a Sunday meeting the way
+ *     the Memorial does. This is the switch the event form offers as «В этот
+ *     день обычной встречи нет»; the app has always obeyed it and the server
+ *     read it nowhere, which made it the last way left to get two answers to
+ *     one question.
+ *
+ * Rules 1 and 3 win over rule 4, and rule 1 over rule 3: in a convention week
+ * there is nothing left for anything to displace, and an event that already
+ * has a rule of its own — a convention, an assembly, the Memorial, a circuit
+ * visit — is not judged a second time by its flag.
  */
 
 /** ISO day of week: 1 = Monday … 7 = Sunday. */
@@ -59,6 +70,8 @@ export interface WeekEvent {
   endDate?: string | null;
   /** Weekday the midweek meeting moves to during a visit (1=Mon…7=Sun). */
   coMidweekDow?: number | null;
+  /** «В этот день обычной встречи нет» — set by hand on the event. */
+  replacesMeeting?: boolean | null;
 }
 
 /** Only the fields the rules need from a meeting-settings version. */
@@ -115,6 +128,8 @@ export interface WeekRules {
   dowOf: (kind: MeetingKind) => number | null;
   /** Calendar date of a meeting, or null when it has no day. */
   dateOf: (kind: MeetingKind) => string | null;
+  /** The flagged event standing in for a meeting, if one covers its day. */
+  replacedBy: (kind: MeetingKind) => WeekEvent | null;
   /** The meetings actually held that week, in order. */
   meetings: { date: string; kind: MeetingKind }[];
   /** Days covered by the convention or assembly, within this week. */
@@ -161,10 +176,31 @@ export function weekRules(input: {
     return dow ? addDaysISO(weekStart, dow - 1) : null;
   };
 
+  // An event that already has a rule of its own is not judged again by its
+  // flag: a convention cancels the week, the Memorial goes by the kind of day,
+  // and a circuit visit MOVES the midweek meeting rather than cancelling it.
+  const flagged = events.filter(
+    (e) =>
+      !!e.replacesMeeting &&
+      !isCongressEvent(e) &&
+      e.type !== 'memorial' &&
+      e.type !== 'circuit_overseer_visit',
+  );
+
+  const replacedBy = (kind: MeetingKind): WeekEvent | null => {
+    const date = dateOf(kind);
+    if (!date) return null;
+    return (
+      flagged.find((e) => e.date <= date && (e.endDate ?? e.date) >= date) ??
+      null
+    );
+  };
+
   const meetings: { date: string; kind: MeetingKind }[] = [];
   if (meetingsHeld && version) {
     for (const kind of ['midweek', 'weekend'] as const) {
       if (memorialTakes === kind) continue;
+      if (replacedBy(kind)) continue;
       const date = dateOf(kind);
       if (date) meetings.push({ date, kind });
     }
@@ -189,6 +225,7 @@ export function weekRules(input: {
     memorialTakes,
     dowOf,
     dateOf,
+    replacedBy,
     meetings,
     congressDays,
   };

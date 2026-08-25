@@ -516,3 +516,38 @@ describe('a convention week asks for nothing — the case the old rule got wrong
     expect(out).toEqual([]);
   });
 });
+
+describe('an event flagged «в этот день обычной встречи нет»', () => {
+  it('is obeyed by the server too, not only on screen', async () => {
+    // The switch has been on the event form all along and the app has always
+    // hidden the meeting for it; the server read the column nowhere, so it
+    // still asked the secretary to record attendance at that meeting.
+    const { repo, settingsRepo } = build([]);
+    (settingsRepo as unknown as { find: jest.Mock }).find.mockResolvedValue([
+      { effectiveFrom: '2020-01-01', midweekDow: 4, weekendDow: 7 },
+    ]);
+    const eventsFind = jest.fn(async (opts: unknown) => {
+      const where = (opts as { where: unknown }).where;
+      if (
+        !Array.isArray(where) &&
+        (where as { replacesMeeting?: boolean }).replacesMeeting
+      ) {
+        // Special talk on the Thursday — the midweek meeting's own day.
+        return [{ type: 'special_talk', date: '2026-04-09', endDate: null }];
+      }
+      return [];
+    });
+    const svc = new MeetingAttendanceService(
+      repo,
+      settingsRepo,
+      { find: eventsFind } as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      { logCreate: jest.fn(), logUpdate: jest.fn() } as never,
+      clockStub(),
+    );
+
+    const out = await svc.pendingForWeek('cong-1', '2026-04-06');
+
+    expect(out.map((m) => m.eventType)).toEqual(['weekend']);
+  });
+});

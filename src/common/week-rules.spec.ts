@@ -156,3 +156,77 @@ describe('isoDowOf', () => {
     expect(isoDowOf('2026-04-12')).toBe(7);
   });
 });
+
+describe('an event flagged «в этот день обычной встречи нет»', () => {
+  it('takes the meeting whose day it covers', () => {
+    // Special talk on the Thursday — the midweek meeting's own day.
+    const r = rules([
+      { type: 'special_talk', date: '2026-04-09', replacesMeeting: true },
+    ]);
+    expect(r.meetings).toEqual([{ date: '2026-04-12', kind: 'weekend' }]);
+  });
+
+  it('takes nothing when it falls on a day no meeting uses', () => {
+    // Saturday, while the weekend meeting is the Sunday. Unlike the Memorial,
+    // an ordinary event does not stand in for "the weekend" as a whole.
+    const r = rules([
+      { type: 'special_talk', date: '2026-04-11', replacesMeeting: true },
+    ]);
+    expect(r.meetings).toHaveLength(2);
+    expect(r.replacedBy('weekend')).toBeNull();
+  });
+
+  it('covers a meeting inside a multi-day event', () => {
+    const r = rules([
+      {
+        type: 'other',
+        date: '2026-04-08',
+        endDate: '2026-04-10',
+        replacesMeeting: true,
+      },
+    ]);
+    expect(r.replacedBy('midweek')).not.toBeNull();
+    expect(r.meetings).toEqual([{ date: '2026-04-12', kind: 'weekend' }]);
+  });
+
+  it('is ignored when the flag is not set', () => {
+    const r = rules([{ type: 'special_talk', date: '2026-04-09' }]);
+    expect(r.meetings).toHaveLength(2);
+  });
+
+  it('does not judge a second time an event that has a rule of its own', () => {
+    // A Memorial carrying the flag as well: it goes by the KIND OF DAY, so the
+    // Saturday Memorial takes the Sunday weekend meeting and leaves the
+    // midweek one — the flag must not additionally remove anything.
+    const r = rules([
+      { type: 'memorial', date: '2026-04-11', replacesMeeting: true },
+    ]);
+    expect(r.meetings).toEqual([{ date: '2026-04-09', kind: 'midweek' }]);
+  });
+
+  it('does not cancel the midweek meeting a circuit visit merely moved', () => {
+    const r = rules([
+      {
+        type: 'circuit_overseer_visit',
+        date: '2026-04-07',
+        replacesMeeting: true,
+      },
+    ]);
+    expect(r.meetings).toEqual([
+      { date: '2026-04-07', kind: 'midweek' },
+      { date: '2026-04-12', kind: 'weekend' },
+    ]);
+  });
+
+  it('has nothing to take in a convention week', () => {
+    const r = rules([
+      { type: 'special_talk', date: '2026-04-09', replacesMeeting: true },
+      {
+        type: 'regional_convention',
+        date: '2026-04-10',
+        endDate: '2026-04-12',
+      },
+    ]);
+    expect(r.meetings).toEqual([]);
+  });
+});

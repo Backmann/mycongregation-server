@@ -61,6 +61,7 @@ interface WeekContext {
   visits: SpecialEvent[];
   cancelling: SpecialEvent[];
   memorials: SpecialEvent[];
+  flagged: SpecialEvent[];
 }
 
 @Injectable()
@@ -289,7 +290,14 @@ export class MeetingAttendanceService {
     const memorials = await this.eventsRepo.find({
       where: { congregationId: tenantId, type: 'memorial' },
     });
-    return { versions, visits, cancelling, memorials };
+    // Anything the congregation marked by hand as «в этот день обычной встречи
+    // нет». Fetched by the FLAG rather than by a type, because that is the
+    // whole point of it: it exists for the events that have no rule of their
+    // own. The rules module ignores it on events that do.
+    const flagged = await this.eventsRepo.find({
+      where: { congregationId: tenantId, replacesMeeting: true },
+    });
+    return { versions, visits, cancelling, memorials, flagged };
   }
 
   /** Which meetings that week held, and on which dates. */
@@ -336,6 +344,12 @@ export class MeetingAttendanceService {
           type: e.type ?? 'regional_convention',
         })),
         ...ctx.memorials.map((e) => ({ ...e, type: 'memorial' })),
+        // These keep their OWN type: the flag rule needs to know what they are
+        // in order to leave alone the ones that have a rule of their own. The
+        // flag itself is set here rather than read off the row — the query
+        // filtered ON it, so it is true by construction, and the rule must not
+        // depend on a column a caller might not have selected.
+        ...ctx.flagged.map((e) => ({ ...e, replacesMeeting: true })),
       ],
     });
     return rules.meetings.map((m) => ({
