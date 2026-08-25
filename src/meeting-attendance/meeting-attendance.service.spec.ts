@@ -447,3 +447,72 @@ describe('attendanceOpen — when the card may be filled in', () => {
     expect(minutesOfClock(null)).toBeNull();
   });
 });
+
+describe('a convention week asks for nothing — the case the old rule got wrong', () => {
+  it('does not ask about the midweek meeting when a Friday-to-Sunday convention leaves its day uncovered', async () => {
+    // The convention runs 10–12 April; the midweek meeting is the Thursday
+    // before it, the 9th. The congregation holds no meetings that week at all,
+    // so neither figure is wanted. The old rule asked whether the event
+    // covered the MEETING'S date, kept the Thursday, and put it in front of
+    // the secretary as an outstanding entry.
+    const { repo, settingsRepo } = build([]);
+    (settingsRepo as unknown as { find: jest.Mock }).find.mockResolvedValue([
+      { effectiveFrom: '2020-01-01', midweekDow: 4, weekendDow: 7 },
+    ]);
+    const eventsFind = jest.fn(async (opts: unknown) => {
+      const where = (opts as { where: unknown }).where;
+      const types = Array.isArray(where)
+        ? (where as { type: string }[]).map((w) => w.type)
+        : [(where as { type: string }).type];
+      if (types.includes('regional_convention')) {
+        return [{ date: '2026-04-10', endDate: '2026-04-12' }];
+      }
+      return [];
+    });
+    const svc = new MeetingAttendanceService(
+      repo,
+      settingsRepo,
+      { find: eventsFind } as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      { logCreate: jest.fn(), logUpdate: jest.fn() } as never,
+      clockStub(),
+    );
+
+    const out = await svc.pendingForWeek('cong-1', '2026-04-06');
+
+    expect(out).toEqual([]);
+  });
+
+  it('does not ask about either meeting when a one-day assembly falls on the Saturday', async () => {
+    // Saturday 11 April covers neither the Thursday nor the Sunday, so the old
+    // rule kept BOTH meetings.
+    const { repo, settingsRepo } = build([]);
+    (settingsRepo as unknown as { find: jest.Mock }).find.mockResolvedValue([
+      { effectiveFrom: '2020-01-01', midweekDow: 4, weekendDow: 7 },
+    ]);
+    const eventsFind = jest.fn(async (opts: unknown) => {
+      const where = (opts as { where: unknown }).where;
+      const types = Array.isArray(where)
+        ? (where as { type: string }[]).map((w) => w.type)
+        : [(where as { type: string }).type];
+      if (types.includes('regional_convention')) {
+        return [
+          { date: '2026-04-11', endDate: null, type: 'circuit_assembly' },
+        ];
+      }
+      return [];
+    });
+    const svc = new MeetingAttendanceService(
+      repo,
+      settingsRepo,
+      { find: eventsFind } as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      { logCreate: jest.fn(), logUpdate: jest.fn() } as never,
+      clockStub(),
+    );
+
+    const out = await svc.pendingForWeek('cong-1', '2026-04-06');
+
+    expect(out).toEqual([]);
+  });
+});

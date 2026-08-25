@@ -10,6 +10,7 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { minutesOfDayIn, todayIn } from '../common/congregation-clock';
 import { mondayOf } from '../common/week';
+import { weekRules } from '../common/week-rules';
 
 /** One meeting's figure as the report reads it. */
 export interface AttendanceRow {
@@ -314,50 +315,33 @@ export class MeetingAttendanceService {
     weekStart: string,
     ctx: WeekContext,
   ): { date: string; eventType: EventType }[] {
-    const { versions, visits, cancelling, memorials } = ctx;
-    const out: { date: string; eventType: EventType }[] = [];
-    {
-      let version: MeetingSettings | null = null;
-      for (const v of versions) {
-        if (v.effectiveFrom <= weekStart) version = v;
-      }
-      version = version ?? versions[0];
-
-      for (const kind of [EventType.MIDWEEK, EventType.WEEKEND] as const) {
-        let dow =
-          kind === EventType.MIDWEEK ? version.midweekDow : version.weekendDow;
-        if (kind === EventType.MIDWEEK) {
-          const weekEnd = addDaysISO(weekStart, 6);
-          const visit = visits.find(
-            (e) => e.date <= weekEnd && (e.endDate ?? e.date) >= weekStart,
-          );
-          if (visit) dow = visit.coMidweekDow ?? 2;
-        }
-        if (!dow) continue;
-        const date = addDaysISO(weekStart, dow - 1);
-        // A meeting that an assembly or convention replaced never happened,
-        // so there is nothing to ask about. Nothing is stored either: the
-        // monthly average counts only meetings that WERE held, so an absent
-        // row is already the right answer.
-        const replaced = cancelling.some(
-          (e) => e.date <= date && (e.endDate ?? e.date) >= date,
-        );
-        if (replaced) continue;
-
-        const weekEndDate = addDaysISO(weekStart, 6);
-        const memorialThisWeek = memorials.find(
-          (e) => e.date >= weekStart && e.date <= weekEndDate,
-        );
-        if (memorialThisWeek) {
-          const memorialDow = isoDowOf(memorialThisWeek.date);
-          const givesWay =
-            memorialDow >= 6 ? EventType.WEEKEND : EventType.MIDWEEK;
-          if (kind === givesWay) continue;
-        }
-        out.push({ date, eventType: kind });
-      }
-    }
-    return out;
+    // The rule itself lives in common/week-rules.ts, named and tested, because
+    // it was being answered here AND in the app with two different answers.
+    // This method now only translates that answer into the EventType the
+    // attendance rows are keyed by.
+    //
+    // The three lists are re-tagged with the type they were QUERIED by rather
+    // than read off the row: weekContext fetches each by an explicit `type`
+    // filter, so the kind is already known here, and the rules must not depend
+    // on a column that a caller might not have selected.
+    const rules = weekRules({
+      weekStart,
+      versions: ctx.versions,
+      events: [
+        ...ctx.visits.map((e) => ({ ...e, type: 'circuit_overseer_visit' })),
+        // Conventions and circuit assemblies cancel the week identically; the
+        // query returns only those two, so either label gives the same answer.
+        ...ctx.cancelling.map((e) => ({
+          ...e,
+          type: e.type ?? 'regional_convention',
+        })),
+        ...ctx.memorials.map((e) => ({ ...e, type: 'memorial' })),
+      ],
+    });
+    return rules.meetings.map((m) => ({
+      date: m.date,
+      eventType: m.kind === 'midweek' ? EventType.MIDWEEK : EventType.WEEKEND,
+    }));
   }
 
   /** Drop the ones already recorded, newest first. */
@@ -552,12 +536,6 @@ function addDaysISO(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
-}
-
-/** ISO day of week: 1 = Monday … 7 = Sunday. */
-function isoDowOf(iso: string): number {
-  const d = new Date(`${iso}T00:00:00Z`).getUTCDay();
-  return d === 0 ? 7 : d;
 }
 
 /**
