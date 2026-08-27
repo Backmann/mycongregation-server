@@ -138,6 +138,41 @@ describe('PushNotificationsService', () => {
       ).resolves.toBeUndefined();
     });
 
+    // The recipients are narrow and right — the overseer of that person's
+    // group, the secretary, the admins — but a push lands on a LOCK SCREEN,
+    // and a phone lies on a table where a wife, a child or a visitor sees it.
+    // The transition is enough to say "worth opening"; who it concerns is
+    // inside the app, behind the login.
+    it('names nobody: neither the text nor the payload carries the publisher', async () => {
+      pushTokenRepo.find.mockResolvedValue([]);
+      (webPushService.getSubscriptionsByTenant as jest.Mock).mockResolvedValue([
+        {
+          id: 'sub-1',
+          userId: 'u-overseer',
+          endpoint: 'https://x',
+          p256dh: 'k',
+          auth: 'a',
+        },
+      ]);
+
+      await service.sendStatusChange(
+        'cong-1',
+        { id: 'pub-1', displayName: 'Müller Paul' },
+        'active',
+        'irregular',
+      );
+
+      const call = (webPushService.sendToSubscription as jest.Mock).mock
+        .calls[0];
+      const payload = call[1];
+      const printed = JSON.stringify(payload);
+      expect(printed).not.toContain('Müller');
+      expect(printed).not.toContain('Paul');
+      // Still useful: the id to open, and the transition that says it matters.
+      expect(payload.data.publisherId).toBe('pub-1');
+      expect(payload.body).toContain('\u2192');
+    });
+
     it('queries by congregationId and triggers the Expo SDK when recipients exist', async () => {
       pushTokenRepo.find.mockResolvedValue([
         { token: 'ExponentPushToken[admin1]' } as any,

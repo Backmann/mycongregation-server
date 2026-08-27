@@ -183,10 +183,13 @@ export class PushNotificationsService {
       tokensByLang.get(lang)!.push(t.token);
     }
 
+    // No name here either. Nothing reads it — neither the service worker nor
+    // the tap handler — and a push payload is not a place to carry something
+    // that is not needed: it sits in the browser's notification store and in
+    // the phone's, outside the login that guards everything else.
     const data = {
       type: 'publisher_status_change',
       publisherId: publisher.id,
-      publisherName: publisher.displayName,
       before,
       after,
     };
@@ -208,7 +211,6 @@ export class PushNotificationsService {
         langTokens,
         strings.title,
         strings.body({
-          publisher: publisher.displayName,
           before: translateStatus(before, lang),
           after: translateStatus(after, lang),
         }),
@@ -256,7 +258,6 @@ export class PushNotificationsService {
         const payload = {
           title: strings.title,
           body: strings.body({
-            publisher: publisher.displayName,
             before: translateStatus(before, lang),
             after: translateStatus(after, lang),
           }),

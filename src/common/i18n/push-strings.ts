@@ -22,13 +22,22 @@ export function translateStatus(
  * Mirrors the per-component STR pattern described in
  * `docs/architecture/internationalization.md` Layer A.
  */
+/**
+ * A status change is announced WITHOUT the publisher's name.
+ *
+ * The recipients are narrow and right — the overseer of that person's service
+ * group, the secretary, the admins — but a push lands on a LOCK SCREEN, and a
+ * phone lies on a table where a wife, a child or a visitor sees it. «Иванов
+ * Пётр: активный → нерегулярный» is not a thing to leave lying in the open
+ * about a brother.
+ *
+ * The transition itself stays: it tells the reader this is a decline worth
+ * opening, and it names nobody. Who it concerns is inside the app, behind the
+ * login, on the screen this notification leads to.
+ */
 type PushTemplate = {
   title: string;
-  body: (params: {
-    publisher: string;
-    before: string;
-    after: string;
-  }) => string;
+  body: (params: { before: string; after: string }) => string;
 };
 
 type SchedulePublishedTemplate = {
@@ -167,8 +176,7 @@ export const PUSH_STRINGS: Record<
   en: {
     statusChange: {
       title: 'Status changed',
-      body: ({ publisher, before, after }) =>
-        `${publisher}: ${before} → ${after}`,
+      body: ({ before, after }) => `${before} → ${after}`,
     },
     schedulePublished: {
       title: 'Programme updated',
@@ -198,8 +206,7 @@ export const PUSH_STRINGS: Record<
   ru: {
     statusChange: {
       title: 'Статус изменён',
-      body: ({ publisher, before, after }) =>
-        `${publisher}: ${before} → ${after}`,
+      body: ({ before, after }) => `${before} → ${after}`,
     },
     schedulePublished: {
       title: 'Программа обновлена',
@@ -229,8 +236,7 @@ export const PUSH_STRINGS: Record<
   de: {
     statusChange: {
       title: 'Status geändert',
-      body: ({ publisher, before, after }) =>
-        `${publisher}: ${before} → ${after}`,
+      body: ({ before, after }) => `${before} → ${after}`,
     },
     schedulePublished: {
       title: 'Programm aktualisiert',
