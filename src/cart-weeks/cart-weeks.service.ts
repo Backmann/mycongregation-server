@@ -23,6 +23,7 @@ import { BuildCartWeekDto } from './dto/build-cart-week.dto';
 import { CreateCartRequestDto } from './dto/create-cart-request.dto';
 import { CreateCartAssignmentDto } from './dto/create-cart-assignment.dto';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 function toMin(hhmm: string): number {
   const [h, m] = hhmm.split(':').map(Number);
@@ -201,6 +202,7 @@ export class CartWeeksService {
     private readonly responsibilitiesRepo: Repository<Responsibility>,
     private readonly push: PushNotificationsService,
     private readonly notifications: NotificationsService,
+    private readonly clock: CongregationClock,
   ) {}
 
   async buildWeek(
@@ -559,7 +561,11 @@ export class CartWeeksService {
     weeks = 8,
   ): Promise<Record<string, PartnerHint[]>> {
     const now = new Date();
-    const today = now.toISOString().slice(0, 10);
+    // Not `now.toISOString().slice(0, 10)`: that is today in UTC, which in a
+    // German summer is still yesterday until two in the morning. The window
+    // below is measured back from THIS day, so an off-by-one shifts every
+    // pairing hint.
+    const today = await this.clock.todayFor(congregationId);
     const back = new Date(now.getTime() - weeks * 7 * 86400000)
       .toISOString()
       .slice(0, 10);

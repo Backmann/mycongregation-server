@@ -13,9 +13,11 @@ import { CartSlotsController } from './cart-slots.controller';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { CongregationClockModule } from '../common/congregation-clock.module';
 
 @Module({
   imports: [
+    CongregationClockModule,
     TypeOrmModule.forFeature([
       CartWeek,
       CartSlot,

@@ -36,6 +36,22 @@ const UTC_TODAY_SPLIT =
   /new Date\((?:\s*Date\.now\(\)\s*)?\)\s*\.toISOString\(\)\s*\.split\(\s*['"]T['"]\s*\)/;
 
 /**
+ * A timezone written in as a STRING.
+ *
+ * This is the other way to get the day wrong, and the one the first version of
+ * this guard did not see: `new Intl.DateTimeFormat('en-CA', { timeZone:
+ * 'Europe/Berlin' })` is correct for Ahlen and wrong for every congregation
+ * anywhere else. It sat in the special-events list for months and no sweep
+ * found it — including mine, because the folder is called «special-events»
+ * and a `grep -v spec` swallowed the whole directory.
+ *
+ * `timeZone: 'UTC'` is allowed: a job that must fire at a fixed absolute hour,
+ * or a month label built from a date that is already a calendar string, is
+ * asking for UTC on purpose. Naming a REGION is the mistake.
+ */
+const HARDCODED_ZONE = /timeZone:\s*['"](?!UTC['"])[A-Za-z]+\/[A-Za-z_/-]+['"]/;
+
+/**
  * This file quotes the pattern in order to forbid it, and the clock's own unit
  * test compares against a UTC date on purpose. Nothing else is exempt — in
  * particular, specs are NOT exempt: a test that builds its expectation from a
@@ -45,6 +61,14 @@ const UTC_TODAY_SPLIT =
 const EXEMPT = new Set([
   'common/congregation-clock.no-utc-today.spec.ts',
   'common/congregation-clock.spec.ts',
+  // The clock itself names the default region — that IS its job.
+  'common/congregation-clock.ts',
+  'common/testing/clock-stub.ts',
+  // Cron expressions run at an absolute hour; two of them are deliberately
+  // pinned to Berlin because that is where the congregation is and a job has
+  // no tenant to ask. Reviewed 29 August; if a second congregation ever lands
+  // in another zone, these become per-tenant work rather than a string swap.
+  'scheduled-jobs/scheduled-jobs.service.ts',
 ]);
 
 function sourceFiles(dir: string): string[] {
@@ -70,7 +94,11 @@ describe('no UTC "today" anywhere in the server', () => {
       if (EXEMPT.has(rel)) continue;
       const lines = readFileSync(file, 'utf8').split('\n');
       lines.forEach((line, i) => {
-        if (UTC_TODAY.test(line) || UTC_TODAY_SPLIT.test(line)) {
+        if (
+          UTC_TODAY.test(line) ||
+          UTC_TODAY_SPLIT.test(line) ||
+          HARDCODED_ZONE.test(line)
+        ) {
           offenders.push(`${rel}:${i + 1}`);
         }
       });

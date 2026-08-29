@@ -7,6 +7,7 @@ import { CreateSpecialEventDto } from './dto/create-special-event.dto';
 import { UpdateSpecialEventDto } from './dto/update-special-event.dto';
 import { QuerySpecialEventsDto } from './dto/query-special-events.dto';
 import { CoVisitTemplateService } from './co-visit-template.service';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 @Injectable()
 export class SpecialEventsService {
@@ -15,6 +16,7 @@ export class SpecialEventsService {
     private readonly specialEventsRepo: Repository<SpecialEvent>,
     private readonly coVisitTemplate: CoVisitTemplateService,
     private readonly auditLog: AuditLogService,
+    private readonly clock: CongregationClock,
   ) {}
 
   /**
@@ -43,9 +45,11 @@ export class SpecialEventsService {
         since: query.since,
       });
     } else if (query.all !== 'true') {
-      const today = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Europe/Berlin',
-      }).format(new Date());
+      // The congregation's own day. The timezone used to be written in here
+      // as a string, which is right for Ahlen and wrong for anyone else — and
+      // no guard caught it, because it is not the `toISOString().slice()`
+      // spelling the guard was looking for.
+      const today = await this.clock.todayFor(tenantId);
       qb.andWhere('COALESCE(e.end_date, e.date) >= :today', { today });
     }
 
