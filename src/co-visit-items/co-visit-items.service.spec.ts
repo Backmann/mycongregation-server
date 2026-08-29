@@ -2,6 +2,7 @@ import {
   CoVisitItemsService,
   toCoVisitItemView,
 } from './co-visit-items.service';
+import { ConflictException } from '@nestjs/common';
 import type { CoVisitItem } from '../entities/co-visit-item.entity';
 import { clockStub } from '../common/testing/clock-stub';
 
@@ -26,15 +27,28 @@ function item(partial: Partial<CoVisitItem>): CoVisitItem {
 }
 
 describe('CoVisitItemsService — a removed item is kept, not erased', () => {
-  const build = (item: any, audit: any) => {
+  /**
+   * `visitEnds` decides whether the visit is still open for changes: a visit
+   * already over is a record, and its programme is frozen the same way the
+   * duties of a past meeting are. Far in the future by default, so the cases
+   * below go on testing what they were written to test.
+   */
+  const build = (item: any, audit: any, visitEnds = '2099-12-31') => {
     const repo = {
       findOne: jest.fn(async () => item),
       softDelete: jest.fn(async () => ({ affected: 1 })),
       restore: jest.fn(async () => ({ affected: 1 })),
     } as any;
+    const eventsRepo = {
+      findOne: jest.fn(async () => ({
+        id: 'ev-1',
+        date: visitEnds,
+        endDate: visitEnds,
+      })),
+    } as any;
     const svc = new CoVisitItemsService(
       repo,
-      {} as any,
+      eventsRepo,
       {} as any,
       {} as any,
       {} as any,
@@ -659,5 +673,102 @@ describe('CoVisitItemsService.fieldService', () => {
   it('skips a visit that has no field-service meetings', async () => {
     const svc = build([]);
     await expect(svc.fieldService(CONG)).resolves.toEqual([]);
+  });
+});
+
+describe('CoVisitItemsService — a visit already over is a record', () => {
+  // The strip of visits opened the earlier ones for READING, which is what it
+  // was asked for — but it opened them for writing just as much, and last
+  // year's programme is something the congregation reports on, not something
+  // anyone should be able to quietly rewrite. The same rule the duties of a
+  // past meeting already follow.
+  const PAST = '2020-05-10';
+  const FUTURE = '2099-12-31';
+
+  function build(visitEnds: string) {
+    const item = {
+      id: 'it-1',
+      congregationId: 'cong-1',
+      specialEventId: 'ev-1',
+      kind: 'lunch',
+      itemDate: visitEnds,
+      startTime: null,
+      placeText: null,
+      deletedAt: new Date(),
+    } as any;
+    const repo = {
+      findOne: jest.fn(async () => item),
+      create: jest.fn((x: any) => x),
+      save: jest.fn(async (x: any) => ({ ...x, id: 'new-1' })),
+      softDelete: jest.fn(async () => ({ affected: 1 })),
+      restore: jest.fn(async () => ({ affected: 1 })),
+    } as any;
+    const eventsRepo = {
+      findOne: jest.fn(async () => ({
+        id: 'ev-1',
+        date: visitEnds,
+        endDate: visitEnds,
+      })),
+    } as any;
+    const audit = {
+      logEvent: jest.fn(),
+      logCreate: jest.fn(),
+      logUpdate: jest.fn(),
+    };
+    const svc = new CoVisitItemsService(
+      repo,
+      eventsRepo,
+      {} as any,
+      {} as any,
+      {} as any,
+      audit as never,
+      clockStub(),
+    );
+    return { svc, repo, audit };
+  }
+
+  const user = { userId: 'u-1' } as any;
+
+  it('refuses to add to a visit that is over', async () => {
+    const { svc, repo } = build(PAST);
+    await expect(
+      svc.create(
+        'cong-1',
+        { specialEventId: 'ev-1', kind: 'lunch', itemDate: PAST } as any,
+        user,
+      ),
+    ).rejects.toThrow(ConflictException);
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('refuses to change one, to remove one, and to put one back', async () => {
+    for (const call of [
+      (s: CoVisitItemsService) => s.update('cong-1', 'it-1', {}, user),
+      (s: CoVisitItemsService) => s.remove('cong-1', 'it-1', 'u-1'),
+      (s: CoVisitItemsService) => s.restore('cong-1', 'it-1'),
+    ]) {
+      const { svc, repo } = build(PAST);
+      await expect(call(svc)).rejects.toThrow(ConflictException);
+      expect(repo.softDelete).not.toHaveBeenCalled();
+      expect(repo.restore).not.toHaveBeenCalled();
+    }
+  });
+
+  it('writes the refusal to the journal — a rejection that leaves no trace answers nothing', async () => {
+    const { svc, audit } = build(PAST);
+    await expect(svc.remove('cong-1', 'it-1', 'u-1')).rejects.toThrow();
+    expect(audit.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'DENY',
+        entityType: 'co_visit_item',
+        detail: expect.objectContaining({ reason: 'past_visit_frozen' }),
+      }),
+    );
+  });
+
+  it('leaves a visit still to come alone', async () => {
+    const { svc, repo } = build(FUTURE);
+    await svc.remove('cong-1', 'it-1', 'u-1');
+    expect(repo.softDelete).toHaveBeenCalled();
   });
 });

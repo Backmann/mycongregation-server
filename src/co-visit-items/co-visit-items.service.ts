@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CoVisitItem } from '../entities/co-visit-item.entity';
@@ -446,6 +450,47 @@ export class CoVisitItemsService {
     return toCoVisitItemView(item, canViewPrivate);
   }
 
+  /**
+   * A visit already over is a record, not a plan.
+   *
+   * The strip of visits at the top of the screen opened the earlier ones for
+   * READING — which is what it was asked for — but it opened them for writing
+   * just as much, and a circuit overseer's programme from last year is
+   * something the congregation reports on, not something anyone should be
+   * able to quietly rewrite.
+   *
+   * The same rule the duties of a past meeting already follow, in the same
+   * words: the day is the CONGREGATION'S, and the refusal is written to the
+   * journal — «who tried to change last year's visit» is exactly the question
+   * that gets asked, and a rejection that leaves no trace answers nothing.
+   *
+   * Judged by the END of the visit: it runs several days, and it is over only
+   * when the last of them has passed.
+   */
+  private async assertVisitEditable(
+    congregationId: string,
+    specialEventId: string,
+  ): Promise<void> {
+    const event = await this.eventsRepo.findOne({
+      where: { id: specialEventId, congregationId },
+    });
+    if (!event) return; // the caller reports a missing visit in its own words
+
+    const over = event.endDate ?? event.date;
+    if (over >= (await this.clock.todayFor(congregationId))) return;
+
+    await this.auditLog.logEvent({
+      tenantId: congregationId,
+      entityType: 'co_visit_item',
+      entityId: specialEventId,
+      action: 'DENY',
+      detail: { reason: 'past_visit_frozen', visitEnded: over },
+    });
+    throw new ConflictException(
+      'This visit is already over; its programme is part of the record and can no longer be changed.',
+    );
+  }
+
   async create(
     congregationId: string,
     dto: CreateCoVisitItemDto,
@@ -455,6 +500,7 @@ export class CoVisitItemsService {
       where: { id: dto.specialEventId, congregationId },
     });
     if (!event) throw new NotFoundException('Visit not found');
+    await this.assertVisitEditable(congregationId, dto.specialEventId);
     const entity = this.repo.create({
       congregationId,
       specialEventId: dto.specialEventId,
@@ -487,6 +533,7 @@ export class CoVisitItemsService {
   ): Promise<CoVisitItemView> {
     const item = await this.repo.findOne({ where: { id, congregationId } });
     if (!item) throw new NotFoundException('Item not found');
+    await this.assertVisitEditable(congregationId, item.specialEventId);
     if (dto.kind !== undefined) item.kind = dto.kind;
     if (dto.forWife !== undefined) item.forWife = dto.forWife;
     if (dto.withWife !== undefined) item.withWife = dto.withWife;
@@ -527,6 +574,7 @@ export class CoVisitItemsService {
   ): Promise<void> {
     const item = await this.repo.findOne({ where: { id, congregationId } });
     if (!item) throw new NotFoundException('Item not found');
+    await this.assertVisitEditable(congregationId, item.specialEventId);
     await this.repo.softDelete({ id, congregationId });
     await this.auditLog.logEvent({
       tenantId: congregationId,
@@ -552,6 +600,8 @@ export class CoVisitItemsService {
     });
     if (!item) throw new NotFoundException('Item not found');
     if (!item.deletedAt) return;
+    // Putting something back is a change to the record too.
+    await this.assertVisitEditable(congregationId, item.specialEventId);
     await this.repo.restore({ id, congregationId });
     await this.auditLog.logEvent({
       tenantId: congregationId,
