@@ -104,6 +104,28 @@ export class SpecialEvent {
   @Column({ type: 'boolean', default: false })
   replacesMeeting!: boolean;
 
+  // ---- Memorial ---------------------------------------------------------
+  // One theme and one moment of publication belong to the EVENING, not to a
+  // line of its programme. Kept here beside the circuit-visit fields above,
+  // which are event-specific in exactly the same way.
+
+  /** The theme of the talk, as the yearly letter gives it. */
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  memorialTheme!: string | null;
+
+  /** Where the theme is published, for whoever wants to read it. */
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  memorialThemeUrl!: string | null;
+
+  /**
+   * Null while the programme is still being filled in.
+   *
+   * A Memorial is prepared over months. Nobody should be told he is saying a
+   * prayer while half the sheet is empty, so notifications wait for this.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  memorialPublishedAt!: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 

@@ -52,6 +52,7 @@ import { MeetingAttendanceModule } from './meeting-attendance/meeting-attendance
 import { AnnualReportModule } from './annual-report/annual-report.module';
 import { FieldServiceMeetingsModule } from './field-service-meetings/field-service-meetings.module';
 import { CoVisitItemsModule } from './co-visit-items/co-visit-items.module';
+import { MemorialModule } from './memorial/memorial.module';
 import { AuxiliaryPioneersModule } from './auxiliary-pioneers/auxiliary-pioneers.module';
 import { CleaningModule } from './cleaning/cleaning.module';
 import { CartLocationsModule } from './cart-locations/cart-locations.module';
@@ -136,6 +137,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     AnnualReportModule,
     FieldServiceMeetingsModule,
     CoVisitItemsModule,
+    MemorialModule,
     AuxiliaryPioneersModule,
     CleaningModule,
     CartLocationsModule,
