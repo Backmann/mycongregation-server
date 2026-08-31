@@ -101,7 +101,27 @@ function makeSvc(over: Partial<Record<string, any>> = {}) {
     // Which day holds a meeting is asked of the meeting rules now. By default
     // the tests keep their old world: the settings' weekday is the meeting.
     (over.meetingAttendance ?? {
-      pendingForWeek: jest.fn(async () => defaultMeetings()),
+      // `gatheringsForWeek` — what the hall HOSTS, meetings plus the Memorial.
+      // The tests still describe their week as `meetingsThisWeek` in the old
+      // {date, eventType} shape; translated here so each case stays about the
+      // one thing it was written to test.
+      gatheringsForWeek: jest.fn(async () =>
+        defaultMeetings().map(
+          (m: {
+            date: string;
+            eventType?: string;
+            kind?: string;
+            time?: string | null;
+          }) =>
+            m.kind
+              ? m
+              : {
+                  date: m.date,
+                  kind: m.eventType,
+                  time: null,
+                },
+        ),
+      ),
     }) as any,
   );
   return { svc, sends, inserted, push, logRepo, notifications };
@@ -168,6 +188,49 @@ describe('CleaningRemindersService.forCongregation', () => {
     expect(sends[0].data.type).toBe('cleaning_after_meeting');
     expect(sends[0].data.meeting).toBe('midweek');
     expect(sends[0].users).toEqual(['u1', 'u2']);
+  });
+
+  it('reminds the group after the MEMORIAL, at the hour the Memorial starts', async () => {
+    // The Memorial takes the midweek meeting away, so it never appeared in the
+    // meetings list and the reminder stayed silent — on the one evening the
+    // hall is fullest and wants cleaning most. The rule it inherited was
+    // written for a convention, which takes the congregation elsewhere; the
+    // Memorial gathers it at home.
+    //
+    // 19:30 − 2h = 17:30 Berlin = 15:30Z. The settings say 19:00 for a midweek
+    // meeting; if the hour were taken from there the reminder would fire an
+    // hour early, so this also pins that the Memorial brings its own time.
+    const rows = [
+      { slotType: CleaningSlotType.AFTER_MEETING, serviceGroupId: 'g-after' },
+    ];
+    const { svc, sends } = makeSvc({
+      meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
+      cleaningRepo: cleaningRepoWith(rows),
+      meetingsThisWeek: [
+        { date: '2026-05-19', kind: 'memorial', time: '19:30' },
+      ],
+    });
+
+    await svc['forCongregation'](cong, new Date('2026-05-19T15:30:00Z'));
+
+    expect(sends).toHaveLength(1);
+    expect(sends[0].data.meeting).toBe('memorial');
+  });
+
+  it('says nothing when the Memorial has no hour recorded', async () => {
+    // Two hours before nothing is nothing.
+    const rows = [
+      { slotType: CleaningSlotType.AFTER_MEETING, serviceGroupId: 'g-after' },
+    ];
+    const { svc, sends } = makeSvc({
+      meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
+      cleaningRepo: cleaningRepoWith(rows),
+      meetingsThisWeek: [{ date: '2026-05-19', kind: 'memorial', time: null }],
+    });
+
+    await svc['forCongregation'](cong, new Date('2026-05-19T15:00:00Z'));
+
+    expect(sends).toHaveLength(0);
   });
 
   it('follows the circuit visit when it moves the midweek meeting', async () => {

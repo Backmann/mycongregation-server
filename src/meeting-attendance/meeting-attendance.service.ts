@@ -262,6 +262,60 @@ export class MeetingAttendanceService {
     return this.meetingsOfWeek(weekStart, ctx);
   }
 
+  /**
+   * Everything the hall HOSTS that week — the meetings and the Memorial.
+   *
+   * Not the same question as `pendingForWeek`, and the difference matters. The
+   * Memorial takes a meeting AWAY, so it is rightly absent from the list of
+   * meetings whose attendance is recorded under «midweek» or «weekend». But
+   * the hall is full that evening and wants cleaning afterwards more than
+   * usual — and the reminder, which asked the meetings list, stayed silent.
+   *
+   * The rule it inherited was written for a convention: that takes the
+   * congregation ELSEWHERE, so nothing needs cleaning. The Memorial is the
+   * opposite case — it gathers the congregation at home.
+   *
+   * The Memorial brings its OWN hour: it does not start when a midweek meeting
+   * would, and the caller must not reach for the settings to find it.
+   */
+  async gatheringsForWeek(
+    tenantId: string,
+    weekStart: string,
+  ): Promise<
+    {
+      date: string;
+      kind: 'midweek' | 'weekend' | 'memorial';
+      time: string | null;
+    }[]
+  > {
+    const ctx = await this.weekContext(tenantId);
+    if (!ctx) return [];
+    const out: {
+      date: string;
+      kind: 'midweek' | 'weekend' | 'memorial';
+      time: string | null;
+    }[] = this.meetingsOfWeek(weekStart, ctx).map((m) => ({
+      date: m.date,
+      kind: m.eventType === EventType.MIDWEEK ? 'midweek' : 'weekend',
+      // Null on purpose: the hour of an ordinary meeting comes from the
+      // settings version in force, which the caller already has.
+      time: null,
+    }));
+
+    const weekEnd = addDaysISO(weekStart, 6);
+    const memorial = ctx.memorials.find(
+      (e) => e.date >= weekStart && e.date <= weekEnd,
+    );
+    if (memorial) {
+      out.push({
+        date: memorial.date,
+        kind: 'memorial',
+        time: memorial.time ?? null,
+      });
+    }
+    return out.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
   private async weekContext(tenantId: string): Promise<WeekContext | null> {
     const versions = await this.settingsRepo.find({
       where: { congregationId: tenantId },

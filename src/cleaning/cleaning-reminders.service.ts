@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Congregation } from '../entities/congregation.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
@@ -16,7 +16,6 @@ import {
 } from '../common/i18n/supported-languages';
 import { DEFAULT_CONGREGATION_TIMEZONE } from '../common/congregation-clock';
 import { MeetingAttendanceService } from '../meeting-attendance/meeting-attendance.service';
-import { EventType } from '../common/enums/event-type.enum';
 
 const LEAD_MINUTES = 120; // push 2 hours before a meeting / planned time
 const TICK_MINUTES = 15; // must match the cron cadence
@@ -261,24 +260,36 @@ export class CleaningRemindersService {
       // nobody was there, and stay silent on the Tuesday when the group was
       // actually expected. A week replaced by an assembly now produces no
       // reminder at all, because there is no meeting to clean up after.
-      const meetingsThisWeek = await this.meetingAttendance.pendingForWeek(
+      // What the hall HOSTS, not what attendance is recorded for. The Memorial
+      // takes a meeting away, so it is absent from the meetings list — and the
+      // reminder used to stay silent on the one evening the hall is fullest.
+      const gatherings = await this.meetingAttendance.gatheringsForWeek(
         cong.id,
         weekStart,
       );
-      const today = meetingsThisWeek.find((m) => m.date === p.date);
+      const today = gatherings.find((m) => m.date === p.date);
       const meetingToday = today
         ? {
-            name: today.eventType === EventType.MIDWEEK ? 'midweek' : 'weekend',
+            name: today.kind,
             // The visit moves the DAY; the hour still comes from the
             // congregation's settings, which is what the visit schedule
-            // itself shows.
+            // itself shows. The Memorial is the exception — it brings its own
+            // hour, and reaching for the settings would put the reminder at
+            // the time of a meeting that is not being held.
             time:
-              today.eventType === EventType.MIDWEEK
-                ? settings.midweekTime
-                : settings.weekendTime,
+              today.kind === 'memorial'
+                ? today.time
+                : today.kind === 'midweek'
+                  ? settings.midweekTime
+                  : settings.weekendTime,
           }
         : null;
-      if (meetingToday) {
+      // A Memorial with no hour recorded cannot be reminded about — two hours
+      // before nothing is nothing. Skipped rather than RETURNED: the thorough,
+      // weekly and general reminders below are separate slots and must still
+      // run. (A `return` here was my first attempt and would have silenced
+      // all three.)
+      if (meetingToday?.time) {
         const target =
           CleaningRemindersService.parseHm(meetingToday.time) - LEAD_MINUTES;
         if (CleaningRemindersService.hits(target, p.minutesOfDay)) {
