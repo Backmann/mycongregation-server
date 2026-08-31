@@ -63,6 +63,46 @@ export const MEMORIAL_TEMPLATE: MemorialTemplateLine[] = [
   { partKey: MEMORIAL_PART.PRAYER_CLOSING, label: 'Заключительная молитва' },
 ];
 
+/**
+ * The places brothers stand to pass the emblems, and the duties of the
+ * evening — a STARTING POINT, used once and never again.
+ *
+ * Neither list is a rule. Lionel put it plainly: how many brothers, what the
+ * place is called and how many places there are «может быть всегда разной» —
+ * the Memorial may be held in a rented room whose layout nobody here knows.
+ * So these are the names one congregation uses, offered the first time so that
+ * nobody starts from a blank sheet, and carried from last year ever after.
+ * Rename them, delete them, add your own: the code will not look again.
+ *
+ * The counts come from a real sheet: two brothers to a row, three at the
+ * parking. A place with several people is several LINES with the same label,
+ * not one line holding a list — that is how the microphones already work, and
+ * it means replacing one of the three is ordinary work on a line rather than
+ * editing inside a field.
+ */
+export interface MemorialPlaceLine {
+  label: string;
+  /** How many brothers stand there. */
+  count: number;
+  note?: string;
+}
+
+export const MEMORIAL_EMBLEM_TEMPLATE: MemorialPlaceLine[] = [
+  { label: 'Левый ряд', count: 2 },
+  { label: 'Средний ряд', count: 2 },
+  { label: 'Правый ряд', count: 2 },
+  { label: 'Маленький зал', count: 2 },
+];
+
+export const MEMORIAL_DUTY_TEMPLATE: MemorialPlaceLine[] = [
+  { label: 'Главный зал', count: 1 },
+  { label: 'Фойе', count: 1 },
+  { label: 'Микрофон', count: 1 },
+  { label: 'Аппаратура', count: 1 },
+  { label: 'Zoom', count: 1 },
+  { label: 'Стоянка', count: 3, note: 'Светоотражающие жилетки' },
+];
+
 /** Which parts carry a song rather than a person. */
 export const MEMORIAL_SONG_PARTS: MemorialPart[] = [
   MEMORIAL_PART.SONG_OPENING,

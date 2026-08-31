@@ -53,7 +53,13 @@ function build(
     }),
     count: jest.fn(async (o: any) => {
       const id = o?.where?.specialEventId;
-      return (itemsByEvent[id] ?? opts.items ?? []).length;
+      const section = o?.where?.section;
+      const rows = itemsByEvent[id] ?? opts.items ?? [];
+      // The section matters: prepareSection asks whether ONE part is empty,
+      // and a stub that counts every row would answer for the whole sheet.
+      return section
+        ? rows.filter((r: any) => r.section === section).length
+        : rows.length;
     }),
     create: jest.fn((x: any) => x),
     save: jest.fn(async (x: any) => {
@@ -95,12 +101,13 @@ describe('MemorialService.prepare — the first one comes from the template', ()
 
     await svc.prepare('cong-1', 'ev-now');
 
-    expect(saved.map((r) => r.partKey)).toEqual(
+    const programme = saved.filter((r) => r.section === 'programme');
+    expect(programme.map((r) => r.partKey)).toEqual(
       MEMORIAL_TEMPLATE.map((l) => l.partKey),
     );
     // The prayers fall INSIDE the talk and the announcements follow it. A
     // sheet in any other order describes a different evening.
-    const keys = saved.map((r) => r.partKey);
+    const keys = programme.map((r) => r.partKey);
     expect(keys.indexOf('prayer_bread')).toBeGreaterThan(keys.indexOf('talk'));
     expect(keys.indexOf('prayer_wine')).toBeGreaterThan(
       keys.indexOf('prayer_bread'),
@@ -327,5 +334,177 @@ describe('MemorialService.reorder', () => {
     await expect(
       svc.reorder('cong-1', 'ev-now', 'emblems', ['r1', 'somebody-elses']),
     ).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('MemorialService.prepare — the places and the duties', () => {
+  /**
+   * Neither list is a rule. How many brothers, what a place is called and how
+   * many places there are «может быть всегда разной» — the Memorial may be
+   * held in a rented room. These are one congregation's names, offered once so
+   * that nobody starts from a blank sheet, and carried from last year after
+   * that.
+   */
+  it('lays out the emblem places and the duties beside the programme', async () => {
+    const { svc, saved } = build();
+
+    await svc.prepare('cong-1', 'ev-now');
+
+    const labels = (section: string) =>
+      saved.filter((r) => r.section === section).map((r) => r.label);
+
+    expect(labels('emblems')).toEqual([
+      'Левый ряд',
+      'Левый ряд',
+      'Средний ряд',
+      'Средний ряд',
+      'Правый ряд',
+      'Правый ряд',
+      'Маленький зал',
+      'Маленький зал',
+    ]);
+    expect(labels('duty')).toContain('Стоянка');
+  });
+
+  it('gives a place with several brothers several LINES, not one line with a list', async () => {
+    // Replacing one of the three at the parking is then ordinary work on a
+    // line, the way the microphones already work.
+    const { svc, saved } = build();
+    await svc.prepare('cong-1', 'ev-now');
+    const parking = saved.filter((r) => r.label === 'Стоянка');
+    expect(parking).toHaveLength(3);
+    expect(parking.every((r) => r.publisherId === undefined)).toBe(true);
+  });
+
+  it('puts the reminder on every line of the place it belongs to', async () => {
+    const { svc, saved } = build();
+    await svc.prepare('cong-1', 'ev-now');
+    const parking = saved.filter((r) => r.label === 'Стоянка');
+    expect(parking.map((r) => r.note)).toEqual([
+      'Светоотражающие жилетки',
+      'Светоотражающие жилетки',
+      'Светоотражающие жилетки',
+    ]);
+  });
+
+  it('numbers each group from zero, so the order is per section', async () => {
+    const { svc, saved } = build();
+    await svc.prepare('cong-1', 'ev-now');
+    for (const section of ['programme', 'emblems', 'duty']) {
+      const rows = saved.filter((r) => r.section === section);
+      expect(rows.map((r) => r.sortOrder)).toEqual(rows.map((_, i) => i));
+    }
+  });
+});
+
+describe('MemorialService.prepareSection — one empty part at a time', () => {
+  // `prepare` refuses a sheet that already has lines, and rightly: it must
+  // never overwrite work. But a Memorial drawn up before the places existed
+  // has a programme and nothing else — and so does a congregation that never
+  // kept zones and now wants to.
+  it('lays out the places when that part is empty', async () => {
+    const { svc, saved } = build({
+      items: [{ id: 'p1', section: 'programme' }],
+      itemsByEvent: { 'ev-now': [{ id: 'p1', section: 'programme' }] },
+    });
+
+    await svc.prepareSection('cong-1', 'ev-now', 'emblems');
+
+    expect(saved.map((r) => r.label)).toContain('Левый ряд');
+    expect(saved.every((r) => r.section === 'emblems')).toBe(true);
+  });
+
+  it('refuses when that part already has lines — nothing is overwritten', async () => {
+    const { svc } = build({
+      itemsByEvent: { 'ev-now': [{ id: 'e1', section: 'emblems' }] },
+    });
+    await expect(
+      svc.prepareSection('cong-1', 'ev-now', 'emblems'),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('has no starting list for the programme — that is what prepare is for', async () => {
+    const { svc } = build();
+    await expect(
+      svc.prepareSection('cong-1', 'ev-now', 'programme'),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('refuses on a Memorial already past', async () => {
+    const { svc } = build({
+      event: {
+        id: 'ev-old',
+        congregationId: 'cong-1',
+        type: 'memorial',
+        date: '2020-04-07',
+        endDate: null,
+        memorialTheme: null,
+        memorialThemeUrl: null,
+        memorialPublishedAt: null,
+      },
+    });
+    await expect(
+      svc.prepareSection('cong-1', 'ev-old', 'duty'),
+    ).rejects.toThrow(ConflictException);
+  });
+});
+
+describe('MemorialService.prepare — the places and the duties', () => {
+  /**
+   * Neither list is a rule. How many brothers, what a place is called and how
+   * many places there are «может быть всегда разной» — the Memorial may be
+   * held in a rented room. These are one congregation's names, offered once so
+   * that nobody starts from a blank sheet, and carried from last year after
+   * that.
+   */
+  it('lays out the emblem places and the duties beside the programme', async () => {
+    const { svc, saved } = build();
+
+    await svc.prepare('cong-1', 'ev-now');
+
+    const labels = (section: string) =>
+      saved.filter((r) => r.section === section).map((r) => r.label);
+
+    expect(labels('emblems')).toEqual([
+      'Левый ряд',
+      'Левый ряд',
+      'Средний ряд',
+      'Средний ряд',
+      'Правый ряд',
+      'Правый ряд',
+      'Маленький зал',
+      'Маленький зал',
+    ]);
+    expect(labels('duty')).toContain('Стоянка');
+  });
+
+  it('gives a place with several brothers several LINES, not one line with a list', async () => {
+    // Replacing one of the three at the parking is then ordinary work on a
+    // line, the way the microphones already work.
+    const { svc, saved } = build();
+    await svc.prepare('cong-1', 'ev-now');
+    const parking = saved.filter((r) => r.label === 'Стоянка');
+    expect(parking).toHaveLength(3);
+    expect(parking.every((r) => r.publisherId === undefined)).toBe(true);
+  });
+
+  it('puts the reminder on every line of the place it belongs to', async () => {
+    const { svc, saved } = build();
+    await svc.prepare('cong-1', 'ev-now');
+    const parking = saved.filter((r) => r.label === 'Стоянка');
+    expect(parking.map((r) => r.note)).toEqual([
+      'Светоотражающие жилетки',
+      'Светоотражающие жилетки',
+      'Светоотражающие жилетки',
+    ]);
+  });
+
+  it('numbers each group from zero, so the order is per section', async () => {
+    const { svc, saved } = build();
+    await svc.prepare('cong-1', 'ev-now');
+    for (const section of ['programme', 'emblems', 'duty']) {
+      const rows = saved.filter((r) => r.section === section);
+      expect(rows.map((r) => r.sortOrder)).toEqual(rows.map((_, i) => i));
+    }
   });
 });

@@ -11,8 +11,11 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { CongregationClock } from '../common/congregation-clock.service';
 import {
   MEMORIAL_DEFAULT_THEME,
+  MEMORIAL_DUTY_TEMPLATE,
+  MEMORIAL_EMBLEM_TEMPLATE,
   MEMORIAL_SECTION,
   MEMORIAL_TEMPLATE,
+  MemorialPlaceLine,
 } from './memorial-template';
 
 export interface MemorialSheet {
@@ -177,13 +180,43 @@ export class MemorialService {
   }
 
   private linesFromTemplate(): Partial<MemorialItem>[] {
-    return MEMORIAL_TEMPLATE.map((line, i) => ({
+    const rows: Partial<MemorialItem>[] = MEMORIAL_TEMPLATE.map((line, i) => ({
       section: MEMORIAL_SECTION.PROGRAMME,
       partKey: line.partKey,
       label: line.label,
       sortOrder: i,
       songNumber: line.songNumber ?? null,
     }));
+
+    // A place with several brothers is several LINES with the same label, not
+    // one line holding a list. That is how the microphones already work, and
+    // it means replacing one of the three at the parking is ordinary work on a
+    // line rather than editing inside a field.
+    const places = (
+      section: string,
+      template: MemorialPlaceLine[],
+    ): Partial<MemorialItem>[] => {
+      const out: Partial<MemorialItem>[] = [];
+      let order = 0;
+      for (const place of template) {
+        for (let n = 0; n < place.count; n++) {
+          out.push({
+            section,
+            partKey: null,
+            label: place.label,
+            sortOrder: order++,
+            // The note belongs to the place, so every line of it carries the
+            // same reminder — «светоотражающие жилетки» is for all three.
+            note: place.note ?? null,
+          });
+        }
+      }
+      return out;
+    };
+
+    rows.push(...places(MEMORIAL_SECTION.EMBLEMS, MEMORIAL_EMBLEM_TEMPLATE));
+    rows.push(...places(MEMORIAL_SECTION.DUTY, MEMORIAL_DUTY_TEMPLATE));
+    return rows;
   }
 
   /** Labels, order and songs — never the people. */
@@ -206,6 +239,70 @@ export class MemorialService {
       publisherId: null,
       personText: null,
     }));
+  }
+
+  /**
+   * Lay out ONE empty section from the template.
+   *
+   * `prepare` refuses a sheet that already has lines, and rightly — it must
+   * never overwrite work. But a Memorial drawn up before the places and the
+   * duties existed has a programme and nothing else, and so does a
+   * congregation that never kept zones and now wants to.
+   *
+   * Deliberately NOT «fill in whatever is missing» on its own: a congregation
+   * meeting in a rented room may have deleted the rows on purpose, and a
+   * helpful hand that puts them back is the same fault as an undo that undoes
+   * a decision. This is asked for, one section at a time, and only when that
+   * section is empty.
+   */
+  async prepareSection(
+    congregationId: string,
+    specialEventId: string,
+    section: string,
+  ): Promise<MemorialSheet> {
+    const event = await this.getEvent(congregationId, specialEventId);
+    await this.assertEditable(congregationId, event);
+
+    const existing = await this.repo.count({
+      where: { congregationId, specialEventId, section },
+    });
+    if (existing > 0) {
+      throw new ConflictException('That part of the sheet is not empty.');
+    }
+
+    const template =
+      section === MEMORIAL_SECTION.EMBLEMS
+        ? MEMORIAL_EMBLEM_TEMPLATE
+        : section === MEMORIAL_SECTION.DUTY
+          ? MEMORIAL_DUTY_TEMPLATE
+          : null;
+    if (!template) {
+      throw new ConflictException('There is no starting list for that part.');
+    }
+
+    let order = 0;
+    const rows: Partial<MemorialItem>[] = [];
+    for (const place of template) {
+      for (let n = 0; n < place.count; n++) {
+        rows.push({
+          congregationId,
+          specialEventId,
+          section,
+          partKey: null,
+          label: place.label,
+          sortOrder: order++,
+          note: place.note ?? null,
+        });
+      }
+    }
+    await this.repo.save(rows.map((r) => this.repo.create(r)));
+    await this.auditLog.logCreate({
+      tenantId: congregationId,
+      entityType: 'memorial_item',
+      entityId: specialEventId,
+      after: { section, lines: rows.length },
+    });
+    return this.sheet(congregationId, specialEventId);
   }
 
   async addLine(

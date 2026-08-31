@@ -60,6 +60,18 @@ export class MemorialController {
     return this.service.prepare(tenantId, id);
   }
 
+  /** Lay out one empty section from the template — asked for, never automatic. */
+  @Post(':id/prepare/:section')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  prepareSection(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('section') section: string,
+  ) {
+    return this.service.prepareSection(tenantId, id, section);
+  }
+
   @Post(':id/lines')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.ELDER)
