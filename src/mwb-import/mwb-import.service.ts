@@ -24,6 +24,7 @@ import {
 } from './mwb-parser';
 import { ImportResultDto, WeekImportSummary } from './dto/import-result.dto';
 import { ApplyParsedDto } from './dto/apply-parsed.dto';
+import { MeetingAttendanceService } from '../meeting-attendance/meeting-attendance.service';
 
 /**
  * Returns true if an existing assignment is empty (no publisher and no
@@ -40,6 +41,7 @@ export class MwbImportService {
   constructor(
     @InjectRepository(Assignment)
     private readonly assignmentsRepo: Repository<Assignment>,
+    private readonly meetingAttendance: MeetingAttendanceService,
   ) {}
 
   /**
@@ -241,6 +243,34 @@ export class MwbImportService {
     const weekEventType = parts.some((p) => isWeekendPartKey(p.partKey))
       ? EventType.WEEKEND
       : EventType.MIDWEEK;
+
+    // A meeting the week does not hold gets no programme.
+    //
+    // The Memorial takes a meeting away, and so do a convention and an event
+    // flagged «в этот день обычной встречи нет». Nothing here knew that: the
+    // workbook was applied week by week regardless, so parts could be created
+    // for an evening the congregation does not meet — and the schedule would
+    // then show them hidden behind the Memorial, waiting to confuse somebody.
+    //
+    // Two doors to this were already shut — duties refuse to be generated for
+    // a displaced meeting, attendance does not ask about one. This was the
+    // third, and the only reason it never caused harm is that the workbook
+    // happens not to print a midweek programme for that week. That is the
+    // publication's habit, not a rule of ours to rely on.
+    //
+    // Skipped LOUDLY: a silent skip is what made the new-year week vanish for
+    // a whole year with nobody able to explain the empty schedule.
+    const held = await this.meetingAttendance.pendingForWeek(
+      congregationId,
+      weekStartDate,
+    );
+    if (!held.some((m) => m.eventType === weekEventType)) {
+      summary.skipped = parts.length;
+      overall.warnings.push(
+        `Week ${weekStartDate}: the congregation holds no ${weekEventType} meeting that week (an event takes its place), so ${parts.length} part(s) were not imported.`,
+      );
+      return summary;
+    }
     // Load existing assignments for this week (active + soft-deleted)
     const existing = await this.assignmentsRepo.find({
       where: {
