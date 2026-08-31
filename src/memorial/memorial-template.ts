@@ -55,7 +55,7 @@ export const MEMORIAL_TEMPLATE: MemorialTemplateLine[] = [
   { partKey: MEMORIAL_PART.CHAIRMAN, label: 'Председатель' },
   { partKey: MEMORIAL_PART.SONG_OPENING, label: 'Песня', songNumber: 20 },
   { partKey: MEMORIAL_PART.PRAYER_OPENING, label: 'Вступительная молитва' },
-  { partKey: MEMORIAL_PART.TALK, label: 'Речь' },
+  { partKey: MEMORIAL_PART.TALK, label: 'Докладчик' },
   { partKey: MEMORIAL_PART.PRAYER_BREAD, label: 'Молитва за хлеб' },
   { partKey: MEMORIAL_PART.PRAYER_WINE, label: 'Молитва за вино' },
   { partKey: MEMORIAL_PART.ANNOUNCEMENTS, label: 'Объявления' },
