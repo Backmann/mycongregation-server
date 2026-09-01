@@ -21,6 +21,10 @@ import type { AuthenticatedUser } from '../../auth/decorators/current-user.decor
  *
  *   midweek           -> Руководитель встречи «Жизнь и служение»
  *   weekend           -> Координатор совета старейшин (weekend in this cong.)
+ *   memorial          -> Координатор совета старейшин: the Memorial programme
+ *                        is settled by the body together, not by one appointed
+ *                        brother, so it follows the weekend meeting rather
+ *                        than gaining a responsibility of its own
  *   cleaning          -> Координатор уборки
  *   av_duty           -> Координатор обязанностей ИЛИ координатор совета
  *                        старейшин (совет старейшин тоже правит обязанности)
@@ -32,6 +36,7 @@ export const EVENT_TYPE_RESPONSIBILITY: Record<
 > = {
   [EventType.MIDWEEK]: [ResponsibilityType.LIFE_MINISTRY_OVERSEER],
   [EventType.WEEKEND]: [ResponsibilityType.BODY_COORDINATOR],
+  [EventType.MEMORIAL]: [ResponsibilityType.BODY_COORDINATOR],
   [EventType.CLEANING]: [ResponsibilityType.CLEANING_COORDINATOR],
   [EventType.AV_DUTY]: [
     ResponsibilityType.DUTIES_COORDINATOR,

@@ -16,6 +16,7 @@ import { EventType } from '../common/enums/event-type.enum';
 import {
   DutyType,
   SINGLE_SLOT_DUTIES_AFTER_MIC,
+  MEMORIAL_DUTIES,
   SINGLE_SLOT_DUTIES_BEFORE_MIC,
 } from '../common/enums/duty-type.enum';
 import { QueryDutiesDto } from './dto/query-duties.dto';
@@ -245,6 +246,18 @@ export class DutiesService {
     // congregation whose meeting settings are not filled in yet also has no
     // meetings in that list, and refusing there would stop a new congregation
     // from setting itself up. The tests caught exactly that.
+    // The Memorial is asked about differently: it is not one of the two
+    // ordinary meetings that an event can take away — it IS the event, and it
+    // is held exactly on the week that holds it.
+    if (dto.eventType === EventType.MEMORIAL) {
+      const rules = await this.rulesOfWeek(congregationId, dto.weekStartDate);
+      if (!rules.memorial) {
+        throw new ConflictException(
+          'There is no Memorial that week, so it has no duties.',
+        );
+      }
+    }
+
     const kind: MeetingKind | null =
       dto.eventType === EventType.MIDWEEK
         ? 'midweek'
@@ -275,6 +288,40 @@ export class DutiesService {
       customLabel: null,
       publisherId: null,
     };
+
+    // The Memorial wants a different evening's hands: the main hall and the
+    // foyer rather than one attendant, several brothers at the parking, and
+    // the places the emblems pass. They are CUSTOM duties, so the labels are
+    // the congregation's own and can be renamed or removed — nothing here is
+    // a rule, only a first sheet so that nobody starts from an empty one.
+    if (dto.eventType === EventType.MEMORIAL) {
+      let slot = 0;
+      for (const place of MEMORIAL_DUTIES) {
+        for (let n = 0; n < place.count; n++) {
+          rows.push({
+            ...base,
+            dutyType: DutyType.CUSTOM,
+            customLabel: place.label,
+            // The reminder belongs to the PLACE, so every row of it carries
+            // the same words: the jackets are for all three at the parking.
+            notes: place.notes ?? null,
+            slotIndex: slot++,
+          });
+        }
+      }
+      await this.repo
+        .createQueryBuilder()
+        .insert()
+        .into(Duty)
+        .values(rows)
+        .orIgnore()
+        .execute();
+      return this.list(congregationId, {
+        weekStart: dto.weekStartDate,
+        eventType: dto.eventType,
+      });
+    }
+
     for (const dutyType of SINGLE_SLOT_DUTIES_BEFORE_MIC) {
       rows.push({ ...base, dutyType, slotIndex: 0 });
     }

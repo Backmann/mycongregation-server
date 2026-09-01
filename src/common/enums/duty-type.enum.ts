@@ -39,3 +39,34 @@ export const SINGLE_SLOT_DUTIES_AFTER_MIC: DutyType[] = [
   DutyType.STAGE,
   DutyType.VENTILATION,
 ];
+
+/**
+ * The duties of the Memorial evening — a STARTING POINT, not a rule.
+ *
+ * A different evening wants different hands: brothers at the main hall and the
+ * foyer rather than one attendant, and several at the parking. The names are
+ * one congregation's, taken from a sheet it actually sends round; another hall
+ * — and the Memorial is sometimes held in a rented room — needs other ones.
+ *
+ * They are `custom` duties, so the label is free text and the congregation can
+ * rename, remove or add without a release. `count` becomes that many slots of
+ * the same label, which is how the microphones already work: replacing one of
+ * the three at the parking is then ordinary work on a row rather than editing
+ * inside a field.
+ */
+export const MEMORIAL_DUTIES: {
+  label: string;
+  count: number;
+  notes?: string;
+}[] = [
+  { label: 'Главный зал', count: 1 },
+  { label: 'Фойе', count: 1 },
+  { label: 'Микрофон', count: 1 },
+  { label: 'Аппаратура', count: 1 },
+  { label: 'Zoom', count: 1 },
+  { label: 'Стоянка', count: 3, notes: 'Светоотражающие жилетки' },
+  { label: 'Левый ряд', count: 2 },
+  { label: 'Средний ряд', count: 2 },
+  { label: 'Правый ряд', count: 2 },
+  { label: 'Маленький зал', count: 2 },
+];

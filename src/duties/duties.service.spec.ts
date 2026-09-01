@@ -445,3 +445,145 @@ describe('DutiesService — a meeting an event took away has no duties', () => {
     expect(qb.insert).toHaveBeenCalled();
   });
 });
+
+describe('DutiesService.generateWeek — the Memorial evening', () => {
+  /**
+   * The Memorial is a third kind of meeting, so its duties are ordinary
+   * duties. That is the whole point of naming it as a kind: the duties
+   * section, its add and remove buttons, its counters and its printing all
+   * come for nothing, and there is one mechanism to look after rather than
+   * two.
+   *
+   * The list is CUSTOM duties, so the labels belong to the congregation and
+   * can be renamed or removed without a release. A different hall — and the
+   * Memorial is sometimes held in a rented room — wants different names.
+   */
+  const WEEK = '2027-03-22'; // Monday; the Memorial falls on it
+
+  function build(memorial: unknown) {
+    const qb: any = {
+      insert: jest.fn().mockReturnThis(),
+      into: jest.fn().mockReturnThis(),
+      values: jest.fn().mockReturnThis(),
+      orIgnore: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({}),
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+      getRawOne: jest.fn().mockResolvedValue({ max: null }),
+    };
+    const svc = new DutiesService(
+      {
+        logCreate: jest.fn(),
+        logUpdate: jest.fn(),
+        logEvent: jest.fn(),
+      } as any,
+      { createQueryBuilder: jest.fn(() => qb), findOne: jest.fn() } as any,
+      { count: jest.fn().mockResolvedValue(0), findOne: jest.fn() } as any,
+      { findOne: jest.fn() } as any,
+      {
+        find: jest
+          .fn()
+          .mockResolvedValue([
+            { effectiveFrom: '2020-01-01', midweekDow: 4, weekendDow: 7 },
+          ]),
+        save: jest.fn(),
+      } as any,
+      {
+        findOne: jest
+          .fn()
+          .mockResolvedValue({ assignmentAutomationEnabled: false }),
+      } as any,
+      {
+        find: jest.fn(async (opts: any) => {
+          const where = opts.where;
+          if (!Array.isArray(where) && where.replacesMeeting) return [];
+          const wanted = Array.isArray(where)
+            ? where.map((w: any) => w.type)
+            : [where.type];
+          return wanted.includes('memorial') && memorial ? [memorial] : [];
+        }),
+      } as any,
+      clockStub(),
+    );
+    return { svc, qb };
+  }
+
+  const memorialEvent = {
+    id: 'ev-1',
+    type: 'memorial',
+    date: '2027-03-22',
+    endDate: null,
+  };
+
+  it('lays out the evening’s own places, not the ordinary eight', async () => {
+    const { svc, qb } = build(memorialEvent);
+
+    await svc.generateWeek('c1', {
+      weekStartDate: WEEK,
+      eventType: 'memorial' as any,
+    });
+
+    const rows = (qb.values as jest.Mock).mock.calls[0][0];
+    const labels = rows.map((r: any) => r.customLabel);
+    expect(labels).toContain('Главный зал');
+    expect(labels).toContain('Левый ряд');
+    // Nothing from the ordinary meeting's list.
+    expect(rows.every((r: any) => r.dutyType === 'custom')).toBe(true);
+  });
+
+  it('gives a place with several brothers that many rows', async () => {
+    const { svc, qb } = build(memorialEvent);
+    await svc.generateWeek('c1', {
+      weekStartDate: WEEK,
+      eventType: 'memorial' as any,
+    });
+    const rows = (qb.values as jest.Mock).mock.calls[0][0];
+    expect(rows.filter((r: any) => r.customLabel === 'Стоянка')).toHaveLength(
+      3,
+    );
+    expect(rows.filter((r: any) => r.customLabel === 'Левый ряд')).toHaveLength(
+      2,
+    );
+  });
+
+  it('puts the reminder on every row of the place it belongs to', async () => {
+    const { svc, qb } = build(memorialEvent);
+    await svc.generateWeek('c1', {
+      weekStartDate: WEEK,
+      eventType: 'memorial' as any,
+    });
+    const rows = (qb.values as jest.Mock).mock.calls[0][0];
+    const parking = rows.filter((r: any) => r.customLabel === 'Стоянка');
+    expect(parking.map((r: any) => r.notes)).toEqual([
+      'Светоотражающие жилетки',
+      'Светоотражающие жилетки',
+      'Светоотражающие жилетки',
+    ]);
+  });
+
+  it('gives every row its own slot, so none collides with another', async () => {
+    const { svc, qb } = build(memorialEvent);
+    await svc.generateWeek('c1', {
+      weekStartDate: WEEK,
+      eventType: 'memorial' as any,
+    });
+    const rows = (qb.values as jest.Mock).mock.calls[0][0];
+    const slots = rows.map((r: any) => r.slotIndex);
+    expect(new Set(slots).size).toBe(slots.length);
+  });
+
+  it('refuses on a week that holds no Memorial', async () => {
+    const { svc, qb } = build(null);
+    await expect(
+      svc.generateWeek('c1', {
+        weekStartDate: WEEK,
+        eventType: 'memorial' as any,
+      }),
+    ).rejects.toThrow(ConflictException);
+    expect(qb.insert).not.toHaveBeenCalled();
+  });
+});
