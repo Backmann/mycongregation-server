@@ -76,6 +76,26 @@ export class Duty {
   })
   slotIndex!: number;
 
+  /**
+   * Where this duty sits on the sheet — moved by hand.
+   *
+   * The order used to be WORKED OUT rather than kept: by kind of duty, then by
+   * slot. Nothing could be moved, because there was nowhere to write down that
+   * one place now comes before another. A congregation meeting in a rented
+   * room, or holding the Memorial, wants its own order and no fixed list of
+   * kinds can guess it.
+   *
+   * Rows of ONE place share a value: «Стоянка» is three rows, and they move
+   * together — the number inside a place means nothing to anybody.
+   */
+  @Column({
+    type: 'integer',
+    default: 0,
+    name: 'sort_order',
+    comment: 'Position on the sheet; rows of one place share it',
+  })
+  sortOrder!: number;
+
   @Column({
     type: 'varchar',
     length: 255,

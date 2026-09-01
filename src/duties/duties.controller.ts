@@ -23,6 +23,7 @@ import { RequireResponsibility } from '../common/decorators/require-responsibili
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { RenamePlaceDto } from './dto/rename-place.dto';
+import { MovePlaceDto } from './dto/move-place.dto';
 
 /**
  * Meeting duties. Reading is open to any authenticated member; editing requires
@@ -108,6 +109,21 @@ export class DutiesController {
     @Body() dto: RenamePlaceDto,
   ) {
     return this.service.renamePlace(congregationId, id, dto.customLabel);
+  }
+
+  /** Move a place up or down the sheet; its rows move together. */
+  @Patch(':id/move')
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.DUTIES_COORDINATOR,
+    ResponsibilityType.BODY_COORDINATOR,
+  )
+  movePlace(
+    @TenantId() congregationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: MovePlaceDto,
+  ) {
+    return this.service.movePlace(congregationId, id, dto.direction);
   }
 
   /** Remove a place with everybody standing at it — the bin takes off one. */

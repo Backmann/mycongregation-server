@@ -794,3 +794,151 @@ describe('DutiesService — a PLACE is renamed and removed whole', () => {
     );
   });
 });
+
+describe('DutiesService.movePlace — the sheet is put in the order wanted', () => {
+  /**
+   * The order used to be WORKED OUT — by kind of duty, then by slot — so
+   * nothing could be moved: there was nowhere to write down that one place now
+   * comes before another. A congregation in a rented room, or holding the
+   * Memorial, wants its own order and no fixed list of kinds can guess it.
+   *
+   * A PLACE moves, not a row: «Стоянка» is three rows and they are one thing
+   * to everybody who reads the sheet.
+   */
+  const WEEK = '2099-04-06';
+
+  function rowsOf(spec: [string, string | null, number][]): any[] {
+    const out: any[] = [];
+    spec.forEach(([dutyType, label, count], place) => {
+      for (let i = 0; i < count; i++) {
+        out.push({
+          id: `${dutyType}-${label ?? ''}-${i}`,
+          congregationId: 'c1',
+          weekStartDate: WEEK,
+          eventType: 'memorial',
+          dutyType,
+          customLabel: label,
+          slotIndex: i,
+          sortOrder: place + 1,
+        });
+      }
+    });
+    return out;
+  }
+
+  function make(rows: any[]) {
+    const listed: any[] = [];
+    const repo = {
+      findOne: jest.fn(async (o: any) => rows.find((r) => r.id === o.where.id)),
+      find: jest.fn(async () => rows),
+      save: jest.fn(async (x: any) => x),
+      createQueryBuilder: jest.fn(() => ({
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        addOrderBy: jest.fn().mockReturnThis(),
+        getMany: jest.fn(async () => {
+          listed.push(rows.slice());
+          return rows;
+        }),
+      })),
+    } as any;
+    const svc = new DutiesService(
+      {
+        logCreate: jest.fn(),
+        logUpdate: jest.fn(),
+        logEvent: jest.fn(),
+      } as any,
+      repo,
+      { count: jest.fn().mockResolvedValue(0), findOne: jest.fn() } as any,
+      { findOne: jest.fn() } as any,
+      { find: jest.fn().mockResolvedValue([]), save: jest.fn() } as any,
+      { findOne: jest.fn().mockResolvedValue({}) } as any,
+      { find: jest.fn().mockResolvedValue([]) } as any,
+      clockStub(),
+    );
+    return { svc, rows };
+  }
+
+  const order = (rows: any[]) => {
+    const seen: string[] = [];
+    for (const r of rows.slice().sort((a, b) => a.sortOrder - b.sortOrder)) {
+      const k = r.customLabel ?? r.dutyType;
+      if (seen[seen.length - 1] !== k) seen.push(k);
+    }
+    return seen;
+  };
+
+  it('moves a place up, and everybody standing at it goes along', async () => {
+    const rows = rowsOf([
+      ['custom', 'Фойе', 1],
+      ['custom', 'Стоянка', 3],
+      ['custom', 'Левый ряд', 1],
+    ]);
+    const { svc } = make(rows);
+
+    await svc.movePlace('c1', 'custom-Стоянка-0', 'up');
+
+    expect(order(rows)).toEqual(['Стоянка', 'Фойе', 'Левый ряд']);
+    // All three rows of the place carry the same new position.
+    const parking = rows.filter((r) => r.customLabel === 'Стоянка');
+    expect(new Set(parking.map((r) => r.sortOrder)).size).toBe(1);
+  });
+
+  it('moves a place down', async () => {
+    const rows = rowsOf([
+      ['custom', 'Фойе', 1],
+      ['custom', 'Стоянка', 2],
+      ['custom', 'Левый ряд', 1],
+    ]);
+    const { svc } = make(rows);
+
+    await svc.movePlace('c1', 'custom-Фойе-0', 'down');
+
+    expect(order(rows)).toEqual(['Стоянка', 'Фойе', 'Левый ряд']);
+  });
+
+  it('does nothing at the top, and says nothing about it', async () => {
+    const rows = rowsOf([
+      ['custom', 'Фойе', 1],
+      ['custom', 'Стоянка', 1],
+    ]);
+    const { svc } = make(rows);
+
+    await expect(
+      svc.movePlace('c1', 'custom-Фойе-0', 'up'),
+    ).resolves.toBeDefined();
+
+    expect(order(rows)).toEqual(['Фойе', 'Стоянка']);
+  });
+
+  it('renumbers from one, so gaps cannot pile up over the years', async () => {
+    const rows = rowsOf([
+      ['custom', 'A', 1],
+      ['custom', 'B', 1],
+      ['custom', 'C', 1],
+    ]);
+    rows.forEach((r, i) => (r.sortOrder = (i + 1) * 10));
+    const { svc } = make(rows);
+
+    await svc.movePlace('c1', 'custom-C-0', 'up');
+
+    expect(rows.map((r) => r.sortOrder).sort((a, b) => a - b)).toEqual([
+      1, 2, 3,
+    ]);
+  });
+
+  it('moves a predefined place too — the microphones are one place', async () => {
+    const rows = rowsOf([
+      ['security', null, 1],
+      ['microphone', null, 2],
+    ]);
+    const { svc } = make(rows);
+
+    await svc.movePlace('c1', 'microphone--0', 'up');
+
+    expect(order(rows)).toEqual(['microphone', 'security']);
+    const mics = rows.filter((r) => r.dutyType === 'microphone');
+    expect(new Set(mics.map((r) => r.sortOrder)).size).toBe(1);
+  });
+});

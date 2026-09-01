@@ -170,12 +170,18 @@ export class DutiesService {
     if (query.eventType) {
       qb.andWhere('d.eventType = :eventType', { eventType: query.eventType });
     }
-    return qb
-      .orderBy('d.weekStartDate', 'ASC')
-      .addOrderBy('d.eventType', 'ASC')
-      .addOrderBy('d.dutyType', 'ASC')
-      .addOrderBy('d.slotIndex', 'ASC')
-      .getMany();
+    return (
+      qb
+        .orderBy('d.weekStartDate', 'ASC')
+        .addOrderBy('d.eventType', 'ASC')
+        // The place's own position, kept and moved by hand. `dutyType` stays as
+        // a tie-break for rows written before the column existed, and `slotIndex`
+        // keeps the microphones in their numbered order inside a place.
+        .addOrderBy('d.sortOrder', 'ASC')
+        .addOrderBy('d.dutyType', 'ASC')
+        .addOrderBy('d.slotIndex', 'ASC')
+        .getMany()
+    );
   }
 
   /** The meeting-settings version in force on a date (default today). */
@@ -313,12 +319,17 @@ export class DutiesService {
               notes: p.notes ?? null,
             }));
       let slot = 0;
+      let order = 0;
       for (const place of places) {
+        // One position per PLACE: its rows move together, because the number
+        // inside a place means nothing to anybody.
+        order += 1;
         for (let n = 0; n < place.count; n++) {
           rows.push({
             ...base,
             dutyType: DutyType.CUSTOM,
             customLabel: place.label,
+            sortOrder: order,
             // The reminder belongs to the PLACE, so every row of it carries
             // the same words: the jackets are for all three at the parking.
             notes: place.notes ?? null,
@@ -339,14 +350,24 @@ export class DutiesService {
       });
     }
 
+    // The positions follow the order the screen has always shown, so nothing
+    // moves the day this ships; from then on they are the congregation's to
+    // change.
+    let order = 0;
     for (const dutyType of SINGLE_SLOT_DUTIES_BEFORE_MIC) {
-      rows.push({ ...base, dutyType, slotIndex: 0 });
+      rows.push({ ...base, dutyType, slotIndex: 0, sortOrder: ++order });
     }
+    order += 1; // all the microphones are ONE place
     for (let i = 0; i < mics; i++) {
-      rows.push({ ...base, dutyType: DutyType.MICROPHONE, slotIndex: i });
+      rows.push({
+        ...base,
+        dutyType: DutyType.MICROPHONE,
+        slotIndex: i,
+        sortOrder: order,
+      });
     }
     for (const dutyType of SINGLE_SLOT_DUTIES_AFTER_MIC) {
-      rows.push({ ...base, dutyType, slotIndex: 0 });
+      rows.push({ ...base, dutyType, slotIndex: 0, sortOrder: ++order });
     }
 
     await this.repo
@@ -569,6 +590,34 @@ export class DutiesService {
       .getRawOne<{ max: number | null }>();
     const slotIndex = (raw?.max == null ? -1 : Number(raw.max)) + 1;
 
+    // A new place goes to the END of the sheet — and «Ещё брат» joins the
+    // place it belongs to, so it takes that place's position rather than a new
+    // one at the bottom.
+    const sibling = await this.repo.findOne({
+      where: {
+        congregationId,
+        weekStartDate: dto.weekStartDate,
+        eventType: dto.eventType,
+        dutyType: DutyType.CUSTOM,
+        customLabel: dto.customLabel,
+      },
+    });
+    let sortOrder: number;
+    if (sibling) {
+      sortOrder = sibling.sortOrder;
+    } else {
+      const last = await this.repo
+        .createQueryBuilder('d')
+        .select('MAX(d.sortOrder)', 'max')
+        .where('d.congregationId = :congregationId', { congregationId })
+        .andWhere('d.weekStartDate = :weekStartDate', {
+          weekStartDate: dto.weekStartDate,
+        })
+        .andWhere('d.eventType = :eventType', { eventType: dto.eventType })
+        .getRawOne<{ max: number | null }>();
+      sortOrder = (last?.max == null ? 0 : Number(last.max)) + 1;
+    }
+
     const duty = this.repo.create({
       congregationId,
       weekStartDate: dto.weekStartDate,
@@ -577,6 +626,7 @@ export class DutiesService {
       slotIndex,
       customLabel: dto.customLabel,
       publisherId: dto.publisherId ?? null,
+      sortOrder,
     });
     const saved = await this.repo.save(duty);
     const warnings = saved.publisherId
@@ -614,6 +664,74 @@ export class DutiesService {
       else places.push({ label, count: 1, notes: r.notes ?? null });
     }
     return places;
+  }
+
+  /**
+   * Move a place up or down the sheet.
+   *
+   * The caller sends one row of the place and which way it goes; the whole
+   * place moves, because its rows are one thing to everybody who reads the
+   * sheet. Positions are then renumbered from one, so no gap or duplicate can
+   * accumulate over years of moving.
+   *
+   * Arrows rather than dragging: dragging is fiddly on a phone, would pull
+   * another library into the Expo fingerprint, and cannot be checked by a
+   * test. If dragging is ever wanted it lands on the same column.
+   */
+  async movePlace(
+    congregationId: string,
+    id: string,
+    direction: 'up' | 'down',
+  ): Promise<Duty[]> {
+    const duty = await this.getOne(congregationId, id);
+    await this.assertEditable(
+      congregationId,
+      duty.weekStartDate,
+      duty.eventType,
+    );
+    const all = await this.repo.find({
+      where: {
+        congregationId,
+        weekStartDate: duty.weekStartDate,
+        eventType: duty.eventType,
+      },
+      order: { sortOrder: 'ASC', dutyType: 'ASC', slotIndex: 'ASC' },
+    });
+
+    // The places in their present order, each with the rows that belong to it.
+    const places: { key: string; rows: Duty[] }[] = [];
+    for (const r of all) {
+      const key = `${r.dutyType}|${r.customLabel ?? ''}`;
+      const last = places[places.length - 1];
+      if (last && last.key === key) last.rows.push(r);
+      else places.push({ key, rows: [r] });
+    }
+
+    const from = places.findIndex((p) => p.rows.some((r) => r.id === id));
+    const to = direction === 'up' ? from - 1 : from + 1;
+    // Already at the edge: nothing to do, and nothing to complain about — the
+    // arrow is simply spent.
+    if (from < 0 || to < 0 || to >= places.length) return all;
+
+    const [moved] = places.splice(from, 1);
+    places.splice(to, 0, moved);
+
+    let order = 0;
+    const toSave: Duty[] = [];
+    for (const place of places) {
+      order += 1;
+      for (const r of place.rows) {
+        if (r.sortOrder !== order) {
+          r.sortOrder = order;
+          toSave.push(r);
+        }
+      }
+    }
+    if (toSave.length > 0) await this.repo.save(toSave);
+    return this.list(congregationId, {
+      weekStart: duty.weekStartDate,
+      eventType: duty.eventType,
+    });
   }
 
   /**
