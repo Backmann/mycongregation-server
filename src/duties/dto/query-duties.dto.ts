@@ -1,5 +1,5 @@
 import { IsIn, IsOptional, IsDateString } from 'class-validator';
-import { EventType } from '../../common/enums/event-type.enum';
+import { DUTY_MEETINGS, EventType } from '../../common/enums/event-type.enum';
 
 export class QueryDutiesDto {
   @IsOptional()
@@ -11,6 +11,6 @@ export class QueryDutiesDto {
   weekEnd?: string;
 
   @IsOptional()
-  @IsIn(['midweek', 'weekend'])
+  @IsIn(DUTY_MEETINGS)
   eventType?: EventType;
 }

@@ -7,13 +7,13 @@ import {
   MaxLength,
   ValidateIf,
 } from 'class-validator';
-import { EventType } from '../../common/enums/event-type.enum';
+import { DUTY_MEETINGS, EventType } from '../../common/enums/event-type.enum';
 
 export class CreateCustomDutyDto {
   @IsDateString()
   weekStartDate!: string;
 
-  @IsIn(['midweek', 'weekend'])
+  @IsIn(DUTY_MEETINGS)
   eventType!: EventType;
 
   @IsString()

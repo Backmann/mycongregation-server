@@ -26,3 +26,19 @@ export enum EventType {
   AV_DUTY = 'av_duty',
   PUBLIC_WITNESSING = 'public_witnessing',
 }
+
+/**
+ * The meetings that HAVE duties — one list, so a form cannot disagree with the
+ * others about what it will accept.
+ *
+ * Three DTOs spelled `['midweek', 'weekend']` out by hand, and naming the
+ * Memorial a third kind did not touch them: they are strings, so the type
+ * checker had nothing to object to. The first thing anybody saw was the app
+ * refusing to create its duties with «eventType must be one of the following
+ * values: midweek, weekend».
+ */
+export const DUTY_MEETINGS = [
+  EventType.MIDWEEK,
+  EventType.WEEKEND,
+  EventType.MEMORIAL,
+] as const;
