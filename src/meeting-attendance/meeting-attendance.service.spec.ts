@@ -312,6 +312,13 @@ describe('MeetingAttendanceService', () => {
     // honest about the year: a meeting missed in October is still a hole in
     // the sheet in July, and a count that stopped at eight weeks understated
     // precisely the thing it existed to surface.
+    //
+    // THE DATE IS PINNED. This test used to ask the real calendar and lean on
+    // «many weeks have passed since 1 September» — true for 364 days a year
+    // and false on the one day the service year begins. It duly went red on
+    // 1 September 2026, blocking a deploy, and the code was never at fault.
+    // A test that depends on today is a test that will fail on some today.
+    jest.useFakeTimers().setSystemTime(new Date('2027-07-15T09:00:00Z'));
     const { repo, settingsRepo } = build([]);
     (settingsRepo as unknown as { find: jest.Mock }).find.mockResolvedValue([
       { effectiveFrom: '2020-01-01', midweekDow: 4, weekendDow: 7 },
@@ -332,6 +339,7 @@ describe('MeetingAttendanceService', () => {
     // Many weeks have passed since 1 September, so the year's tally is far
     // larger than the handful the card offers.
     expect(out.outstandingThisYear).toBeGreaterThan(out.meetings.length);
+    jest.useRealTimers();
   });
 
   it('refuses a held meeting with no figure', async () => {
