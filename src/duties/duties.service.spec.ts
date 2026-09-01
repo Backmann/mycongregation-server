@@ -541,7 +541,11 @@ describe('DutiesService.generateWeek — the Memorial evening', () => {
     expect(rows.every((r: any) => r.dutyType === 'custom')).toBe(true);
   });
 
-  it('gives a place with several brothers that many rows', async () => {
+  it('starts with ONE brother to a place', async () => {
+    // Lionel's decision, 1 September: the counts are the congregation's own
+    // business, «Ещё брат» adds one in a tap, and from the second Memorial
+    // onwards the counts come from last year's anyway — this list only ever
+    // seeds the first one.
     const { svc, qb } = build(memorialEvent);
     await svc.generateWeek('c1', {
       weekStartDate: WEEK,
@@ -549,10 +553,10 @@ describe('DutiesService.generateWeek — the Memorial evening', () => {
     });
     const rows = (qb.values as jest.Mock).mock.calls[0][0];
     expect(rows.filter((r: any) => r.customLabel === 'Стоянка')).toHaveLength(
-      3,
+      1,
     );
     expect(rows.filter((r: any) => r.customLabel === 'Левый ряд')).toHaveLength(
-      2,
+      1,
     );
   });
 
@@ -565,8 +569,6 @@ describe('DutiesService.generateWeek — the Memorial evening', () => {
     const rows = (qb.values as jest.Mock).mock.calls[0][0];
     const parking = rows.filter((r: any) => r.customLabel === 'Стоянка');
     expect(parking.map((r: any) => r.notes)).toEqual([
-      'Светоотражающие жилетки',
-      'Светоотражающие жилетки',
       'Светоотражающие жилетки',
     ]);
   });
