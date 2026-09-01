@@ -6,7 +6,7 @@ import {
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { SpecialEvent } from '../entities/special-event.entity';
-import { LessThanOrEqual, Not, Repository } from 'typeorm';
+import { LessThan, LessThanOrEqual, Not, Repository } from 'typeorm';
 import { Duty } from '../entities/duty.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Publisher } from '../entities/publisher.entity';
@@ -295,8 +295,25 @@ export class DutiesService {
     // the congregation's own and can be renamed or removed — nothing here is
     // a rule, only a first sheet so that nobody starts from an empty one.
     if (dto.eventType === EventType.MEMORIAL) {
+      // FROM LAST YEAR'S MEMORIAL, and only from the code when there is no
+      // last year. The congregation renames the places for its own hall, adds
+      // one and drops another; without this all of that would be undone every
+      // spring and done again by hand. The same rule the programme follows —
+      // labels, counts and notes travel, PEOPLE do not.
+      const previous = await this.previousMemorialDuties(
+        congregationId,
+        dto.weekStartDate,
+      );
+      const places =
+        previous.length > 0
+          ? previous
+          : MEMORIAL_DUTIES.map((p) => ({
+              label: p.label,
+              count: p.count,
+              notes: p.notes ?? null,
+            }));
       let slot = 0;
-      for (const place of MEMORIAL_DUTIES) {
+      for (const place of places) {
         for (let n = 0; n < place.count; n++) {
           rows.push({
             ...base,
@@ -566,6 +583,137 @@ export class DutiesService {
       ? await this.conflicts(congregationId, saved, saved.publisherId)
       : [];
     return { duty: saved, warnings };
+  }
+
+  /**
+   * The places of the LAST Memorial that had any, newest first.
+   *
+   * Gathered into places rather than rows: how many stand at each is part of
+   * what the congregation decided, so three at the parking stay three.
+   */
+  private async previousMemorialDuties(
+    congregationId: string,
+    weekStartDate: string,
+  ): Promise<{ label: string; count: number; notes: string | null }[]> {
+    const rows = await this.repo.find({
+      where: {
+        congregationId,
+        eventType: EventType.MEMORIAL,
+        weekStartDate: LessThan(weekStartDate),
+      },
+      order: { weekStartDate: 'DESC', slotIndex: 'ASC' },
+    });
+    if (rows.length === 0) return [];
+    const latest = rows[0].weekStartDate;
+    const places: { label: string; count: number; notes: string | null }[] = [];
+    for (const r of rows) {
+      if (r.weekStartDate !== latest) break;
+      const label = r.customLabel ?? '';
+      const last = places[places.length - 1];
+      if (last && last.label === label) last.count += 1;
+      else places.push({ label, count: 1, notes: r.notes ?? null });
+    }
+    return places;
+  }
+
+  /**
+   * Rename a place — ALL of its rows at once.
+   *
+   * «Стоянка» is three rows sharing a label; renaming one would split the
+   * group in two and the screen would show two places where the congregation
+   * has one. So the label is changed for every row of that place in that week
+   * and that meeting.
+   *
+   * ONLY a place the congregation named itself. A predefined duty takes its
+   * name from the translations — «Сцена» in Russian, «Bühne» in German — and
+   * writing over it would break the language for everybody else. That is the
+   * same line the delete button already draws.
+   *
+   * Nothing here can reach the starting lists: those live in the code, and
+   * duties are keyed by week and meeting, so a rename touches one week only.
+   */
+  async renamePlace(
+    congregationId: string,
+    id: string,
+    label: string,
+  ): Promise<Duty[]> {
+    const duty = await this.getOne(congregationId, id);
+    await this.assertEditable(
+      congregationId,
+      duty.weekStartDate,
+      duty.eventType,
+    );
+    if (duty.dutyType !== DutyType.CUSTOM) {
+      throw new ConflictException(
+        'Only a duty the congregation added itself can be renamed.',
+      );
+    }
+    const rows = await this.repo.find({
+      where: {
+        congregationId,
+        weekStartDate: duty.weekStartDate,
+        eventType: duty.eventType,
+        dutyType: DutyType.CUSTOM,
+        customLabel: duty.customLabel ?? undefined,
+      },
+    });
+    const before = duty.customLabel;
+    for (const r of rows) r.customLabel = label;
+    await this.repo.save(rows);
+    await this.auditLog.logUpdate({
+      tenantId: congregationId,
+      entityType: 'duty',
+      entityId: id,
+      before: { customLabel: before },
+      after: { customLabel: label },
+      fields: ['customLabel'],
+    });
+    return rows;
+  }
+
+  /**
+   * Remove a place with everybody standing at it.
+   *
+   * The bin on a row takes ONE person off a place — replacing one of the three
+   * at the parking is ordinary work. Removing the parking itself meant
+   * pressing it three times, so this does the whole place in one go.
+   *
+   * Own places only, for the same reason as the rename.
+   */
+  async removePlace(congregationId: string, id: string): Promise<void> {
+    const duty = await this.getOne(congregationId, id);
+    await this.assertEditable(
+      congregationId,
+      duty.weekStartDate,
+      duty.eventType,
+    );
+    if (duty.dutyType !== DutyType.CUSTOM) {
+      throw new ConflictException(
+        'Only a duty the congregation added itself can be removed this way.',
+      );
+    }
+    const rows = await this.repo.find({
+      where: {
+        congregationId,
+        weekStartDate: duty.weekStartDate,
+        eventType: duty.eventType,
+        dutyType: DutyType.CUSTOM,
+        customLabel: duty.customLabel ?? undefined,
+      },
+    });
+    await this.repo.remove(rows);
+    await this.auditLog.logEvent({
+      tenantId: congregationId,
+      entityType: 'duty',
+      entityId: id,
+      action: 'DELETE',
+      detail: {
+        weekStartDate: duty.weekStartDate,
+        eventType: duty.eventType,
+        label: duty.customLabel ?? null,
+        rows: rows.length,
+      },
+    });
   }
 
   async remove(congregationId: string, id: string): Promise<void> {

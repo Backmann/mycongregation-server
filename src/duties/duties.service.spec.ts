@@ -460,7 +460,7 @@ describe('DutiesService.generateWeek — the Memorial evening', () => {
    */
   const WEEK = '2027-03-22'; // Monday; the Memorial falls on it
 
-  function build(memorial: unknown) {
+  function build(memorial: unknown, previous: any[] = []) {
     const qb: any = {
       insert: jest.fn().mockReturnThis(),
       into: jest.fn().mockReturnThis(),
@@ -481,7 +481,13 @@ describe('DutiesService.generateWeek — the Memorial evening', () => {
         logUpdate: jest.fn(),
         logEvent: jest.fn(),
       } as any,
-      { createQueryBuilder: jest.fn(() => qb), findOne: jest.fn() } as any,
+      {
+        createQueryBuilder: jest.fn(() => qb),
+        findOne: jest.fn(),
+        // The Memorial's duties come from LAST YEAR'S; an empty list means
+        // there was no last year, and the starting list in the code is used.
+        find: jest.fn(async () => previous),
+      } as any,
       { count: jest.fn().mockResolvedValue(0), findOne: jest.fn() } as any,
       { findOne: jest.fn() } as any,
       {
@@ -585,5 +591,204 @@ describe('DutiesService.generateWeek — the Memorial evening', () => {
       }),
     ).rejects.toThrow(ConflictException);
     expect(qb.insert).not.toHaveBeenCalled();
+  });
+
+  // ---- перенос с прошлогодней Вечери ----
+
+  /**
+   * The congregation renames places for its own hall, adds one and drops
+   * another. Without this all of that would be undone every spring and done
+   * again by hand — the same reason the programme is carried from last year.
+   * Labels, counts and notes travel; PEOPLE do not.
+   */
+
+  it('takes the places from last year, keeping how many stand at each', async () => {
+    const lastYear = [
+      {
+        weekStartDate: '2026-04-01',
+        customLabel: 'Парковка',
+        notes: 'Жилетки',
+        slotIndex: 0,
+        publisherId: 'p1',
+      },
+      {
+        weekStartDate: '2026-04-01',
+        customLabel: 'Парковка',
+        notes: 'Жилетки',
+        slotIndex: 1,
+        publisherId: 'p2',
+      },
+      {
+        weekStartDate: '2026-04-01',
+        customLabel: 'Вход',
+        notes: null,
+        slotIndex: 2,
+        publisherId: 'p3',
+      },
+    ];
+    const { svc, qb } = build(memorialEvent, lastYear);
+
+    await svc.generateWeek('c1', {
+      weekStartDate: WEEK,
+      eventType: 'memorial' as any,
+    });
+
+    const rows = (qb.values as jest.Mock).mock.calls[0][0];
+    expect(rows.map((r: any) => r.customLabel)).toEqual([
+      'Парковка',
+      'Парковка',
+      'Вход',
+    ]);
+    expect(rows.filter((r: any) => r.customLabel === 'Парковка')[0].notes).toBe(
+      'Жилетки',
+    );
+    // Nobody is carried: who stands where is decided afresh.
+    expect(rows.every((r: any) => r.publisherId === null)).toBe(true);
+  });
+
+  it('ignores anything older than the most recent Memorial', async () => {
+    const rows = [
+      {
+        weekStartDate: '2026-04-01',
+        customLabel: 'Новое',
+        notes: null,
+        slotIndex: 0,
+      },
+      {
+        weekStartDate: '2025-04-01',
+        customLabel: 'Старое',
+        notes: null,
+        slotIndex: 0,
+      },
+    ];
+    const { svc, qb } = build(memorialEvent, rows);
+    await svc.generateWeek('c1', {
+      weekStartDate: WEEK,
+      eventType: 'memorial' as any,
+    });
+    const made = (qb.values as jest.Mock).mock.calls[0][0];
+    expect(made.map((r: any) => r.customLabel)).toEqual(['Новое']);
+  });
+
+  it('falls back to the starting list when there is no earlier Memorial', async () => {
+    const { svc, qb } = build(memorialEvent, []);
+    await svc.generateWeek('c1', {
+      weekStartDate: WEEK,
+      eventType: 'memorial' as any,
+    });
+    const made = (qb.values as jest.Mock).mock.calls[0][0];
+    expect(made.map((r: any) => r.customLabel)).toContain('Главный зал');
+  });
+});
+
+describe('DutiesService — a PLACE is renamed and removed whole', () => {
+  /**
+   * «Стоянка» is three rows sharing a label. Renaming one would split the
+   * group in two and the screen would show two places where the congregation
+   * has one; removing one only takes a person off the place. So both act on
+   * every row of the place at once.
+   *
+   * OWN places only. A predefined duty takes its name from the translations —
+   * «Сцена» in Russian, «Bühne» in German — and writing over it would break
+   * the language for everybody else.
+   */
+  const FUTURE_WEEK = '2099-04-06';
+
+  function make(duty: Record<string, unknown>, rows: unknown[]) {
+    const saved: unknown[] = [];
+    const removed: unknown[] = [];
+    const audit = {
+      logCreate: jest.fn(),
+      logUpdate: jest.fn(),
+      logEvent: jest.fn(),
+    };
+    const repo = {
+      findOne: jest.fn(async () => duty),
+      find: jest.fn(async () => rows),
+      save: jest.fn(async (x: unknown) => {
+        saved.push(x);
+        return x;
+      }),
+      remove: jest.fn(async (x: unknown) => {
+        removed.push(x);
+        return x;
+      }),
+    } as any;
+    const svc = new DutiesService(
+      audit as any,
+      repo,
+      { count: jest.fn().mockResolvedValue(0), findOne: jest.fn() } as any,
+      { findOne: jest.fn() } as any,
+      { find: jest.fn().mockResolvedValue([]), save: jest.fn() } as any,
+      { findOne: jest.fn().mockResolvedValue({}) } as any,
+      { find: jest.fn().mockResolvedValue([]) } as any,
+      clockStub(),
+    );
+    return { svc, repo, audit, saved, removed };
+  }
+
+  const parking = (i: number) => ({
+    id: `p${i}`,
+    congregationId: 'c1',
+    weekStartDate: FUTURE_WEEK,
+    eventType: 'memorial',
+    dutyType: 'custom',
+    customLabel: 'Стоянка',
+    slotIndex: i,
+    notes: null,
+    publisherId: null,
+  });
+
+  it('renames every row of the place, not just the one tapped', async () => {
+    const rows = [parking(0), parking(1), parking(2)];
+    const { svc, saved } = make(rows[1], rows);
+
+    await svc.renamePlace('c1', 'p1', 'Парковка');
+
+    expect((saved[0] as any[]).map((r) => r.customLabel)).toEqual([
+      'Парковка',
+      'Парковка',
+      'Парковка',
+    ]);
+  });
+
+  it('removes every row of the place at once', async () => {
+    const rows = [parking(0), parking(1), parking(2)];
+    const { svc, removed } = make(rows[0], rows);
+
+    await svc.removePlace('c1', 'p0');
+
+    expect((removed[0] as unknown[]).length).toBe(3);
+  });
+
+  it('refuses to rename a duty whose name comes from the translations', async () => {
+    const stage = { ...parking(0), dutyType: 'stage', customLabel: null };
+    const { svc, saved } = make(stage, [stage]);
+    await expect(svc.renamePlace('c1', 'p0', 'Что угодно')).rejects.toThrow(
+      ConflictException,
+    );
+    expect(saved).toHaveLength(0);
+  });
+
+  it('refuses to remove a predefined duty as a place', async () => {
+    const mic = { ...parking(0), dutyType: 'microphone', customLabel: null };
+    const { svc, removed } = make(mic, [mic]);
+    await expect(svc.removePlace('c1', 'p0')).rejects.toThrow(
+      ConflictException,
+    );
+    expect(removed).toHaveLength(0);
+  });
+
+  it('writes the rename to the journal', async () => {
+    const rows = [parking(0)];
+    const { svc, audit } = make(rows[0], rows);
+    await svc.renamePlace('c1', 'p0', 'Парковка');
+    expect(audit.logUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityType: 'duty',
+        before: { customLabel: 'Стоянка' },
+        after: { customLabel: 'Парковка' },
+      }),
+    );
   });
 });

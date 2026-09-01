@@ -22,6 +22,7 @@ import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
+import { RenamePlaceDto } from './dto/rename-place.dto';
 
 /**
  * Meeting duties. Reading is open to any authenticated member; editing requires
@@ -88,6 +89,40 @@ export class DutiesController {
     @Body() dto: AssignDutyDto,
   ) {
     return this.service.assign(congregationId, id, dto);
+  }
+
+  /**
+   * Rename a place — every row of it. Own places only: a predefined duty takes
+   * its name from the translations, and writing over it would break the
+   * language for everybody else.
+   */
+  @Patch(':id/label')
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.DUTIES_COORDINATOR,
+    ResponsibilityType.BODY_COORDINATOR,
+  )
+  renamePlace(
+    @TenantId() congregationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RenamePlaceDto,
+  ) {
+    return this.service.renamePlace(congregationId, id, dto.customLabel);
+  }
+
+  /** Remove a place with everybody standing at it — the bin takes off one. */
+  @Delete(':id/place')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.DUTIES_COORDINATOR,
+    ResponsibilityType.BODY_COORDINATOR,
+  )
+  removePlace(
+    @TenantId() congregationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.removePlace(congregationId, id);
   }
 
   @Delete(':id')
