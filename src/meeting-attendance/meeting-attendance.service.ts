@@ -48,6 +48,15 @@ export interface AttendanceMonth {
   midweekAverage: number | null;
   weekendTotal: number;
   weekendAverage: number | null;
+  /**
+   * The Memorial, kept apart from the two.
+   *
+   * A line of its own rather than a third column: it happens once a year, and
+   * a column for it would stand empty for eleven months and widen every sheet
+   * that carries it. Empty in every month but the one — Lionel's decision.
+   */
+  memorial: AttendanceRow[];
+  memorialTotal: number;
 }
 
 export interface AttendanceYear {
@@ -558,8 +567,12 @@ export class MeetingAttendanceService {
       const inMonth = expected.filter((r) => r.date.slice(0, 7) === key);
       const midweek = inMonth.filter((r) => r.eventType === EventType.MIDWEEK);
       const weekend = inMonth.filter((r) => r.eventType === EventType.WEEKEND);
+      const memorial = inMonth.filter(
+        (r) => r.eventType === EventType.MEMORIAL,
+      );
       const mw = summarise(midweek);
       const we = summarise(weekend);
+      const me = summarise(memorial);
       months.push({
         month: `${key}-01`,
         midweek,
@@ -568,6 +581,11 @@ export class MeetingAttendanceService {
         midweekAverage: mw.average,
         weekendTotal: we.total,
         weekendAverage: we.average,
+        memorial,
+        // No average: one evening a year has nothing to be averaged against,
+        // and a number that always equals the total only invites doubt about
+        // which of the two to read.
+        memorialTotal: me.total,
       });
     }
     return { startYear, months };

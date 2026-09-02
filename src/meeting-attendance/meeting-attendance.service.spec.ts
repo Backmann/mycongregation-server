@@ -633,3 +633,87 @@ describe('MeetingAttendanceService — the Memorial is counted, once', () => {
     expect(out.every((g) => g.time === null)).toBe(true);
   });
 });
+
+describe('MeetingAttendanceService.serviceYear — the Memorial has a line of its own', () => {
+  /**
+   * A line rather than a third column: it happens once a year, and a column
+   * for it would stand empty for eleven months and widen every sheet that
+   * carries it — Lionel's decision.
+   *
+   * No average either: one evening a year has nothing to be averaged against,
+   * and a number that always equals the total only invites doubt about which
+   * of the two to read.
+   */
+  function build(
+    recorded: { date: string; eventType: string; count: number }[],
+  ) {
+    const repo = {
+      find: jest.fn(async () =>
+        recorded.map((r) => ({
+          ...r,
+          notHeld: false,
+          updatedAt: null,
+          createdAt: null,
+        })),
+      ),
+    };
+    const settingsRepo = {
+      find: jest
+        .fn()
+        .mockResolvedValue([
+          { effectiveFrom: '2020-01-01', midweekDow: 4, weekendDow: 7 },
+        ]),
+    };
+    const eventsFind = jest.fn(async (opts: unknown) => {
+      const where = (opts as { where: unknown }).where;
+      if (Array.isArray(where)) return [];
+      const w = where as { type?: string; replacesMeeting?: boolean };
+      if (w.replacesMeeting) return [];
+      // A Memorial that has ALREADY HAPPENED: the year walk skips meetings
+      // still ahead — they are not gaps, they simply have not happened — so a
+      // future one would never appear in the summary at all. Wednesday,
+      // 3 April 2024, inside the 2023/24 service year.
+      return w.type === 'memorial'
+        ? [{ date: '2024-04-03', endDate: null, time: '19:30' }]
+        : [];
+    });
+    return new MeetingAttendanceService(
+      repo as never,
+      settingsRepo as never,
+      { find: eventsFind } as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      { logCreate: jest.fn(), logUpdate: jest.fn() } as never,
+      clockStub(),
+    );
+  }
+
+  it('puts the Memorial in its own month, and in no other', async () => {
+    const svc = build([
+      { date: '2024-04-03', eventType: 'memorial', count: 214 },
+    ]);
+
+    const year = await svc.serviceYear('cong-1', 2023);
+
+    const march = year.months.find((m) => m.month === '2024-04-01')!;
+    expect(march.memorial).toHaveLength(1);
+    expect(march.memorialTotal).toBe(214);
+    // Every other month is empty — it is one evening a year.
+    const others = year.months.filter((m) => m.month !== '2024-04-01');
+    expect(others.every((m) => m.memorial.length === 0)).toBe(true);
+    expect(others.every((m) => m.memorialTotal === 0)).toBe(true);
+  });
+
+  it('keeps it out of the midweek and weekend figures', async () => {
+    const svc = build([
+      { date: '2024-04-03', eventType: 'memorial', count: 214 },
+    ]);
+
+    const year = await svc.serviceYear('cong-1', 2023);
+    const march = year.months.find((m) => m.month === '2024-04-01')!;
+
+    expect(march.midweek.some((r) => r.count === 214)).toBe(false);
+    expect(march.weekend.some((r) => r.count === 214)).toBe(false);
+    expect(march.midweekTotal).not.toBe(214);
+    expect(march.weekendTotal).not.toBe(214);
+  });
+});
