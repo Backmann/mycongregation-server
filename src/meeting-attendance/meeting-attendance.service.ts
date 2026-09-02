@@ -296,22 +296,29 @@ export class MeetingAttendanceService {
       time: string | null;
     }[] = this.meetingsOfWeek(weekStart, ctx).map((m) => ({
       date: m.date,
-      kind: m.eventType === EventType.MIDWEEK ? 'midweek' : 'weekend',
+      kind:
+        m.eventType === EventType.MEMORIAL
+          ? 'memorial'
+          : m.eventType === EventType.MIDWEEK
+            ? 'midweek'
+            : 'weekend',
       // Null on purpose: the hour of an ordinary meeting comes from the
       // settings version in force, which the caller already has.
       time: null,
     }));
 
+    // The Memorial arrives with the meetings now — `meetingsOfWeek` asks about
+    // it under its own kind — so it is no longer appended here. What is still
+    // needed is its HOUR: it starts at its own time, and reaching for the
+    // settings would put the reminder at the time of a meeting not being held.
     const weekEnd = addDaysISO(weekStart, 6);
     const memorial = ctx.memorials.find(
       (e) => e.date >= weekStart && e.date <= weekEnd,
     );
     if (memorial) {
-      out.push({
-        date: memorial.date,
-        kind: 'memorial',
-        time: memorial.time ?? null,
-      });
+      for (const g of out) {
+        if (g.kind === 'memorial') g.time = memorial.time ?? null;
+      }
     }
     return out.sort((a, b) => a.date.localeCompare(b.date));
   }
@@ -406,10 +413,26 @@ export class MeetingAttendanceService {
         ...ctx.flagged.map((e) => ({ ...e, replacesMeeting: true })),
       ],
     });
-    return rules.meetings.map((m) => ({
+    const out = rules.meetings.map((m) => ({
       date: m.date,
       eventType: m.kind === 'midweek' ? EventType.MIDWEEK : EventType.WEEKEND,
     }));
+
+    // The Memorial is counted too, under its OWN kind.
+    //
+    // It takes a meeting away, so it is absent from `rules.meetings` — and the
+    // figure was therefore asked of nobody, on the one evening of the year the
+    // hall is fullest and the number matters most. Recorded separately rather
+    // than folded into the midweek or weekend column, because those are what
+    // the congregation reports week by week and the Memorial is its own line.
+    const weekEnd = addDaysISO(weekStart, 6);
+    const memorial = ctx.memorials.find(
+      (e) => e.date >= weekStart && e.date <= weekEnd,
+    );
+    if (memorial) {
+      out.push({ date: memorial.date, eventType: EventType.MEMORIAL });
+    }
+    return out.sort((a, b) => a.date.localeCompare(b.date));
   }
 
   /** Drop the ones already recorded, newest first. */

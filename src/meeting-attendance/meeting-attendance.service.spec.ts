@@ -257,6 +257,10 @@ describe('MeetingAttendanceService', () => {
   it('lets the Memorial take the midweek meeting when it falls on a weekday', async () => {
     // Nisan 14 lands on a Wednesday; the midweek meeting gives way, and it is
     // the midweek one even though the meeting itself is a Thursday.
+    //
+    // The Memorial itself is now ASKED ABOUT, under its own kind: it takes a
+    // meeting away, so it used to be absent from the list — and the figure was
+    // asked of nobody on the one evening of the year the hall is fullest.
     const { repo, settingsRepo } = build([]);
     (settingsRepo as unknown as { find: jest.Mock }).find.mockResolvedValue([
       { effectiveFrom: '2020-01-01', midweekDow: 4, weekendDow: 7 },
@@ -278,7 +282,8 @@ describe('MeetingAttendanceService', () => {
 
     const out = await svc.pendingForWeek('cong-1', '2026-04-06');
 
-    expect(out.map((m) => m.eventType)).toEqual(['weekend']);
+    // In date order: the Memorial on the Wednesday, the weekend meeting after.
+    expect(out.map((m) => m.eventType)).toEqual(['memorial', 'weekend']);
   });
 
   it('lets the Memorial take the weekend meeting when it falls at the weekend', async () => {
@@ -303,8 +308,9 @@ describe('MeetingAttendanceService', () => {
 
     const out = await svc.pendingForWeek('cong-1', '2026-04-06');
 
-    // The OTHER meeting of that week still happened and is still asked about.
-    expect(out.map((m) => m.eventType)).toEqual(['midweek']);
+    // The OTHER meeting of that week still happened and is still asked about;
+    // the Memorial is asked about too, under its own kind, in date order.
+    expect(out.map((m) => m.eventType)).toEqual(['midweek', 'memorial']);
   });
 
   it('counts what is outstanding for the whole year, not just the weeks it offers', async () => {
@@ -557,5 +563,73 @@ describe('an event flagged «в этот день обычной встречи 
     const out = await svc.pendingForWeek('cong-1', '2026-04-06');
 
     expect(out.map((m) => m.eventType)).toEqual(['weekend']);
+  });
+});
+
+describe('MeetingAttendanceService — the Memorial is counted, once', () => {
+  /**
+   * The Memorial takes a meeting away, so it used to be absent from the list
+   * of meetings whose attendance is asked for — and the figure was asked of
+   * nobody, on the one evening of the year the hall is fullest. It is asked
+   * for now, under its OWN kind, because that is a line of its own and not
+   * part of what the congregation reports week by week.
+   *
+   * ONCE. `gatheringsForWeek` used to append it for the cleaning reminder;
+   * with the meetings list carrying it too, that would have listed it twice
+   * and — worse — the first copy would have been labelled «weekend», sending
+   * the reminder to the wrong hour. No test would have caught it: the cleaning
+   * spec stubs this method out entirely.
+   */
+  function build(memorialDate: string | null, time: string | null = '19:30') {
+    const settingsRepo = {
+      find: jest
+        .fn()
+        .mockResolvedValue([
+          { effectiveFrom: '2020-01-01', midweekDow: 4, weekendDow: 7 },
+        ]),
+    };
+    const eventsFind = jest.fn(async (opts: unknown) => {
+      const where = (opts as { where: unknown }).where;
+      if (Array.isArray(where)) return [];
+      const w = where as { type?: string; replacesMeeting?: boolean };
+      if (w.replacesMeeting) return [];
+      return w.type === 'memorial' && memorialDate
+        ? [{ date: memorialDate, endDate: null, time }]
+        : [];
+    });
+    return new MeetingAttendanceService(
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      settingsRepo as never,
+      { find: eventsFind } as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      { logCreate: jest.fn(), logUpdate: jest.fn() } as never,
+      clockStub(),
+    );
+  }
+
+  it('asks for the Memorial figure under its own kind', async () => {
+    const svc = build('2026-04-08'); // Wednesday
+    const out = await svc.pendingForWeek('cong-1', '2026-04-06');
+    expect(out.filter((m) => m.eventType === EventType.MEMORIAL)).toHaveLength(
+      1,
+    );
+  });
+
+  it('lists it ONCE for the cleaning reminder, and with its own hour', async () => {
+    const svc = build('2026-04-08');
+    const out = await svc.gatheringsForWeek('cong-1', '2026-04-06');
+    const memorials = out.filter((g) => g.kind === 'memorial');
+    expect(memorials).toHaveLength(1);
+    // Its own hour, not the settings' 19:00 for a midweek meeting.
+    expect(memorials[0].time).toBe('19:30');
+    // And the meeting it took away is not there at all.
+    expect(out.map((g) => g.kind)).toEqual(['memorial', 'weekend']);
+  });
+
+  it('leaves an ordinary week exactly as it was', async () => {
+    const svc = build(null);
+    const out = await svc.gatheringsForWeek('cong-1', '2026-04-06');
+    expect(out.map((g) => g.kind)).toEqual(['midweek', 'weekend']);
+    expect(out.every((g) => g.time === null)).toBe(true);
   });
 });
