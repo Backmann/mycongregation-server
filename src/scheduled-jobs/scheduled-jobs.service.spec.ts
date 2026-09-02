@@ -58,6 +58,10 @@ describe('ScheduledJobsService', () => {
       { runDue: jest.fn(async () => 0) } as never,
       // The group-visit task pass, raised and lowered by the data itself.
       { ensureForToday: jest.fn(async () => 0) } as never,
+      // «The Memorial is tomorrow», sent after 19:00 in the congregation's own
+      // evening. The service decides whether anything is due; this tick only
+      // asks.
+      { remindEveningBefore: jest.fn(async () => 0) } as never,
     );
   });
 
