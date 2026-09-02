@@ -1,4 +1,10 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
+// expo-server-sdk (pulled in transitively by the real push service, which the
+// notifications service imports) is ESM-only and breaks under Jest. Mocked the
+// same way the assignments spec does it, and for the same reason.
+jest.mock('../push-notifications/push-notifications.service', () => ({
+  PushNotificationsService: class PushNotificationsServiceMock {},
+}));
 import { MemorialService } from './memorial.service';
 import { MEMORIAL_DEFAULT_THEME, MEMORIAL_TEMPLATE } from './memorial-template';
 import { clockStub } from '../common/testing/clock-stub';
@@ -23,6 +29,9 @@ function build(
     items?: any[];
     earlier?: any[];
     itemsByEvent?: Record<string, any[]>;
+    duties?: any[];
+    publishers?: any[];
+    users?: any[];
   } = {},
 ) {
   const event = opts.event ?? {
@@ -86,13 +95,42 @@ function build(
     logCreate: jest.fn(),
     logUpdate: jest.fn(),
   };
+  const duties: any[] = opts.duties ?? [];
+  const dutiesRepo: any = { find: jest.fn(async () => duties) };
+  const publishers: any[] = opts.publishers ?? [];
+  const publishersRepo: any = {
+    find: jest.fn(async () => publishers),
+    manager: { find: jest.fn(async () => opts.users ?? []) },
+  };
+  // The service reads users through the ITEM repo's manager, as the
+  // assignments service does — one connection, no second injection.
+  repo.manager = { find: jest.fn(async () => opts.users ?? []) };
+  const notified: any[] = [];
+  const notifications: any = {
+    notify: jest.fn(async (input: any) => {
+      notified.push(input);
+    }),
+  };
   const svc = new MemorialService(
     repo,
     eventsRepo,
+    dutiesRepo,
+    publishersRepo,
     audit as never,
     clockStub(),
+    notifications,
   );
-  return { svc, repo, eventsRepo, audit, event, saved };
+  return {
+    svc,
+    repo,
+    eventsRepo,
+    dutiesRepo,
+    publishersRepo,
+    audit,
+    event,
+    saved,
+    notified,
+  };
 }
 
 describe('MemorialService.prepare — the first one comes from the template', () => {
@@ -334,5 +372,150 @@ describe('MemorialService.reorder', () => {
     await expect(
       svc.reorder('cong-1', 'ev-now', 'emblems', ['r1', 'somebody-elses']),
     ).rejects.toThrow(NotFoundException);
+  });
+});
+
+/**
+ * Who hears about the evening, and when.
+ *
+ * Decided on 2 September: publishing tells the people written on the sheet and
+ * nobody else. The congregation is invited to the Memorial from the platform,
+ * as it always was; a push saying «somebody has a part» to a person who has
+ * none is the broadcast this project deliberately stopped sending.
+ *
+ * The programme and the places are ONE sheet — the printed page carries both —
+ * so a brother on the parking is told exactly as the chairman is.
+ */
+/**
+ * The notice is fire-and-forget on purpose — a push that fails must not undo a
+ * publication that succeeded — so the test waits for the queue rather than for
+ * the call.
+ */
+const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+describe('MemorialService.publish — tells the people on the sheet', () => {
+  const sheet = [
+    {
+      id: 'li-1',
+      section: 'programme',
+      partKey: 'prayer_bread',
+      label: 'Молитва за хлеб',
+      sortOrder: 4,
+      publisherId: 'pub-1',
+    },
+    {
+      id: 'li-2',
+      section: 'programme',
+      partKey: 'chairman',
+      label: 'Председатель',
+      sortOrder: 0,
+      publisherId: null,
+    },
+  ];
+  const places = [
+    {
+      id: 'du-1',
+      eventType: 'memorial',
+      dutyType: 'custom',
+      customLabel: 'Стоянка',
+      sortOrder: 1,
+      publisherId: 'pub-2',
+    },
+  ];
+  const publishers = [
+    { id: 'pub-1', userId: 'user-1' },
+    { id: 'pub-2', userId: 'user-2' },
+  ];
+  const users = [
+    { id: 'user-1', uiLanguage: 'ru' },
+    { id: 'user-2', uiLanguage: 'ru' },
+  ];
+
+  it('names each person their own part, and leaves the rest alone', async () => {
+    const { svc, notified } = build({
+      items: sheet,
+      duties: places,
+      publishers,
+      users,
+    });
+
+    await svc.publish('cong-1', 'ev-now', 'user-9');
+    await flush();
+
+    expect(notified).toHaveLength(2);
+    const toChairman = notified.find((n) => n.userIds[0] === 'user-1');
+    const toParking = notified.find((n) => n.userIds[0] === 'user-2');
+    expect(toChairman.body).toContain('Молитва за хлеб');
+    expect(toChairman.body).not.toContain('Стоянка');
+    expect(toParking.body).toContain('Стоянка');
+    expect(toChairman.data.type).toBe('memorial_published');
+    // The category a person can switch off: this is an assignment, not news.
+    expect(toChairman.kind).toBe('memorial');
+  });
+
+  it('says nothing a second time when publish is called again', async () => {
+    const { svc, notified, event } = build({
+      items: sheet,
+      duties: places,
+      publishers,
+      users,
+    });
+
+    await svc.publish('cong-1', 'ev-now', 'user-9');
+    await flush();
+    expect(event.memorialPublishedAt).toBeTruthy();
+    const after = notified.length;
+    await svc.publish('cong-1', 'ev-now', 'user-9');
+    await flush();
+    expect(notified).toHaveLength(after);
+  });
+});
+
+describe('MemorialService.remindEveningBefore', () => {
+  const sheet = [
+    {
+      id: 'li-1',
+      section: 'programme',
+      label: 'Молитва за хлеб',
+      sortOrder: 4,
+      publisherId: 'pub-1',
+    },
+  ];
+  const publishers = [{ id: 'pub-1', userId: 'user-1' }];
+  const users = [{ id: 'user-1', uiLanguage: 'ru' }];
+
+  /** Berlin is UTC+2 in April, so 17:30Z is 19:30 local. */
+  const EVE_AFTER_SEVEN = new Date('2099-04-01T17:30:00Z');
+  const EVE_BEFORE_SEVEN = new Date('2099-04-01T14:30:00Z');
+
+  function forReminder(now: Date) {
+    const ctx = build({ items: sheet, publishers, users });
+    ctx.eventsRepo.find = jest.fn(async () => [ctx.event]);
+    return { ...ctx, now };
+  }
+
+  it('tells the assignee on the evening before, after seven', async () => {
+    const { svc, notified } = forReminder(EVE_AFTER_SEVEN);
+    const sent = await svc.remindEveningBefore(EVE_AFTER_SEVEN);
+    expect(sent).toBe(1);
+    expect(notified).toHaveLength(1);
+    expect(notified[0].data.type).toBe('memorial_tomorrow');
+    expect(notified[0].body).toContain('Молитва за хлеб');
+  });
+
+  it('stays silent earlier in the same day', async () => {
+    const { svc, notified } = forReminder(EVE_BEFORE_SEVEN);
+    const sent = await svc.remindEveningBefore(EVE_BEFORE_SEVEN);
+    expect(sent).toBe(0);
+    expect(notified).toHaveLength(0);
+  });
+
+  it('stays silent on the evening of the Memorial itself', async () => {
+    const { svc, notified } = forReminder(EVE_AFTER_SEVEN);
+    const sent = await svc.remindEveningBefore(
+      new Date('2099-04-02T17:30:00Z'),
+    );
+    expect(sent).toBe(0);
+    expect(notified).toHaveLength(0);
   });
 });

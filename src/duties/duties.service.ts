@@ -127,10 +127,26 @@ export class DutiesService {
     weekStartDate: string,
     eventType: string,
   ): Promise<void> {
-    if (eventType !== 'midweek' && eventType !== 'weekend') return;
+    if (
+      eventType !== 'midweek' &&
+      eventType !== 'weekend' &&
+      eventType !== 'memorial'
+    ) {
+      return;
+    }
 
     const rules = await this.rulesOfWeek(congregationId, weekStartDate);
-    const held = rules.meetings.find((m) => m.kind === eventType);
+    // The Memorial is not IN the week's meetings — it takes one away — so it
+    // is absent from `meetings` by construction and its day has to come from
+    // the event. Without this the evening never froze at all: last year's
+    // places stayed editable for ever, while the programme printed beside
+    // them was already a record nobody could touch.
+    const held =
+      eventType === 'memorial'
+        ? rules.memorial
+          ? { date: rules.memorial.date }
+          : undefined
+        : rules.meetings.find((m) => m.kind === eventType);
     // No such meeting that week — a convention, or the Memorial took it. There
     // is nothing to freeze, and editing STAYS ALLOWED on purpose: duties made
     // before the event was entered must remain removable, or a mistake would

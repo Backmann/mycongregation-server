@@ -13,6 +13,8 @@ import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { CartAssignment } from '../entities/cart-assignment.entity';
 import { CoVisitItem } from '../entities/co-visit-item.entity';
+import { MemorialItem } from '../entities/memorial-item.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { clockStub } from '../common/testing/clock-stub';
 
@@ -38,6 +40,8 @@ describe('MeService.myPublisher', () => {
         { provide: getRepositoryToken(PublicTalk), useValue: stub },
         { provide: getRepositoryToken(CartAssignment), useValue: stub },
         { provide: getRepositoryToken(CoVisitItem), useValue: stub },
+        { provide: getRepositoryToken(MemorialItem), useValue: stub },
+        { provide: getRepositoryToken(SpecialEvent), useValue: stub },
         {
           provide: AuditLogService,
           useValue: { logUpdate: jest.fn(), logCreate: jest.fn() },
@@ -151,6 +155,9 @@ describe('MeService.myAssignments (outgoing talks)', () => {
   const emptyRepo = () => ({
     createQueryBuilder: () => makeQb([]),
     findOne: async () => null,
+    // `find` joined the stub when the Memorial arrived: its programme and its
+    // event are read with find, not through a query builder.
+    find: async () => [],
   });
 
   it('includes an outgoing public talk with host hall details', async () => {
@@ -220,6 +227,14 @@ describe('MeService.myAssignments (outgoing talks)', () => {
           useValue: emptyRepo(),
         },
         {
+          provide: getRepositoryToken(MemorialItem),
+          useValue: emptyRepo(),
+        },
+        {
+          provide: getRepositoryToken(SpecialEvent),
+          useValue: emptyRepo(),
+        },
+        {
           provide: AuditLogService,
           useValue: { logUpdate: jest.fn(), logCreate: jest.fn() },
         },
@@ -235,5 +250,211 @@ describe('MeService.myAssignments (outgoing talks)', () => {
     expect(out?.time).toBe('10:00');
     expect(out?.mapUrl).toBe('https://maps.example/ahlen');
     expect(out?.congregationName).toBe('Ahlen');
+  });
+});
+
+/**
+ * The Memorial on a person's own list.
+ *
+ * Two things had no line here at all. Its PROGRAMME lives in `memorial_items`
+ * rather than in `assignments`, so the brother saying the prayer for the bread
+ * saw nothing anywhere. Its PLACES did arrive — they are ordinary duties of a
+ * third kind of meeting — but with a week and no day, because a duty is dated
+ * from the midweek and weekend settings and the Memorial is in neither.
+ *
+ * The evening brings its own day, hour and address, which is why both are
+ * answered from the event.
+ */
+describe('MeService.myAssignments (the Memorial)', () => {
+  const makeQb = (rows: unknown[]) => {
+    const qb: Record<string, unknown> = {};
+    for (const m of [
+      'where',
+      'andWhere',
+      'orderBy',
+      'leftJoin',
+      'leftJoinAndSelect',
+      'innerJoin',
+      'innerJoinAndSelect',
+      'select',
+      'addSelect',
+    ]) {
+      qb[m] = () => qb;
+    }
+    qb.getMany = async () => rows;
+    return qb;
+  };
+  const emptyRepo = () => ({
+    createQueryBuilder: () => makeQb([]),
+    findOne: async () => null,
+    find: async () => [],
+  });
+
+  const MEMORIAL = {
+    id: 'ev-mem',
+    congregationId: 'cong-1',
+    type: 'memorial',
+    date: '2030-04-17', // a Wednesday
+    time: '19:30',
+    address: 'Gemeindehaus, Hauptstr. 5',
+    memorialPublishedAt: new Date('2030-03-01T10:00:00Z'),
+  };
+
+  async function build(opts: {
+    event?: Record<string, unknown>;
+    lines?: unknown[];
+    duties?: unknown[];
+  }) {
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        { provide: CongregationClock, useValue: clockStub() },
+        MeService,
+        {
+          provide: getRepositoryToken(Publisher),
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({
+              id: 'pub-1',
+              displayName: 'Ivan',
+              serviceGroupId: null,
+            }),
+          },
+        },
+        { provide: getRepositoryToken(ServiceGroup), useValue: emptyRepo() },
+        { provide: getRepositoryToken(Assignment), useValue: emptyRepo() },
+        {
+          provide: getRepositoryToken(Duty),
+          useValue: {
+            createQueryBuilder: () => makeQb(opts.duties ?? []),
+            findOne: async () => null,
+            find: async () => [],
+          },
+        },
+        {
+          provide: getRepositoryToken(CleaningAssignment),
+          useValue: emptyRepo(),
+        },
+        {
+          provide: getRepositoryToken(FieldServiceMeeting),
+          useValue: emptyRepo(),
+        },
+        { provide: getRepositoryToken(TalkExchange), useValue: emptyRepo() },
+        {
+          provide: getRepositoryToken(ExternalCongregation),
+          useValue: emptyRepo(),
+        },
+        { provide: getRepositoryToken(PublicTalk), useValue: emptyRepo() },
+        { provide: getRepositoryToken(CartAssignment), useValue: emptyRepo() },
+        { provide: getRepositoryToken(CoVisitItem), useValue: emptyRepo() },
+        {
+          provide: getRepositoryToken(MemorialItem),
+          useValue: {
+            createQueryBuilder: () => makeQb([]),
+            findOne: async () => null,
+            find: async () => opts.lines ?? [],
+          },
+        },
+        {
+          provide: getRepositoryToken(SpecialEvent),
+          useValue: {
+            createQueryBuilder: () => makeQb([]),
+            findOne: async () => null,
+            find: async () => [opts.event ?? MEMORIAL],
+          },
+        },
+        {
+          provide: AuditLogService,
+          useValue: { logUpdate: jest.fn(), logCreate: jest.fn() },
+        },
+      ],
+    }).compile();
+    return moduleRef.get(MeService);
+  }
+
+  it('gives a programme line the evening: day, hour and where it is held', async () => {
+    const service = await build({
+      lines: [
+        {
+          id: 'li-1',
+          specialEventId: 'ev-mem',
+          label: 'Молитва за хлеб',
+          partKey: 'prayer_bread',
+          sortOrder: 4,
+          publisherId: 'pub-1',
+        },
+      ],
+    });
+
+    const res = await service.myAssignments('cong-1', 'user-1');
+    const line = res.items.find((i) => i.eventType === 'memorial');
+    expect(line).toBeDefined();
+    expect(line?.kind).toBe('meeting');
+    expect(line?.label).toBe('Молитва за хлеб');
+    expect(line?.date).toBe('2030-04-17');
+    expect(line?.time).toBe('19:30');
+    expect(line?.location).toBe('Gemeindehaus, Hauptstr. 5');
+    // The Wednesday belongs to the week starting Monday the 15th.
+    expect(line?.weekStartDate).toBe('2030-04-15');
+  });
+
+  it('dates a place at the Memorial from the evening, not from the week', async () => {
+    const service = await build({
+      duties: [
+        {
+          id: 'du-1',
+          weekStartDate: '2030-04-15',
+          eventType: 'memorial',
+          dutyType: 'custom',
+          customLabel: 'Стоянка',
+          publisherId: 'pub-1',
+          slotIndex: 0,
+        },
+      ],
+    });
+
+    const res = await service.myAssignments('cong-1', 'user-1');
+    const duty = res.items.find((i) => i.kind === 'duty');
+    expect(duty?.label).toBe('Стоянка');
+    expect(duty?.date).toBe('2030-04-17');
+    expect(duty?.time).toBe('19:30');
+  });
+
+  it('says nothing about a programme that has not been published', async () => {
+    const service = await build({
+      event: { ...MEMORIAL, memorialPublishedAt: null },
+      lines: [
+        {
+          id: 'li-1',
+          specialEventId: 'ev-mem',
+          label: 'Молитва за хлеб',
+          partKey: 'prayer_bread',
+          sortOrder: 4,
+          publisherId: 'pub-1',
+        },
+      ],
+    });
+
+    const res = await service.myAssignments('cong-1', 'user-1');
+    expect(res.items.some((i) => i.kind === 'meeting')).toBe(false);
+  });
+
+  it('still dates a PLACE at an unpublished Memorial — places are not a draft', async () => {
+    const service = await build({
+      event: { ...MEMORIAL, memorialPublishedAt: null },
+      duties: [
+        {
+          id: 'du-1',
+          weekStartDate: '2030-04-15',
+          eventType: 'memorial',
+          dutyType: 'custom',
+          customLabel: 'Фойе',
+          publisherId: 'pub-1',
+          slotIndex: 0,
+        },
+      ],
+    });
+
+    const res = await service.myAssignments('cong-1', 'user-1');
+    const duty = res.items.find((i) => i.kind === 'duty');
+    expect(duty?.date).toBe('2030-04-17');
   });
 });

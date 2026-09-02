@@ -34,7 +34,7 @@ export const NOTIFICATION_CATEGORIES = [
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
 export function categoryOfKind(kind: string): NotificationCategory | 'other' {
-  if (kind === 'schedule') return 'assignments';
+  if (kind === 'schedule' || kind === 'memorial') return 'assignments';
   if (kind === 'field_service_meeting' || kind.startsWith('cart')) {
     return 'ministry';
   }

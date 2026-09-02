@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, Between } from 'typeorm';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -13,6 +13,8 @@ import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { CartAssignment } from '../entities/cart-assignment.entity';
 import { CoVisitItem } from '../entities/co-visit-item.entity';
+import { MemorialItem } from '../entities/memorial-item.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { mondayOf } from '../common/week';
 
@@ -176,6 +178,10 @@ export class MeService {
     private readonly publicTalksRepo: Repository<PublicTalk>,
     @InjectRepository(CoVisitItem)
     private readonly coVisitItemsRepo: Repository<CoVisitItem>,
+    @InjectRepository(MemorialItem)
+    private readonly memorialItemsRepo: Repository<MemorialItem>,
+    @InjectRepository(SpecialEvent)
+    private readonly specialEventsRepo: Repository<SpecialEvent>,
     private readonly clock: CongregationClock,
   ) {}
 
@@ -463,6 +469,25 @@ export class MeService {
       });
     }
 
+    // ---- The Memorial: the evening brings its own day ----
+    //
+    // Everything else on this list is dated from the week's settings, and the
+    // Memorial is in neither of them: it is a third kind of meeting, held on
+    // a day of its own, at an hour of its own, sometimes in a rented room.
+    // The event knows all three, so it is asked once here and used twice
+    // below — for its places, and for its programme.
+    const memorials = await this.specialEventsRepo.find({
+      where: {
+        congregationId: tenantId,
+        type: 'memorial',
+        date: Between(weekFloor, horizon),
+      },
+    });
+    const memorialByWeek = new Map<string, SpecialEvent>();
+    for (const event of memorials) {
+      memorialByWeek.set(mondayOf(event.date), event);
+    }
+
     // ---- Meeting duties ----
     const duties = await this.dutiesRepo
       .createQueryBuilder('d')
@@ -475,14 +500,60 @@ export class MeService {
       .orderBy('d.week_start_date', 'ASC')
       .getMany();
     for (const d of duties) {
+      // A place at the Memorial used to arrive with a week and nothing else,
+      // so a brother on the parking saw «the week of 30 March» where everyone
+      // else saw a day and an hour.
+      const event =
+        d.eventType === 'memorial'
+          ? memorialByWeek.get(d.weekStartDate)
+          : undefined;
       items.push({
         kind: 'duty',
-        sortDate: d.weekStartDate,
+        sortDate: event?.date ?? d.weekStartDate,
         weekStartDate: d.weekStartDate,
+        date: event?.date,
         eventType: d.eventType,
+        time: event?.time ?? undefined,
+        location: event?.address ?? undefined,
         label: d.customLabel || d.dutyType,
         slotIndex: d.slotIndex,
       });
+    }
+
+    // ---- The Memorial programme ----
+    //
+    // It lives in `memorial_items`, not in `assignments`, so nothing above
+    // reaches it: the brother saying the prayer for the bread had no line
+    // anywhere on his own list. Only a PUBLISHED evening counts — an unfinished
+    // sheet is the reason publishing exists at all, exactly as a draft
+    // programme stays out of this list for the other two meetings.
+    const publishedMemorials = memorials.filter((e) => !!e.memorialPublishedAt);
+    if (publishedMemorials.length > 0) {
+      const lines = await this.memorialItemsRepo.find({
+        where: {
+          congregationId: tenantId,
+          specialEventId: In(publishedMemorials.map((e) => e.id)),
+          publisherId: pid,
+        },
+        order: { sortOrder: 'ASC' },
+      });
+      const eventById = new Map(publishedMemorials.map((e) => [e.id, e]));
+      for (const line of lines) {
+        const event = eventById.get(line.specialEventId);
+        if (!event) continue;
+        items.push({
+          kind: 'meeting',
+          sortDate: event.date,
+          weekStartDate: mondayOf(event.date),
+          date: event.date,
+          eventType: 'memorial',
+          time: event.time ?? undefined,
+          location: event.address ?? undefined,
+          label: line.label,
+          partKey: line.partKey ?? undefined,
+          partOrder: line.sortOrder,
+        });
+      }
     }
 
     // ---- Cleaning (assigned to my service group) ----

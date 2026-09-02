@@ -1,14 +1,27 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Not, Repository } from 'typeorm';
+import { Between, In, IsNull, Not, Repository } from 'typeorm';
 import { MemorialItem } from '../entities/memorial-item.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
+import { Duty } from '../entities/duty.entity';
+import { Publisher } from '../entities/publisher.entity';
+import { User } from '../entities/user.entity';
+import { EventType } from '../common/enums/event-type.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { mondayOf } from '../common/week';
+import { minutesOfDayIn, todayIn } from '../common/congregation-clock';
+import { formatDay, PUSH_STRINGS } from '../common/i18n/push-strings';
+import {
+  coerceLanguage,
+  DEFAULT_LANGUAGE,
+} from '../common/i18n/supported-languages';
 import {
   MEMORIAL_DEFAULT_THEME,
   MEMORIAL_SECTION,
@@ -30,15 +43,25 @@ export interface MemorialSheet {
   editable: boolean;
 }
 
+/** The evening-before reminder goes out after this hour, local time. */
+const EVENING_BEFORE_HOUR = 19;
+
 @Injectable()
 export class MemorialService {
+  private readonly logger = new Logger(MemorialService.name);
+
   constructor(
     @InjectRepository(MemorialItem)
     private readonly repo: Repository<MemorialItem>,
     @InjectRepository(SpecialEvent)
     private readonly eventsRepo: Repository<SpecialEvent>,
+    @InjectRepository(Duty)
+    private readonly dutiesRepo: Repository<Duty>,
+    @InjectRepository(Publisher)
+    private readonly publishersRepo: Repository<Publisher>,
     private readonly auditLog: AuditLogService,
     private readonly clock: CongregationClock,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private async getEvent(
@@ -418,8 +441,154 @@ export class MemorialService {
         after: { memorialPublishedAt: event.memorialPublishedAt },
         fields: ['memorialPublishedAt'],
       });
+      // Fire-and-forget, as with the schedule: a push that fails must not
+      // undo a publication that succeeded.
+      void this.tell(congregationId, event, 'memorialPublished');
     }
     return this.sheet(congregationId, specialEventId);
+  }
+
+  /**
+   * Everybody written on the evening's sheet, and what each of them has.
+   *
+   * The programme and the places are ONE sheet to the congregation — the
+   * printed page carries both — so they are gathered together here rather
+   * than by whichever table they happen to live in. A place is an ordinary
+   * duty of the third kind of meeting, which is exactly why it can be asked
+   * for by week.
+   */
+  private async sheetAssignees(
+    congregationId: string,
+    event: SpecialEvent,
+  ): Promise<Map<string, string[]>> {
+    const byPublisher = new Map<string, string[]>();
+    const add = (publisherId: string | null, label: string) => {
+      if (!publisherId) return;
+      const list = byPublisher.get(publisherId) ?? [];
+      list.push(label);
+      byPublisher.set(publisherId, list);
+    };
+
+    const lines = await this.repo.find({
+      where: { congregationId, specialEventId: event.id },
+      order: { sortOrder: 'ASC' },
+    });
+    for (const line of lines) add(line.publisherId, line.label);
+
+    const duties = await this.dutiesRepo.find({
+      where: {
+        congregationId,
+        weekStartDate: mondayOf(event.date),
+        eventType: EventType.MEMORIAL,
+      },
+      order: { sortOrder: 'ASC' },
+    });
+    for (const duty of duties) {
+      add(duty.publisherId, duty.customLabel || duty.dutyType);
+    }
+
+    return byPublisher;
+  }
+
+  /**
+   * Tell the people on the sheet, and nobody else.
+   *
+   * Decided on 2 September: publishing does NOT announce the Memorial to the
+   * congregation. Whoever has something to do hears what it is; whoever has
+   * nothing hears nothing, which is the same rule the meeting programme
+   * follows and the reason these notifications are worth leaving switched on.
+   */
+  private async tell(
+    congregationId: string,
+    event: SpecialEvent,
+    kind: 'memorialPublished' | 'memorialTomorrow',
+  ): Promise<void> {
+    try {
+      const byPublisher = await this.sheetAssignees(congregationId, event);
+      if (byPublisher.size === 0) return;
+
+      const publishers = await this.publishersRepo.find({
+        where: { congregationId, id: In([...byPublisher.keys()]) },
+        select: { id: true, userId: true },
+      });
+      const userIds = publishers
+        .map((p) => p.userId)
+        .filter((id): id is string => !!id);
+      if (userIds.length === 0) return;
+
+      const users = await this.repo.manager.find(User, {
+        where: { id: In(userIds) },
+        select: { id: true, uiLanguage: true },
+      });
+      const langByUserId = new Map(
+        users.map((u) => [u.id, coerceLanguage(u.uiLanguage)]),
+      );
+
+      for (const publisher of publishers) {
+        if (!publisher.userId) continue;
+        const mine = byPublisher.get(publisher.id) ?? [];
+        if (mine.length === 0) continue;
+        const lang = langByUserId.get(publisher.userId) ?? DEFAULT_LANGUAGE;
+        const strings = PUSH_STRINGS[lang][kind];
+        await this.notifications.notify({
+          tenantId: congregationId,
+          userIds: [publisher.userId],
+          title: strings.title,
+          body: strings.body({
+            day: formatDay(event.date, lang),
+            parts: mine.join(', '),
+          }),
+          kind: 'memorial',
+          key: `memorial:${event.id}:${kind}:${publisher.userId}`,
+          data: {
+            type:
+              kind === 'memorialPublished'
+                ? 'memorial_published'
+                : 'memorial_tomorrow',
+            weekStartDate: mondayOf(event.date),
+            specialEventId: event.id,
+          },
+        });
+      }
+    } catch (err: any) {
+      this.logger.warn(
+        `memorial notify failed for tenant=${congregationId}: ${
+          err?.message ?? err
+        }`,
+      );
+    }
+  }
+
+  /**
+   * «The Memorial is tomorrow», to the people who have something to do at it.
+   *
+   * Runs on every pass of the scheduler and sends after seven in the evening
+   * LOCAL TIME — the evening before, when a brother can still put a shirt out
+   * and read his line. The day boundary is the congregation's own: a second
+   * congregation in another zone would otherwise be reminded on the wrong
+   * evening, and nothing about the message would look wrong.
+   *
+   * Sending twice is impossible by the key, not by the window: a pass missed
+   * at 19:00 still sends at 19:15, and a pass repeated sends nothing.
+   */
+  async remindEveningBefore(now: Date = new Date()): Promise<number> {
+    const from = todayIn(new Date(now.getTime() - 86400000), 'UTC');
+    const to = todayIn(new Date(now.getTime() + 2 * 86400000), 'UTC');
+    const upcoming = await this.eventsRepo.find({
+      where: { type: 'memorial', date: Between(from, to) },
+    });
+
+    let sent = 0;
+    for (const event of upcoming) {
+      const timezone = await this.clock.timezoneOf(event.congregationId);
+      const tomorrow = todayIn(new Date(now.getTime() + 86400000), timezone);
+      if (event.date !== tomorrow) continue;
+      if (minutesOfDayIn(now, timezone) < EVENING_BEFORE_HOUR * 60) continue;
+      await this.tell(event.congregationId, event, 'memorialTomorrow');
+      sent += 1;
+    }
+    if (sent > 0) this.logger.log(`memorial reminders: ${sent}`);
+    return sent;
   }
 
   /** Every Memorial the congregation has recorded, newest first. */

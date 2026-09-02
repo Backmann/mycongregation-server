@@ -15,6 +15,7 @@ import { CongregationClock } from '../common/congregation-clock.service';
 import { clockStub } from '../common/testing/clock-stub';
 
 const MIDWEEK = 'midweek' as EventType;
+const MEMORIAL = 'memorial' as EventType;
 
 describe('DutiesService', () => {
   let service: DutiesService;
@@ -123,6 +124,54 @@ describe('DutiesService', () => {
       service.assign('c1', 'd1', { publisherId: 'p1' }),
     ).rejects.toThrow(ConflictException);
     expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A Memorial that has passed is a record too.
+   *
+   * Its places used to stay editable for ever: the freeze asked whether the
+   * week held a midweek or weekend meeting of that kind, and the Memorial is
+   * neither — it TAKES one away, so it is absent from that list by
+   * construction and every check fell through. The programme beside it was
+   * already frozen, which is what made the gap visible.
+   */
+  it('refuses to touch the places of a Memorial that has passed', async () => {
+    specialEventRepo.find.mockImplementation(async (o: any) => {
+      const type = o?.where?.type ?? o?.where?.[0]?.type;
+      return type === 'memorial'
+        ? [{ id: 'ev-1', type: 'memorial', date: '2020-04-07' }]
+        : [];
+    });
+    repo.findOne.mockResolvedValue({
+      id: 'd1',
+      congregationId: 'c1',
+      weekStartDate: '2020-04-06',
+      eventType: MEMORIAL,
+      publisherId: null,
+    });
+    await expect(
+      service.assign('c1', 'd1', { publisherId: 'p1' }),
+    ).rejects.toThrow(ConflictException);
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('leaves the places of a Memorial still to come editable', async () => {
+    specialEventRepo.find.mockImplementation(async (o: any) => {
+      const type = o?.where?.type ?? o?.where?.[0]?.type;
+      return type === 'memorial'
+        ? [{ id: 'ev-1', type: 'memorial', date: '2099-04-02' }]
+        : [];
+    });
+    repo.findOne.mockResolvedValue({
+      id: 'd1',
+      congregationId: 'c1',
+      weekStartDate: '2099-03-30',
+      eventType: MEMORIAL,
+      publisherId: null,
+    });
+    publisherRepo.findOne.mockResolvedValue({ id: 'p1', congregationId: 'c1' });
+    await service.assign('c1', 'd1', { publisherId: 'p1' });
+    expect(repo.save).toHaveBeenCalled();
   });
 
   it('generateWeek inserts 2 + micCount + 4 slots (mics from settings)', async () => {

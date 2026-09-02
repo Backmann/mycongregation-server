@@ -13,6 +13,8 @@ import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { CartAssignment } from '../entities/cart-assignment.entity';
 import { CoVisitItem } from '../entities/co-visit-item.entity';
+import { MemorialItem } from '../entities/memorial-item.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { MeService } from './me.service';
 import { MeController } from './me.controller';
 import { DataRightsService } from './data-rights.service';
@@ -37,6 +39,8 @@ import { TasksModule } from '../tasks/tasks.module';
       PublicTalk,
       CartAssignment,
       CoVisitItem,
+      MemorialItem,
+      SpecialEvent,
     ]),
   ],
   controllers: [MeController],

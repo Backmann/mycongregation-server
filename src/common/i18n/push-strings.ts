@@ -163,6 +163,20 @@ export type MyAssignmentTemplate = {
   count: (params: { meeting: string; range: string; n: number }) => string;
 };
 
+/**
+ * The Memorial, to the people written on its sheet.
+ *
+ * Two moments, and only two: the evening the programme is published, and the
+ * evening before it is held. Nobody else hears either one — the congregation
+ * is invited to the Memorial in the ordinary way, from the platform, and a
+ * push saying «somebody has a part» to a person who has none is the broadcast
+ * this project stopped sending on purpose.
+ */
+type MemorialTemplate = {
+  title: string;
+  body: (params: { day: string; parts: string }) => string;
+};
+
 export const PUSH_STRINGS: Record<
   SupportedLanguage,
   {
@@ -171,6 +185,8 @@ export const PUSH_STRINGS: Record<
     scheduleChanged: ScheduleChangedTemplate;
     myAssignment: MyAssignmentTemplate;
     myAssignmentChanged: MyAssignmentTemplate;
+    memorialPublished: MemorialTemplate;
+    memorialTomorrow: MemorialTemplate;
   }
 > = {
   en: {
@@ -202,6 +218,14 @@ export const PUSH_STRINGS: Record<
       count: ({ meeting, range, n }) =>
         `${meeting}, ${range}: ${n} assignment(s) changed`,
     },
+    memorialPublished: {
+      title: 'Memorial programme published',
+      body: ({ day, parts }) => `${day} — you have: ${parts}`,
+    },
+    memorialTomorrow: {
+      title: 'The Memorial is tomorrow',
+      body: ({ day, parts }) => `${day} — you have: ${parts}`,
+    },
   },
   ru: {
     statusChange: {
@@ -232,6 +256,14 @@ export const PUSH_STRINGS: Record<
       count: ({ meeting, range, n }) =>
         `${meeting}, ${range}: изменений — ${n}`,
     },
+    memorialPublished: {
+      title: 'Программа Вечери опубликована',
+      body: ({ day, parts }) => `${day} — у вас: ${parts}`,
+    },
+    memorialTomorrow: {
+      title: 'Завтра Вечеря воспоминания',
+      body: ({ day, parts }) => `${day} — у вас: ${parts}`,
+    },
   },
   de: {
     statusChange: {
@@ -261,10 +293,36 @@ export const PUSH_STRINGS: Record<
       count: ({ meeting, range, n }) =>
         `${meeting}, ${range}: ${n} Änderung(en)`,
     },
+    memorialPublished: {
+      title: 'Programm des Gedächtnismahls',
+      body: ({ day, parts }) => `${day} — du hast: ${parts}`,
+    },
+    memorialTomorrow: {
+      title: 'Morgen ist das Gedächtnismahl',
+      body: ({ day, parts }) => `${day} — du hast: ${parts}`,
+    },
   },
 };
 
 /** «3 – 9 августа» — the week a programme covers, in the reader's language. */
+/**
+ * One calendar day, spelled out: «2 апреля», «2 April».
+ *
+ * Same shape as formatWeekRange below, including the fallback: a locale the
+ * runtime does not carry must not turn a reminder into an exception. The date
+ * is read at midday so no timezone can move it to the day before.
+ */
+export function formatDay(dateISO: string, lang: SupportedLanguage): string {
+  try {
+    return new Intl.DateTimeFormat(lang, {
+      day: 'numeric',
+      month: 'long',
+    }).format(new Date(`${dateISO}T12:00:00`));
+  } catch {
+    return dateISO;
+  }
+}
+
 export function formatWeekRange(
   weekStartDate: string,
   lang: SupportedLanguage,

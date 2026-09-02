@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { MemorialService } from '../memorial/memorial.service';
 import { PublishersService } from '../publishers/publishers.service';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -22,7 +23,26 @@ export class ScheduledJobsService {
     private readonly calendarTasks: CalendarTasksService,
     private readonly taskReminders: TaskRemindersService,
     private readonly groupVisitTasks: GroupVisitTasksService,
+    private readonly memorial: MemorialService,
   ) {}
+
+  /**
+   * «The Memorial is tomorrow» — every 15 minutes, sent after 19:00 in the
+   * congregation's own timezone on the evening before. The service decides
+   * whether anything is due; a repeated tick sends nothing, because the
+   * notification key already carries the evening.
+   */
+  @Cron('*/15 * * * *', {
+    name: 'memorial-reminders',
+    timeZone: 'UTC',
+  })
+  async handleMemorialReminders(): Promise<void> {
+    try {
+      await this.memorial.remindEveningBefore();
+    } catch (err) {
+      this.logger.error('[MemorialReminders] tick failed', err as Error);
+    }
+  }
 
   /**
    * Cleaning reminders — every 15 minutes. Each tick checks, per congregation

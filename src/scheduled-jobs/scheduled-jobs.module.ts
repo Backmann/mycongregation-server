@@ -6,6 +6,7 @@ import { PushNotificationsModule } from '../push-notifications/push-notification
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { CleaningModule } from '../cleaning/cleaning.module';
+import { MemorialModule } from '../memorial/memorial.module';
 import { TasksModule } from '../tasks/tasks.module';
 import { FieldServiceMeetingsModule } from '../field-service-meetings/field-service-meetings.module';
 
@@ -18,6 +19,7 @@ import { FieldServiceMeetingsModule } from '../field-service-meetings/field-serv
     NotificationsModule,
     AuditLogModule,
     CleaningModule,
+    MemorialModule,
   ],
   controllers: [AdminController],
   providers: [ScheduledJobsService],
