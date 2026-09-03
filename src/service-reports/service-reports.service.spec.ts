@@ -332,6 +332,9 @@ describe('ServiceReportsService', () => {
     // the suite runs.
     beforeEach(() => {
       jest.useFakeTimers().setSystemTime(new Date('2026-05-15T09:00:00'));
+      // The start of a publisher's reporting life now also considers his
+      // first report, so the standing asks for his report months.
+      reportsRepo.find.mockResolvedValue([]);
     });
     afterEach(() => {
       jest.useRealTimers();

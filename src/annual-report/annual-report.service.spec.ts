@@ -1,4 +1,6 @@
 import { AnnualReportService } from './annual-report.service';
+import { clockStub } from '../common/testing/clock-stub';
+import { setNow, restoreNow } from '../common/testing/set-now';
 
 const TENANT = 'cong-1';
 
@@ -18,7 +20,11 @@ function build(reports: unknown[], publishers: unknown[]) {
   const publishersRepo = {
     find: jest.fn().mockResolvedValue(publishers),
   } as never;
-  const service = new AnnualReportService(reportsRepo, publishersRepo);
+  const service = new AnnualReportService(
+    reportsRepo,
+    publishersRepo,
+    clockStub(),
+  );
   return Object.assign(service, {
     __reportsRepo: reportsRepo,
   }) as AnnualReportService & { __reportsRepo: { find: jest.Mock } };
@@ -36,6 +42,14 @@ const pub = (id: string, extra: Record<string, unknown> = {}) => ({
 });
 
 describe('AnnualReportService — service year 2026/27', () => {
+  // The year 2026/27 ends in August 2027, whose reports close on 20 September.
+  // Standing after that date, every month of the year is a settled fact — which
+  // is the only footing on which the figures below can be asserted at all. A
+  // month that has not closed is not judged, so without freezing the clock
+  // these tests would answer differently depending on the day they ran.
+  beforeEach(() => setNow(Date.UTC(2027, 8, 25)));
+  afterEach(() => restoreNow());
+
   it('asks the database for real dates, not bare months', async () => {
     // The months are handled as YYYY-MM throughout, but reportMonth is a date
     // column and Postgres cannot parse "2026-02" — the endpoint answered with
@@ -94,6 +108,39 @@ describe('AnnualReportService — service year 2026/27', () => {
 
     expect(out.becameInactive.map((x) => x.id)).toEqual(['p1']);
     expect(out.becameInactive[0].month).toBe('2027-08');
+  });
+
+  it('judges nothing in a year that has not been collected yet', async () => {
+    // The screen opens on the CURRENT service year. Standing in September
+    // 2026, the year 2026/27 has three days of history and no reports at all —
+    // and the figures used to answer that everybody had become inactive, dated
+    // January 2027, with «Активные» empty. Months are judged only once their
+    // collection window has closed.
+    restoreNow();
+    setNow(Date.UTC(2026, 8, 3));
+    const svc = build(
+      reportsFor('p1', ['2026-02', '2026-03', '2026-04', '2026-05']),
+      [pub('p1')],
+    );
+
+    const out = await svc.figures(TENANT, 2026);
+
+    expect(out.becameInactive).toHaveLength(0);
+    expect(out.reactivated).toHaveLength(0);
+  });
+
+  it('stops at the last closed month part-way through a year', async () => {
+    // 3 October 2027: August 2027 closed on 20 September, so the year is fully
+    // judgeable. Move a month earlier and August is still being collected.
+    restoreNow();
+    setNow(Date.UTC(2027, 8, 3));
+    const svc = build(reportsFor('p1', ['2027-02']), [pub('p1')]);
+
+    const out = await svc.figures(TENANT, 2026);
+
+    // Six silent months would complete in August 2027, but on 3 September
+    // August has not closed — the run cannot be asserted yet.
+    expect(out.becameInactive).toHaveLength(0);
   });
 
   it('does NOT count someone who lapsed in an earlier year and never returned', async () => {

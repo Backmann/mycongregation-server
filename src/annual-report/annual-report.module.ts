@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CongregationClockModule } from '../common/congregation-clock.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AnnualReportController } from './annual-report.controller';
 import { AnnualReportService } from './annual-report.service';
@@ -10,6 +11,7 @@ import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 @Module({
   imports: [
     TypeOrmModule.forFeature([ServiceReport, Publisher, Responsibility]),
+    CongregationClockModule,
   ],
   controllers: [AnnualReportController],
   providers: [AnnualReportService, ResponsibilityGuard],

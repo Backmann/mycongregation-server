@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { reportedMinistry } from '../common/reported-ministry';
+import { resolveReportingStartMonth } from '../common/service-status-rule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, MoreThanOrEqual, Not, Repository } from 'typeorm';
 import { ServiceReport } from '../entities/service-report.entity';
@@ -496,12 +497,48 @@ export class ServiceReportsService {
    * The month (YYYY-MM) a publisher began reporting: ministry start for an
    * unbaptised publisher, baptism otherwise. Months before it are not owed.
    */
-  private reportingStartMonthOf(p: Publisher): string | null {
-    const raw =
-      p.appointment === PublisherAppointment.UNBAPTIZED_PUBLISHER
-        ? p.ministryStartDate
-        : p.baptismDate;
-    return raw ? raw.slice(0, 7) : null;
+  /**
+   * When this person's reporting life begins — the SHARED answer, so the
+   * «missed N months» flag and the service status cannot disagree. They used
+   * to: both had their own copy that chose by appointment, and both turned a
+   * newly baptized brother into a stranger with no history.
+   *
+   * `firstReportMonth` is the earliest report we hold for him. It matters
+   * because the app clears the ministry-start field when someone is marked
+   * baptized, so for many cards it is the only surviving evidence that the
+   * person was already reporting.
+   */
+  private reportingStartMonthOf(
+    p: Publisher,
+    firstReportMonth?: string | null,
+  ): string | null {
+    return resolveReportingStartMonth({
+      ministryStartDate: p.ministryStartDate,
+      baptismDate: p.baptismDate,
+      firstReportMonth,
+    });
+  }
+
+  /** Earliest report month per publisher, in one query. */
+  private async firstReportMonths(
+    tenantId: string,
+    publisherIds: string[],
+  ): Promise<Map<string, string>> {
+    if (publisherIds.length === 0) return new Map();
+    const rows = await this.reportsRepo.find({
+      where: {
+        congregationId: tenantId,
+        publisherId: In(publisherIds),
+      },
+      select: ['publisherId', 'reportMonth'],
+    });
+    const out = new Map<string, string>();
+    for (const r of rows) {
+      const month = r.reportMonth.slice(0, 7);
+      const seen = out.get(r.publisherId);
+      if (!seen || month < seen) out.set(r.publisherId, month);
+    }
+    return out;
   }
 
   /**
@@ -530,7 +567,11 @@ export class ServiceReportsService {
     if (publisher.isActive === false) return none;
 
     const reportMonth = this.previousReportMonthStart();
-    const startMonth = this.reportingStartMonthOf(publisher);
+    const firstMonths = await this.firstReportMonths(tenantId, [publisher.id]);
+    const startMonth = this.reportingStartMonthOf(
+      publisher,
+      firstMonths.get(publisher.id) ?? null,
+    );
     if (startMonth && reportMonth.slice(0, 7) < startMonth) return none;
 
     const report = await this.reportsRepo.findOne({
@@ -893,10 +934,12 @@ export class ServiceReportsService {
     // Reporting start month per publisher (ministry start / baptism): months
     // before it are not counted as missed — a newcomer isn't penalised for
     // months before they began reporting.
-    const startMonthOf = (p: Publisher): string | null =>
-      this.reportingStartMonthOf(p);
+    const firstMonths = await this.firstReportMonths(tenantId, publisherIds);
     const startByPubId = new Map<string, string | null>(
-      publisherScope.map((p) => [p.id, startMonthOf(p)]),
+      publisherScope.map((p) => [
+        p.id,
+        this.reportingStartMonthOf(p, firstMonths.get(p.id) ?? null),
+      ]),
     );
 
     const consecutiveMissingFor = (publisherId: string): number => {
@@ -1322,7 +1365,11 @@ export class ServiceReportsService {
 
       if (category === 'none') {
         // Ordinary publishers: count only those who shared in the ministry.
-        if (report.servedThisMonth === true) {
+        // The SHARED definition, not a copy of it: an older row may carry
+        // hours with the flag never set, and reading only the flag dropped
+        // those rows from this figure while the status and the annual report
+        // counted them.
+        if (reportedMinistry(report)) {
           bucket.count += 1;
           bucket.bibleStudies += report.bibleStudies ?? 0;
         }

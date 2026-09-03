@@ -15,14 +15,7 @@ import {
 } from '../common/report-month-window';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { InjectRepository } from '@nestjs/typeorm';
-import {
-  Brackets,
-  In,
-  IsNull,
-  LessThanOrEqual,
-  MoreThanOrEqual,
-  Repository,
-} from 'typeorm';
+import { Brackets, In, IsNull, LessThanOrEqual, Repository } from 'typeorm';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { User } from '../entities/user.entity';
@@ -43,25 +36,33 @@ import { deriveRoleFromAppointment } from './derive-role';
 import { UsersService } from '../users/users.service';
 import { AuxiliaryPioneersService } from '../auxiliary-pioneers/auxiliary-pioneers.service';
 import { GrantAccessDto } from './dto/grant-access.dto';
+import {
+  addMonthKey,
+  computeServiceStatus,
+  monthKeyOfDate,
+  resolveReportingStartMonth,
+} from '../common/service-status-rule';
 import { UpdateAccessDto } from './dto/update-access.dto';
 
 /**
  * Pure status-computation helper, exported for unit testing.
  *
- * Window: the last 6 CLOSED report months, ending at `lastClosedMonth` — the
- * most recent month whose collection deadline has passed (see
- * common/report-month-window.ts). On 3 August that is June, so the window runs
- * January → June; on 20 August July closes and the window becomes
- * February → July.
+ * A thin shell now: the rule itself lives in common/service-status-rule.ts,
+ * because the same two questions — from when is this person counted, and how
+ * does he stand — are asked from four places that used to answer them
+ * separately and disagree.
  *
- * The argument is a closed month rather than "today" on purpose. The old
+ * `lastClosedMonth` is a settled month rather than "today" on purpose. The old
  * version took the current month and ended the window at the month before it,
  * which meant July entered the window on 1 August — while its reports were
  * still being collected. Every publisher held a hole he had not yet had time
  * to fill, so the whole congregation turned irregular on the 1st and drifted
- * back to active as the reports were typed in. Handing this function a settled
- * month makes that mistake unrepresentable: it has no notion of "now" left to
- * misread.
+ * back to active as the reports were typed in.
+ *
+ * `collectedMonth` is the month being collected right now. Reports for it
+ * count as sharing at once — a handed-in report is a fact — while silence in
+ * it counts as nothing. Defaults to the month after the closed one, which is
+ * what it always is in practice.
  *
  * A report counts as "served" when servedThisMonth=true OR hoursReported>0.
  * Months are de-duplicated, so multiple rows for the same month count once.
@@ -74,65 +75,28 @@ export function computeStatusFromReports(
   }[],
   lastClosedMonth: Date,
   /**
-   * First month the publisher was expected to report (start of ministry /
-   * baptism, or their first report). Months before this are not counted as
-   * missed — a newcomer isn't penalised for months before they began.
+   * The month this publisher's reporting life begins. Resolved by the caller
+   * from the ministry start, the baptism date AND the first report — the
+   * earliest of them, never the latest.
    */
   startMonth?: Date | null,
+  collectedMonth?: Date | null,
 ): PublisherStatus {
-  const windowEnd = new Date(
-    Date.UTC(
-      lastClosedMonth.getUTCFullYear(),
-      lastClosedMonth.getUTCMonth(),
-      1,
-    ),
-  );
-  const sixMonthsAgo = new Date(
-    Date.UTC(windowEnd.getUTCFullYear(), windowEnd.getUTCMonth() - 5, 1),
-  );
-  // Window starts at the later of "6 closed months ago" and the publisher's
-  // start.
-  const windowStart =
-    startMonth && startMonth.getTime() > sixMonthsAgo.getTime()
-      ? new Date(
-          Date.UTC(startMonth.getUTCFullYear(), startMonth.getUTCMonth(), 1),
-        )
-      : sixMonthsAgo;
-
-  // How many months the publisher could have reported in the window (inclusive
-  // of both ends), capped at 6.
-  let windowMonths = 0;
-  {
-    const cursor = new Date(windowStart.getTime());
-    while (cursor.getTime() <= windowEnd.getTime() && windowMonths < 6) {
-      windowMonths++;
-      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
-    }
-  }
-
-  const servedMonths = new Set<string>();
+  const participated = new Set<string>();
   for (const r of reports) {
-    // r.reportMonth is YYYY-MM-DD; normalise to YYYY-MM-01 UTC.
-    const ymd = r.reportMonth.slice(0, 10);
-    const d = new Date(`${ymd.slice(0, 7)}-01T00:00:00Z`);
-    if (
-      d.getTime() < windowStart.getTime() ||
-      d.getTime() > windowEnd.getTime()
-    ) {
-      continue;
-    }
-    const served = reportedMinistry(r);
-    if (served) servedMonths.add(ymd.slice(0, 7));
+    if (reportedMinistry(r)) participated.add(r.reportMonth.slice(0, 7));
   }
-
-  if (servedMonths.size === 0) return PublisherStatus.INACTIVE;
-  // Active if they reported every month they could have (a newcomer who has
-  // reported all of their first months counts as active), or 6+ overall.
-  if (servedMonths.size >= 6 || servedMonths.size >= windowMonths) {
-    return PublisherStatus.ACTIVE;
-  }
-  return PublisherStatus.IRREGULAR;
+  const lastClosed = monthKeyOfDate(lastClosedMonth);
+  return computeServiceStatus({
+    participated,
+    startMonth: startMonth ? monthKeyOfDate(startMonth) : null,
+    lastClosedMonth: lastClosed,
+    collectedMonth: collectedMonth
+      ? monthKeyOfDate(collectedMonth)
+      : addMonthKey(lastClosed, 1),
+  });
 }
+
 import { CreatePublisherDto } from './dto/create-publisher.dto';
 import { UpdatePublisherDto } from './dto/update-publisher.dto';
 import { QueryPublishersDto } from './dto/query-publishers.dto';
@@ -263,13 +227,17 @@ export class PublishersService {
     return declared.getTime() > byDeadline.getTime() ? declared : byDeadline;
   }
 
-  private reportingStartMonth(publisher: Publisher): Date | null {
-    const raw =
-      publisher.appointment === PublisherAppointment.UNBAPTIZED_PUBLISHER
-        ? publisher.ministryStartDate
-        : publisher.baptismDate;
-    if (!raw) return null;
-    const d = new Date(`${raw.slice(0, 7)}-01T00:00:00Z`);
+  private reportingStartMonth(
+    publisher: Publisher,
+    firstReportMonth: string | null,
+  ): Date | null {
+    const month = resolveReportingStartMonth({
+      ministryStartDate: publisher.ministryStartDate,
+      baptismDate: publisher.baptismDate,
+      firstReportMonth,
+    });
+    if (!month) return null;
+    const d = new Date(`${month}-01T00:00:00Z`);
     return isNaN(d.getTime()) ? null : d;
   }
 
@@ -340,21 +308,26 @@ export class PublishersService {
     const lastClosed =
       opts.lastClosedMonth ??
       (await this.effectiveLastClosedMonth(tenantId, timezone, now));
-    const windowStart = new Date(
-      Date.UTC(lastClosed.getUTCFullYear(), lastClosed.getUTCMonth() - 5, 1),
-    );
-    const windowStartStr = monthKey(windowStart);
-
+    // The WHOLE history, not the window. Two things need it: the first report
+    // is part of deciding when this person's counting begins, and a lapse of
+    // six closed months restarts that counting from the month he came back —
+    // both of which can sit outside a six-month window.
     const reports = await this.reportsRepo.find({
-      where: {
-        publisherId,
-        congregationId: tenantId,
-        reportMonth: MoreThanOrEqual(windowStartStr),
-      },
+      where: { publisherId, congregationId: tenantId },
+      select: ['reportMonth', 'servedThisMonth', 'hoursReported'],
     });
+    const firstReportMonth = reports.reduce<string | null>((earliest, r) => {
+      const m = r.reportMonth.slice(0, 7);
+      return earliest === null || m < earliest ? m : earliest;
+    }, null);
 
-    const startMonth = this.reportingStartMonth(publisher);
-    const newStatus = computeStatusFromReports(reports, lastClosed, startMonth);
+    const startMonth = this.reportingStartMonth(publisher, firstReportMonth);
+    const newStatus = computeStatusFromReports(
+      reports,
+      lastClosed,
+      startMonth,
+      collectedReportMonth(now, timezone),
+    );
     if (publisher.status === newStatus) return 'unchanged';
 
     const before = { status: publisher.status };
@@ -1137,6 +1110,15 @@ export class PublishersService {
   ): Promise<Publisher> {
     const publisher = await this.findOne(tenantId, id);
     const prevPioneerType = publisher.pioneerType;
+    // The three fields the service status is counted from. When one of them
+    // moves, the standing on the card is stale from that moment — and it used
+    // to stay stale until the next nightly sweep, so a corrected baptism date
+    // showed no effect at all and looked like it had not saved.
+    const statusInputsBefore = {
+      appointment: publisher.appointment,
+      baptismDate: publisher.baptismDate ?? null,
+      ministryStartDate: publisher.ministryStartDate ?? null,
+    };
     // Contacts count as checked whenever somebody touches them — the publisher
     // themselves or the secretary on their behalf. One rule, so the card always
     // shows a date somebody can trust.
@@ -1205,6 +1187,26 @@ export class PublishersService {
         tenantId,
         publisher.id,
         fromMonth,
+      );
+    }
+
+    const statusInputsChanged =
+      saved.appointment !== statusInputsBefore.appointment ||
+      (saved.baptismDate ?? null) !== statusInputsBefore.baptismDate ||
+      (saved.ministryStartDate ?? null) !==
+        statusInputsBefore.ministryStartDate;
+    if (statusInputsChanged) {
+      // Silently: correcting forty cards must not become forty pushes to the
+      // group overseer and the secretary. The recompute is a consequence of
+      // the edit, not news about the person.
+      await this.recomputeStatus(tenantId, saved.id, { notify: false }).catch(
+        (err: unknown) => {
+          this.logger.warn(
+            `recomputeStatus after edit failed for publisher=${saved.id}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        },
       );
     }
 

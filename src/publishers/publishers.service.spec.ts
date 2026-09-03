@@ -170,16 +170,20 @@ describe('computeStatusFromReports (pure function)', () => {
     );
   });
 
-  it('takes no notice of a month that has not closed yet', () => {
-    // May's reports are collected during June. A May report may already exist
-    // when the last closed month is April, and it must not be counted early —
-    // otherwise the window would drift a month ahead of the deadline it is
-    // built on.
+  it('counts a report for the month still being collected', () => {
+    // May's reports are collected during June, so on this date May has not
+    // closed. SILENCE in it still means nothing — nobody is late yet — but a
+    // report handed in for it is a fact, and counts at once. Decided
+    // 3 September: «отчёт — это факт, а не догадка».
+    //
+    // This case used to answer INACTIVE, which is how a brother who had just
+    // resumed sat under a grey «неактивный» badge with his own fresh report
+    // printed on the line beside it.
     const reports = [
       makeReport({ reportMonth: '2026-05-01', servedThisMonth: true }),
     ];
     expect(computeStatusFromReports(reports, may2026)).toBe(
-      PublisherStatus.INACTIVE,
+      PublisherStatus.ACTIVE,
     );
   });
 
@@ -269,10 +273,12 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
 
       await service.recomputeStatus('cong-1', 'pub-1');
 
+      // His whole history is that one April report, so April is the only
+      // closed month he has been answerable for — and he reported it.
       expect(publishersRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({
           id: 'pub-1',
-          status: PublisherStatus.IRREGULAR,
+          status: PublisherStatus.ACTIVE,
         }),
       );
     });
@@ -1023,7 +1029,17 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       );
     });
 
-    it('still marks a long-time publisher with one report as irregular', () => {
+    it('starts a long-silent publisher afresh from the month he reports again', () => {
+      // On the books since 2020 and silent ever since: six closed months of
+      // silence completed long ago, so he is inactive. The April report is his
+      // return, and counting begins again from it — which is the congregation's
+      // own rule, stated 3 September: «если он на 7 месяц сдал отчёт, его
+      // активность возобновилась».
+      //
+      // Without the restart the three standings contradict each other: he
+      // would stand at one month out of six and be IRREGULAR, ranking below a
+      // brother who has served for years and missed a single month. The same
+      // record, a worse badge.
       const now = new Date(Date.UTC(2026, 3, 1));
       const start = new Date(Date.UTC(2020, 0, 1)); // long ago
       const reports = [
@@ -1034,8 +1050,70 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         },
       ];
       expect(computeStatusFromReports(reports, now, start)).toBe(
+        PublisherStatus.ACTIVE,
+      );
+    });
+
+    it('holds a publisher who lapsed and has NOT come back at inactive', () => {
+      const now = new Date(Date.UTC(2026, 3, 1));
+      const start = new Date(Date.UTC(2020, 0, 1));
+      expect(computeStatusFromReports([], now, start)).toBe(
+        PublisherStatus.INACTIVE,
+      );
+    });
+
+    it('keeps counting a returned publisher month by month', () => {
+      // Back in February, missed March, reported April: two closed months
+      // since the return, one of them served. That is irregular — the restart
+      // gives a clean slate, not a permanent pass.
+      const now = new Date(Date.UTC(2026, 3, 1));
+      const start = new Date(Date.UTC(2020, 0, 1));
+      const reports = [
+        {
+          reportMonth: '2026-02-01',
+          servedThisMonth: true,
+          hoursReported: null,
+        },
+        {
+          reportMonth: '2026-04-01',
+          servedThisMonth: true,
+          hoursReported: null,
+        },
+      ];
+      expect(computeStatusFromReports(reports, now, start)).toBe(
         PublisherStatus.IRREGULAR,
       );
+    });
+
+    it('does not let a baptism date undo a year of reporting', () => {
+      // The case that started this: an unbaptized publisher reports every
+      // month for a year, is baptized on 1 August, and the nightly sweep turns
+      // him INACTIVE — because the start of counting used to be chosen by
+      // appointment (baptism date for the baptized), and his whole year fell
+      // outside the window. Counting begins at the EARLIEST of what we know,
+      // and the caller passes that in.
+      const lastClosed = new Date(Date.UTC(2026, 6, 1)); // July 2026
+      const reports = [
+        '2025-10',
+        '2025-11',
+        '2025-12',
+        '2026-01',
+        '2026-02',
+        '2026-03',
+        '2026-04',
+        '2026-05',
+        '2026-06',
+        '2026-07',
+        '2026-08',
+      ].map((m) => ({
+        reportMonth: `${m}-01`,
+        servedThisMonth: true,
+        hoursReported: null,
+      }));
+      const startFromFirstReport = new Date(Date.UTC(2025, 9, 1));
+      expect(
+        computeStatusFromReports(reports, lastClosed, startFromFirstReport),
+      ).toBe(PublisherStatus.ACTIVE);
     });
   });
 

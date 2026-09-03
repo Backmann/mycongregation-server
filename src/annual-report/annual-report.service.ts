@@ -4,6 +4,9 @@ import { Between, Repository } from 'typeorm';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { reportedMinistry } from '../common/reported-ministry';
+import { resolveReportingStartMonth } from '../common/service-status-rule';
+import { CongregationClock } from '../common/congregation-clock.service';
+import { lastClosedReportMonth, monthKey } from '../common/report-month-window';
 
 /**
  * Figures for the annual congregation report (S-10), computed for one service
@@ -66,10 +69,26 @@ export class AnnualReportService {
     private readonly reportsRepo: Repository<ServiceReport>,
     @InjectRepository(Publisher)
     private readonly publishersRepo: Repository<Publisher>,
+    private readonly clock: CongregationClock,
   ) {}
 
   async figures(tenantId: string, startYear: number): Promise<AnnualFigures> {
     const yearMonths = monthsOfServiceYear(startYear);
+    // How far into the year we are entitled to judge anybody.
+    //
+    // A service year is twelve months whether or not they have happened. Open
+    // the report on the year that began three days ago and every month of it
+    // is unreported — not because anyone lapsed, but because September 2027
+    // has not arrived. The figures then said the whole congregation had become
+    // inactive, dated five months into the future, and «Активные» stood empty.
+    //
+    // A month is judged only once its collection window has closed, which is
+    // the same line the service status is drawn at.
+    const timezone = await this.clock.timezoneOf(tenantId);
+    const judgeUntil = monthKey(
+      lastClosedReportMonth(new Date(), timezone),
+    ).slice(0, 7);
+    const judgeable = yearMonths.filter((m) => m <= judgeUntil);
     // Six months of run-up as well: deciding whether somebody BECAME inactive
     // in September means looking at the six months before it, and telling that
     // apart from "was already inactive coming in" needs one month more still.
@@ -144,11 +163,19 @@ export class AnnualReportService {
       // six months it looks back over must be covered, and so must the month
       // before them — that is what separates "became inactive here" from "was
       // already inactive when our records begin".
-      const horizon = firstKnown.get(p.id);
+      // The same answer the rest of the app gives: the earliest of the
+      // ministry start, the baptism and the first report we hold. It used to
+      // be the first report alone, which made a brother who transferred in —
+      // or whose card was typed up mid-year — look like somebody with no past.
+      const horizon = resolveReportingStartMonth({
+        ministryStartDate: p.ministryStartDate,
+        baptismDate: p.baptismDate,
+        firstReportMonth: firstKnown.get(p.id) ?? null,
+      });
       const knowable = (m: string) =>
-        horizon !== undefined && addMonths(m, -6) >= horizon;
+        horizon !== null && addMonths(m, -6) >= horizon;
 
-      for (const m of yearMonths) {
+      for (const m of judgeable) {
         // Became inactive here: inactive now, not inactive a month ago. That
         // second half is what keeps out someone who lapsed years ago and never
         // returned — their run completed long before this year.
@@ -159,7 +186,7 @@ export class AnnualReportService {
         }
       }
 
-      for (const m of yearMonths) {
+      for (const m of judgeable) {
         // Resumed here: reported this month, having been inactive last month —
         // and only where the silence before it is something we actually
         // recorded rather than merely failed to have.
