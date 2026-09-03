@@ -65,7 +65,11 @@ function make(reports: unknown[], publishers: unknown[]) {
   );
   return Object.assign(service, {
     __reportsRepo: reportsRepo,
-  }) as AnnualReportService & { __reportsRepo: { find: jest.Mock } };
+    __publishersRepo: publishersRepo,
+  }) as AnnualReportService & {
+    __reportsRepo: { find: jest.Mock };
+    __publishersRepo: { find: jest.Mock };
+  };
 }
 
 const pub = (id: string, extra: Record<string, unknown> = {}) => ({
@@ -337,6 +341,35 @@ describe('AnnualReportService — service year 2026/27', () => {
       const out = await svc.figures(TENANT, 2026);
       expect(out.becameInactive).toHaveLength(0);
       expect(out.inactiveNow.map((x) => x.id)).toEqual(['p1']);
+    })();
+  });
+
+  it('does not ask the roster for participants at all', () => {
+    // They are not publishers and file nothing, so counting them made every
+    // «участник» six closed months of silence: the present-tense list read six
+    // where the congregation has two.
+    const svc = build([], [pub('p1')]);
+
+    return (async () => {
+      await svc.figures(TENANT, 2026);
+      const where = svc.__publishersRepo.find.mock.calls[0][0].where as {
+        appointment?: unknown;
+      };
+      expect(where.appointment).toBeDefined();
+    })();
+  });
+
+  it('names those whose break began before the records do', () => {
+    // Not a number for the form — a question for the secretary. Whether the
+    // sixth silent month fell inside this year or an earlier one decides which
+    // side of the form's line they sit on, and that month is on paper, from
+    // before the app kept anything.
+    const svc = build([], [pub('p1', { baptismDate: '2005-06-01' })]);
+
+    return (async () => {
+      const out = await svc.figures(TENANT, 2026);
+      expect(out.lapseUnknown.map((x) => x.id)).toEqual(['p1']);
+      expect(out.becameInactive).toHaveLength(0);
     })();
   });
 

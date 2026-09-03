@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, Repository } from 'typeorm';
+import { Between, Not, Repository } from 'typeorm';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Publisher } from '../entities/publisher.entity';
+import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { reportedMinistry } from '../common/reported-ministry';
 import { resolveReportingStartMonth } from '../common/service-status-rule';
 import { CongregationClock } from '../common/congregation-clock.service';
@@ -68,6 +69,17 @@ export interface AnnualFigures {
    * given, and the screen says which is which.
    */
   inactiveNow: CountedPublisher[];
+  /**
+   * Silent since the first month the app holds records for — so WHEN their
+   * break began is not in the data.
+   *
+   * The form draws its line by when the sixth silent month fell: inside this
+   * year it counts, in an earlier year it does not. For these publishers that
+   * month is on paper, from before the app kept reports, and no arithmetic
+   * here can recover it. Answering either way would put a wrong number on a
+   * signed form, so they are handed to the secretary by name instead.
+   */
+  lapseUnknown: CountedPublisher[];
   deaf: CountedPublisher[];
   blind: CountedPublisher[];
   imprisoned: CountedPublisher[];
@@ -116,7 +128,16 @@ export class AnnualReportService {
       this.reportsRepo.find({
         where: { congregationId: tenantId, reportMonth: Between(from, to) },
       }),
-      this.publishersRepo.find({ where: { congregationId: tenantId } }),
+      // Participants («участники») are not publishers and hand in no reports,
+      // so counting them here made every one of them six closed months of
+      // silence: the present-tense list said six where the congregation has
+      // two. The same rule the collection card and the reminders use.
+      this.publishersRepo.find({
+        where: {
+          congregationId: tenantId,
+          appointment: Not(PublisherAppointment.STUDENT),
+        },
+      }),
     ]);
 
     // publisher → the set of months they reported ministry in
@@ -145,6 +166,8 @@ export class AnnualReportService {
     // arming another.
     const covered = new Set<string>();
     for (const r of reports) covered.add(r.reportMonth.slice(0, 7));
+    /** The first month the congregation has any record for, if any. */
+    const firstCovered = [...covered].sort().find(() => true) ?? null;
     /** Is every month this question looks back over actually recorded? */
     const dataCovers = (from: string, to: string) => {
       for (let m = from; m <= to; m = addMonths(m, 1)) {
@@ -175,6 +198,7 @@ export class AnnualReportService {
     const becameInactive: CountedPublisher[] = [];
     const reactivated: CountedPublisher[] = [];
     const inactiveNow: CountedPublisher[] = [];
+    const lapseUnknown: CountedPublisher[] = [];
     const deaf: CountedPublisher[] = [];
     const blind: CountedPublisher[] = [];
     const imprisoned: CountedPublisher[] = [];
@@ -248,6 +272,18 @@ export class AnnualReportService {
         inactiveNow.push({ ...who, month: judgeUntilInYear });
       }
 
+      // Never reported in anything we hold. He is plainly inactive — but the
+      // month his break began is on paper, before the records start, and the
+      // form's line runs exactly through that month.
+      if (
+        firstCovered !== null &&
+        judgeable.length > 0 &&
+        (reportedBy.get(p.id)?.size ?? 0) === 0 &&
+        (horizon === null || horizon <= firstCovered)
+      ) {
+        lapseUnknown.push({ ...who, month: firstCovered });
+      }
+
       if (p.isDeaf) deaf.push(who);
       if (p.isBlind) blind.push(who);
       if (p.isImprisoned) imprisoned.push(who);
@@ -260,6 +296,7 @@ export class AnnualReportService {
       becameInactive,
       reactivated,
       inactiveNow,
+      lapseUnknown,
       deaf,
       blind,
       imprisoned,
