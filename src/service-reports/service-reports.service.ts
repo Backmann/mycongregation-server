@@ -24,7 +24,6 @@ import {
 import { reportingPublisherWhere } from '../common/reporting-publishers';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { reviewPioneerYear, PioneerYearReview } from './pioneer-year-review';
-import { todayIn } from '../common/congregation-clock';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import {
   PublishersService,
@@ -683,11 +682,11 @@ export class ServiceReportsService {
    *
    * Permission rules:
    * - Admins and the secretary may edit any report at any time.
-   * - The original submitter may self-edit during the self-edit window
-   *   (1st-10th of the month following `reportMonth`, in the congregation's
-   *   own timezone).
-   * - The overseer of the report publisher's service group may edit it
-   *   within the same window.
+   * - The original submitter may correct his own report for as long as the
+   *   month is still being collected — through the closing day of the month
+   *   following `reportMonth`, in the congregation's own timezone.
+   * - The overseer of the report publisher's service group may edit it for
+   *   the same period.
    * - Everyone else (including elders) is denied — elders view only.
    *
    * `reportMonth`, `publisherId`, and submission metadata are immutable.
@@ -726,9 +725,9 @@ export class ServiceReportsService {
       const isOwnReport = report.submittedById === user.id;
       if (isOwnReport) {
         throw new ForbiddenException(
-          'Self-edit window has closed. The window is the 1st-10th of the ' +
-            'month following the report month, by the congregation clock. Contact the ' +
-            'secretary to request changes.',
+          'This report month has closed. A report can be corrected while its ' +
+            'month is still being collected, by the congregation clock. ' +
+            'Contact the secretary to request changes.',
         );
       }
       throw new ForbiddenException(
@@ -1793,7 +1792,7 @@ export class ServiceReportsService {
     if (ctx.alwaysEdit) return true;
     // A closed month is frozen for everyone except admins/secretary above.
     if (isClosed) return false;
-    if (!this.isInSelfEditWindow(report.reportMonth, ctx.timezone))
+    if (!this.isMonthStillCollecting(report.reportMonth, ctx.timezone))
       return false;
     if (report.submittedById === ctx.userId) return true;
     if (
@@ -1861,40 +1860,30 @@ export class ServiceReportsService {
   }
 
   /**
-   * True if the current moment is within the self-edit window for
-   * `reportMonth`.
+   * True while the report month is still being collected — which is exactly
+   * how long a publisher may correct his own report.
    *
-   * Window: through the 10th (inclusive) of the month following
-   * reportMonth, evaluated in the congregation's own timezone.
-   * Closes at 00:00 local time on the 11th. Comparing calendar dates in that
-   * timezone keeps the boundary correct across the summer-time change.
+   * ONE DEADLINE, NOT TWO. This used to close on the 10th of the following
+   * month while collection ran to the 20th, and the ten days in between were
+   * a trap: the month was still open, the group screen still asked people for
+   * their reports, and anyone who handed one in on the 13th could not fix so
+   * much as a typo in it — not later, not ever, because the window had shut
+   * before he had even filed. On 3 September the congregation had 46 of 87
+   * reports in, so late filing is the ordinary case, not the exception.
    *
-   * Example: an April 2026 report (`reportMonth = "2026-04-01"`) is
-   * self-editable through 2026-05-10 locally; it closes at the start of
-   * 2026-05-11.
+   * Now the answer comes from the same authority everything else asks: a
+   * month is open until its closing day passes (or until the secretary closes
+   * it early, which the caller checks separately). An April report is
+   * editable through 20 May, local time, and frozen from the 21st.
    */
-  private isInSelfEditWindow(reportMonth: string, timezone: string): boolean {
-    const [yearStr, monthStr] = reportMonth.slice(0, 7).split('-');
-    let ny = parseInt(yearStr, 10);
-    let nm = parseInt(monthStr, 10) + 1; // month following the report month
-    if (nm === 13) {
-      nm = 1;
-      ny += 1;
-    }
-
-    // Current calendar date in the congregation's own timezone, as YYYY-MM-DD
-    // so the day boundary is unambiguous regardless of DST.
-    const local = todayIn(new Date(Date.now()), timezone);
-    const [byStr, bmStr, bdStr] = local.split('-');
-    const by = parseInt(byStr, 10);
-    const bm = parseInt(bmStr, 10);
-    const bd = parseInt(bdStr, 10);
-
-    // Open while "now" (Berlin) is on or before the 10th of the month
-    // following the report month.
-    if (by !== ny) return by < ny;
-    if (bm !== nm) return bm < nm;
-    return bd <= 10;
+  private isMonthStillCollecting(
+    reportMonth: string,
+    timezone: string,
+  ): boolean {
+    const lastClosed = monthKey(
+      lastClosedReportMonth(new Date(Date.now()), timezone),
+    ).slice(0, 7);
+    return reportMonth.slice(0, 7) > lastClosed;
   }
 
   /** Enforce form-variant rules on an update. */

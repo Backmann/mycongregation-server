@@ -188,44 +188,56 @@ describe('ServiceReportsService', () => {
   });
 
   // =========================================================
-  // isInSelfEditWindow (private)
+  // isMonthStillCollecting (private)
   // =========================================================
 
-  describe('isInSelfEditWindow', () => {
+  /**
+   * The window a publisher may correct his own report in.
+   *
+   * It used to close on the 10th while collection ran to the 20th, and those
+   * ten days were a trap: whoever filed on the 13th could not fix a typo in
+   * the report he had just handed in, because the window had shut before he
+   * filed. One deadline now — the month's own.
+   */
+  describe('isMonthStillCollecting', () => {
     const callWindow = (reportMonth: string): boolean =>
-      (service as any).isInSelfEditWindow(reportMonth);
+      (service as any).isMonthStillCollecting(reportMonth, 'Europe/Berlin');
 
-    it('returns true when current date is mid-window (May 5 for April report)', () => {
+    it('is open in the middle of the collecting month', () => {
       setNow(Date.UTC(2026, 4, 5));
       expect(callWindow('2026-04-01')).toBe(true);
     });
 
-    it('returns true late on the 10th Berlin time (last day of window)', () => {
-      // 2026-05-10 23:59:59 Europe/Berlin (CEST, UTC+2) === 21:59:59 UTC.
-      setNow(Date.UTC(2026, 4, 10, 21, 59, 59));
+    it('is STILL open on the 13th — the day the old window had already shut', () => {
+      setNow(Date.UTC(2026, 4, 13));
       expect(callWindow('2026-04-01')).toBe(true);
     });
 
-    it('returns false at 00:00 on the 11th Berlin time (window closed)', () => {
-      // 2026-05-11 00:00 Europe/Berlin (CEST, UTC+2) === 2026-05-10 22:00 UTC.
-      setNow(Date.UTC(2026, 4, 10, 22, 0, 0));
+    it('is open late on the eve of the closing day', () => {
+      // 2026-05-19 23:00 Europe/Berlin (CEST, UTC+2) === 21:00 UTC.
+      setNow(Date.UTC(2026, 4, 19, 21, 0, 0));
+      expect(callWindow('2026-04-01')).toBe(true);
+    });
+
+    it('is shut on the closing day itself — the month has settled', () => {
+      setNow(Date.UTC(2026, 4, 20, 10, 0, 0));
       expect(callWindow('2026-04-01')).toBe(false);
     });
 
-    it('returns false well after the window closed (May 30 for April report)', () => {
-      setNow(Date.UTC(2026, 4, 30));
+    it('is shut well afterwards', () => {
+      setNow(Date.UTC(2026, 5, 30));
       expect(callWindow('2026-04-01')).toBe(false);
     });
 
-    it('handles year rollover (December → next January)', () => {
-      setNow(Date.UTC(2027, 0, 5));
+    it('handles the year rollover (December → next January)', () => {
+      setNow(Date.UTC(2027, 0, 15));
       expect(callWindow('2026-12-01')).toBe(true);
 
-      setNow(Date.UTC(2027, 0, 11));
+      setNow(Date.UTC(2027, 0, 25));
       expect(callWindow('2026-12-01')).toBe(false);
     });
 
-    it('treats YYYY-MM-DD identical to YYYY-MM-01 (only first 7 chars matter)', () => {
+    it('reads only the month, whatever day the month string carries', () => {
       setNow(Date.UTC(2026, 4, 5));
       expect(callWindow('2026-04-15')).toBe(true);
       expect(callWindow('2026-04-30')).toBe(true);
@@ -1127,8 +1139,11 @@ describe('ServiceReportsService', () => {
         expect((result as any).notes).toBe('fixed typo');
       });
 
-      it('forbids self-edit AFTER window closed for non-admin/elder', async () => {
-        setNow(Date.UTC(2026, 4, 12));
+      it('forbids self-edit once the report month has settled', async () => {
+        // 20 May: April's collection window has closed. Until 3 September this
+        // read «12 May», when the window shut on the 10th — the eight days
+        // between were the trap this change removes.
+        setNow(Date.UTC(2026, 4, 20));
         reportsRepo.findOne.mockResolvedValue(
           makeReport({ submittedById: 'user-self' }),
         );
