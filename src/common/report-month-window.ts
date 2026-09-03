@@ -21,8 +21,11 @@
 /**
  * The day of the month by which reports for the previous month are handed in.
  * The reminder crons in ReportRemindersService are built around the same
- * deadline (the secretary's last nudge is the 19th); if this ever moves, those
- * cron days move with it.
+ * deadline — the last nudge of all is the secretary's, on the 18th; if this
+ * day ever moves, those cron days move with it. (This said «the 19th» while
+ * the code said 18, sitting right beside the constant a reader consults when
+ * moving the date. A rule written down twice is how the last three days of
+ * bugs began.)
  */
 import { localDateParts } from './congregation-clock';
 

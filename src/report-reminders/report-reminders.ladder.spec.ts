@@ -81,6 +81,31 @@ describe('ReportRemindersService — how often, and in what tone', () => {
     );
   });
 
+  it('still calls the publisher on the 15th, near the deadline', async () => {
+    // The last call used to be the 9th, because a publisher could only correct
+    // his own report through the 10th. That door now closes with the month
+    // itself, on the 20th, so the last call sits where it is still worth
+    // making — with five days of room left, and after the overseer has been
+    // asked. Three evenings either way; the volume did not change.
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-15T16:00:00Z'));
+    const { svc, notifications } = makeService({ publishers: missing });
+
+    await svc.tick();
+
+    expect(notifications.notify.mock.calls[0][0].body).toContain(
+      'ещё не подали',
+    );
+  });
+
+  it('no longer calls on the 9th — that evening moved', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-09T16:00:00Z'));
+    const { svc, notifications } = makeService({ publishers: missing });
+
+    await svc.tick();
+
+    expect(notifications.notify).not.toHaveBeenCalled();
+  });
+
   it('says nothing to someone who has already reported', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-08-05T16:00:00Z'));
     const { svc, notifications } = makeService({ publishers: [] });

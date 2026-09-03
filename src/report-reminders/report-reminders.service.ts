@@ -58,11 +58,17 @@ const REMINDER_HOUR = 18;
  * The 1st is deliberate and different: not a reproach but an opening — the
  * month has ended and the report can now be handed in.
  *
+ * The third evening was the 9th while a publisher could only correct his own
+ * report through the 10th — the last call came just before his own door shut.
+ * That door now closes with the month itself, on the 20th, so the last call
+ * moved to the 15th: still his own to answer, five days of room left, and
+ * after the overseer has already been asked. Three evenings either way.
+ *
  * These are the days the code actually uses. The class comment above them used
  * to describe a different schedule entirely, which is how a reader learns to
  * stop trusting comments.
  */
-const PUBLISHER_DAYS = [1, 5, 9];
+const PUBLISHER_DAYS = [1, 5, 15];
 const OVERSEER_DAYS = [7, 12];
 const SECRETARY_DAYS = [13, 18];
 
