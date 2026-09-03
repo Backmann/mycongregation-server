@@ -15,7 +15,45 @@ function reportsFor(pubId: string, months: string[]) {
   }));
 }
 
-function build(reports: unknown[], publishers: unknown[]) {
+/**
+ * Report rows for a publisher who is NOT on the roster, one per month across
+ * the whole window the report reads.
+ *
+ * They exist so the congregation has a record for every month. Without them
+ * the fixtures describe a congregation whose books begin the month its first
+ * subject reported — and the report, quite rightly, refuses to call the empty
+ * months before that silence. Real congregations look like the filler: eighty
+ * reports a month, every month.
+ */
+function coverage(): unknown[] {
+  const out: unknown[] = [];
+  for (let y = 2026, m = 2; !(y === 2027 && m === 9); ) {
+    out.push({
+      publisherId: 'not-on-the-roster',
+      reportMonth: `${y}-${String(m).padStart(2, '0')}-01`,
+      servedThisMonth: true,
+      hoursReported: null,
+      bibleStudies: 0,
+    });
+    m += 1;
+    if (m === 13) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return out;
+}
+
+/** Exactly the rows given — for testing what happens with no coverage. */
+function buildRaw(reports: unknown[], publishers: unknown[]) {
+  return make(reports, publishers);
+}
+
+function build(reportsGiven: unknown[], publishers: unknown[]) {
+  return make([...coverage(), ...reportsGiven], publishers);
+}
+
+function make(reports: unknown[], publishers: unknown[]) {
   const reportsRepo = { find: jest.fn().mockResolvedValue(reports) } as never;
   const publishersRepo = {
     find: jest.fn().mockResolvedValue(publishers),
@@ -256,6 +294,52 @@ describe('AnnualReportService — service year 2026/27', () => {
     expect(out.blind.map((x) => x.id)).toEqual(['p2']);
     expect(out.imprisoned.map((x) => x.id)).toEqual(['p2']);
   });
+  it('says nothing about months the congregation has no records for', () => {
+    // THE ONE THAT BIT. This congregation's books begin in September 2026:
+    // there is not a single report row before it. Every publisher's first
+    // report therefore follows six empty months, and the report used to read
+    // that as six months of inactivity and call the whole congregation
+    // «возобновившие» — two of them at first, and the rest as soon as their
+    // cards were given a baptism date.
+    const months: string[] = [];
+    for (let y = 2026, m = 9; !(y === 2027 && m === 9); ) {
+      months.push(`${y}-${String(m).padStart(2, '0')}`);
+      m += 1;
+      if (m === 13) {
+        m = 1;
+        y += 1;
+      }
+    }
+    const svc = buildRaw(
+      [...reportsFor('p1', months), ...reportsFor('p2', months)],
+      [
+        pub('p1', { baptismDate: '2005-06-01' }),
+        pub('p2', { ministryStartDate: '2010-03-01' }),
+      ],
+    );
+
+    return (async () => {
+      const out = await svc.figures(TENANT, 2026);
+      expect(out.reactivated).toHaveLength(0);
+      expect(out.becameInactive).toHaveLength(0);
+      expect(out.active).toHaveLength(2);
+    })();
+  });
+
+  it('lists who is inactive as things stand, apart from the form figure', () => {
+    // Two questions, two answers. The form asks whose sixth silent month fell
+    // inside the year and says not to count anyone who lapsed earlier and is
+    // still lapsed. The elders ask who is inactive now. Somebody with no
+    // report at all is the second and not the first.
+    const svc = build([], [pub('p1', { baptismDate: '2005-06-01' })]);
+
+    return (async () => {
+      const out = await svc.figures(TENANT, 2026);
+      expect(out.becameInactive).toHaveLength(0);
+      expect(out.inactiveNow.map((x) => x.id)).toEqual(['p1']);
+    })();
+  });
+
   it('gives the reports-per-month figures rather than guessing who failed to report', () => {
     // The app cannot tell "did not share" from "not collected yet", so it
     // states the counts and lets the secretary read them. Filing on 2
@@ -273,8 +357,10 @@ describe('AnnualReportService — service year 2026/27', () => {
       const july = out.monthlyReporters.find((m) => m.month === '2027-07-01');
       const august = out.monthlyReporters.find((m) => m.month === '2027-08-01');
 
-      expect(july?.count).toBe(2);
-      expect(august?.count).toBe(1);
+      // Plus the filler above, who reports every month: the figure counts
+      // reports, not roster members, which is exactly what it is for.
+      expect(july?.count).toBe(3);
+      expect(august?.count).toBe(2);
       expect(out.monthlyReporters).toHaveLength(12);
     })();
   });

@@ -57,6 +57,17 @@ export interface AnnualFigures {
   becameInactive: CountedPublisher[];
   /** Were inactive and reported again within this service year. */
   reactivated: CountedPublisher[];
+  /**
+   * Not on the form: who is inactive RIGHT NOW, by the six-month rule.
+   *
+   * The form asks for an EVENT — whose sixth silent month fell inside this
+   * year — and says in as many words not to count anyone who became inactive
+   * in an earlier year and is still inactive. That is the figure above. But
+   * the elders also want the plain present-tense list, and answering one
+   * question with the other is how a form gets filled in wrongly. So both are
+   * given, and the screen says which is which.
+   */
+  inactiveNow: CountedPublisher[];
   deaf: CountedPublisher[];
   blind: CountedPublisher[];
   imprisoned: CountedPublisher[];
@@ -89,6 +100,8 @@ export class AnnualReportService {
       lastClosedReportMonth(new Date(), timezone),
     ).slice(0, 7);
     const judgeable = yearMonths.filter((m) => m <= judgeUntil);
+    /** The latest month of THIS year we may judge — the year's end, or today's. */
+    const judgeUntilInYear = judgeable[judgeable.length - 1] ?? yearMonths[0];
     // Six months of run-up as well: deciding whether somebody BECAME inactive
     // in September means looking at the six months before it, and telling that
     // apart from "was already inactive coming in" needs one month more still.
@@ -120,6 +133,26 @@ export class AnnualReportService {
     //
     // So a status change is only asserted where the months it rests on are
     // actually covered. Where they are not, nothing is claimed.
+    // WHICH MONTHS THIS CONGREGATION HAS DATA FOR AT ALL.
+    //
+    // A month with no report rows anywhere is not a month of silence — it is a
+    // month before the app was keeping reports. Judging it turns the start of
+    // record-keeping into a congregation-wide lapse: with data beginning in
+    // September 2025, every publisher's September report looked like a return
+    // from six months of inactivity. It showed up for exactly the two people
+    // whose cards carried a baptism date, and it would have spread to everyone
+    // else as those dates were filled in — the fix for one thing quietly
+    // arming another.
+    const covered = new Set<string>();
+    for (const r of reports) covered.add(r.reportMonth.slice(0, 7));
+    /** Is every month this question looks back over actually recorded? */
+    const dataCovers = (from: string, to: string) => {
+      for (let m = from; m <= to; m = addMonths(m, 1)) {
+        if (!covered.has(m)) return false;
+      }
+      return true;
+    };
+
     const firstKnown = new Map<string, string>();
     for (const r of reports) {
       const key = r.reportMonth.slice(0, 7);
@@ -141,6 +174,7 @@ export class AnnualReportService {
     const active: CountedPublisher[] = [];
     const becameInactive: CountedPublisher[] = [];
     const reactivated: CountedPublisher[] = [];
+    const inactiveNow: CountedPublisher[] = [];
     const deaf: CountedPublisher[] = [];
     const blind: CountedPublisher[] = [];
     const imprisoned: CountedPublisher[] = [];
@@ -172,8 +206,13 @@ export class AnnualReportService {
         baptismDate: p.baptismDate,
         firstReportMonth: firstKnown.get(p.id) ?? null,
       });
+      // Two conditions, and both must hold. The person must have been
+      // reporting for the whole stretch the question looks at, and WE must
+      // hold the months it looks at.
       const knowable = (m: string) =>
-        horizon !== null && addMonths(m, -6) >= horizon;
+        horizon !== null &&
+        addMonths(m, -6) >= horizon &&
+        dataCovers(addMonths(m, -6), m);
 
       for (const m of judgeable) {
         // Became inactive here: inactive now, not inactive a month ago. That
@@ -197,6 +236,18 @@ export class AnnualReportService {
         }
       }
 
+      // Inactive as things stand — the same six-month rule, asked once, at the
+      // last month we are entitled to judge. Not for the form (see the field's
+      // note); for the elders, who ask a different question than the branch.
+      if (
+        judgeable.length > 0 &&
+        dataCovers(addMonths(judgeUntilInYear, -5), judgeUntilInYear) &&
+        (horizon === null || horizon <= judgeUntilInYear) &&
+        inactiveAt(judgeUntilInYear)
+      ) {
+        inactiveNow.push({ ...who, month: judgeUntilInYear });
+      }
+
       if (p.isDeaf) deaf.push(who);
       if (p.isBlind) blind.push(who);
       if (p.isImprisoned) imprisoned.push(who);
@@ -208,6 +259,7 @@ export class AnnualReportService {
       active,
       becameInactive,
       reactivated,
+      inactiveNow,
       deaf,
       blind,
       imprisoned,
