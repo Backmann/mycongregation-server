@@ -458,3 +458,142 @@ describe('MeService.myAssignments (the Memorial)', () => {
     expect(duty?.date).toBe('2030-04-17');
   });
 });
+
+/**
+ * The dots in the week drawer, on a Memorial week.
+ *
+ * The drawer has two tabs and the Memorial is a third kind of meeting, so its
+ * marks go on the kind it TOOK — otherwise a brother opens the week the list
+ * now offers him and finds no sign that anything there is his.
+ */
+describe('MeService.myWeeks (the Memorial)', () => {
+  const makeQb = (rows: unknown[]) => {
+    const qb: Record<string, unknown> = {};
+    for (const m of [
+      'where',
+      'andWhere',
+      'orderBy',
+      'select',
+      'addSelect',
+      'groupBy',
+      'addGroupBy',
+    ]) {
+      qb[m] = () => qb;
+    }
+    qb.getRawMany = async () => rows;
+    qb.getMany = async () => rows;
+    return qb;
+  };
+  const emptyRepo = () => ({
+    createQueryBuilder: () => makeQb([]),
+    findOne: async () => null,
+    find: async () => [],
+  });
+
+  async function build(opts: {
+    events: Record<string, unknown>[];
+    duties?: unknown[];
+    lines?: unknown[];
+  }) {
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        { provide: CongregationClock, useValue: clockStub() },
+        MeService,
+        {
+          provide: getRepositoryToken(Publisher),
+          useValue: {
+            findOne: jest
+              .fn()
+              .mockResolvedValue({ id: 'pub-1', serviceGroupId: null }),
+          },
+        },
+        { provide: getRepositoryToken(ServiceGroup), useValue: emptyRepo() },
+        { provide: getRepositoryToken(Assignment), useValue: emptyRepo() },
+        {
+          provide: getRepositoryToken(Duty),
+          useValue: {
+            createQueryBuilder: () => makeQb(opts.duties ?? []),
+            findOne: async () => null,
+            find: async () => [],
+          },
+        },
+        {
+          provide: getRepositoryToken(CleaningAssignment),
+          useValue: emptyRepo(),
+        },
+        {
+          provide: getRepositoryToken(FieldServiceMeeting),
+          useValue: emptyRepo(),
+        },
+        { provide: getRepositoryToken(TalkExchange), useValue: emptyRepo() },
+        {
+          provide: getRepositoryToken(ExternalCongregation),
+          useValue: emptyRepo(),
+        },
+        { provide: getRepositoryToken(PublicTalk), useValue: emptyRepo() },
+        { provide: getRepositoryToken(CartAssignment), useValue: emptyRepo() },
+        { provide: getRepositoryToken(CoVisitItem), useValue: emptyRepo() },
+        {
+          provide: getRepositoryToken(MemorialItem),
+          useValue: {
+            createQueryBuilder: () => makeQb([]),
+            findOne: async () => null,
+            find: async () => opts.lines ?? [],
+          },
+        },
+        {
+          provide: getRepositoryToken(SpecialEvent),
+          useValue: {
+            createQueryBuilder: () => makeQb([]),
+            findOne: async () => null,
+            find: async () => opts.events,
+          },
+        },
+        {
+          provide: AuditLogService,
+          useValue: { logUpdate: jest.fn(), logCreate: jest.fn() },
+        },
+      ],
+    }).compile();
+    return moduleRef.get(MeService);
+  }
+
+  it('marks a place at a Wednesday Memorial as the midweek meeting', async () => {
+    const service = await build({
+      events: [
+        {
+          id: 'ev-1',
+          type: 'memorial',
+          date: '2030-04-17',
+          memorialPublishedAt: null,
+        },
+      ],
+      duties: [{ week: '2030-04-15', eventType: 'memorial' }],
+    });
+
+    const weeks = await service.myWeeks('cong-1', 'user-1');
+    const week = weeks.find((w) => w.weekStartDate === '2030-04-15');
+    expect(week?.midweekDuties).toBe(true);
+    expect(week?.weekendDuties).toBe(false);
+  });
+
+  it('marks a published programme line as a part of the meeting it took', async () => {
+    const service = await build({
+      events: [
+        {
+          id: 'ev-1',
+          // A Sunday: it takes the weekend meeting.
+          type: 'memorial',
+          date: '2030-04-21',
+          memorialPublishedAt: new Date('2030-03-01T10:00:00Z'),
+        },
+      ],
+      lines: [{ id: 'li-1', specialEventId: 'ev-1', publisherId: 'pub-1' }],
+    });
+
+    const weeks = await service.myWeeks('cong-1', 'user-1');
+    const week = weeks.find((w) => w.weekStartDate === '2030-04-15');
+    expect(week?.weekendParts).toBe(true);
+    expect(week?.midweekParts).toBe(false);
+  });
+});

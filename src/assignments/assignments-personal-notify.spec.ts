@@ -18,6 +18,7 @@ import { Assignment } from '../entities/assignment.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Congregation } from '../entities/congregation.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -74,6 +75,11 @@ describe('AssignmentsService — telling each assignee their own parts', () => {
         {
           provide: getRepositoryToken(Congregation),
           useValue: { findOne: jest.fn().mockResolvedValue({}) },
+        },
+        {
+          // The drawer's week list now also asks for published Memorials.
+          provide: getRepositoryToken(SpecialEvent),
+          useValue: { find: jest.fn().mockResolvedValue([]) },
         },
         { provide: PushNotificationsService, useValue: {} },
         { provide: NotificationsService, useValue: parts.notify },

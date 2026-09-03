@@ -7,6 +7,7 @@ import { Assignment } from '../entities/assignment.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Congregation } from '../entities/congregation.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
@@ -74,9 +75,11 @@ describe('AssignmentsService draft visibility', () => {
   // handed something (or nothing) — not that a broadcast went out.
   let notifyMock: { notify: jest.Mock };
   let qb: ReturnType<typeof makeQb>;
+  let specialEventsRepo: { find: jest.Mock };
 
   beforeEach(async () => {
     qb = makeQb();
+    specialEventsRepo = { find: jest.fn().mockResolvedValue([]) };
     repo = {
       createQueryBuilder: jest.fn(() => qb),
       findOne: jest.fn(),
@@ -116,6 +119,11 @@ describe('AssignmentsService draft visibility', () => {
               .fn()
               .mockResolvedValue({ assignmentAutomationEnabled: false }),
           },
+        },
+        {
+          // The drawer's week list now also asks for published Memorials.
+          provide: getRepositoryToken(SpecialEvent),
+          useValue: specialEventsRepo,
         },
         { provide: PushNotificationsService, useValue: pushMock },
         {
@@ -288,10 +296,61 @@ describe('AssignmentsService draft visibility', () => {
     ]);
     const res = await service.listPublishedWeeks('c1');
     expect(res).toEqual([
-      { weekStartDate: '2026-07-06', hasMidweek: true, hasWeekend: true },
-      { weekStartDate: '2026-06-29', hasMidweek: true, hasWeekend: false },
+      {
+        weekStartDate: '2026-07-06',
+        hasMidweek: true,
+        hasWeekend: true,
+        memorialDate: null,
+      },
+      {
+        weekStartDate: '2026-06-29',
+        hasMidweek: true,
+        hasWeekend: false,
+        memorialDate: null,
+      },
     ]);
     expect(qb.andWhere).toHaveBeenCalledWith("a.status = 'published'");
+  });
+
+  /**
+   * A Memorial week has no published assignments for the meeting it took, so
+   * it was missing from this list entirely — the drawer could not reach it at
+   * all. It arrives under the kind it takes, carrying its own evening.
+   */
+  it('adds the week of a published Memorial, under the kind it takes', async () => {
+    qb.getRawMany.mockResolvedValue([
+      { week: '2026-07-06', hasMidweek: true, hasWeekend: true },
+    ]);
+    specialEventsRepo.find.mockResolvedValue([
+      // A Wednesday: it takes the midweek meeting.
+      { id: 'ev-1', date: '2026-04-01', type: 'memorial' },
+    ]);
+    const res = await service.listPublishedWeeks('c1');
+    const memorialWeek = res.find((w) => w.weekStartDate === '2026-03-30');
+    expect(memorialWeek).toEqual({
+      weekStartDate: '2026-03-30',
+      hasMidweek: true,
+      hasWeekend: false,
+      memorialDate: '2026-04-01',
+    });
+    // Newest first, as the drawer expects.
+    expect(res[0].weekStartDate).toBe('2026-07-06');
+  });
+
+  it('puts a Memorial that falls on a Sunday under the weekend', async () => {
+    qb.getRawMany.mockResolvedValue([]);
+    specialEventsRepo.find.mockResolvedValue([
+      { id: 'ev-2', date: '2026-04-05', type: 'memorial' },
+    ]);
+    const res = await service.listPublishedWeeks('c1');
+    expect(res).toEqual([
+      {
+        weekStartDate: '2026-03-30',
+        hasMidweek: false,
+        hasWeekend: true,
+        memorialDate: '2026-04-05',
+      },
+    ]);
   });
 });
 
@@ -355,6 +414,11 @@ describe('AssignmentsService treasures <-> opening-prayer link', () => {
               .fn()
               .mockResolvedValue({ assignmentAutomationEnabled: true }),
           },
+        },
+        {
+          // The drawer's week list now also asks for published Memorials.
+          provide: getRepositoryToken(SpecialEvent),
+          useValue: { find: jest.fn().mockResolvedValue([]) },
         },
         { provide: PushNotificationsService, useValue: {} },
         {

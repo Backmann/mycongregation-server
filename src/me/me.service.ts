@@ -17,6 +17,7 @@ import { MemorialItem } from '../entities/memorial-item.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { mondayOf } from '../common/week';
+import { memorialTakesKind } from '../common/week-rules';
 
 export type MyAssignmentKind =
   | 'meeting'
@@ -366,10 +367,60 @@ export class MeService {
       .groupBy('d.week_start_date')
       .addGroupBy('d.event_type')
       .getRawMany<{ week: string; eventType: string }>();
+    // The Memorial is a third kind, and the drawer has only two tabs — so its
+    // marks go on the kind it TOOK. Without this a brother could open the week
+    // (the list now offers it) and find no sign that anything there was his.
+    const memorialWeeks = new Map<string, SpecialEvent>();
+    const memorialEvents = await this.specialEventsRepo.find({
+      where: { congregationId: tenantId, type: 'memorial' },
+    });
+    for (const event of memorialEvents) {
+      memorialWeeks.set(mondayOf(event.date), event);
+    }
+    const memorialMark = (week: string, what: 'parts' | 'duties'): void => {
+      const event = memorialWeeks.get(week);
+      if (!event) return;
+      const m = mark(week);
+      const kind = memorialTakesKind(event.date);
+      if (what === 'duties') {
+        if (kind === 'midweek') m.midweekDuties = true;
+        else m.weekendDuties = true;
+      } else {
+        if (kind === 'midweek') m.midweekParts = true;
+        else m.weekendParts = true;
+      }
+    };
+
     for (const r of duties) {
-      const m = mark(fmtISO(new Date(r.week)));
+      const week = fmtISO(new Date(r.week));
+      if (r.eventType === 'memorial') {
+        memorialMark(week, 'duties');
+        continue;
+      }
+      const m = mark(week);
       if (r.eventType === 'midweek') m.midweekDuties = true;
       if (r.eventType === 'weekend') m.weekendDuties = true;
+    }
+
+    // A programme line of a PUBLISHED Memorial — the same bar the personal
+    // list uses, since an unfinished sheet is nobody's assignment yet.
+    const publishedMemorials = memorialEvents.filter(
+      (e) => !!e.memorialPublishedAt,
+    );
+    if (publishedMemorials.length > 0) {
+      const lines = await this.memorialItemsRepo.find({
+        where: {
+          congregationId: tenantId,
+          specialEventId: In(publishedMemorials.map((e) => e.id)),
+          publisherId: pid,
+        },
+      });
+      const eventById = new Map(publishedMemorials.map((e) => [e.id, e]));
+      for (const line of lines) {
+        const event = eventById.get(line.specialEventId);
+        if (!event) continue;
+        memorialMark(mondayOf(event.date), 'parts');
+      }
     }
 
     if (groupId) {

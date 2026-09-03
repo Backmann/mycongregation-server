@@ -6,8 +6,18 @@ import {
 } from '@nestjs/common';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere, IsNull, Not, In } from 'typeorm';
+import {
+  Repository,
+  FindOptionsWhere,
+  IsNull,
+  Not,
+  In,
+  MoreThanOrEqual,
+} from 'typeorm';
 import { Assignment } from '../entities/assignment.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
+import { mondayOf } from '../common/week';
+import { memorialTakesKind } from '../common/week-rules';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { SwapPublicTalkDto } from './dto/swap-public-talk.dto';
@@ -89,6 +99,8 @@ export class AssignmentsService {
     private readonly publishersRepo: Repository<Publisher>,
     @InjectRepository(Congregation)
     private readonly congregationsRepo: Repository<Congregation>,
+    @InjectRepository(SpecialEvent)
+    private readonly specialEventsRepo: Repository<SpecialEvent>,
     private readonly pushNotifications: PushNotificationsService,
     private readonly notifications: NotificationsService,
     private readonly talkExchange: TalkExchangeService,
@@ -182,11 +194,22 @@ export class AssignmentsService {
    * which meetings are published, limited to the last 12 months plus all future
    * weeks, newest first.
    */
+  /**
+   * The weeks the drawer offers, newest first.
+   *
+   * A Memorial week has NO published assignments for the meeting it took away
+   * — its programme lives in its own table — so such a week was missing from
+   * the list entirely and there was no way to reach it from the drawer at all.
+   * It is added here under the kind it takes, carrying its own date so the
+   * list can show the evening rather than the weekday of a meeting that is not
+   * being held.
+   */
   async listPublishedWeeks(congregationId: string): Promise<
     {
       weekStartDate: string;
       hasMidweek: boolean;
       hasWeekend: boolean;
+      memorialDate: string | null;
     }[]
   > {
     const since = new Date();
@@ -212,14 +235,44 @@ export class AssignmentsService {
         hasWeekend: boolean;
       }>();
 
-    return rows.map((r) => ({
+    const weeks = rows.map((r) => ({
       weekStartDate:
         typeof r.week === 'string'
           ? r.week
           : new Date(r.week).toISOString().slice(0, 10),
       hasMidweek: r.hasMidweek === true,
       hasWeekend: r.hasWeekend === true,
+      memorialDate: null as string | null,
     }));
+
+    const memorials = await this.specialEventsRepo.find({
+      where: {
+        congregationId,
+        type: 'memorial',
+        memorialPublishedAt: Not(IsNull()),
+        date: MoreThanOrEqual(sinceIso),
+      },
+    });
+    for (const event of memorials) {
+      const week = mondayOf(event.date);
+      const kind = memorialTakesKind(event.date);
+      let row = weeks.find((w) => w.weekStartDate === week);
+      if (!row) {
+        row = {
+          weekStartDate: week,
+          hasMidweek: false,
+          hasWeekend: false,
+          memorialDate: null,
+        };
+        weeks.push(row);
+      }
+      if (kind === 'midweek') row.hasMidweek = true;
+      else row.hasWeekend = true;
+      row.memorialDate = event.date;
+    }
+    weeks.sort((a, b) => (a.weekStartDate < b.weekStartDate ? 1 : -1));
+
+    return weeks;
   }
 
   async getById(

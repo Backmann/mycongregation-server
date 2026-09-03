@@ -4,6 +4,7 @@ import { Assignment } from '../entities/assignment.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Congregation } from '../entities/congregation.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
@@ -21,6 +22,7 @@ import { AssignmentsController } from './assignments.controller';
       Responsibility,
       Publisher,
       Congregation,
+      SpecialEvent,
     ]),
     PushNotificationsModule,
     NotificationsModule,

@@ -63,6 +63,19 @@ export function addDaysISO(iso: string, days: number): string {
 
 export type MeetingKind = 'midweek' | 'weekend';
 
+/**
+ * WHICH meeting a Memorial on this date takes — by the KIND OF DAY it falls
+ * on, not by the day it covers.
+ *
+ * Exported because three places now need the answer — the week rules, the list
+ * of weeks the drawer offers, and the marks on those weeks — and a rule about
+ * meeting kinds written out a second time is how this project has lost a day
+ * before. The client's copy in lib/week-rules.ts is held to it by the gate.
+ */
+export function memorialTakesKind(dateISO: string): MeetingKind {
+  return isoDowOf(dateISO) >= 6 ? 'weekend' : 'midweek';
+}
+
 /** Only the fields the rules need — every caller has at least these. */
 export interface WeekEvent {
   type?: string | null;
@@ -160,9 +173,7 @@ export function weekRules(input: {
   const meetingsHeld = !congress;
 
   const memorialTakes: MeetingKind | null = memorial
-    ? isoDowOf(memorial.date) >= 6
-      ? 'weekend'
-      : 'midweek'
+    ? memorialTakesKind(memorial.date)
     : null;
 
   const dowOf = (kind: MeetingKind): number | null => {

@@ -7,6 +7,7 @@ import { Assignment } from '../entities/assignment.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Congregation } from '../entities/congregation.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
@@ -71,6 +72,11 @@ describe('AssignmentsService — journal sync coverage and public-talk swap', ()
               .fn()
               .mockResolvedValue({ assignmentAutomationEnabled: false }),
           },
+        },
+        {
+          // The drawer's week list now also asks for published Memorials.
+          provide: getRepositoryToken(SpecialEvent),
+          useValue: { find: jest.fn().mockResolvedValue([]) },
         },
         {
           provide: PushNotificationsService,
