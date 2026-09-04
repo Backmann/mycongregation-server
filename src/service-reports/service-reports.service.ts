@@ -129,6 +129,15 @@ export interface PublisherHistoryResponse {
     isPioneer: boolean;
     pioneerType: PioneerType;
     pioneerSince: string | null;
+    /**
+     * May the reader file a report FOR this person — his group's overseer, the
+     * secretary, an admin.
+     *
+     * The history is where a gap is noticed, and until now noticing it was all
+     * one could do here: closing it meant leaving for the group screen,
+     * switching the month and finding the man again among eighty-eight names.
+     */
+    canManage: boolean;
   };
   timeline: PublisherHistoryEntry[];
 }
@@ -1358,6 +1367,9 @@ export class ServiceReportsService {
         ),
         pioneerType: publisher.pioneerType,
         pioneerSince: publisher.pioneerSince,
+        canManage:
+          ctx.alwaysEdit ||
+          ctx.overseenGroupIds.includes(publisher.serviceGroupId ?? ''),
       },
       timeline,
     };
