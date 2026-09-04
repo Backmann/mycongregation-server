@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { reportedMinistry } from '../common/reported-ministry';
+import { todayIn } from '../common/congregation-clock';
 import { resolveReportingStartMonth } from '../common/service-status-rule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, MoreThanOrEqual, Not, Repository } from 'typeorm';
@@ -19,6 +20,7 @@ import {
   collectedReportMonth,
   lastClosedReportMonth,
   monthKey,
+  REPORT_CLOSING_DAY,
   reportDeadlineDate,
 } from '../common/report-month-window';
 import { reportingPublisherWhere } from '../common/reporting-publishers';
@@ -53,6 +55,20 @@ export interface MyReportStanding {
   reportMonth: string | null;
   submitted: boolean;
   reportId: string | null;
+  /**
+   * The LAST day this month can still be handed in or corrected, as
+   * YYYY-MM-DD in the congregation's own timezone — the eve of its closing
+   * day, because the month has settled by the time the closing day arrives.
+   *
+   * The screen needs it to say something useful — «осталось 12 дней», and near
+   * the end the date itself. It is answered here rather than worked out in the
+   * app on purpose: the deadline already has one authority on this side, and
+   * a copy of it in the client is exactly how the 10th and the 20th came to
+   * disagree in the first place.
+   */
+  closesOn: string | null;
+  /** Days from today to `closesOn` inclusive; 0 on the last day itself. */
+  daysLeft: number | null;
 }
 
 export interface GroupReportsResponse {
@@ -262,6 +278,28 @@ interface ReportPermissionContext {
    * rewrite of the permission path.
    */
   timezone: string;
+}
+
+/**
+ * The last day a report month can still be handed in or corrected.
+ *
+ * The month settles ON its closing day, so the last day of use is the eve of
+ * it — the 19th where the closing day is the 20th. Written once, from the same
+ * constant the rest of the app reads.
+ */
+function lastDayToFile(reportMonth: string): string {
+  const [y, m] = reportMonth.slice(0, 7).split('-').map(Number);
+  const ny = m === 12 ? y + 1 : y;
+  const nm = m === 12 ? 1 : m + 1;
+  const day = REPORT_CLOSING_DAY - 1;
+  return `${ny}-${String(nm).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/** Whole days from one calendar date to another; negative once it is past. */
+function daysBetween(fromISO: string, toISO: string): number {
+  const a = Date.parse(`${fromISO}T00:00:00Z`);
+  const b = Date.parse(`${toISO}T00:00:00Z`);
+  return Math.round((b - a) / 86400000);
 }
 
 @Injectable()
@@ -553,6 +591,8 @@ export class ServiceReportsService {
       reportMonth: null,
       submitted: false,
       reportId: null,
+      closesOn: null,
+      daysLeft: null,
     };
 
     const publisher = await this.publishersRepo.findOne({
@@ -581,11 +621,16 @@ export class ServiceReportsService {
       },
     });
 
+    const timezone = await this.clock.timezoneOf(tenantId);
+    const today = todayIn(new Date(), timezone);
+    const closesOn = lastDayToFile(reportMonth);
     return {
       applicable: true,
       reportMonth,
       submitted: !!report,
       reportId: report?.id ?? null,
+      closesOn,
+      daysLeft: daysBetween(today, closesOn),
     };
   }
 

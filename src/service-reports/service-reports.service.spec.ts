@@ -359,6 +359,8 @@ describe('ServiceReportsService', () => {
         reportMonth: null,
         submitted: false,
         reportId: null,
+        closesOn: null,
+        daysLeft: null,
       });
     });
 
@@ -396,6 +398,11 @@ describe('ServiceReportsService', () => {
         reportMonth: '2026-04-01',
         submitted: false,
         reportId: null,
+        // 15 May: April closes on the 20th, so the 19th is the last day of
+        // use and four days remain. The screen says the number rather than
+        // the rule, and it is answered here so the app never counts it twice.
+        closesOn: '2026-05-19',
+        daysLeft: 4,
       });
     });
 
@@ -410,6 +417,8 @@ describe('ServiceReportsService', () => {
         reportMonth: '2026-04-01',
         submitted: true,
         reportId: 'r-april',
+        closesOn: '2026-05-19',
+        daysLeft: 4,
       });
     });
 
