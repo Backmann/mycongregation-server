@@ -2897,3 +2897,64 @@ describe('getSummary — «все активные» follows the form, not the s
     );
   });
 });
+
+/**
+ * Two things the publisher history was getting wrong.
+ *
+ * It drew two years of months whatever the person's own history, so anyone who
+ * joined last autumn had a year of «отчёта нет» stretching behind him — for
+ * months nobody ever asked him about. And filing was allowed into a CLOSED
+ * month: only «has the month ended» was ever checked, so a report could land in
+ * a month whose figures had already gone to the branch, changing its summary
+ * afterwards with nothing to say so.
+ */
+describe('history and closed months', () => {
+  it('stops the timeline at the month counting begins', async () => {
+    const publisher = {
+      id: 'p1',
+      displayName: 'Новенький Иван',
+      serviceGroupId: 'g1',
+      ministryStartDate: '2026-06-01',
+      baptismDate: null,
+      pioneerType: 'none',
+      pioneerSince: null,
+      status: 'active',
+      statusManuallyOverridden: false,
+    };
+    const svc = new (ServiceReportsService as any)(
+      { find: jest.fn().mockResolvedValue([]), findOne: jest.fn() },
+      {
+        find: jest.fn().mockResolvedValue([]),
+        findOne: jest.fn().mockResolvedValue(publisher),
+      },
+      { find: jest.fn().mockResolvedValue([]) },
+      { find: jest.fn().mockResolvedValue([]) },
+      { findOne: jest.fn(), find: jest.fn().mockResolvedValue([]) },
+      { timezoneOf: jest.fn().mockResolvedValue('Europe/Berlin') },
+      { findActorsFor: jest.fn().mockResolvedValue([]), logEvent: jest.fn() },
+      { recomputeStatus: jest.fn() },
+      { activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()) },
+    );
+    jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({
+      alwaysView: true,
+      alwaysEdit: true,
+      overseenGroupIds: [],
+    });
+    jest.spyOn(svc as any, 'closedMonthsSet').mockResolvedValue(new Set());
+    jest.spyOn(svc as any, 'enrichEditorNames').mockResolvedValue(undefined);
+    setNow(Date.UTC(2026, 8, 4));
+
+    const out = await svc.findHistoryForPublisher(
+      'c1',
+      { id: 'u1' } as never,
+      'p1',
+      24,
+    );
+
+    const months = out.timeline.map((e: any) => e.reportMonth.slice(0, 7));
+    expect(months).toContain('2026-06');
+    // Nothing before he was a publisher.
+    expect(months).not.toContain('2026-05');
+    restoreNow();
+  });
+});

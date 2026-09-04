@@ -385,6 +385,22 @@ export class ServiceReportsService {
     }
     const reportMonth = this.normalizeReportMonth(dto.reportMonth);
     this.assertMonthIsReportable(reportMonth);
+    // A CLOSED month is closed for filing too.
+    //
+    // Only «has the month ended» was ever asked here, so a report could be
+    // filed into a month whose figures had already gone to the branch — the
+    // summary for it would quietly change afterwards and nothing would say so.
+    // Closing a month means the numbers have settled; the two people who may
+    // unsettle them are the two who may reopen it.
+    const submitCtx = await this.buildPermissionContext(tenantId, user);
+    if (
+      !submitCtx.alwaysEdit &&
+      (await this.isMonthClosed(tenantId, reportMonth))
+    ) {
+      throw new ForbiddenException(
+        'This month has been closed. Ask the secretary to reopen it.',
+      );
+    }
     // The hours form applies to actual pioneers AND to anyone serving as an
     // auxiliary pioneer in this report month (they report hours that month).
     const isAuxThisMonth =
@@ -1332,6 +1348,21 @@ export class ServiceReportsService {
       );
     }
 
+    // Nothing before this person began.
+    //
+    // The screen drew two years of months whatever the man's history, so
+    // publishers who joined last autumn had a year of «отчёта нет» stretching
+    // behind them — for months nobody ever asked them about. An empty month is
+    // a question; a month before he was a publisher is not one.
+    const firstMonthEver = reports.reduce<string | null>(
+      (earliest, r) =>
+        earliest === null || r.reportMonth.slice(0, 7) < earliest
+          ? r.reportMonth.slice(0, 7)
+          : earliest,
+      null,
+    );
+    const historyFloor = this.reportingStartMonthOf(publisher, firstMonthEver);
+
     const timeline: PublisherHistoryEntry[] = [];
     for (let i = 0; i < months; i++) {
       const m = new Date(
@@ -1343,6 +1374,7 @@ export class ServiceReportsService {
       const found = reports.find(
         (r) => String(r.reportMonth).slice(0, 7) === mStr.slice(0, 7),
       );
+      if (historyFloor && mStr.slice(0, 7) < historyFloor) break;
       const removed = removedByMonth.get(mStr.slice(0, 7));
       timeline.push({
         reportMonth: mStr,
