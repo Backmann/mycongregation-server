@@ -2535,3 +2535,52 @@ describe('ServiceReportsService', () => {
     });
   });
 });
+
+/**
+ * Whose report is open on the screen.
+ *
+ * The edit form had no way to know: it showed the READER's own name and
+ * pioneer badge above somebody else's month, so opening Наталья's report from
+ * her history looked exactly like opening your own. The data went to the right
+ * row all along — what lied was the page.
+ */
+describe('ServiceReportsService.findOne — the report names its owner', () => {
+  it('carries the publisher name and pioneer standing', async () => {
+    const owner = {
+      id: 'pub-2',
+      displayName: 'Беловодская Наталья',
+      serviceGroupId: 'g1',
+      pioneerType: 'regular',
+    };
+    const report = {
+      id: 'r1',
+      congregationId: 'c1',
+      publisherId: 'pub-2',
+      reportMonth: '2026-08-01',
+      submittedById: 'user-9',
+    };
+    const svc = new (ServiceReportsService as any)(
+      { findOne: jest.fn().mockResolvedValue(report), find: jest.fn() },
+      { findOne: jest.fn().mockResolvedValue(owner), find: jest.fn() },
+      { find: jest.fn().mockResolvedValue([]) },
+      { find: jest.fn().mockResolvedValue([]) },
+      { findOne: jest.fn(), find: jest.fn() },
+      { find: jest.fn().mockResolvedValue([]) },
+      { logCreate: jest.fn(), logUpdate: jest.fn() },
+      { timezoneOf: jest.fn().mockResolvedValue('Europe/Berlin') },
+      { recomputeStatus: jest.fn() },
+    );
+    jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({
+      alwaysView: true,
+      alwaysEdit: true,
+      overseenGroupIds: [],
+    });
+    jest.spyOn(svc as any, 'isMonthClosed').mockResolvedValue(false);
+    jest.spyOn(svc as any, 'enrichEditorNames').mockResolvedValue(undefined);
+
+    const out = await svc.findOne('c1', { id: 'user-1' } as never, 'r1');
+
+    expect(out.publisherName).toBe('Беловодская Наталья');
+    expect(out.publisherIsPioneer).toBe(true);
+  });
+});

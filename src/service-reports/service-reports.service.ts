@@ -716,9 +716,20 @@ export class ServiceReportsService {
       await this.isMonthClosed(tenantId, report.reportMonth),
     );
     await this.enrichEditorNames([report]);
-    return report as ServiceReport & {
+    // WHOSE report this is. Without it the edit form had nowhere to learn the
+    // owner and showed the READER's own name and pioneer badge at the top of
+    // somebody else's report — so opening Наталья's month looked exactly like
+    // opening your own, and the hour rules it hinted at were hers only by
+    // accident.
+    return Object.assign(report, {
+      publisherName: publisher?.displayName ?? null,
+      publisherIsPioneer:
+        !!publisher && publisher.pioneerType !== PioneerType.NONE,
+    }) as ServiceReport & {
       canEdit: boolean;
       lastEditedByName: string | null;
+      publisherName: string | null;
+      publisherIsPioneer: boolean;
     };
   }
 
