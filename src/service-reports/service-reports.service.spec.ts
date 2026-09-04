@@ -2651,3 +2651,119 @@ describe('ServiceReportsService.removeReport', () => {
     expect(reportsRepo.softDelete).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * A month whose report was TAKEN BACK is not a month never handed in.
+ *
+ * Softly removed rows fall out of an ordinary query without a word, so a
+ * corrected mistake read on screen exactly like «не сдавал». The two are
+ * different facts and the group screen has to tell them apart: the live report
+ * stays in `report`, the taken-back one arrives as `removedReport` with the
+ * name of whoever took it, and it is never counted as handed in.
+ */
+describe('ServiceReportsService.findGroupReports — a taken-back report', () => {
+  it('arrives in its own field, named and dated, and out of the counts', async () => {
+    const removedAt = new Date('2026-09-04T10:00:00Z');
+    const publishers = [
+      {
+        id: 'p1',
+        displayName: 'Сдавший Иван',
+        serviceGroupId: 'g1',
+        pioneerType: 'none',
+        pioneerSince: null,
+      },
+      {
+        id: 'p2',
+        displayName: 'Убранный Пётр',
+        serviceGroupId: 'g1',
+        pioneerType: 'none',
+        pioneerSince: null,
+      },
+    ];
+    const reports = [
+      {
+        id: 'r-live',
+        publisherId: 'p1',
+        congregationId: 'c1',
+        reportMonth: '2026-08-01',
+        servedThisMonth: true,
+        hoursReported: null,
+        bibleStudies: 0,
+        deletedAt: null,
+      },
+      {
+        id: 'r-gone',
+        publisherId: 'p2',
+        congregationId: 'c1',
+        reportMonth: '2026-08-01',
+        servedThisMonth: true,
+        hoursReported: null,
+        bibleStudies: 0,
+        deletedAt: removedAt,
+      },
+    ];
+
+    const reportsRepo = {
+      find: jest.fn().mockResolvedValue(reports),
+      findOne: jest.fn(),
+    };
+    const svc = new (ServiceReportsService as any)(
+      reportsRepo,
+      { find: jest.fn().mockResolvedValue(publishers), findOne: jest.fn() },
+      { find: jest.fn().mockResolvedValue([]) },
+      { find: jest.fn().mockResolvedValue([]) },
+      { findOne: jest.fn(), find: jest.fn().mockResolvedValue([]) },
+      { timezoneOf: jest.fn().mockResolvedValue('Europe/Berlin') },
+      {
+        // The name of whoever took it back lives in the journal, where the
+        // removal is already written down — not a second time on the report.
+        findActorsFor: jest
+          .fn()
+          .mockResolvedValue([
+            { entityId: 'r-gone', actorName: 'Шейфер Сергей' },
+          ]),
+        logEvent: jest.fn(),
+      },
+      { recomputeStatus: jest.fn() },
+      {
+        activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()),
+      },
+    );
+    jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({
+      alwaysView: true,
+      alwaysEdit: true,
+      overseenGroupIds: [],
+      myPublisherId: null,
+    });
+    jest.spyOn(svc as any, 'isMonthClosed').mockResolvedValue(false);
+    jest.spyOn(svc as any, 'enrichEditorNames').mockResolvedValue(undefined);
+
+    const out = await svc.findGroupReports(
+      'c1',
+      { id: 'u1' } as never,
+      '2026-08-01',
+    );
+
+    // The rows only reach us because the query asks for the deleted ones.
+    // Without this the mock would happily hand them over and the test would
+    // pass against the very behaviour it exists to forbid — checked by putting
+    // the old query back and watching this line fail.
+    expect(reportsRepo.find).toHaveBeenCalledWith(
+      expect.objectContaining({ withDeleted: true }),
+    );
+
+    const live = out.publishers.find((r: any) => r.publisherId === 'p1');
+    const gone = out.publishers.find((r: any) => r.publisherId === 'p2');
+
+    expect(live.report?.id).toBe('r-live');
+    expect(live.removedReport).toBeNull();
+
+    // Not handed in — and not silent either.
+    expect(gone.report).toBeNull();
+    expect(gone.removedReport).toEqual({
+      id: 'r-gone',
+      removedAt: removedAt.toISOString(),
+      removedByName: 'Шейфер Сергей',
+    });
+  });
+});
