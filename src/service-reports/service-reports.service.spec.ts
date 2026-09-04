@@ -1822,11 +1822,11 @@ describe('ServiceReportsService', () => {
           bibleStudies: 6,
         }),
       ]);
-      // active+irregular query passes an In([...]) operator; the inactive
-      // query passes the bare 'inactive' string — distinguish on that.
-      publishersRepo.count.mockImplementation(async (opts: any) =>
-        typeof opts?.where?.status === 'string' ? 5 : 42,
-      );
+      // Only the INACTIVE line is a count of statuses now. «Все активные» is
+      // counted the way S-1 words it — everyone who handed in a report at
+      // least once in the last six months — so it comes from the reports
+      // themselves, and here that is the six distinct publishers above.
+      publishersRepo.count.mockResolvedValue(5);
 
       const result = await service.getSummary(
         'cong-1',
@@ -1835,7 +1835,7 @@ describe('ServiceReportsService', () => {
       );
 
       expect(result.reportMonth).toBe('2026-04-01');
-      expect(result.totalActivePublishers).toBe(42);
+      expect(result.totalActivePublishers).toBe(6);
       expect(result.totalInactivePublishers).toBe(5);
       expect(result.categories.map((c) => c.pioneerType)).toEqual([
         'none',
@@ -1874,8 +1874,10 @@ describe('ServiceReportsService', () => {
       // 5/42 ≈ 12%; active 42/(42+5) ≈ 89%.
       expect(result.averages.pioneerHours).toBe(90);
       expect(result.averages.bibleStudies).toBeCloseTo(3.2, 1);
-      expect(result.averages.submittedPct).toBe(12);
-      expect(result.averages.activePct).toBe(89);
+      // Both percentages hang off «все активные», which is now the form's
+      // figure rather than a count of statuses — so they move with it.
+      expect(result.averages.submittedPct).toBe(83);
+      expect(result.averages.activePct).toBe(55);
     });
 
     it('allows the secretary and returns zeroed categories when no reports', async () => {
@@ -1895,7 +1897,10 @@ describe('ServiceReportsService', () => {
         '2026-04',
       );
 
-      expect(result.totalActivePublishers).toBe(7);
+      // No reports in the window at all — so nobody has reported in six
+      // months, and the form's figure is zero. It used to answer 7, the count
+      // of publishers whose STATUS said active.
+      expect(result.totalActivePublishers).toBe(0);
       expect(result.totalInactivePublishers).toBe(2);
       expect(result.categories).toHaveLength(5);
       expect(result.categories.every((c) => c.count === 0)).toBe(true);
@@ -2827,5 +2832,68 @@ describe('ServiceReportsService.findGroupReports — a taken-back report', () =>
       removedAt: removedAt.toISOString(),
       removedByName: 'Шейфер Сергей',
     });
+  });
+});
+
+/**
+ * «Все активные возвещатели», by the S-1 form's own words.
+ *
+ * The form says it plainly: count everyone who handed in a report at least
+ * once in the LAST SIX MONTHS. This used to be a count of service statuses —
+ * active plus irregular — and the two are different rules: the status has its
+ * own start of counting and its own restart after a lapse. A figure copied
+ * into a form sent to the branch has to be the figure the form asks for.
+ */
+describe('getSummary — «все активные» follows the form, not the status', () => {
+  it('counts distinct publishers who reported in the last six months', async () => {
+    const reportsRepo = {
+      find: jest
+        .fn()
+        // The month itself.
+        .mockResolvedValueOnce([])
+        // The six-month window: three people, one of them twice.
+        .mockResolvedValue([
+          { publisherId: 'p1' },
+          { publisherId: 'p2' },
+          { publisherId: 'p1' },
+          { publisherId: 'p3' },
+        ]),
+      findOne: jest.fn(),
+    };
+    const publishersRepo = {
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
+    };
+    const svc = new (ServiceReportsService as any)(
+      reportsRepo,
+      publishersRepo,
+      { find: jest.fn().mockResolvedValue([]) },
+      { find: jest.fn().mockResolvedValue([]) },
+      { findOne: jest.fn(), find: jest.fn().mockResolvedValue([]) },
+      { timezoneOf: jest.fn().mockResolvedValue('Europe/Berlin') },
+      { findActorsFor: jest.fn().mockResolvedValue([]), logEvent: jest.fn() },
+      { recomputeStatus: jest.fn() },
+      { activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()) },
+    );
+    jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({
+      alwaysView: true,
+      alwaysEdit: true,
+      overseenGroupIds: [],
+    });
+    jest.spyOn(svc as any, 'isMonthClosed').mockResolvedValue(false);
+
+    const out = await svc.getSummary(
+      'c1',
+      { id: 'u1', role: 'admin' } as never,
+      '2026-08',
+    );
+
+    expect(out.totalActivePublishers).toBe(3);
+    // And the window is six months ending at the month asked for.
+    const windowCall = reportsRepo.find.mock.calls[1][0];
+    expect(JSON.stringify(windowCall.where.reportMonth)).toContain(
+      '2026-03-01',
+    );
   });
 });

@@ -8,7 +8,10 @@ import {
 } from '@nestjs/common';
 import { reportedMinistry } from '../common/reported-ministry';
 import { todayIn } from '../common/congregation-clock';
-import { resolveReportingStartMonth } from '../common/service-status-rule';
+import {
+  addMonthKey,
+  resolveReportingStartMonth,
+} from '../common/service-status-rule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, MoreThanOrEqual, Not, Repository } from 'typeorm';
 import { ServiceReport } from '../entities/service-report.entity';
@@ -1659,12 +1662,25 @@ export class ServiceReportsService {
       };
     });
 
-    const totalActivePublishers = await this.publishersRepo.count({
+    // «Все активные возвещатели», BY THE FORM'S OWN WORDS.
+    //
+    // S-1 says it plainly: count everyone in the congregation who handed in a
+    // report at least once in the last six months. This used to count service
+    // STATUS instead — active plus irregular — and the two are not the same
+    // rule. The status has its own start of counting and its own restart after
+    // a lapse, so a man whose counting began last month sits inside it while
+    // the form would not have him, and the other way about. A figure copied
+    // into a form sent to the branch must be the figure the form asks for.
+    const sixMonthFloor = addMonthKey(reportMonth.slice(0, 7), -5);
+    const recentRows = await this.reportsRepo.find({
       where: {
         congregationId: tenantId,
-        status: In([PublisherStatus.ACTIVE, PublisherStatus.IRREGULAR]),
+        reportMonth: Between(`${sixMonthFloor}-01`, reportMonth),
       },
+      select: ['publisherId'],
     });
+    const totalActivePublishers = new Set(recentRows.map((r) => r.publisherId))
+      .size;
 
     // Inactive publishers are counted on their own line and are never added
     // into the active total.
