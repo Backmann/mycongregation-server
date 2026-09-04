@@ -1149,11 +1149,27 @@ export class ServiceReportsService {
       ]),
     );
 
+    const lastClosedKey = monthKey(
+      lastClosedReportMonth(new Date(), await this.clock.timezoneOf(tenantId)),
+    ).slice(0, 7);
+    // Counting starts at the last CLOSED month, never at the one still being
+    // collected.
+    //
+    // It used to start at whichever month was on screen, so on 4 September
+    // thirty of eighty-eight publishers were «пропустившими месяц» — August was
+    // open until the 19th and they had simply not filed yet. A flag that calls
+    // a third of the congregation delinquent for being early in the month is
+    // worse than no flag: the overseer learns to ignore it.
+    const countFrom =
+      normalizedMonth.slice(0, 7) > lastClosedKey
+        ? `${lastClosedKey}-01`
+        : normalizedMonth;
+
     const consecutiveMissingFor = (publisherId: string): number => {
       const set = reportedMonths.get(publisherId) ?? new Set();
       const start = startByPubId.get(publisherId) ?? null;
       let count = 0;
-      const cursor = new Date(normalizedMonth + 'T00:00:00Z');
+      const cursor = new Date(countFrom + 'T00:00:00Z');
       for (let i = 0; i < 12; i++) {
         const ym = `${cursor.getUTCFullYear()}-${String(
           cursor.getUTCMonth() + 1,

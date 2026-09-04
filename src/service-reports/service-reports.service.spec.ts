@@ -2661,6 +2661,68 @@ describe('ServiceReportsService.removeReport', () => {
  * stays in `report`, the taken-back one arrives as `removedReport` with the
  * name of whoever took it, and it is never counted as handed in.
  */
+describe('ServiceReportsService.findGroupReports — the missed-months count', () => {
+  it('does not count the month still being collected as missed', async () => {
+    // 4 September: August is open until the 19th, so somebody who has not filed
+    // yet is early, not delinquent. Counting from the month on screen made
+    // thirty of eighty-eight publishers «пропустившими месяц» — a flag that
+    // calls a third of the congregation delinquent teaches the overseer to
+    // ignore it.
+    setNow(Date.UTC(2026, 8, 4));
+    const publishers = [
+      {
+        id: 'p1',
+        displayName: 'Не успел Иван',
+        serviceGroupId: 'g1',
+        pioneerType: 'none',
+        pioneerSince: null,
+      },
+    ];
+    // Reported every month up to and including July; August not yet filed.
+    const history = ['2026-05', '2026-06', '2026-07'].map((m) => ({
+      publisherId: 'p1',
+      reportMonth: `${m}-01`,
+    }));
+
+    const svc = new (ServiceReportsService as any)(
+      {
+        find: jest
+          .fn()
+          .mockResolvedValueOnce([]) // the selected month: nothing filed
+          .mockResolvedValue(history), // the look-back
+        findOne: jest.fn(),
+      },
+      { find: jest.fn().mockResolvedValue(publishers), findOne: jest.fn() },
+      { find: jest.fn().mockResolvedValue([]) },
+      { find: jest.fn().mockResolvedValue([]) },
+      { findOne: jest.fn(), find: jest.fn().mockResolvedValue([]) },
+      { timezoneOf: jest.fn().mockResolvedValue('Europe/Berlin') },
+      { findActorsFor: jest.fn().mockResolvedValue([]), logEvent: jest.fn() },
+      { recomputeStatus: jest.fn() },
+      {
+        activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()),
+      },
+    );
+    jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({
+      alwaysView: true,
+      alwaysEdit: true,
+      overseenGroupIds: [],
+      myPublisherId: null,
+    });
+    jest.spyOn(svc as any, 'isMonthClosed').mockResolvedValue(false);
+    jest.spyOn(svc as any, 'enrichEditorNames').mockResolvedValue(undefined);
+
+    const out = await svc.findGroupReports(
+      'c1',
+      { id: 'u1' } as never,
+      '2026-08-01',
+    );
+
+    expect(out.publishers[0].consecutiveMissing).toBe(0);
+    restoreNow();
+  });
+});
+
 describe('ServiceReportsService.findGroupReports — a taken-back report', () => {
   it('arrives in its own field, named and dated, and out of the counts', async () => {
     const removedAt = new Date('2026-09-04T10:00:00Z');
