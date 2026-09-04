@@ -204,6 +204,45 @@ export class AuditLogService {
   }
 
   /**
+   * The same question for MANY entities at once, and only one action.
+   *
+   * The group screen asks «who took this report back» for a whole month of
+   * them; one query per row would be one query per publisher. Returns newest
+   * first, so the caller can keep the first entry it sees per entity.
+   */
+  async findActorsFor(opts: {
+    tenantId: string;
+    entityType: string;
+    entityIds: string[];
+    action: AuditAction;
+  }): Promise<{ entityId: string; actorName: string | null }[]> {
+    if (opts.entityIds.length === 0) return [];
+    const rows = await this.auditRepo.find({
+      where: {
+        congregationId: opts.tenantId,
+        entityType: opts.entityType,
+        entityId: In(opts.entityIds),
+        action: opts.action,
+      },
+      order: { createdAt: 'DESC' },
+    });
+    if (rows.length === 0) return [];
+
+    const actorIds = Array.from(new Set(rows.map((r) => r.actorUserId)));
+    const publishers = actorIds.length
+      ? await this.publishersRepo.find({
+          where: { congregationId: opts.tenantId, userId: In(actorIds) },
+        })
+      : [];
+    const pubByUserId = new Map(publishers.map((p) => [p.userId, p]));
+
+    return rows.map((r) => ({
+      entityId: r.entityId,
+      actorName: pubByUserId.get(r.actorUserId)?.displayName ?? null,
+    }));
+  }
+
+  /**
    * Returns audit log entries for a single entity (newest first), with
    * actor display names enriched from the Publisher table (best-effort:
    * `actorName` is null if the actor has no Publisher record).

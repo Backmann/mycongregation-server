@@ -91,6 +91,19 @@ export interface GroupReportRow {
   report:
     | (ServiceReport & { canEdit: boolean; lastEditedByName: string | null })
     | null;
+  /**
+   * A report that was TAKEN BACK, and who took it.
+   *
+   * Softly removed rows drop out of an ordinary query without a word, so the
+   * screen read a corrected mistake exactly like «не сдавал» — and those are
+   * different facts. The mistake is shown where it was made, with a way to put
+   * it back.
+   */
+  removedReport: {
+    id: string;
+    removedAt: string;
+    removedByName: string | null;
+  } | null;
   canManage: boolean;
 }
 
@@ -99,6 +112,12 @@ export interface PublisherHistoryEntry {
   report:
     | (ServiceReport & { canEdit: boolean; lastEditedByName: string | null })
     | null;
+  /** A report taken back, and who took it — see GroupReportRow. */
+  removedReport: {
+    id: string;
+    removedAt: string;
+    removedByName: string | null;
+  } | null;
 }
 
 export interface PublisherHistoryResponse {
@@ -956,6 +975,34 @@ export class ServiceReportsService {
   }
 
   /**
+   * WHO took each of these reports back.
+   *
+   * The deletion column keeps only the moment, and the name lives in the
+   * journal, where taking a report back is already written down. Asked from
+   * there rather than stored a second time on the report: two homes for one
+   * fact is the shape of every drift this project has had to unpick.
+   */
+  private async whoRemoved(
+    tenantId: string,
+    reportIds: string[],
+  ): Promise<Map<string, string | null>> {
+    const out = new Map<string, string | null>();
+    if (reportIds.length === 0) return out;
+    const entries = await this.auditLogService.findActorsFor({
+      tenantId,
+      entityType: 'service_report',
+      entityIds: reportIds,
+      action: 'DELETE',
+    });
+    for (const e of entries) {
+      // Newest first from the query, so the first one seen is the one that
+      // took this row away.
+      if (!out.has(e.entityId)) out.set(e.entityId, e.actorName);
+    }
+    return out;
+  }
+
+  /**
    * Group-level pastoral view: for one month, lists every publisher in
    * the caller's scope and their report (if submitted) or `null`.
    *
@@ -1037,10 +1084,21 @@ export class ServiceReportsService {
               publisherId: In(publisherIds),
               reportMonth: normalizedMonth,
             },
+            // Taken-back rows are wanted here — see `removedReport`. They are
+            // separated out below and never counted as handed in.
+            withDeleted: true,
           });
 
+    const removedRows = reports.filter((r) => !!r.deletedAt);
+    const liveReports = reports.filter((r) => !r.deletedAt);
+    const removedByPubId = new Map(removedRows.map((r) => [r.publisherId, r]));
+    const removedByName = await this.whoRemoved(
+      tenantId,
+      removedRows.map((r) => r.id),
+    );
+
     const isClosed = await this.isMonthClosed(tenantId, normalizedMonth);
-    reports.forEach((r) =>
+    liveReports.forEach((r) =>
       this.setCanEdit(
         r,
         ctx,
@@ -1048,9 +1106,9 @@ export class ServiceReportsService {
         isClosed,
       ),
     );
-    await this.enrichEditorNames(reports);
+    await this.enrichEditorNames(liveReports);
 
-    const reportByPubId = new Map(reports.map((r) => [r.publisherId, r]));
+    const reportByPubId = new Map(liveReports.map((r) => [r.publisherId, r]));
 
     // Consecutive months without a report, counting backwards from the selected
     // month, per publisher — for the "missed N months" flag. Look back up to 12
@@ -1149,6 +1207,15 @@ export class ServiceReportsService {
                 lastEditedByName: string | null;
               })
             | undefined) ?? null,
+        removedReport: (() => {
+          const r = removedByPubId.get(p.id);
+          if (!r?.deletedAt) return null;
+          return {
+            id: r.id,
+            removedAt: r.deletedAt.toISOString(),
+            removedByName: removedByName.get(r.id) ?? null,
+          };
+        })(),
         canManage:
           (ctx.alwaysEdit ||
             ctx.overseenGroupIds.includes(groupByPubId.get(p.id) ?? '')) &&
@@ -1195,14 +1262,27 @@ export class ServiceReportsService {
       windowStart.getUTCMonth() + 1,
     ).padStart(2, '0')}-01`;
 
-    const reports = await this.reportsRepo.find({
+    const allRows = await this.reportsRepo.find({
       where: {
         publisherId,
         congregationId: tenantId,
         reportMonth: MoreThanOrEqual(windowStartStr),
       },
       order: { reportMonth: 'DESC' },
+      // The history is exactly where somebody goes looking for «why is this
+      // month empty» — so a month whose report was taken back must not read
+      // like a month never handed in.
+      withDeleted: true,
     });
+    const reports = allRows.filter((r) => !r.deletedAt);
+    const removedRows = allRows.filter((r) => !!r.deletedAt);
+    const removedByMonth = new Map(
+      removedRows.map((r) => [String(r.reportMonth).slice(0, 7), r]),
+    );
+    const removedNames = await this.whoRemoved(
+      tenantId,
+      removedRows.map((r) => r.id),
+    );
 
     await this.enrichEditorNames(reports);
 
@@ -1235,9 +1315,18 @@ export class ServiceReportsService {
       const found = reports.find(
         (r) => String(r.reportMonth).slice(0, 7) === mStr.slice(0, 7),
       );
+      const removed = removedByMonth.get(mStr.slice(0, 7));
       timeline.push({
         reportMonth: mStr,
         report: (found as EnrichedReport) ?? null,
+        removedReport:
+          removed && removed.deletedAt
+            ? {
+                id: removed.id,
+                removedAt: removed.deletedAt.toISOString(),
+                removedByName: removedNames.get(removed.id) ?? null,
+              }
+            : null,
       });
     }
 
