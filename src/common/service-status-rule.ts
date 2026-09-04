@@ -138,6 +138,84 @@ export function effectiveStartMonth(input: ServiceStatusInput): MonthKey {
 }
 
 /**
+ * The status, and WHY — the same arithmetic, said out loud.
+ *
+ * A grey «неактивный» badge is a conclusion with its reasoning thrown away,
+ * and on 3 September that cost a day: neither the secretary nor Lionel could
+ * see that Maxim's counting had been reset to his baptism, so the badge looked
+ * like a bug in the reports rather than a bug in the start date. The screen can
+ * now show what the rule actually did — which months were weighed, from when
+ * the person is counted, and, for somebody sliding towards inactive, WHICH
+ * month would be the sixth and what service year it falls in.
+ *
+ * Computed here, beside the rule, so an explanation can never drift from the
+ * decision it explains.
+ */
+export interface ServiceStatusReasons {
+  status: PublisherStatus;
+  /** First and last closed month weighed, `YYYY-MM`; null when none yet. */
+  windowFrom: MonthKey | null;
+  windowTo: MonthKey | null;
+  /** Closed months in the window, and how many of them had ministry. */
+  expected: number;
+  served: number;
+  /** Where counting begins — after a restart, the month he came back. */
+  startMonth: MonthKey | null;
+  /** True when the start moved because six closed months had passed silent. */
+  restarted: boolean;
+  /**
+   * If he stays silent, the month his sixth consecutive silent month falls in
+   * — the month the annual report would name. Null when he is not silent now.
+   */
+  sixthSilentMonth: MonthKey | null;
+}
+
+/** The service year a month belongs to: September starts a new one. */
+export function serviceYearOf(month: MonthKey): number {
+  const [y, m] = month.split('-').map(Number);
+  return m >= 9 ? y : y - 1;
+}
+
+export function explainServiceStatus(
+  input: ServiceStatusInput,
+): ServiceStatusReasons {
+  const { participated, startMonth, lastClosedMonth } = input;
+  const status = computeServiceStatus(input);
+  const start = effectiveStartMonth(input);
+  const windowFloor = addMonthKey(lastClosedMonth, -(STATUS_WINDOW_MONTHS - 1));
+  const windowStart = start > windowFloor ? start : windowFloor;
+  const nothingClosedYet = windowStart > lastClosedMonth;
+
+  const window = nothingClosedYet
+    ? []
+    : monthRange(windowStart, lastClosedMonth);
+  const served = window.filter((m) => participated.has(m)).length;
+
+  // How many silent closed months he has run up, counting back from the last
+  // closed one; the sixth of them is the month the form would name.
+  let silent = 0;
+  for (let m = lastClosedMonth; m >= windowStart; m = addMonthKey(m, -1)) {
+    if (participated.has(m)) break;
+    silent += 1;
+  }
+  const sixthSilentMonth =
+    silent > 0 && silent < STATUS_WINDOW_MONTHS
+      ? addMonthKey(lastClosedMonth, STATUS_WINDOW_MONTHS - silent)
+      : null;
+
+  return {
+    status,
+    windowFrom: nothingClosedYet ? null : windowStart,
+    windowTo: nothingClosedYet ? null : lastClosedMonth,
+    expected: window.length,
+    served,
+    startMonth: start,
+    restarted: !!startMonth && start > startMonth,
+    sixthSilentMonth,
+  };
+}
+
+/**
  * The status itself.
  *
  * Read it as: how many closed months has this person been answerable for, and

@@ -1,7 +1,9 @@
 import {
   computeServiceStatus,
   effectiveStartMonth,
+  explainServiceStatus,
   resolveReportingStartMonth,
+  serviceYearOf,
 } from './service-status-rule';
 import { PublisherStatus } from './enums/publisher-status.enum';
 
@@ -138,5 +140,62 @@ describe('computeServiceStatus', () => {
         collectedMonth: august,
       }),
     ).toBe('2026-08');
+  });
+});
+
+/**
+ * The reasoning behind the badge.
+ *
+ * On 3 September a grey «неактивный» beside a man with a year of reports cost a
+ * day of hunting, because nothing on the screen said what the rule had weighed.
+ */
+describe('explainServiceStatus', () => {
+  const july = '2026-07';
+  const august = '2026-08';
+  const explain = (months: string[], startMonth: string | null) =>
+    explainServiceStatus({
+      participated: new Set(months),
+      startMonth,
+      lastClosedMonth: july,
+      collectedMonth: august,
+    });
+
+  it('names the window it weighed and what it found there', () => {
+    const out = explain(
+      ['2026-02', '2026-03', '2026-04', '2026-05', '2026-07'],
+      '2020-01',
+    );
+    expect(out.windowFrom).toBe('2026-02');
+    expect(out.windowTo).toBe('2026-07');
+    expect(out.expected).toBe(6);
+    expect(out.served).toBe(5);
+    expect(out.status).toBe(PublisherStatus.IRREGULAR);
+  });
+
+  it('says WHEN the sixth silent month falls, so the year is not guessed', () => {
+    // Last report March; April–July silent is four. The sixth would be
+    // September 2026 — which belongs to the NEXT service year, and that is
+    // exactly the question the annual report asks.
+    const out = explain(['2026-02', '2026-03'], '2020-01');
+    expect(out.sixthSilentMonth).toBe('2026-09');
+    expect(serviceYearOf('2026-09')).toBe(2026);
+    expect(serviceYearOf('2026-08')).toBe(2025);
+  });
+
+  it('says nothing about a sixth month for somebody who is reporting', () => {
+    const out = explain(
+      ['2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07'],
+      '2020-01',
+    );
+    expect(out.sixthSilentMonth).toBeNull();
+    expect(out.status).toBe(PublisherStatus.ACTIVE);
+  });
+
+  it('reports that counting restarted, and from when', () => {
+    // Silent for years, back in August: counting begins again at his return.
+    const out = explain(['2026-08'], '2020-01');
+    expect(out.restarted).toBe(true);
+    expect(out.startMonth).toBe('2026-08');
+    expect(out.windowFrom).toBeNull();
   });
 });

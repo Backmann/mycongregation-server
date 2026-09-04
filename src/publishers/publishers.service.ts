@@ -39,8 +39,11 @@ import { GrantAccessDto } from './dto/grant-access.dto';
 import {
   addMonthKey,
   computeServiceStatus,
+  explainServiceStatus,
   monthKeyOfDate,
   resolveReportingStartMonth,
+  serviceYearOf,
+  type ServiceStatusReasons,
 } from '../common/service-status-rule';
 import { UpdateAccessDto } from './dto/update-access.dto';
 
@@ -261,6 +264,67 @@ export class PublishersService {
    * it: silent every night, and on the day a report month closes it speaks
    * about everyone at once, in both directions, because that is the roll call.
    */
+  /**
+   * WHY this publisher's badge says what it says.
+   *
+   * The same inputs the recompute uses, handed to the rule's own explainer —
+   * so what the screen shows can never drift from what the rule decided. On
+   * 3 September a grey «неактивный» beside a man with a year of reports cost a
+   * day of searching, because the badge was a conclusion with the reasoning
+   * thrown away.
+   */
+  async explainStatus(
+    tenantId: string,
+    publisherId: string,
+  ): Promise<
+    ServiceStatusReasons & {
+      manuallyOverridden: boolean;
+      /** The service year the sixth silent month would fall in. */
+      sixthSilentServiceYear: number | null;
+    }
+  > {
+    const publisher = await this.publishersRepo.findOne({
+      where: { id: publisherId, congregationId: tenantId },
+    });
+    if (!publisher) throw new NotFoundException('Publisher not found');
+
+    const now = new Date(Date.now());
+    const timezone = await this.clock.timezoneOf(tenantId);
+    const lastClosed = await this.effectiveLastClosedMonth(
+      tenantId,
+      timezone,
+      now,
+    );
+    const reports = await this.reportsRepo.find({
+      where: { publisherId, congregationId: tenantId },
+      select: ['reportMonth', 'servedThisMonth', 'hoursReported'],
+    });
+    const firstReportMonth = reports.reduce<string | null>((earliest, r) => {
+      const m = r.reportMonth.slice(0, 7);
+      return earliest === null || m < earliest ? m : earliest;
+    }, null);
+    const startMonth = this.reportingStartMonth(publisher, firstReportMonth);
+
+    const participated = new Set<string>();
+    for (const r of reports) {
+      if (reportedMinistry(r)) participated.add(r.reportMonth.slice(0, 7));
+    }
+    const reasons = explainServiceStatus({
+      participated,
+      startMonth: startMonth ? monthKeyOfDate(startMonth) : null,
+      lastClosedMonth: monthKeyOfDate(lastClosed),
+      collectedMonth: monthKeyOfDate(collectedReportMonth(now, timezone)),
+    });
+
+    return {
+      ...reasons,
+      manuallyOverridden: publisher.statusManuallyOverridden,
+      sixthSilentServiceYear: reasons.sixthSilentMonth
+        ? serviceYearOf(reasons.sixthSilentMonth)
+        : null,
+    };
+  }
+
   async recomputeStatus(
     tenantId: string,
     publisherId: string,
