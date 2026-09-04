@@ -634,6 +634,100 @@ export class ServiceReportsService {
     };
   }
 
+  /**
+   * Take back a report that should not be there — softly.
+   *
+   * A group overseer ticks the wrong line, or enters a month for the wrong
+   * brother, and until now NOBODY could undo it: the app has editing but no
+   * removing, and the journal's undo covers a dozen kinds of record without
+   * covering this one. So a mistaken row counted for ever — in who handed in,
+   * in the service status, in the annual report.
+   *
+   * The row is not destroyed. It leaves the counts and keeps its place, so the
+   * screen can say «запись убрана, кем и когда» where the mistake was made
+   * rather than silently reading as «не сдавал» — those are different facts and
+   * the person looking has to be able to tell them apart. The journal records
+   * it, and it can be put back.
+   *
+   * Who may: exactly the circle that may edit — whoever handed it in and the
+   * group's overseer while the month is still collecting, the secretary and an
+   * admin until the month closes. One rule for both actions, because a person
+   * who may rewrite a report to say nothing may as well take it back honestly.
+   */
+  async removeReport(
+    tenantId: string,
+    user: AuthenticatedUser,
+    reportId: string,
+  ): Promise<{ removed: true }> {
+    const report = await this.findOne(tenantId, user, reportId);
+    if (!report.canEdit) {
+      throw new ForbiddenException(
+        'This report month has closed, or it is not yours to change. ' +
+          'Contact the secretary.',
+      );
+    }
+
+    await this.reportsRepo.softDelete(report.id);
+    await this.auditLogService.logEvent({
+      tenantId,
+      entityType: 'service_report',
+      entityId: report.id,
+      action: 'DELETE',
+      actorUserId: user.id,
+      detail: {
+        reportMonth: report.reportMonth,
+        publisherId: report.publisherId,
+        publisherName: (report as { publisherName?: string | null })
+          .publisherName,
+      },
+    });
+    await this.publishersService.recomputeStatus(tenantId, report.publisherId);
+    return { removed: true };
+  }
+
+  /** Put back a report that was taken away by mistake. */
+  async restoreReport(
+    tenantId: string,
+    user: AuthenticatedUser,
+    reportId: string,
+  ): Promise<{ restored: true }> {
+    const report = await this.reportsRepo.findOne({
+      where: { id: reportId, congregationId: tenantId },
+      withDeleted: true,
+    });
+    if (!report) throw new NotFoundException('Service report not found.');
+    if (!report.deletedAt) return { restored: true };
+
+    const ctx = await this.buildPermissionContext(tenantId, user);
+    const publisher = await this.publishersRepo.findOne({
+      where: { id: report.publisherId },
+    });
+    this.setCanEdit(
+      report,
+      ctx,
+      publisher?.serviceGroupId ?? null,
+      await this.isMonthClosed(tenantId, report.reportMonth),
+    );
+    if (!(report as ServiceReport & { canEdit: boolean }).canEdit) {
+      throw new ForbiddenException(
+        'This report month has closed, or it is not yours to change. ' +
+          'Contact the secretary.',
+      );
+    }
+
+    await this.reportsRepo.restore(report.id);
+    await this.auditLogService.logEvent({
+      tenantId,
+      entityType: 'service_report',
+      entityId: report.id,
+      action: 'RESTORE',
+      actorUserId: user.id,
+      detail: { reportMonth: report.reportMonth },
+    });
+    await this.publishersService.recomputeStatus(tenantId, report.publisherId);
+    return { restored: true };
+  }
+
   async findMyReports(
     tenantId: string,
     user: AuthenticatedUser,

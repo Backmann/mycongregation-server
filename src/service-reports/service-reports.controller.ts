@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Param,
@@ -251,6 +252,29 @@ export class ServiceReportsController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.serviceReportsService.findOne(tenantId, user, id);
+  }
+
+  /**
+   * Take a report back. Soft: the row keeps its place and can be restored, and
+   * the journal records who took it and when.
+   */
+  @Delete(':id')
+  remove(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.serviceReportsService.removeReport(tenantId, user, id);
+  }
+
+  /** Put back a report taken away by mistake. */
+  @Post(':id/restore')
+  restore(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.serviceReportsService.restoreReport(tenantId, user, id);
   }
 
   @Patch(':id')

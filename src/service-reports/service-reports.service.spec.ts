@@ -2584,3 +2584,70 @@ describe('ServiceReportsService.findOne — the report names its owner', () => {
     expect(out.publisherIsPioneer).toBe(true);
   });
 });
+
+/**
+ * Taking a report back.
+ *
+ * A group overseer ticks the wrong line and until now nobody could undo it:
+ * the app had editing but no removing, and the journal's undo covers a dozen
+ * kinds of record without covering this one. The mistaken row counted for
+ * ever — in who handed in, in the status, in the annual report.
+ */
+describe('ServiceReportsService.removeReport', () => {
+  const build = (canEdit: boolean) => {
+    const reportsRepo = {
+      softDelete: jest.fn(),
+      restore: jest.fn(),
+      findOne: jest.fn(),
+    };
+    const audit = { logEvent: jest.fn() };
+    const publishers = { recomputeStatus: jest.fn() };
+    // Constructor order: reports, publishers, groups, responsibilities,
+    // closures, clock, audit, publishersService, auxiliaryPioneers.
+    const svc = new (ServiceReportsService as any)(
+      reportsRepo,
+      { findOne: jest.fn(), find: jest.fn() },
+      { find: jest.fn().mockResolvedValue([]) },
+      { find: jest.fn().mockResolvedValue([]) },
+      { findOne: jest.fn(), find: jest.fn() },
+      { timezoneOf: jest.fn().mockResolvedValue('Europe/Berlin') },
+      audit,
+      publishers,
+      { find: jest.fn().mockResolvedValue([]) },
+    );
+    jest.spyOn(svc as any, 'findOne').mockResolvedValue({
+      id: 'r1',
+      publisherId: 'pub-2',
+      reportMonth: '2026-08-01',
+      canEdit,
+      publisherName: 'Беловодская Наталья',
+    });
+    return { svc, reportsRepo, audit, publishers };
+  };
+
+  it('takes the row out of the counts and writes it down', async () => {
+    const { svc, reportsRepo, audit, publishers } = build(true);
+
+    await expect(
+      svc.removeReport('c1', { id: 'u1' } as never, 'r1'),
+    ).resolves.toEqual({ removed: true });
+
+    expect(reportsRepo.softDelete).toHaveBeenCalledWith('r1');
+    // Softly: the row keeps its place, so the screen can say «убрана, кем и
+    // когда» rather than reading as «не сдавал». Different facts.
+    expect(audit.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'DELETE', entityId: 'r1' }),
+    );
+    // The status counted that month; it must count it no longer.
+    expect(publishers.recomputeStatus).toHaveBeenCalledWith('c1', 'pub-2');
+  });
+
+  it('refuses when the person could not have edited it either', async () => {
+    const { svc, reportsRepo } = build(false);
+
+    await expect(
+      svc.removeReport('c1', { id: 'u1' } as never, 'r1'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(reportsRepo.softDelete).not.toHaveBeenCalled();
+  });
+});
