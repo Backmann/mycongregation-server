@@ -593,3 +593,44 @@ describe('AuxiliaryPioneersService', () => {
     });
   });
 });
+
+/**
+ * Pioneers whose card has no date at all.
+ *
+ * Harmless while every reader asks «is he a pioneer now»; fatal the moment
+ * history is kept by spells, because a spell needs a beginning — a man without
+ * one would simply cease to have pioneered in any past month. Of ten regular
+ * pioneers in the congregation this was written for, eight had neither a date
+ * of appointment nor a start of ministry.
+ */
+describe('AuxiliaryPioneersService.pioneersMissingDate', () => {
+  it('asks for pioneers with neither date, and returns them by name', async () => {
+    const publisherRepo = {
+      find: jest.fn().mockResolvedValue([
+        { id: 'p1', displayName: 'Ткаченко Лариса', pioneerType: 'regular' },
+        { id: 'p2', displayName: 'Урих Юлия', pioneerType: 'regular' },
+      ]),
+    };
+    const svc = new (AuxiliaryPioneersService as any)(
+      { find: jest.fn() },
+      publisherRepo,
+      { find: jest.fn() },
+      { find: jest.fn() },
+      { logEvent: jest.fn() },
+      { timezoneOf: jest.fn() },
+    );
+
+    const out = await svc.pioneersMissingDate('c1');
+
+    expect(out.map((x: { displayName: string }) => x.displayName)).toEqual([
+      'Ткаченко Лариса',
+      'Урих Юлия',
+    ]);
+    // Both dates absent, and only permanent pioneers — an ordinary publisher
+    // without dates is not missing anything.
+    const where = publisherRepo.find.mock.calls[0][0].where;
+    expect(where.pioneerSince).toBeDefined();
+    expect(where.ministryStartDate).toBeDefined();
+    expect(where.pioneerType).toBeDefined();
+  });
+});

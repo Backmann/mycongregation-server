@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { In, Repository } from 'typeorm';
+import { In, IsNull, Not, Repository } from 'typeorm';
 import { AuxiliaryPioneer } from '../entities/auxiliary-pioneer.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
@@ -164,6 +164,45 @@ export class AuxiliaryPioneersService {
     }));
     rows.sort((a, b) => a.publisherName.localeCompare(b.publisherName));
     return { month: `${monthKey}-01`, hourGoal, rows };
+  }
+
+  /**
+   * Permanent pioneers whose card carries no date at all.
+   *
+   * The card holds `pioneerType` and `pioneerSince`, and the second is
+   * frequently empty: of ten regular pioneers here, eight have neither a date
+   * of appointment nor a start of ministry. That was harmless while every
+   * reader asked «is he a pioneer now» — and it stops being harmless the
+   * moment history is kept by spells, because a spell needs a beginning. A man
+   * without one would simply cease to have pioneered in any past month: his
+   * hours, his line in the monthly figures and his year's goal would all move,
+   * silently and wrongly.
+   *
+   * So this names them, and nothing more. It computes nothing, changes
+   * nothing, and blocks nothing — it exists so the dates can be filled in by
+   * hand BEFORE anything is moved onto spells.
+   */
+  async pioneersMissingDate(congregationId: string): Promise<
+    {
+      publisherId: string;
+      displayName: string;
+      pioneerType: PioneerType;
+    }[]
+  > {
+    const rows = await this.publisherRepo.find({
+      where: {
+        congregationId,
+        pioneerType: Not(PioneerType.NONE),
+        pioneerSince: IsNull(),
+        ministryStartDate: IsNull(),
+      },
+      order: { lastName: 'ASC', firstName: 'ASC' },
+    });
+    return rows.map((p) => ({
+      publisherId: p.id,
+      displayName: p.displayName,
+      pioneerType: p.pioneerType,
+    }));
   }
 
   /** Full history — who serves now and who served before. */

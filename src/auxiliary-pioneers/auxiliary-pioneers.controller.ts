@@ -40,6 +40,17 @@ export class AuxiliaryPioneersController {
   }
 
   /** Full history journal. */
+  /**
+   * Permanent pioneers whose card has no date of appointment and no start of
+   * ministry — the ones a spell of pioneer service could not be given a
+   * beginning for. Shown so the dates can be filled in by hand before anything
+   * starts reading history from spells.
+   */
+  @Get('pioneers-missing-date')
+  pioneersMissingDate(@TenantId() congregationId: string) {
+    return this.service.pioneersMissingDate(congregationId);
+  }
+
   @Get('journal')
   journal(@TenantId() congregationId: string) {
     return this.service.journal(congregationId);
