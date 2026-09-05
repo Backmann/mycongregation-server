@@ -3027,6 +3027,20 @@ describe('publisher history — which form each month wants', () => {
     );
   };
 
+  it('never offers the month that has not ended yet', async () => {
+    // A report may only be filed for a finished month, so a row for the
+    // current one is an offer the server refuses. On a card where every past
+    // month was already entered, that row was the only thing to fill in.
+    setNow(Date.UTC(2026, 8, 4));
+    const svc = build(base, []);
+
+    const months = await monthsOf(svc);
+
+    expect([...months.keys()]).not.toContain('2026-09');
+    expect([...months.keys()]).toContain('2026-08');
+    restoreNow();
+  });
+
   it('asks for hours only from the month she became a regular pioneer', async () => {
     setNow(Date.UTC(2026, 8, 4));
     const svc = build(

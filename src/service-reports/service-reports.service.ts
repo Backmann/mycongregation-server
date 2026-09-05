@@ -1383,8 +1383,16 @@ export class ServiceReportsService {
       publisherId,
     );
 
+    // The history starts at the last ENDED month, never at today's.
+    //
+    // A report may only be filed for a month that has finished — the rule is
+    // one function away, in assertMonthIsReportable. The timeline nonetheless
+    // opened with the current month, so on a card where everything else was
+    // already entered the ONLY row offered for filling was the one the server
+    // would refuse. «Ничего не могу заполнить» was the screen telling the
+    // truth about an offer it should never have made.
     const timeline: PublisherHistoryEntry[] = [];
-    for (let i = 0; i < months; i++) {
+    for (let i = 1; i <= months; i++) {
       const m = new Date(
         Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1),
       );
