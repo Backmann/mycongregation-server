@@ -23,6 +23,7 @@ import {
   auxiliaryPioneerHourGoal,
   isActiveInMonth,
   monthKeyOf,
+  monthsInRange,
   REDUCED_HOUR_EVENT_TYPES,
 } from './auxiliary-pioneer-hours';
 import { CongregationClock } from '../common/congregation-clock.service';
@@ -446,6 +447,32 @@ export class AuxiliaryPioneersService {
    * Is this publisher an active auxiliary pioneer in the given month? Used by
    * the reports module to switch the report form to the hours variant.
    */
+  /**
+   * Every month this publisher has served as an auxiliary pioneer.
+   *
+   * The single-month check reads all of his spells anyway, so asking it once
+   * per month — twenty-four times, to draw a history screen — would be
+   * twenty-four identical queries for one answer.
+   */
+  async monthsServedBy(
+    congregationId: string,
+    publisherId: string,
+  ): Promise<Set<string>> {
+    const rows = await this.repo.find({
+      where: { congregationId, publisherId },
+    });
+    const out = new Set<string>();
+    for (const p of rows) {
+      const start = monthKeyOf(p.startMonth);
+      // An open-ended spell runs to today; a closed one to its last month.
+      const end = p.untilCancelled
+        ? monthKeyOf(new Date())
+        : monthKeyOf(p.endMonth ?? p.startMonth);
+      for (const m of monthsInRange(`${start}-01`, `${end}-01`)) out.add(m);
+    }
+    return out;
+  }
+
   async isActiveAuxiliaryPioneer(
     congregationId: string,
     publisherId: string,

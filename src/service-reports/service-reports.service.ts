@@ -121,6 +121,18 @@ export interface PublisherHistoryEntry {
     removedAt: string;
     removedByName: string | null;
   } | null;
+  /**
+   * Which form THIS month wants: hours, or «did he share».
+   *
+   * The server already decides this when a report is filed — a permanent
+   * pioneer as of that month, or an auxiliary spell covering it, means hours,
+   * and anything else means the plain question. Filing the wrong shape is
+   * refused. So a screen that lets a secretary walk a paper S-21 card down the
+   * months has to be told, month by month, which field to draw; guessing from
+   * today's card would put an hours box on February for a sister who became a
+   * regular pioneer in March.
+   */
+  wantsHours: boolean;
 }
 
 export interface PublisherHistoryResponse {
@@ -1363,6 +1375,14 @@ export class ServiceReportsService {
     );
     const historyFloor = this.reportingStartMonthOf(publisher, firstMonthEver);
 
+    // Every month this person served as an auxiliary pioneer, in one go: the
+    // per-month check reads all his spells anyway, so asking it twenty-four
+    // times would be twenty-four identical queries.
+    const auxMonths = await this.auxiliaryPioneersService.monthsServedBy(
+      tenantId,
+      publisherId,
+    );
+
     const timeline: PublisherHistoryEntry[] = [];
     for (let i = 0; i < months; i++) {
       const m = new Date(
@@ -1378,6 +1398,12 @@ export class ServiceReportsService {
       const removed = removedByMonth.get(mStr.slice(0, 7));
       timeline.push({
         reportMonth: mStr,
+        wantsHours:
+          isActivePermanentPioneer(
+            publisher.pioneerType,
+            publisher.pioneerSince,
+            mStr,
+          ) || auxMonths.has(mStr.slice(0, 7)),
         report: (found as EnrichedReport) ?? null,
         removedReport:
           removed && removed.deletedAt

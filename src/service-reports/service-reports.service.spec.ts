@@ -2933,7 +2933,10 @@ describe('history and closed months', () => {
       { timezoneOf: jest.fn().mockResolvedValue('Europe/Berlin') },
       { findActorsFor: jest.fn().mockResolvedValue([]), logEvent: jest.fn() },
       { recomputeStatus: jest.fn() },
-      { activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()) },
+      {
+        activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()),
+        monthsServedBy: jest.fn().mockResolvedValue(new Set()),
+      },
     );
     jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({
       alwaysView: true,
@@ -2955,6 +2958,100 @@ describe('history and closed months', () => {
     expect(months).toContain('2026-06');
     // Nothing before he was a publisher.
     expect(months).not.toContain('2026-05');
+    restoreNow();
+  });
+});
+
+/**
+ * Which form each month of the history wants.
+ *
+ * A secretary walking a paper S-21 card down the months needs the right field
+ * drawn for each one, and today's card is the wrong place to ask: a sister who
+ * became a regular pioneer in March needs «участвовал» for February and hours
+ * for March. The server already decides this when a report is filed and
+ * refuses the wrong shape — so it says the same thing here.
+ */
+describe('publisher history — which form each month wants', () => {
+  const build = (publisher: Record<string, unknown>, auxMonths: string[]) => {
+    const svc = new (ServiceReportsService as any)(
+      { find: jest.fn().mockResolvedValue([]), findOne: jest.fn() },
+      {
+        find: jest.fn().mockResolvedValue([]),
+        findOne: jest.fn().mockResolvedValue(publisher),
+      },
+      { find: jest.fn().mockResolvedValue([]) },
+      { find: jest.fn().mockResolvedValue([]) },
+      { findOne: jest.fn(), find: jest.fn().mockResolvedValue([]) },
+      { timezoneOf: jest.fn().mockResolvedValue('Europe/Berlin') },
+      { findActorsFor: jest.fn().mockResolvedValue([]), logEvent: jest.fn() },
+      { recomputeStatus: jest.fn() },
+      {
+        activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()),
+        monthsServedBy: jest.fn().mockResolvedValue(new Set(auxMonths)),
+      },
+    );
+    jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({
+      alwaysView: true,
+      alwaysEdit: true,
+      overseenGroupIds: [],
+    });
+    jest.spyOn(svc as any, 'closedMonthsSet').mockResolvedValue(new Set());
+    jest.spyOn(svc as any, 'enrichEditorNames').mockResolvedValue(undefined);
+    return svc;
+  };
+
+  const base = {
+    id: 'p1',
+    displayName: 'Сестра Анна',
+    serviceGroupId: 'g1',
+    ministryStartDate: '2020-01-01',
+    baptismDate: null,
+    pioneerType: 'none',
+    pioneerSince: null,
+    status: 'active',
+    statusManuallyOverridden: false,
+  };
+
+  const monthsOf = async (svc: unknown) => {
+    const out = await (svc as any).findHistoryForPublisher(
+      'c1',
+      { id: 'u1' } as never,
+      'p1',
+      12,
+    );
+    return new Map<string, boolean>(
+      out.timeline.map((e: { reportMonth: string; wantsHours: boolean }) => [
+        e.reportMonth.slice(0, 7),
+        e.wantsHours,
+      ]),
+    );
+  };
+
+  it('asks for hours only from the month she became a regular pioneer', async () => {
+    setNow(Date.UTC(2026, 8, 4));
+    const svc = build(
+      { ...base, pioneerType: 'regular', pioneerSince: '2026-03-01' },
+      [],
+    );
+
+    const months = await monthsOf(svc);
+
+    expect(months.get('2026-02')).toBe(false);
+    expect(months.get('2026-03')).toBe(true);
+    expect(months.get('2026-08')).toBe(true);
+    restoreNow();
+  });
+
+  it('asks for hours in the months of an auxiliary spell, and not around it', async () => {
+    setNow(Date.UTC(2026, 8, 4));
+    const svc = build(base, ['2026-04', '2026-05']);
+
+    const months = await monthsOf(svc);
+
+    expect(months.get('2026-03')).toBe(false);
+    expect(months.get('2026-04')).toBe(true);
+    expect(months.get('2026-05')).toBe(true);
+    expect(months.get('2026-06')).toBe(false);
     restoreNow();
   });
 });
