@@ -154,6 +154,8 @@ export interface PublisherHistoryResponse {
      */
     canManage: boolean;
   };
+  /** The month this person's history begins at, or null when nothing says. */
+  startsFrom: string | null;
   timeline: PublisherHistoryEntry[];
 }
 
@@ -1373,6 +1375,14 @@ export class ServiceReportsService {
           : earliest,
       null,
     );
+    // Where this person's own history begins — the screen hides months before
+    // it, but only when READING.
+    //
+    // Trimming here as well was a mistake I predicted and made anyway: the
+    // months a secretary comes to fill in are exactly the ones BEFORE the
+    // first report in the app, and cutting them left a closed circle — the
+    // months were invisible precisely because they were empty. The floor is
+    // reported instead, and the screen opens the full window while filling.
     const historyFloor = this.reportingStartMonthOf(publisher, firstMonthEver);
 
     // Every month this person served as an auxiliary pioneer, in one go: the
@@ -1402,7 +1412,7 @@ export class ServiceReportsService {
       const found = reports.find(
         (r) => String(r.reportMonth).slice(0, 7) === mStr.slice(0, 7),
       );
-      if (historyFloor && mStr.slice(0, 7) < historyFloor) break;
+
       const removed = removedByMonth.get(mStr.slice(0, 7));
       timeline.push({
         reportMonth: mStr,
@@ -1440,6 +1450,8 @@ export class ServiceReportsService {
           ctx.alwaysEdit ||
           ctx.overseenGroupIds.includes(publisher.serviceGroupId ?? ''),
       },
+      /** First month this person is counted from; earlier ones read as blank. */
+      startsFrom: historyFloor,
       timeline,
     };
   }

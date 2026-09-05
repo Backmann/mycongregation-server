@@ -2909,7 +2909,7 @@ describe('getSummary — «все активные» follows the form, not the s
  * afterwards with nothing to say so.
  */
 describe('history and closed months', () => {
-  it('stops the timeline at the month counting begins', async () => {
+  it('reports where counting begins, without cutting the months away', async () => {
     const publisher = {
       id: 'p1',
       displayName: 'Новенький Иван',
@@ -2954,10 +2954,13 @@ describe('history and closed months', () => {
       24,
     );
 
+    // The screen hides earlier months when READING, and opens all of them
+    // while FILLING — the months a secretary comes to enter are exactly the
+    // ones before the first report, and cutting them here closed the circle.
+    expect(out.startsFrom).toBe('2026-06');
     const months = out.timeline.map((e: any) => e.reportMonth.slice(0, 7));
     expect(months).toContain('2026-06');
-    // Nothing before he was a publisher.
-    expect(months).not.toContain('2026-05');
+    expect(months).toContain('2026-05');
     restoreNow();
   });
 });
