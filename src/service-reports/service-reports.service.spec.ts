@@ -99,7 +99,7 @@ describe('ServiceReportsService', () => {
   let serviceGroupsRepo: jest.Mocked<Repository<ServiceGroup>>;
   let responsibilitiesRepo: jest.Mocked<Repository<Responsibility>>;
   let closuresRepo: jest.Mocked<Repository<ReportMonthClosure>>;
-  let pioneerSpellsRepo: never;
+  let pioneerSpellsRepo: { find: jest.Mock };
   let auditLogService: {
     logUpdate: jest.Mock;
     logEvent: jest.Mock;
@@ -161,7 +161,7 @@ describe('ServiceReportsService', () => {
       logUpdate: jest.fn(),
       findForEntity: jest.fn(),
     };
-    pioneerSpellsRepo = { find: jest.fn().mockResolvedValue([]) } as never;
+    pioneerSpellsRepo = { find: jest.fn().mockResolvedValue([]) };
     publishersService = {
       recomputeStatus: jest.fn(),
       recomputeForCongregation: jest.fn().mockResolvedValue({}),
@@ -177,7 +177,7 @@ describe('ServiceReportsService', () => {
       serviceGroupsRepo,
       responsibilitiesRepo,
       closuresRepo,
-      pioneerSpellsRepo,
+      pioneerSpellsRepo as never,
       clockStub(),
       auditLogService as any,
       publishersService as any,
@@ -1786,6 +1786,28 @@ describe('ServiceReportsService', () => {
         makePublisher({ id: 'p-spec', pioneerType: PioneerType.SPECIAL }),
         makePublisher({ id: 'p-miss', pioneerType: PioneerType.MISSIONARY }),
       ]);
+      // The category now comes from the spells; the card only says what they
+      // are today.
+      pioneerSpellsRepo.find.mockResolvedValue([
+        {
+          publisherId: 'p-reg',
+          startMonth: '2020-01-01',
+          endMonth: null,
+          pioneerType: PioneerType.REGULAR,
+        },
+        {
+          publisherId: 'p-spec',
+          startMonth: '2020-01-01',
+          endMonth: null,
+          pioneerType: PioneerType.SPECIAL,
+        },
+        {
+          publisherId: 'p-miss',
+          startMonth: '2020-01-01',
+          endMonth: null,
+          pioneerType: PioneerType.MISSIONARY,
+        },
+      ]);
       reportsRepo.find.mockResolvedValue([
         // two publishers shared, one explicitly did not — only the two count
         makeReport({
@@ -1929,7 +1951,16 @@ describe('ServiceReportsService', () => {
 
       beforeEach(() => {
         publishersRepo.count.mockResolvedValue(10);
+        pioneerSpellsRepo.find.mockResolvedValue([]);
       });
+
+      /** A spell as the table stores it: open unless an end is given. */
+      const spell = (
+        publisherId: string,
+        startMonth: string,
+        endMonth: string | null = null,
+        pioneerType: PioneerType = PioneerType.REGULAR,
+      ) => ({ publisherId, startMonth, endMonth, pioneerType });
 
       it('puts an auxiliary pioneer on her own line, not among the publishers', async () => {
         publishersRepo.find.mockResolvedValue([
@@ -1983,6 +2014,10 @@ describe('ServiceReportsService', () => {
         auxiliaryPioneersService.activePublisherIdsForMonth.mockResolvedValue(
           new Set(['p-susanne']),
         );
+        pioneerSpellsRepo.find.mockResolvedValue([
+          spell('p-reg', '2020-01-01'),
+          spell('p-susanne', '2026-05-01'),
+        ]);
         reportsRepo.find.mockResolvedValue([
           makeReport({ publisherId: 'p-reg', hoursReported: 50 }),
           makeReport({ publisherId: 'p-susanne', hoursReported: 30 }),
@@ -2012,6 +2047,9 @@ describe('ServiceReportsService', () => {
         auxiliaryPioneersService.activePublisherIdsForMonth.mockResolvedValue(
           new Set(),
         );
+        pioneerSpellsRepo.find.mockResolvedValue([
+          spell('p-susanne', '2026-05-01'),
+        ]);
         reportsRepo.find.mockResolvedValue([
           makeReport({
             publisherId: 'p-susanne',
@@ -2029,6 +2067,50 @@ describe('ServiceReportsService', () => {
         expect(line(result, 'auxiliary')).toMatchObject({ count: 0, hours: 0 });
       });
 
+      it('counts a spell that has ENDED — the months the card forgets', async () => {
+        // She pioneered until December and stopped. The card says «none»
+        // today, so every month of that service used to fall into the
+        // publishers' line — in the figures that go to the branch.
+        publishersRepo.find.mockResolvedValue([
+          makePublisher({ id: 'p-was', pioneerType: PioneerType.NONE }),
+        ]);
+        pioneerSpellsRepo.find.mockResolvedValue([
+          spell('p-was', '2025-01-01', '2026-05-01'),
+        ]);
+        reportsRepo.find.mockResolvedValue([
+          makeReport({ publisherId: 'p-was', hoursReported: 55 }),
+        ]);
+
+        const result = await summaryFor('2026-04');
+
+        expect(line(result, PioneerType.REGULAR)).toMatchObject({
+          count: 1,
+          hours: 55,
+        });
+        expect(line(result, 'none')).toMatchObject({ count: 0 });
+      });
+
+      it('stops counting her the month after the spell ends', async () => {
+        publishersRepo.find.mockResolvedValue([
+          makePublisher({ id: 'p-was', pioneerType: PioneerType.NONE }),
+        ]);
+        pioneerSpellsRepo.find.mockResolvedValue([
+          spell('p-was', '2025-01-01', '2026-03-01'),
+        ]);
+        reportsRepo.find.mockResolvedValue([
+          makeReport({
+            publisherId: 'p-was',
+            servedThisMonth: true,
+            hoursReported: null,
+          }),
+        ]);
+
+        const result = await summaryFor('2026-04');
+
+        expect(line(result, PioneerType.REGULAR)).toMatchObject({ count: 0 });
+        expect(line(result, 'none')).toMatchObject({ count: 1 });
+      });
+
       it('lets a started permanent appointment outrank a stale auxiliary period', async () => {
         publishersRepo.find.mockResolvedValue([
           makePublisher({
@@ -2041,6 +2123,9 @@ describe('ServiceReportsService', () => {
         auxiliaryPioneersService.activePublisherIdsForMonth.mockResolvedValue(
           new Set(['p-both']),
         );
+        pioneerSpellsRepo.find.mockResolvedValue([
+          spell('p-both', '2026-01-01'),
+        ]);
         reportsRepo.find.mockResolvedValue([
           makeReport({ publisherId: 'p-both', hoursReported: 70 }),
         ]);

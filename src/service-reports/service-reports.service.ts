@@ -1670,24 +1670,41 @@ export class ServiceReportsService {
         reportMonth,
       );
 
+    // Every spell in the congregation, grouped by publisher — one query for
+    // the whole month rather than one per person.
+    const allSpells = await this.pioneerSpellsRepo.find({
+      where: { congregationId: tenantId },
+    });
+    const spellsByPubId = new Map<string, PioneerSpell[]>();
+    for (const sp of allSpells) {
+      const list = spellsByPubId.get(sp.publisherId) ?? [];
+      list.push(sp);
+      spellsByPubId.set(sp.publisherId, list);
+    }
+
     /**
      * The category a publisher belongs to FOR THIS MONTH.
      *
-     * The month matters. Reading publisher.pioneerType on its own answers
-     * "what are they today", which is a different question: someone appointed
-     * a regular pioneer from next month is still an auxiliary pioneer — or an
-     * ordinary publisher — in the month being reported. isActivePermanentPioneer
-     * is the shared rule for that, already used by the report form and the
-     * hour goals; the summary was the one place that bypassed it and so
-     * counted a future pioneer as a present one.
+     * Asked of the SPELLS, because the card cannot answer for a past month. It
+     * says what somebody is TODAY, so a brother who stopped pioneering in March
+     * was counted as an ordinary publisher in February too, and a man who
+     * pioneered years ago is an ordinary publisher for every month of it. These
+     * are the figures that go to the branch.
+     *
+     * The card was already half-right here: it deferred to
+     * isActivePermanentPioneer, which at least refused to count an appointment
+     * that had not started yet. Spells answer the whole question — including
+     * every appointment that has ENDED, which two fields could not express.
      */
     const categoryOf = (
       pub: (typeof publishers)[number],
     ): ServiceSummaryCategoryKey => {
-      if (
-        isActivePermanentPioneer(pub.pioneerType, pub.pioneerSince, reportMonth)
-      ) {
-        return pub.pioneerType as
+      const inMonth = pioneerTypeInMonth(
+        spellsByPubId.get(pub.id) ?? [],
+        reportMonth,
+      );
+      if (inMonth !== PioneerType.NONE) {
+        return inMonth as
           | PioneerType.REGULAR
           | PioneerType.SPECIAL
           | PioneerType.MISSIONARY;
