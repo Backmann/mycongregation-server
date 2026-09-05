@@ -36,6 +36,14 @@ function requireMonth(value: string | undefined): string {
   return value;
 }
 
+/**
+ * How far back a publisher's history is ever shown or filled in.
+ *
+ * Double what any rule needs — the status weighs six closed months, the annual
+ * report twelve. A cap on the VIEW only; the reports are kept for good.
+ */
+const HISTORY_MAX_MONTHS = 24;
+
 @Controller('service-reports')
 export class ServiceReportsController {
   constructor(
@@ -234,8 +242,21 @@ export class ServiceReportsController {
     @Param('publisherId', ParseUUIDPipe) publisherId: string,
     @Query('months') monthsRaw?: string,
   ) {
+    // Two years, and no more.
+    //
+    // Nothing in the app looks further back: a service status weighs six
+    // closed months, the annual report twelve. The screen asked for a hundred
+    // and twenty — ten years — and for a publisher with no reports and no
+    // dates on his card that came back as a hundred and twenty empty rows to
+    // scroll past. Twenty-four is double what any rule needs, which is enough
+    // slack and still a page a person can read.
+    //
+    // This caps what is SHOWN, never what is kept: the reports themselves stay
+    // for good. A congregation's S-21 cards are not thrown away after two
+    // years, and once the paper is gone there would be nowhere to restore
+    // from.
     const months = monthsRaw
-      ? Math.max(1, Math.min(120, parseInt(monthsRaw, 10) || 12))
+      ? Math.max(1, Math.min(HISTORY_MAX_MONTHS, parseInt(monthsRaw, 10) || 12))
       : 12;
     return this.serviceReportsService.findHistoryForPublisher(
       tenantId,
