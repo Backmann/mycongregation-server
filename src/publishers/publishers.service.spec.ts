@@ -210,6 +210,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
   };
   let usersService: { syncRoleFromAppointment: jest.Mock };
   let auxiliaryPioneersService: { closeActiveForPublisher: jest.Mock };
+  let pioneerSpells: { syncWithCard: jest.Mock };
 
   afterEach(() => restoreNow());
 
@@ -244,6 +245,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
     auxiliaryPioneersService = {
       closeActiveForPublisher: jest.fn().mockResolvedValue(0),
     };
+    pioneerSpells = { syncWithCard: jest.fn().mockResolvedValue({}) };
     service = new PublishersService(
       publishersRepo,
       reportsRepo,
@@ -253,6 +255,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       pushNotificationsService as any,
       usersService as any,
       auxiliaryPioneersService as any,
+      pioneerSpells as any,
     );
   });
 
@@ -358,6 +361,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         pushNotificationsService as any,
         usersService as any,
         auxiliaryPioneersService as any,
+        { syncWithCard: jest.fn().mockResolvedValue({}) } as any,
       );
       const pub = makePublisher({
         id: 'pub-1',
@@ -1206,6 +1210,32 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       expect(
         auxiliaryPioneersService.closeActiveForPublisher,
       ).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * The wiring itself, because removing it broke nothing.
+   *
+   * The migration filled in the past and nothing fills in the future: appointing
+   * a pioneer writes the card, and unless the spells are told, the first man
+   * appointed after the migration quietly leaves the pioneer lines of the
+   * monthly figures — the figures that go to the branch.
+   */
+  describe('update — spells follow the card', () => {
+    it('tells the spells whenever a card is saved', async () => {
+      const pub = makePublisher({ id: 'pub-1', congregationId: 'c1' });
+      publishersRepo.findOne.mockResolvedValue(pub);
+      publishersRepo.save.mockImplementation(async (x: never) => x);
+
+      await service.update('c1', 'pub-1', { pioneerType: 'regular' } as never);
+
+      expect(pioneerSpells.syncWithCard).toHaveBeenCalledWith(
+        expect.objectContaining({
+          congregationId: 'c1',
+          publisherId: 'pub-1',
+          pioneerType: 'regular',
+        }),
+      );
     });
   });
 });

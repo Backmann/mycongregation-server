@@ -35,6 +35,7 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { deriveRoleFromAppointment } from './derive-role';
 import { UsersService } from '../users/users.service';
 import { AuxiliaryPioneersService } from '../auxiliary-pioneers/auxiliary-pioneers.service';
+import { PioneerSpellsService } from '../pioneer-spells/pioneer-spells.service';
 import { GrantAccessDto } from './dto/grant-access.dto';
 import {
   addMonthKey,
@@ -183,6 +184,7 @@ export class PublishersService {
     private readonly pushNotificationsService: PushNotificationsService,
     private readonly usersService: UsersService,
     private readonly auxiliaryPioneersService: AuxiliaryPioneersService,
+    private readonly pioneerSpells: PioneerSpellsService,
   ) {}
 
   /**
@@ -1241,6 +1243,28 @@ export class PublishersService {
     const becamePermanent =
       PERMANENT.includes(publisher.pioneerType) &&
       !PERMANENT.includes(prevPioneerType);
+    // Spells follow the card, on EVERY path that changes it — appointment,
+    // correction, removal, change of kind. The migration filled in the past;
+    // without this nothing fills in the future, and the first pioneer
+    // appointed afterwards would quietly leave the pioneer lines of the
+    // monthly figures once the readers move onto spells.
+    await this.pioneerSpells
+      .syncWithCard({
+        congregationId: tenantId,
+        publisherId: saved.id,
+        pioneerType: saved.pioneerType,
+        pioneerSince: saved.pioneerSince ?? null,
+        todayIso: await this.clock.todayFor(tenantId),
+        actorUserId: actorUserId ?? null,
+      })
+      .catch((err: unknown) => {
+        this.logger.warn(
+          `pioneer spell sync failed for publisher=${saved.id}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
+
     if (becamePermanent) {
       // The congregation's own date, not the server's: closing the auxiliary
       // period a month early would overlap the permanent one, which the note

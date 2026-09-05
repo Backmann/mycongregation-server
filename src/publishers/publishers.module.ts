@@ -7,6 +7,7 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { PublishersService } from './publishers.service';
 import { PublishersController } from './publishers.controller';
 import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneers.module';
+import { PioneerSpellsModule } from '../pioneer-spells/pioneer-spells.module';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
@@ -25,6 +26,7 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
     PushNotificationsModule,
     UsersModule,
     AuxiliaryPioneersModule,
+    PioneerSpellsModule,
     CongregationClockModule,
   ],
   controllers: [PublishersController],

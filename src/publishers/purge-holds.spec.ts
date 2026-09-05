@@ -40,6 +40,7 @@ describe('PublishersService.purge — what holds the card', () => {
       {} as never,
       {} as never,
       {} as never,
+      { syncWithCard: jest.fn(async () => ({})) } as never,
     );
     jest
       .spyOn(service, 'findOne')
