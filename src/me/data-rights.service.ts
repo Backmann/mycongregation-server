@@ -4,12 +4,14 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, In } from 'typeorm';
+import { DataSource, In, IsNull } from 'typeorm';
+import { CongregationClock } from '../common/congregation-clock.service';
 import * as bcrypt from 'bcrypt';
 import { Publisher } from '../entities/publisher.entity';
 import { User } from '../entities/user.entity';
 import { Absence } from '../entities/absence.entity';
 import { ServiceReport } from '../entities/service-report.entity';
+import { PioneerSpell } from '../entities/pioneer-spell.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
 import { CartRequest } from '../entities/cart-request.entity';
@@ -38,7 +40,10 @@ import { PublisherAppointment } from '../common/enums/publisher-appointment.enum
  */
 @Injectable()
 export class DataRightsService {
-  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly clock: CongregationClock,
+  ) {}
 
   /** GDPR Art. 15/20 — assemble the requester's own data as a JSON bundle. */
   async exportMyData(tenantId: string, userId: string) {
@@ -173,6 +178,7 @@ export class DataRightsService {
       }
     }
 
+    const today = await this.clock.todayFor(tenantId);
     await this.dataSource.transaction(async (m) => {
       const publisher = await m.findOne(Publisher, {
         where: { congregationId: tenantId, userId },
@@ -207,6 +213,32 @@ export class DataRightsService {
           ServiceReport,
           { publisherId: publisher.id },
           { notes: null },
+        );
+      }
+
+      // Spells of pioneer service follow the same rule as the reports above:
+      // the record of service belongs to the congregation and stays, only what
+      // was the person's own is wiped. A spell holds no name and no contact —
+      // just «this id served from month to month» — so the free-text note is
+      // the only personal part of it.
+      //
+      // The open spell is CLOSED rather than left running: he no longer
+      // serves, and an open spell would go on claiming he does for every month
+      // to come. Closed at the month it ended in, as everywhere else.
+      if (publisher) {
+        // The congregation's own day, never the server's: closing a month
+        // early or late here writes a wrong month into a record that is kept
+        // for good, and this project asks the clock for every calendar day.
+        const nowMonth = `${today.slice(0, 7)}-01`;
+        await m.update(
+          PioneerSpell,
+          { publisherId: publisher.id, endMonth: IsNull() },
+          { endMonth: nowMonth, note: null },
+        );
+        await m.update(
+          PioneerSpell,
+          { publisherId: publisher.id },
+          { note: null },
         );
       }
 
