@@ -3198,3 +3198,106 @@ describe('publisher history — which form each month wants', () => {
     restoreNow();
   });
 });
+
+/**
+ * Whose service year is being reviewed.
+ *
+ * The list used to come from the card — «who is a regular pioneer today» — so
+ * a brother who pioneered all year and stopped in August vanished from the
+ * review of the year he had just served, and one appointed last week appeared
+ * in the review of a year he spent as an ordinary publisher.
+ */
+describe('getPioneerYearReview — the year decides, not today', () => {
+  const build = (spells: Record<string, unknown>[]) => {
+    const publishersRepo = {
+      find: jest
+        .fn()
+        .mockResolvedValue([
+          { id: 'p-was', lastName: 'Бывший', firstName: 'Пионер' },
+        ]),
+      findOne: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
+    };
+    const spellsRepo = { find: jest.fn().mockResolvedValue(spells) };
+    const svc = new (ServiceReportsService as any)(
+      { find: jest.fn().mockResolvedValue([]), findOne: jest.fn() },
+      publishersRepo,
+      { find: jest.fn().mockResolvedValue([]) },
+      { find: jest.fn().mockResolvedValue([]) },
+      { findOne: jest.fn(), find: jest.fn().mockResolvedValue([]) },
+      spellsRepo,
+      {
+        timezoneOf: jest.fn(),
+        todayFor: jest.fn().mockResolvedValue('2026-09-05'),
+      },
+      { findActorsFor: jest.fn().mockResolvedValue([]), logEvent: jest.fn() },
+      { recomputeStatus: jest.fn() },
+      { activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()) },
+    );
+    jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({
+      alwaysView: true,
+      alwaysEdit: true,
+      overseenGroupIds: [],
+    });
+    return { svc, publishersRepo };
+  };
+
+  it('includes a pioneer whose spell ENDED inside the year', async () => {
+    // Served Sept 2025 – Aug 2026 and stopped: this is exactly his year.
+    const { svc, publishersRepo } = build([
+      {
+        publisherId: 'p-was',
+        pioneerType: 'regular',
+        startMonth: '2019-09-01',
+        endMonth: '2026-08-01',
+      },
+    ]);
+
+    const out = await svc.getPioneerYearReview(
+      'c1',
+      { id: 'u1' } as never,
+      2026,
+    );
+
+    expect(out.rows).toHaveLength(1);
+    expect(publishersRepo.find).toHaveBeenCalled();
+  });
+
+  it('leaves out somebody whose spell ended BEFORE the year began', async () => {
+    const { svc } = build([
+      {
+        publisherId: 'p-was',
+        pioneerType: 'regular',
+        startMonth: '2019-09-01',
+        endMonth: '2025-08-01',
+      },
+    ]);
+
+    const out = await svc.getPioneerYearReview(
+      'c1',
+      { id: 'u1' } as never,
+      2026,
+    );
+
+    expect(out.rows).toHaveLength(0);
+  });
+
+  it('leaves out somebody appointed only after the year ended', async () => {
+    const { svc } = build([
+      {
+        publisherId: 'p-was',
+        pioneerType: 'regular',
+        startMonth: '2026-09-01',
+        endMonth: null,
+      },
+    ]);
+
+    const out = await svc.getPioneerYearReview(
+      'c1',
+      { id: 'u1' } as never,
+      2026,
+    );
+
+    expect(out.rows).toHaveLength(0);
+  });
+});

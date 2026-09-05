@@ -1873,9 +1873,35 @@ export class ServiceReportsService {
       );
     }
 
-    const pioneers = await this.publishersRepo.find({
-      where: { congregationId: tenantId, pioneerType: PioneerType.REGULAR },
+    // Whoever was a REGULAR PIONEER AT ANY POINT IN THIS SERVICE YEAR, not
+    // whoever is one today.
+    //
+    // Asking the card meant a brother who pioneered all year and stopped in
+    // August simply vanished from the review of the year he had just served —
+    // and one appointed last week appeared in the review of a year he spent as
+    // an ordinary publisher. Spells know which year was whose.
+    const yearFrom = `${serviceYear - 1}-09-01`;
+    const yearTo = `${serviceYear}-08-01`;
+    const spells = await this.pioneerSpellsRepo.find({
+      where: {
+        congregationId: tenantId,
+        pioneerType: PioneerType.REGULAR,
+      },
     });
+    const idsInYear = new Set(
+      spells
+        .filter(
+          (sp) =>
+            sp.startMonth.slice(0, 10) <= yearTo &&
+            (!sp.endMonth || sp.endMonth.slice(0, 10) >= yearFrom),
+        )
+        .map((sp) => sp.publisherId),
+    );
+    const pioneers = idsInYear.size
+      ? await this.publishersRepo.find({
+          where: { congregationId: tenantId, id: In([...idsInYear]) },
+        })
+      : [];
     const today = await this.clock.todayFor(tenantId);
     if (pioneers.length === 0) {
       return reviewPioneerYear(serviceYear, today, []);
@@ -1905,7 +1931,18 @@ export class ServiceReportsService {
       pioneers.map((p) => ({
         publisherId: p.id,
         displayName: [p.lastName, p.firstName].filter(Boolean).join(' ').trim(),
-        pioneerSince: p.pioneerSince,
+        // The start of the spell that touches THIS year, not the card's date:
+        // for somebody who pioneered twice, the card knows only the latest.
+        pioneerSince:
+          spells
+            .filter(
+              (sp) =>
+                sp.publisherId === p.id &&
+                sp.startMonth.slice(0, 10) <= yearTo &&
+                (!sp.endMonth || sp.endMonth.slice(0, 10) >= yearFrom),
+            )
+            .map((sp) => sp.startMonth.slice(0, 10))
+            .sort()[0] ?? p.pioneerSince,
         months: (byPublisher.get(p.id) ?? []).map((r) => ({
           reportMonth: r.reportMonth.slice(0, 10),
           hours: r.hoursReported,
