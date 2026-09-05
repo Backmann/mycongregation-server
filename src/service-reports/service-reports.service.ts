@@ -19,6 +19,7 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
+import { PioneerSpell } from '../entities/pioneer-spell.entity';
 import {
   collectedReportMonth,
   lastClosedReportMonth,
@@ -36,7 +37,10 @@ import {
 } from '../publishers/publishers.service';
 import { AuxiliaryPioneersService } from '../auxiliary-pioneers/auxiliary-pioneers.service';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
-import { isActivePermanentPioneer } from '../common/pioneer-status';
+import {
+  isActivePermanentPioneer,
+  pioneerTypeInMonth,
+} from '../common/pioneer-status';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { Gender } from '../common/enums/gender.enum';
 import { SpiritualStatus } from '../common/enums/spiritual-status.enum';
@@ -362,6 +366,8 @@ export class ServiceReportsService {
     private readonly responsibilitiesRepo: Repository<Responsibility>,
     @InjectRepository(ReportMonthClosure)
     private readonly closuresRepo: Repository<ReportMonthClosure>,
+    @InjectRepository(PioneerSpell)
+    private readonly pioneerSpellsRepo: Repository<PioneerSpell>,
     private readonly clock: CongregationClock,
     private readonly auditLogService: AuditLogService,
     private readonly publishersService: PublishersService,
@@ -1401,6 +1407,10 @@ export class ServiceReportsService {
     // already entered the ONLY row offered for filling was the one the server
     // would refuse. «Ничего не могу заполнить» was the screen telling the
     // truth about an offer it should never have made.
+    const spells = await this.pioneerSpellsRepo.find({
+      where: { congregationId: tenantId, publisherId },
+    });
+
     const timeline: PublisherHistoryEntry[] = [];
     for (let i = 1; i <= months; i++) {
       const m = new Date(
@@ -1416,12 +1426,16 @@ export class ServiceReportsService {
       const removed = removedByMonth.get(mStr.slice(0, 7));
       timeline.push({
         reportMonth: mStr,
+        // Asked of the SPELLS, not the card.
+        //
+        // The card answers «what is he now», and for a history screen that is
+        // the wrong question: a sister who pioneered 2019–2023 and stopped
+        // reads as an ordinary publisher for every one of those months, so the
+        // row offers «участвовал ли» and there is nowhere to write the hours
+        // she actually reported. Spells know which months were which.
         wantsHours:
-          isActivePermanentPioneer(
-            publisher.pioneerType,
-            publisher.pioneerSince,
-            mStr,
-          ) || auxMonths.has(mStr.slice(0, 7)),
+          pioneerTypeInMonth(spells, mStr) !== PioneerType.NONE ||
+          auxMonths.has(mStr.slice(0, 7)),
         report: (found as EnrichedReport) ?? null,
         removedReport:
           removed && removed.deletedAt

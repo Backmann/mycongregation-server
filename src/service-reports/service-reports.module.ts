@@ -5,6 +5,7 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
+import { PioneerSpell } from '../entities/pioneer-spell.entity';
 import { ServiceReportsController } from './service-reports.controller';
 import { ServiceReportsService } from './service-reports.service';
 import { AuditLogModule } from '../audit-log/audit-log.module';
@@ -19,6 +20,7 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
       ServiceGroup,
       Responsibility,
       ReportMonthClosure,
+      PioneerSpell,
     ]),
     AuditLogModule,
     PublishersModule,

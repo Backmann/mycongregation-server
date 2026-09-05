@@ -99,6 +99,7 @@ describe('ServiceReportsService', () => {
   let serviceGroupsRepo: jest.Mocked<Repository<ServiceGroup>>;
   let responsibilitiesRepo: jest.Mocked<Repository<Responsibility>>;
   let closuresRepo: jest.Mocked<Repository<ReportMonthClosure>>;
+  let pioneerSpellsRepo: never;
   let auditLogService: {
     logUpdate: jest.Mock;
     logEvent: jest.Mock;
@@ -160,6 +161,7 @@ describe('ServiceReportsService', () => {
       logUpdate: jest.fn(),
       findForEntity: jest.fn(),
     };
+    pioneerSpellsRepo = { find: jest.fn().mockResolvedValue([]) } as never;
     publishersService = {
       recomputeStatus: jest.fn(),
       recomputeForCongregation: jest.fn().mockResolvedValue({}),
@@ -175,6 +177,7 @@ describe('ServiceReportsService', () => {
       serviceGroupsRepo,
       responsibilitiesRepo,
       closuresRepo,
+      pioneerSpellsRepo,
       clockStub(),
       auditLogService as any,
       publishersService as any,
@@ -2608,13 +2611,14 @@ describe('ServiceReportsService.removeReport', () => {
     const audit = { logEvent: jest.fn() };
     const publishers = { recomputeStatus: jest.fn() };
     // Constructor order: reports, publishers, groups, responsibilities,
-    // closures, clock, audit, publishersService, auxiliaryPioneers.
+    // closures, pioneerSpells, clock, audit, publishersService, auxiliary.
     const svc = new (ServiceReportsService as any)(
       reportsRepo,
       { findOne: jest.fn(), find: jest.fn() },
       { find: jest.fn().mockResolvedValue([]) },
       { find: jest.fn().mockResolvedValue([]) },
       { findOne: jest.fn(), find: jest.fn() },
+      { find: jest.fn().mockResolvedValue([]) },
       { timezoneOf: jest.fn().mockResolvedValue('Europe/Berlin') },
       audit,
       publishers,
@@ -2701,6 +2705,7 @@ describe('ServiceReportsService.findGroupReports — the missed-months count', (
       { find: jest.fn().mockResolvedValue([]) },
       { find: jest.fn().mockResolvedValue([]) },
       { findOne: jest.fn(), find: jest.fn().mockResolvedValue([]) },
+      { find: jest.fn().mockResolvedValue([]) },
       { timezoneOf: jest.fn().mockResolvedValue('Europe/Berlin') },
       { findActorsFor: jest.fn().mockResolvedValue([]), logEvent: jest.fn() },
       { recomputeStatus: jest.fn() },
@@ -2780,6 +2785,7 @@ describe('ServiceReportsService.findGroupReports — a taken-back report', () =>
       { find: jest.fn().mockResolvedValue([]) },
       { find: jest.fn().mockResolvedValue([]) },
       { findOne: jest.fn(), find: jest.fn().mockResolvedValue([]) },
+      { find: jest.fn().mockResolvedValue([]) },
       { timezoneOf: jest.fn().mockResolvedValue('Europe/Berlin') },
       {
         // The name of whoever took it back lives in the journal, where the
@@ -2871,6 +2877,7 @@ describe('getSummary — «все активные» follows the form, not the s
       { find: jest.fn().mockResolvedValue([]) },
       { find: jest.fn().mockResolvedValue([]) },
       { findOne: jest.fn(), find: jest.fn().mockResolvedValue([]) },
+      { find: jest.fn().mockResolvedValue([]) },
       { timezoneOf: jest.fn().mockResolvedValue('Europe/Berlin') },
       { findActorsFor: jest.fn().mockResolvedValue([]), logEvent: jest.fn() },
       { recomputeStatus: jest.fn() },
@@ -2930,6 +2937,7 @@ describe('history and closed months', () => {
       { find: jest.fn().mockResolvedValue([]) },
       { find: jest.fn().mockResolvedValue([]) },
       { findOne: jest.fn(), find: jest.fn().mockResolvedValue([]) },
+      { find: jest.fn().mockResolvedValue([]) },
       { timezoneOf: jest.fn().mockResolvedValue('Europe/Berlin') },
       { findActorsFor: jest.fn().mockResolvedValue([]), logEvent: jest.fn() },
       { recomputeStatus: jest.fn() },
@@ -2975,7 +2983,11 @@ describe('history and closed months', () => {
  * refuses the wrong shape — so it says the same thing here.
  */
 describe('publisher history — which form each month wants', () => {
-  const build = (publisher: Record<string, unknown>, auxMonths: string[]) => {
+  const build = (
+    publisher: Record<string, unknown>,
+    auxMonths: string[],
+    spells: Record<string, unknown>[] = [],
+  ) => {
     const svc = new (ServiceReportsService as any)(
       { find: jest.fn().mockResolvedValue([]), findOne: jest.fn() },
       {
@@ -2985,6 +2997,7 @@ describe('publisher history — which form each month wants', () => {
       { find: jest.fn().mockResolvedValue([]) },
       { find: jest.fn().mockResolvedValue([]) },
       { findOne: jest.fn(), find: jest.fn().mockResolvedValue([]) },
+      { find: jest.fn().mockResolvedValue(spells) },
       { timezoneOf: jest.fn().mockResolvedValue('Europe/Berlin') },
       { findActorsFor: jest.fn().mockResolvedValue([]), logEvent: jest.fn() },
       { recomputeStatus: jest.fn() },
@@ -3046,9 +3059,12 @@ describe('publisher history — which form each month wants', () => {
 
   it('asks for hours only from the month she became a regular pioneer', async () => {
     setNow(Date.UTC(2026, 8, 4));
+    // From the SPELL, not the card: the card answers «what is she now», which
+    // is the wrong question for a history screen.
     const svc = build(
-      { ...base, pioneerType: 'regular', pioneerSince: '2026-03-01' },
+      base,
       [],
+      [{ pioneerType: 'regular', startMonth: '2026-03-01', endMonth: null }],
     );
 
     const months = await monthsOf(svc);
@@ -3056,6 +3072,31 @@ describe('publisher history — which form each month wants', () => {
     expect(months.get('2026-02')).toBe(false);
     expect(months.get('2026-03')).toBe(true);
     expect(months.get('2026-08')).toBe(true);
+    restoreNow();
+  });
+
+  it('asks for hours for a spell that ENDED — the case the card forgets', async () => {
+    // She pioneered 2019–2023 and stopped. The card says «none» today, so the
+    // old code offered «участвовал ли» for those months and left nowhere to
+    // write the hours she actually reported.
+    setNow(Date.UTC(2026, 8, 4));
+    const svc = build(
+      base,
+      [],
+      [
+        {
+          pioneerType: 'regular',
+          startMonth: '2025-11-01',
+          endMonth: '2026-03-01',
+        },
+      ],
+    );
+
+    const months = await monthsOf(svc);
+
+    expect(months.get('2025-12')).toBe(true);
+    expect(months.get('2026-03')).toBe(true);
+    expect(months.get('2026-04')).toBe(false);
     restoreNow();
   });
 
