@@ -2817,6 +2817,66 @@ describe('ServiceReportsService.removeReport', () => {
  * stays in `report`, the taken-back one arrives as `removedReport` with the
  * name of whoever took it, and it is never counted as handed in.
  */
+describe('findGroupReports — the row asks the spells', () => {
+  it('marks a month inside an ENDED spell as a pioneer month', async () => {
+    // The last reader that still asked the card. It decides which form the row
+    // offers, so for a month when somebody had already stopped pioneering it
+    // offered «участвовал ли» while the server expected hours.
+    const publishers = [
+      {
+        id: 'p-was',
+        displayName: 'Бывший Пионер',
+        serviceGroupId: 'g1',
+        pioneerType: 'none',
+        pioneerSince: null,
+      },
+    ];
+    const svc = new (ServiceReportsService as any)(
+      { find: jest.fn().mockResolvedValue([]), findOne: jest.fn() },
+      { find: jest.fn().mockResolvedValue(publishers), findOne: jest.fn() },
+      { find: jest.fn().mockResolvedValue([]) },
+      { find: jest.fn().mockResolvedValue([]) },
+      { findOne: jest.fn(), find: jest.fn().mockResolvedValue([]) },
+      {
+        find: jest.fn().mockResolvedValue([
+          {
+            publisherId: 'p-was',
+            pioneerType: 'regular',
+            startMonth: '2025-01-01',
+            endMonth: '2026-05-01',
+          },
+        ]),
+      },
+      { timezoneOf: jest.fn().mockResolvedValue('Europe/Berlin') },
+      { findActorsFor: jest.fn().mockResolvedValue([]), logEvent: jest.fn() },
+      { recomputeStatus: jest.fn() },
+      { activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()) },
+    );
+    jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({
+      alwaysView: true,
+      alwaysEdit: true,
+      overseenGroupIds: [],
+      myPublisherId: null,
+    });
+    jest.spyOn(svc as any, 'isMonthClosed').mockResolvedValue(false);
+    jest.spyOn(svc as any, 'enrichEditorNames').mockResolvedValue(undefined);
+
+    const inside = await svc.findGroupReports(
+      'c1',
+      { id: 'u1' } as never,
+      '2026-04-01',
+    );
+    expect(inside.publishers[0].isPioneer).toBe(true);
+
+    const after = await svc.findGroupReports(
+      'c1',
+      { id: 'u1' } as never,
+      '2026-06-01',
+    );
+    expect(after.publishers[0].isPioneer).toBe(false);
+  });
+});
+
 describe('ServiceReportsService.findGroupReports — the missed-months count', () => {
   it('does not count the month still being collected as missed', async () => {
     // 4 September: August is open until the 19th, so somebody who has not filed

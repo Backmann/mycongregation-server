@@ -1155,6 +1155,17 @@ export class ServiceReportsService {
       removedRows.map((r) => r.id),
     );
 
+    // One query for the whole congregation, not one per row.
+    const groupSpells = await this.pioneerSpellsRepo.find({
+      where: { congregationId: tenantId },
+    });
+    const groupSpellsByPubId = new Map<string, PioneerSpell[]>();
+    for (const sp of groupSpells) {
+      const list = groupSpellsByPubId.get(sp.publisherId) ?? [];
+      list.push(sp);
+      groupSpellsByPubId.set(sp.publisherId, list);
+    }
+
     const isClosed = await this.isMonthClosed(tenantId, normalizedMonth);
     liveReports.forEach((r) =>
       this.setCanEdit(
@@ -1267,12 +1278,16 @@ export class ServiceReportsService {
         groupName: p.serviceGroupId
           ? (groupNameById.get(p.serviceGroupId) ?? null)
           : null,
+        // Asked of the spells — the last reader that still asked the card.
+        //
+        // It decides which form the row offers, so on a month when somebody
+        // had already stopped pioneering it would offer «участвовал ли» while
+        // the server, which now asks the spells, expects hours.
         isPioneer:
-          isActivePermanentPioneer(
-            p.pioneerType,
-            p.pioneerSince,
+          pioneerTypeInMonth(
+            groupSpellsByPubId.get(p.id) ?? [],
             normalizedMonth,
-          ) || auxThisMonth.has(p.id),
+          ) !== PioneerType.NONE || auxThisMonth.has(p.id),
         consecutiveMissing: consecutiveMissingFor(p.id),
         report:
           (reportByPubId.get(p.id) as
