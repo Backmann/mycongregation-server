@@ -429,12 +429,20 @@ export class ServiceReportsService {
         publisher.id,
         reportMonth,
       );
+    // Which form THIS month wants, asked of the spells.
+    //
+    // This is not a display: the server REFUSES the wrong shape. A sister who
+    // pioneered until last year and stopped is shown an hours field by the
+    // history screen — which already asks the spells — and would then be told
+    // no when she saved the hours her paper card actually records. The half
+    // that refuses has to ask what the half that offers asks.
     const isPioneer =
-      isActivePermanentPioneer(
-        publisher.pioneerType,
-        publisher.pioneerSince,
+      pioneerTypeInMonth(
+        await this.pioneerSpellsRepo.find({
+          where: { congregationId: tenantId, publisherId: publisher.id },
+        }),
         reportMonth,
-      ) || isAuxThisMonth;
+      ) !== PioneerType.NONE || isAuxThisMonth;
 
     this.validateFormVariant(dto, isPioneer);
 
@@ -965,12 +973,14 @@ export class ServiceReportsService {
         publisher.id,
         report.reportMonth,
       );
+    // Same question as when it was filed — see the note there.
     const isPioneer =
-      isActivePermanentPioneer(
-        publisher.pioneerType,
-        publisher.pioneerSince,
+      pioneerTypeInMonth(
+        await this.pioneerSpellsRepo.find({
+          where: { congregationId: tenantId, publisherId: publisher.id },
+        }),
         report.reportMonth,
-      ) || isAuxThisMonth;
+      ) !== PioneerType.NONE || isAuxThisMonth;
 
     this.validateUpdateFormVariant(dto, isPioneer);
 

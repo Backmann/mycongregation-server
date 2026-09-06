@@ -577,6 +577,16 @@ describe('ServiceReportsService', () => {
         publishersRepo.findOne.mockResolvedValue(
           makePublisher({ pioneerType: PioneerType.REGULAR }),
         );
+        // The form variant is decided by the SPELLS now — the card cannot
+        // answer for a past month, and the server refuses the wrong shape.
+        pioneerSpellsRepo.find.mockResolvedValue([
+          {
+            publisherId: 'pub-self',
+            pioneerType: PioneerType.REGULAR,
+            startMonth: '2020-01-01',
+            endMonth: null,
+          },
+        ]);
       });
 
       it('accepts hoursReported and persists the right shape', async () => {
@@ -1207,6 +1217,50 @@ describe('ServiceReportsService', () => {
       });
     });
 
+    /**
+     * The half that REFUSES has to ask what the half that OFFERS asks.
+     *
+     * The history screen already reads the spells, so a sister who pioneered
+     * until last year is shown an hours field for those months. If the server
+     * still asked the card it would then refuse the hours her paper S-21
+     * actually records — the screen inviting what the server forbids.
+     */
+    describe('form variant follows the spells, not the card', () => {
+      it('accepts hours for a month inside a spell that has ENDED', async () => {
+        reportsRepo.findOne.mockResolvedValue(
+          makeReport({
+            submittedById: 'user-self',
+            reportMonth: '2026-04-01',
+            hoursReported: 50,
+            servedThisMonth: null,
+          }),
+        );
+        publishersRepo.find.mockResolvedValue([]);
+        reportsRepo.save.mockImplementation(async (r: never) => r);
+        // Card says «not a pioneer» today.
+        publishersRepo.findOne.mockResolvedValue(
+          makePublisher({ pioneerType: PioneerType.NONE }),
+        );
+        pioneerSpellsRepo.find.mockResolvedValue([
+          {
+            publisherId: 'pub-self',
+            pioneerType: PioneerType.REGULAR,
+            startMonth: '2025-01-01',
+            endMonth: '2026-06-01',
+          },
+        ]);
+
+        await expect(
+          service.updateReport(
+            'cong-1',
+            makeUser({ id: 'user-self', role: UserRole.PUBLISHER }),
+            'report-1',
+            { hoursReported: 55 },
+          ),
+        ).resolves.toBeDefined();
+      });
+    });
+
     describe('form variant validation on update', () => {
       beforeEach(() => {
         reportsRepo.findOne.mockResolvedValue(
@@ -1220,6 +1274,14 @@ describe('ServiceReportsService', () => {
         publishersRepo.findOne.mockResolvedValue(
           makePublisher({ pioneerType: PioneerType.REGULAR }),
         );
+        pioneerSpellsRepo.find.mockResolvedValue([
+          {
+            publisherId: 'pub-self',
+            pioneerType: PioneerType.REGULAR,
+            startMonth: '2020-01-01',
+            endMonth: null,
+          },
+        ]);
 
         await expect(
           service.updateReport(
