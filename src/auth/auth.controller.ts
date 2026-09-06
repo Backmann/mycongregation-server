@@ -179,8 +179,12 @@ export class AuthController {
   @Throttle({ default: { limit: 3, ttl: 600000 } })
   @HttpCode(HttpStatus.OK)
   @Post('invite/resend')
-  async resendInvite(@Body() dto: ResendInviteDto) {
-    await this.authService.resendInvite(dto.email);
+  async resendInvite(@Body() dto: ResendInviteDto, @Req() req: Request) {
+    // Either field, whichever the app in this person's pocket sends.
+    await this.authService.resendInvite(
+      dto.login ?? dto.email ?? '',
+      clientIp(req),
+    );
     return { ok: true };
   }
 

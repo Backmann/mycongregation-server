@@ -430,33 +430,68 @@ export class AuthService {
   }
 
   /**
-   * Send a fresh invitation code to an address that is still waiting for one.
+   * Send a fresh invitation code to whoever is still waiting for one.
    *
    * Returns nothing, always, and throws nothing the caller can tell apart —
-   * the answer is identical for an unknown address, a disabled account, one
-   * that already has a password, and a successful send. The log is where the
-   * difference is recorded.
+   * the answer is identical for an unknown name, a disabled account, one that
+   * already has a password, one with no address to send to, and a successful
+   * send. Otherwise this page becomes a way of asking us who exists here. The
+   * log is where the difference is recorded.
+   *
+   * A shared mailbox may answer to two accounts. Both get a letter, each
+   * naming its own reader — the same choice the forgotten-password door makes,
+   * and for the same reason: the alternative is picking one of a couple at
+   * random and being wrong half the time.
    *
    * A fresh code also resets the attempt counter, which matters more than the
    * code itself: whoever needs this most is the person who has just used the
    * last of five tries.
    */
-  async resendInvite(email: string): Promise<void> {
-    const address = email.toLowerCase().trim();
+  async resendInvite(identifier: string, ip = 'unknown'): Promise<void> {
+    const value = identifier.toLowerCase().trim();
     const note = (why: string) =>
-      this.logger.warn(`invite resend for ${address}: ${why}`);
+      this.logger.warn(`invite resend for ${value}: ${why}`);
 
-    const user = await this.usersService.findByEmailWithPassword(address);
-    if (!user) return note('no such account');
-    if (!user.isActive) return note('account disabled');
-    if (user.passwordHash) {
-      // Not an invitation any more. «Забыли пароль» is that door, and this one
-      // must not become a way to mail people who did not ask.
-      return note('password already set — not resending');
+    // Three an hour for one name, thirty from one address. The first stops a
+    // mailbox being buried; the second is the broad net, and it has to be wide
+    // enough for a hall where several people are being helped at once.
+    const HOUR = 60 * 60 * 1000;
+    if (
+      !this.allowReset(`ri:id:${value}`, 3, HOUR) ||
+      !this.allowReset(`ri:ip:${ip}`, 30, HOUR)
+    ) {
+      return note('too many requests');
     }
 
-    await this.usersService.sendInvitation(user.id);
-    this.logger.log(`invite resent to ${address}`);
+    // A login name or an address — whichever the person kept. The letter
+    // prints the login name in a box and tells them to write it down; the
+    // address may have been typed by an elder and never told to them at all.
+    const candidates = await this.usersService.findAllWaitingForInvite(value);
+    if (candidates.length === 0) return note('no such account');
+
+    let sent = 0;
+    for (const user of candidates) {
+      if (!user.isActive) {
+        note('account disabled');
+        continue;
+      }
+      if (user.passwordHash) {
+        // Not an invitation any more. «Забыли пароль» is that door, and this
+        // one must not become a way to mail people who did not ask.
+        note('password already set — not resending');
+        continue;
+      }
+      if (!user.email) {
+        // Nowhere to send. Nothing to be done about it here: a code handed
+        // over in person cannot be asked for over the internet, and the screen
+        // says so — the elder issues it.
+        note('no address on the account — an elder must hand the code over');
+        continue;
+      }
+      await this.usersService.sendInvitation(user.id);
+      sent++;
+    }
+    if (sent > 0) this.logger.log(`invite resent for ${value} (${sent})`);
   }
 
   async updateMe(userId: string, dto: UpdateMeDto): Promise<AuthenticatedUser> {

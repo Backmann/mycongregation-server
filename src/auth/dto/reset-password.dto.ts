@@ -46,8 +46,27 @@ export class RedeemInviteDto {
   password!: string;
 }
 
-/** Asking for a fresh invitation code. The address, and nothing else. */
+/**
+ * Asking for a fresh invitation code — with whatever the person holds.
+ *
+ * It used to demand an address, which made it useless to exactly the people it
+ * was built for: the letter tells them their LOGIN NAME, in a box of its own,
+ * and says to write it down. An address they may never have been told at all —
+ * an elder typed it in when granting access.
+ *
+ * `email` stays accepted because app builds already installed send it under
+ * that name. Whichever arrives, it is one field and the server tells the two
+ * apart by the @, exactly as the sign-in screen does.
+ */
 export class ResendInviteDto {
-  @IsEmail()
-  email!: string;
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(255)
+  login?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  email?: string;
 }

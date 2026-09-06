@@ -304,6 +304,26 @@ export class UsersService {
    * of them get a letter — each naming its own reader, so one shared mailbox
    * does not become a puzzle.
    */
+  /**
+   * Every account a request for a fresh invitation could mean, WITH the
+   * password hash — because the one thing this must not do is mail somebody
+   * who has already finished their invitation.
+   *
+   * Separate from findAllForReset for that reason alone: that one does not
+   * select the hash, and a hash that is merely absent from the query reads as
+   * «no password set» and would turn this door into a way of mailing anybody.
+   */
+  async findAllWaitingForInvite(identifier: string): Promise<User[]> {
+    const value = identifier.trim().toLowerCase();
+    if (value === '') return [];
+    const column = looksLikeEmail(value) ? 'user.email' : 'user.login_name';
+    return this.usersRepo
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where(`LOWER(${column}) = :value`, { value })
+      .getMany();
+  }
+
   async findAllForReset(identifier: string): Promise<User[]> {
     const value = identifier.trim().toLowerCase();
     if (value === '') return [];
