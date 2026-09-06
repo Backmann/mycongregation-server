@@ -129,6 +129,28 @@ describe('the invitation letter', () => {
     expect(sent[0].html).toContain('кто вас пригласил');
   });
 
+  it('leaves a line in the log for every letter that goes out', async () => {
+    // An empty log used to mean two different things — «nothing was sent» and
+    // «sending is not recorded» — and the first time somebody asked which one
+    // it was, there was no way to tell. The address and subject only: the body
+    // carries names, codes and links.
+    const log = jest.fn();
+    const service = Object.create(MailService.prototype) as MailService;
+    Object.assign(service, {
+      logger: { warn: jest.fn(), log, error: jest.fn() },
+      from: 'noreply@mycongregation.org',
+      transporter: { sendMail: jest.fn(async () => undefined) },
+    });
+
+    await service.sendInvite('vera@gmail.com', 'ru', 'https://x/y', {
+      code: 'K7QM-3XPD',
+    });
+
+    const line = log.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(line).toContain('vera@gmail.com');
+    expect(line).not.toContain('K7QM-3XPD');
+  });
+
   it('says which name is which in a reset letter too', async () => {
     // Two reset letters in one mailbox is the likelier of the two cases: both
     // of them forgot, and each needs to know which is theirs.

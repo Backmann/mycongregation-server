@@ -590,6 +590,20 @@ ${
         },
       ],
     });
+    /**
+     * Every letter that actually leaves leaves a line.
+     *
+     * Until now a successful send was silent — only a skipped one and a failed
+     * invitation said anything — so «did the app just write to this person?»
+     * could not be answered from the server at all. It came up the first time
+     * somebody reported a letter arriving unbidden, and there was nothing to
+     * look at: an empty log meant «nothing is recorded here», not «nothing
+     * happened», and those two must never look alike.
+     *
+     * The address and the subject, and nothing else. The body carries names,
+     * codes and links; a log file is not the place for any of them.
+     */
+    this.logger.log(`mail sent to=${to} subject="${subject}"`);
     return true;
   }
 
