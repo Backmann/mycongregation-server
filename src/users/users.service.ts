@@ -14,6 +14,8 @@ import {
   makeInviteCode,
   formatInviteCode,
   hashInviteCode,
+  INVITE_CODE_LIFETIME_MS,
+  INVITE_LINK_LIFETIME_MS,
 } from '../auth/invite-code';
 import { MailService } from '../mail/mail.service';
 import * as bcrypt from 'bcrypt';
@@ -81,6 +83,17 @@ export interface PublicUser {
    */
   publisherId: string | null;
   /**
+   * When this account's invitation code stops working, or null when there is
+   * no invitation outstanding.
+   *
+   * Admin-only, like the rest of this list, and it exists for one question an
+   * elder had no way to answer: is this person waiting on a code that still
+   * works, or on one that died three weeks ago? Five people here were in the
+   * second state, and nothing on any screen said so — it took a query against
+   * the database to find them.
+   */
+  inviteExpiresAt: Date | null;
+  /**
    * Whether a password has ever been set on this account.
    *
    * An account can be created and invited, and the invitation link is what
@@ -145,6 +158,7 @@ function toPublicUser(
     gender,
     publisherId,
     hasPassword: !!u.passwordHash,
+    inviteExpiresAt: u.inviteCodeExpiresAt ?? null,
     lastClient,
     id: u.id,
     email: u.email,
@@ -1103,7 +1117,7 @@ export class UsersService {
 
   /**
    * Issue an invitation: a code that works inside the app, and a link for
-   * whoever is at a computer. Valid for 72 hours.
+   * whoever is at a computer. The code lives thirty days, the link three.
    *
    * It decides ON ITS OWN whether a letter goes out, and that is the whole
    * point of the change: the address used to arrive as an argument, so each of
@@ -1117,19 +1131,24 @@ export class UsersService {
    * credential in a log file is a credential lying about in the open.
    */
   async sendInvitation(userId: string): Promise<InvitationIssued> {
-    const THREE_DAYS = 72 * 60 * 60 * 1000;
+    const now = Date.now();
+    // Two doors, two lives. See the constants for why they stopped being the
+    // same number: the link signs its clicker in and must not sit around; the
+    // code is typed by the person it belongs to, on their own phone, whenever
+    // they get round to it.
+    const linkExpiresAt = new Date(now + INVITE_LINK_LIFETIME_MS);
+    const expiresAt = new Date(now + INVITE_CODE_LIFETIME_MS);
     const token = randomBytes(32).toString('hex');
     const tokenHash = createHash('sha256').update(token).digest('hex');
-    const expiresAt = new Date(Date.now() + THREE_DAYS);
-    await this.setPasswordResetToken(userId, tokenHash, expiresAt);
+    await this.setPasswordResetToken(userId, tokenHash, linkExpiresAt);
     const user = await this.findById(userId);
     const lang = user?.uiLanguage ?? 'ru';
     const base =
       this.config.get<string>('PUBLIC_APP_URL') ?? 'https://mycongregation.org';
     const link = `${base}/reset-password?token=${token}`;
 
-    // The second door. Same room, same 72 hours — but this one can be
-    // walked through inside the app, which is where the phone already is.
+    // The second door. Same room, a longer life — this one is walked through
+    // inside the app, which is where the phone already is.
     const code = makeInviteCode();
     await this.usersRepo.update(userId, {
       inviteCodeHash: hashInviteCode(code),

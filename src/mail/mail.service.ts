@@ -110,7 +110,7 @@ const STRINGS: Record<Lang, Strings> = {
     codeLead: 'Затем откройте приложение и введите этот код:',
     codeHint:
       'В приложении нажмите «Вас пригласили?» вверху экрана входа и введите код. Пароль вы придумаете сами на следующем шаге.',
-    codeValid: 'Код и ссылка действуют до',
+    codeValid: 'Код действует до',
     orBrowser: 'Читаете с компьютера? Откройте ссылку:',
     greeting: 'Здравствуйте!',
     linkHint: 'Если кнопка не открывается, скопируйте ссылку в браузер:',
@@ -176,7 +176,7 @@ const STRINGS: Record<Lang, Strings> = {
     codeLead: 'Then open the app and enter this code:',
     codeHint:
       'Tap «Were you invited?» at the top of the sign-in screen and enter the code. You will choose your own password on the next step.',
-    codeValid: 'The code and the link are valid until',
+    codeValid: 'The code is valid until',
     orBrowser: 'Reading on a computer? Open the link:',
     greeting: 'Hello!',
     linkHint: "If the button doesn't work, copy this link into your browser:",
@@ -242,7 +242,7 @@ const STRINGS: Record<Lang, Strings> = {
     codeLead: 'Öffnen Sie dann die App und geben Sie diesen Code ein:',
     codeHint:
       'Tippen Sie oben im Anmeldebildschirm auf «Wurden Sie eingeladen?» und geben Sie den Code ein. Ihr Passwort wählen Sie im nächsten Schritt selbst.',
-    codeValid: 'Code und Link sind gültig bis',
+    codeValid: 'Der Code ist gültig bis',
     orBrowser: 'Lesen Sie am Computer? Öffnen Sie den Link:',
     greeting: 'Hallo!',
     linkHint:
@@ -389,7 +389,7 @@ ${
 <td bgcolor="#15788f" style="border-radius:10px;">
 <a href="${link}" style="display:inline-block;padding:13px 30px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;border-radius:10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${m.button}</a>
 </td></tr></table>
-<p style="${small}text-align:center;margin:6px 0 16px;">${expiresAt ? '' : m.validity}</p>`
+<p style="${small}text-align:center;margin:6px 0 16px;">${m.validity}</p>`
     : ''
 }
 ${
@@ -457,7 +457,11 @@ ${
         : [m.lead]),
       ...(borrowedMailbox ? [s.passItOn] : [link]),
       '',
-      ...(expiresAt ? [] : [m.validity, '']),
+      // The link's own life, said whenever there is a link. It used to be
+      // suppressed because one date covered both doors; they now expire on
+      // different days, and the shorter one is the one worth saying next to
+      // the thing it applies to.
+      ...(borrowedMailbox ? [] : [m.validity, '']),
       ...(loginName
         ? ['', s.loginNameLead, loginName, '', s.loginNameHint]
         : []),

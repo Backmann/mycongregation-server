@@ -14,6 +14,7 @@ describe('AuthService.redeemInvite — the code says who this is', () => {
   const build = (user: unknown) => {
     const findByInviteCode = jest.fn(async () => user);
     const completeInvite = jest.fn(async () => undefined);
+    const touchLastLogin = jest.fn(async () => undefined);
     const issued: unknown[] = [];
     const service = Object.create(AuthService.prototype) as AuthService;
     Object.assign(service, {
@@ -23,6 +24,9 @@ describe('AuthService.redeemInvite — the code says who this is', () => {
         // Setting a password by code ends the account's other sessions — the
         // lost phone must not keep the way in it already had.
         revokeAllSessions: jest.fn(),
+        // Finishing an invitation IS an entry, and the list of who has never
+        // signed in is how an elder finds people who are stuck.
+        touchLastLogin,
       },
       config: { get: () => 4 },
       logger: { warn: jest.fn(), log: jest.fn() },
@@ -33,7 +37,13 @@ describe('AuthService.redeemInvite — the code says who this is', () => {
         return { accessToken: 'a', refreshToken: 'r' };
       },
     });
-    return { service, findByInviteCode, completeInvite, issued };
+    return {
+      service,
+      findByInviteCode,
+      completeInvite,
+      touchLastLogin,
+      issued,
+    };
   };
 
   const waiting = (over: Record<string, unknown> = {}) => ({
@@ -52,6 +62,17 @@ describe('AuthService.redeemInvite — the code says who this is', () => {
 
     expect(completeInvite).toHaveBeenCalled();
     expect(issued).toHaveLength(1);
+  });
+
+  it('records the entry, so «never signed in» stays true', async () => {
+    // Without this, somebody who walked in by code looks exactly like
+    // somebody still standing at the door — in the one list built for
+    // telling those two apart.
+    const { service, touchLastLogin } = build(waiting());
+
+    await service.redeemInvite('k7qm-3xpd', 'correct horse battery');
+
+    expect(touchLastLogin).toHaveBeenCalledWith('u1');
   });
 
   it('forgives the case and the hyphen the reader typed', async () => {

@@ -97,6 +97,27 @@ describe('UsersService.sendInvitation', () => {
     expect(stored).not.toContain(issued.code.replace('-', ''));
   });
 
+  it('gives the code a month and the link three days', async () => {
+    // They were one number because they were issued together, and that is
+    // what left five people with a dead code: the letter was opened on the
+    // fourth day. The link keeps the short life — it signs its clicker
+    // straight in.
+    await buildWith({ id: 'u1', email: 'vera@gmail.com', uiLanguage: 'ru' });
+    const before = Date.now();
+
+    const issued = await service.sendInvitation('u1');
+
+    const days = (d: Date) => Math.round((d.getTime() - before) / 86400000);
+    expect(days(issued.expiresAt)).toBe(30);
+
+    const linkWrite = repo.update.mock.calls.find(
+      (c) => (c[1] as { resetTokenExpiresAt?: Date }).resetTokenExpiresAt,
+    );
+    const linkExpiry = (linkWrite?.[1] as { resetTokenExpiresAt: Date })
+      .resetTokenExpiresAt;
+    expect(days(linkExpiry)).toBe(3);
+  });
+
   it('closes the code as well when the password is set by link', async () => {
     // An invitation opens two doors for ONE purpose. Whichever is walked
     // through, both must shut: a letter with a live code can sit for three

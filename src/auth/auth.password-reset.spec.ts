@@ -33,6 +33,7 @@ describe('AuthService — password reset', () => {
     revokeAllSessions: jest.Mock;
     findByValidResetToken: jest.Mock;
     completePasswordReset: jest.Mock;
+    touchLastLogin: jest.Mock;
   };
   let mail: { sendPasswordReset: jest.Mock };
 
@@ -56,6 +57,8 @@ describe('AuthService — password reset', () => {
       revokeAllSessions: jest.fn().mockResolvedValue(undefined),
       findByValidResetToken: jest.fn(),
       completePasswordReset: jest.fn().mockResolvedValue(undefined),
+      // Setting a password by link ends with a session — that is an entry.
+      touchLastLogin: jest.fn().mockResolvedValue(undefined),
     };
     mail = { sendPasswordReset: jest.fn().mockResolvedValue(undefined) };
 

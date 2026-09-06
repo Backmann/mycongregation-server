@@ -331,6 +331,11 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(password, rounds);
     await this.usersService.completePasswordReset(user.id, passwordHash);
     await this.revokeAllSessions(user.id);
+    // This IS an entry — the link hands out a session, the person lands on the
+    // home screen. Leaving the stamp to the sign-in form alone made
+    // «никогда не входил» and «вошёл по ссылке» look identical in the one list
+    // an elder has for finding people who are stuck.
+    await this.usersService.touchLastLogin(user.id);
     return this.issueTokens(user);
   }
 
@@ -417,6 +422,9 @@ export class AuthService {
     // password change — this is the way back in for a lost phone, and the
     // phone must not keep its own way in.
     await this.revokeAllSessions(user.id);
+    // Same reason as the link path: the code ends inside the app, so the
+    // account has been entered and the list must say so.
+    await this.usersService.touchLastLogin(user.id);
     this.logger.log(`invite redeemed by ${user.loginName ?? user.id}`);
     return this.issueTokens(user);
   }
