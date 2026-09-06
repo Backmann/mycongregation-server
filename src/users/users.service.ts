@@ -1159,7 +1159,19 @@ export class UsersService {
    * way in, which is why this returns it rather than logging it: a live
    * credential in a log file is a credential lying about in the open.
    */
-  async sendInvitation(userId: string): Promise<InvitationIssued> {
+  async sendInvitation(
+    userId: string,
+    opts: { post?: boolean } = {},
+  ): Promise<InvitationIssued> {
+    // Whether a letter goes out at all. It always did, and that surprised the
+    // person issuing the code: he pressed «выдать код», the letter was already
+    // gone by the time the code appeared on his screen, and the dialog then
+    // offered to write one — as if nothing had been sent. Now the choice is
+    // made before the code exists, by the person making it.
+    //
+    // Default true: the letter is the better path when there is an address,
+    // and every caller that does not care should keep getting it.
+    const post = opts.post ?? true;
     const now = Date.now();
     // Two doors, two lives. See the constants for why they stopped being the
     // same number: the link signs its clicker in and must not sit around; the
@@ -1199,10 +1211,12 @@ export class UsersService {
         })
       : null;
 
-    const address = user?.email ?? null;
+    const address = post ? (user?.email ?? null) : null;
     if (!address) {
-      // Nowhere to send is not a failure. It is the ordinary case for most of
-      // this congregation, and the code above is what they will be given.
+      // Nowhere to send — or nobody asked us to. The first is the ordinary
+      // case for most of this congregation; the second is an elder who will
+      // read the code out himself. Either way the code above is the answer,
+      // and `sentTo: null` says plainly that no letter went anywhere.
       return issued;
     }
 

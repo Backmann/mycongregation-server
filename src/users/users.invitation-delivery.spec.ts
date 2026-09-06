@@ -104,6 +104,30 @@ describe('UsersService.sendInvitation', () => {
     expect(stored).not.toContain(issued.code.replace('-', ''));
   });
 
+  it('sends nothing when the elder chose to hand the code over himself', async () => {
+    // The surprise this exists to remove: pressing «выдать код» posted a
+    // letter before the code was even on screen, and then offered to write
+    // one. The choice is made first now, and «sentTo: null» is how the dialog
+    // knows not to pretend otherwise.
+    await buildWith({ id: 'u1', email: 'vera@gmail.com', uiLanguage: 'ru' });
+
+    const issued = await service.sendInvitation('u1', { post: false });
+
+    expect(sendInvite).not.toHaveBeenCalled();
+    expect(issued.sentTo).toBeNull();
+    expect(issued.code).toMatch(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+  });
+
+  it('still posts when nobody said otherwise', async () => {
+    // Every caller that does not care keeps the better path.
+    await buildWith({ id: 'u1', email: 'vera@gmail.com', uiLanguage: 'ru' });
+
+    const issued = await service.sendInvitation('u1');
+
+    expect(sendInvite).toHaveBeenCalled();
+    expect(issued.sentTo).toBe('vera@gmail.com');
+  });
+
   it('gives the code a month and the link three days', async () => {
     // They were one number because they were issued together, and that is
     // what left five people with a dead code: the letter was opened on the

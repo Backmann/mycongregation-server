@@ -1087,7 +1087,11 @@ export class PublishersService {
    * answer carries it: an elder who cannot see what he has just issued would
    * have to ask for another, and kill this one too.
    */
-  async resendInvite(tenantId: string, id: string): Promise<AccessSummary> {
+  async resendInvite(
+    tenantId: string,
+    id: string,
+    opts: { post?: boolean } = {},
+  ): Promise<AccessSummary> {
     const publisher = await this.findOne(tenantId, id);
     if (!publisher.userId) {
       throw new NotFoundException('This person has no app access');
@@ -1096,7 +1100,9 @@ export class PublishersService {
       publisher.userId,
       tenantId,
     );
-    const issued = await this.usersService.sendInvitation(user.id);
+    const issued = await this.usersService.sendInvitation(user.id, {
+      post: opts.post,
+    });
     return {
       ...(await this.getAccess(tenantId, id)),
       inviteCode: issued.code,

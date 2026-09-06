@@ -27,6 +27,7 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { OverrideStatusDto } from './dto/override-status.dto';
 import { GrantAccessDto } from './dto/grant-access.dto';
 import { UpdateAccessDto } from './dto/update-access.dto';
+import { ResendInviteDto } from './dto/resend-invite.dto';
 import { publicRosterPage } from './publisher-privacy';
 import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
@@ -246,8 +247,11 @@ export class PublishersController {
   resendInvite(
     @TenantId() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ResendInviteDto,
   ) {
-    return this.publishersService.resendInvite(tenantId, id);
+    return this.publishersService.resendInvite(tenantId, id, {
+      post: dto.post,
+    });
   }
 
   /** Call back an invitation that has not been used. Admin only, like the rest. */
