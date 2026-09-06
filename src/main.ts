@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { httpRefusalLogger } from './common/http-refusal-logger';
+import { isTrustedHop } from './common/client-ip';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: false });
@@ -89,6 +90,24 @@ async function bootstrap() {
 
   // Needed so the auth endpoints can read the httpOnly refresh cookie.
   app.use(cookieParser());
+
+  /**
+   * Believe the reverse proxy about who the caller is — and nobody else.
+   *
+   * Without this Express reports the socket address, which is the nginx
+   * container: one and the same for the whole congregation. Every limit keyed
+   * on the caller's address was therefore a limit on the congregation as a
+   * whole, and six sign-ins in a quarter of an hour locked out the seventh
+   * person.
+   *
+   * The predicate form rather than a hop count: a number would have to be kept
+   * in step with however many proxies happen to stand in front today, and
+   * being wrong by one is silent in both directions — too low and we keep
+   * reading the proxy, too high and a caller can name themselves. Trusting
+   * exactly the private hops says the true thing: what our own infrastructure
+   * forwards may be believed, what came from outside may not.
+   */
+  app.getHttpAdapter().getInstance().set('trust proxy', isTrustedHop);
 
   // Every refused request leaves a line. Registered here — after the cookie
   // parser, before the routes — so it sees the final status of everything,

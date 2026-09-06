@@ -36,6 +36,7 @@ import {
   wantsCookieAuth,
 } from './refresh-cookie';
 import { CLIENT_HEADER, readClient } from './read-client';
+import { clientIp } from '../common/client-ip';
 
 @Controller('auth')
 export class AuthController {
@@ -89,7 +90,7 @@ export class AuthController {
   ) {
     const result = await this.authService.login(
       dto,
-      req.ip ?? 'unknown',
+      clientIp(req),
       readClient(req.headers['user-agent'], req.headers[CLIENT_HEADER]),
     );
     return this.deliverTokens(req, res, result);
@@ -118,7 +119,7 @@ export class AuthController {
   forgotPassword(@Body() dto: ForgotPasswordDto, @Req() req: Request) {
     return this.authService.forgotPassword(
       dto.login ?? dto.email ?? '',
-      req.ip ?? 'unknown',
+      clientIp(req),
     );
   }
 
@@ -163,11 +164,7 @@ export class AuthController {
   redeemInvite(@Body() dto: RedeemInviteDto, @Req() req: Request) {
     // dto.email is deliberately not passed on: the code identifies the
     // account by itself, and older app builds still send an address.
-    return this.authService.redeemInvite(
-      dto.code,
-      dto.password,
-      req.ip ?? 'unknown',
-    );
+    return this.authService.redeemInvite(dto.code, dto.password, clientIp(req));
   }
 
   /**

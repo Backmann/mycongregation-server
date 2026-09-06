@@ -912,6 +912,14 @@ export class UsersService {
         passwordHash,
         resetTokenHash: null,
         resetTokenExpiresAt: null,
+        // The invitation code dies here too. An invitation issues BOTH doors
+        // at once for one purpose; walking through the link and leaving the
+        // code alive left a second way in for up to three days, in a letter
+        // that may be sitting in a mailbox somebody else can read. The code
+        // path already closes both — see completeInvite — and these two are
+        // the same act arriving by different routes.
+        inviteCodeHash: null,
+        inviteCodeExpiresAt: null,
       },
     );
   }

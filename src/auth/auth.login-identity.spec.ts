@@ -103,4 +103,68 @@ describe('AuthService.login — name or address', () => {
 
     expect(attempts.has('login:id:sidorova.vera')).toBe(false);
   });
+
+  /**
+   * The limits, and which of them belongs to whom.
+   *
+   * A congregation reaches this server from ONE address — the hall's wifi, and
+   * behind Cloudflare a whole region can look alike. Counting people there the
+   * way we count tries at one account is what turned six ordinary sign-ins
+   * into a locked door for the seventh person.
+   */
+  describe('one address, many people', () => {
+    const manyFrom = async (address: string, howMany: number) => {
+      const { service } = build({ user: alive, shared: false });
+      for (let i = 0; i < howMany; i++) {
+        await service.login(dto({ login: `person.${i}` }), address);
+      }
+      return service;
+    };
+
+    it('lets a hall full of people sign in from the same address', async () => {
+      const service = await manyFrom('203.0.113.7', 12);
+
+      // The thirteenth is a person, not an attack.
+      await expect(
+        service.login(dto({ login: 'sidorova.vera' }), '203.0.113.7'),
+      ).resolves.toBeDefined();
+    });
+
+    it('still stops somebody working through one account', async () => {
+      const { service } = build({ user: alive, shared: false });
+      for (let i = 0; i < 6; i++) {
+        await service
+          .login(dto({ login: 'sidorova.vera', password: 'wrong' }), '9.9.9.9')
+          .catch(() => undefined);
+      }
+
+      // Even the right password now: the account itself is closed for a while.
+      const refusal = await service
+        .login(dto({ login: 'sidorova.vera' }), '9.9.9.9')
+        .catch(
+          (e: { getStatus?: () => number; getResponse: () => unknown }) => ({
+            status: e.getStatus?.(),
+            body: e.getResponse(),
+          }),
+        );
+
+      expect(refusal).toEqual({ status: 429, body: { code: 'RATE_LIMITED' } });
+    });
+
+    it('answers a refusal with a code the app can put into words', async () => {
+      // It used to be an English sentence written for a developer, shown as
+      // it stood on a German screen.
+      const { service } = build({ user: alive, shared: false });
+      for (let i = 0; i < 6; i++) {
+        await service
+          .login(dto({ login: 'one.name', password: 'wrong' }), '9.9.9.8')
+          .catch(() => undefined);
+      }
+      const body = await service
+        .login(dto({ login: 'one.name' }), '9.9.9.8')
+        .catch((e: { getResponse: () => unknown }) => e.getResponse());
+
+      expect(body).toEqual({ code: 'RATE_LIMITED' });
+    });
+  });
 });

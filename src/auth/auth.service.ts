@@ -153,13 +153,33 @@ export class AuthService {
     if (identifier === '') {
       throw new UnauthorizedException('Invalid credentials');
     }
-    // 6 attempts / 15 min, by identifier and by IP.
-    if (
-      !this.allowLogin(`login:id:${identifier}`, 6, FIFTEEN_MIN) ||
-      !this.allowLogin(`login:ip:${ip}`, 6, FIFTEEN_MIN)
-    ) {
+    // Two nets of very different sizes, and the difference is the point.
+    //
+    // The ACCOUNT is what an attacker aims at, so the tight limit belongs
+    // there: six tries at one name, and guessing a password stops being
+    // worth anybody's time.
+    //
+    // The ADDRESS is a building. A congregation shares the hall's wifi, and
+    // whole households share one line; keeping six there meant that six
+    // people signing in — successfully, since every attempt is counted —
+    // locked out the seventh. It is a net against somebody working through a
+    // stolen list of accounts, not against a family, so it is set where only
+    // that shows: sixty in a quarter of an hour.
+    if (!this.allowLogin(`login:id:${identifier}`, 6, FIFTEEN_MIN)) {
+      this.logger.warn(`login refused for ${identifier}: too many tries`);
       throw new HttpException(
-        'Too many login attempts. Please try again later.',
+        { code: 'RATE_LIMITED' },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    if (!this.allowLogin(`login:ip:${ip}`, 60, FIFTEEN_MIN)) {
+      // The address is written out because this is the one refusal that used
+      // to be impossible to understand from outside: it names somebody who
+      // did nothing wrong. Seeing a real address here — rather than the same
+      // 172.x on every line — is also how we know the proxy is being read.
+      this.logger.warn(`login refused for ${identifier}: too many from ${ip}`);
+      throw new HttpException(
+        { code: 'RATE_LIMITED' },
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
@@ -244,10 +264,15 @@ export class AuthService {
   ): Promise<{ ok: true }> {
     const identifier = rawIdentifier.trim().toLowerCase();
     const HOUR = 60 * 60 * 1000;
+    // Three letters an hour to one account is the limit that matters — it is
+    // what stops a mailbox being buried. The per-address net is only against
+    // somebody walking a list, and it counts a whole building, so ten was low
+    // enough to silence a congregation on the evening invitations went out.
     if (
-      !this.allowReset(`fp:ip:${ip}`, 10, HOUR) ||
+      !this.allowReset(`fp:ip:${ip}`, 30, HOUR) ||
       !this.allowReset(`fp:id:${identifier}`, 3, HOUR)
     ) {
+      this.logger.warn(`password reset not sent for ${identifier}: too many`);
       return { ok: true };
     }
 
@@ -349,9 +374,15 @@ export class AuthService {
    */
   async redeemInvite(code: string, password: string, ip = 'unknown') {
     const FIFTEEN_MIN = 15 * 60 * 1000;
-    if (!this.allowLogin(`invite:ip:${ip}`, 10, FIFTEEN_MIN)) {
+    // No account can be named by a wrong code, so the address is the only
+    // thing to count here — which makes the size of this net the difference
+    // between guessing being useless and an elder being unable to help the
+    // third person he sits down with. Thirty tries against a code drawn from
+    // 32^8 possibilities is not a way in.
+    if (!this.allowLogin(`invite:ip:${ip}`, 30, FIFTEEN_MIN)) {
+      this.logger.warn(`invite refused: too many attempts from ${ip}`);
       throw new HttpException(
-        'Too many attempts. Please try again later.',
+        { code: 'RATE_LIMITED' },
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }

@@ -96,4 +96,24 @@ describe('UsersService.sendInvitation', () => {
     expect(stored).toHaveLength(64);
     expect(stored).not.toContain(issued.code.replace('-', ''));
   });
+
+  it('closes the code as well when the password is set by link', async () => {
+    // An invitation opens two doors for ONE purpose. Whichever is walked
+    // through, both must shut: a letter with a live code can sit for three
+    // days in a mailbox somebody else can open.
+    await buildWith({ id: 'u1', email: 'vera@gmail.com', uiLanguage: 'ru' });
+
+    await service.completePasswordReset('u1', 'new-hash');
+
+    const written = repo.update.mock.calls.at(-1)?.[1] as Record<
+      string,
+      unknown
+    >;
+    expect(written).toMatchObject({
+      passwordHash: 'new-hash',
+      resetTokenHash: null,
+      inviteCodeHash: null,
+      inviteCodeExpiresAt: null,
+    });
+  });
 });
