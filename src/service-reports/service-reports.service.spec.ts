@@ -113,6 +113,9 @@ describe('ServiceReportsService', () => {
     isActiveAuxiliaryPioneer: jest.Mock;
     activePublisherIdsForMonth: jest.Mock;
     auxiliaryMonthsForPublisher: jest.Mock;
+    create: jest.Mock;
+    remove: jest.Mock;
+    canManage: jest.Mock;
   };
 
   beforeEach(() => {
@@ -170,6 +173,9 @@ describe('ServiceReportsService', () => {
       isActiveAuxiliaryPioneer: jest.fn().mockResolvedValue(false),
       activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()),
       auxiliaryMonthsForPublisher: jest.fn().mockResolvedValue(new Set()),
+      create: jest.fn().mockResolvedValue({ id: 'aux-new' }),
+      remove: jest.fn().mockResolvedValue(undefined),
+      canManage: jest.fn().mockResolvedValue(true),
     };
     service = new ServiceReportsService(
       reportsRepo,
@@ -502,6 +508,146 @@ describe('ServiceReportsService', () => {
       expect(reportsRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({ hoursReported: 15, servedThisMonth: null }),
       );
+    });
+
+    // =======================================================
+    // The mark «he was an auxiliary pioneer that month», set while filling a
+    // paper card. The month and its hours travel together in ONE request,
+    // because a month of pioneer service with no report in it is a figure the
+    // branch would be given wrongly.
+    // =======================================================
+    describe('auxiliaryPioneerThisMonth (filling a paper card)', () => {
+      it('writes the month of service and then takes the hours', async () => {
+        publishersRepo.findOne.mockResolvedValue(
+          makePublisher({ id: 'pub-self', pioneerType: PioneerType.NONE }),
+        );
+        reportsRepo.save.mockResolvedValue(makeReport());
+
+        await service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
+          reportMonth: '2026-04',
+          hoursReported: 32,
+          bibleStudies: 0,
+          auxiliaryPioneerThisMonth: true,
+        });
+
+        expect(auxiliaryPioneersService.create).toHaveBeenCalledWith(
+          'cong-1',
+          expect.objectContaining({ id: 'user-self' }),
+          expect.objectContaining({
+            publisherId: 'pub-self',
+            startMonth: '2026-04-01',
+            endMonth: '2026-04-01',
+          }),
+        );
+        expect(reportsRepo.create).toHaveBeenCalledWith(
+          expect.objectContaining({ hoursReported: 32, servedThisMonth: null }),
+        );
+      });
+
+      it('writes nothing when a spell already covers the month', async () => {
+        publishersRepo.findOne.mockResolvedValue(
+          makePublisher({ id: 'pub-self', pioneerType: PioneerType.NONE }),
+        );
+        auxiliaryPioneersService.isActiveAuxiliaryPioneer.mockResolvedValue(
+          true,
+        );
+        reportsRepo.save.mockResolvedValue(makeReport());
+
+        await service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
+          reportMonth: '2026-04',
+          hoursReported: 32,
+          bibleStudies: 0,
+          auxiliaryPioneerThisMonth: true,
+        });
+
+        expect(auxiliaryPioneersService.create).not.toHaveBeenCalled();
+      });
+
+      it('leaves no month of service behind when the report is refused', async () => {
+        publishersRepo.findOne.mockResolvedValue(
+          makePublisher({ id: 'pub-self', pioneerType: PioneerType.NONE }),
+        );
+        const clash: any = new Error('duplicate key');
+        clash.code = '23505';
+        reportsRepo.save.mockRejectedValue(clash);
+        (reportsRepo.findOne as jest.Mock).mockResolvedValue(
+          makeReport({ id: 'report-existing' }),
+        );
+
+        await expect(
+          service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
+            reportMonth: '2026-04',
+            hoursReported: 32,
+            bibleStudies: 0,
+            auxiliaryPioneerThisMonth: true,
+          }),
+        ).rejects.toThrow();
+
+        expect(auxiliaryPioneersService.remove).toHaveBeenCalledWith(
+          'cong-1',
+          expect.objectContaining({ id: 'user-self' }),
+          'aux-new',
+        );
+      });
+
+      it('leaves no month of service behind when the form is the wrong shape', async () => {
+        publishersRepo.findOne.mockResolvedValue(
+          makePublisher({ id: 'pub-self', pioneerType: PioneerType.NONE }),
+        );
+
+        await expect(
+          service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
+            reportMonth: '2026-04',
+            // The mark says pioneer, and a pioneer owes hours — this asks the
+            // plain question instead, so nothing may be written at all.
+            servedThisMonth: true,
+            bibleStudies: 0,
+            auxiliaryPioneerThisMonth: true,
+          }),
+        ).rejects.toThrow();
+
+        expect(auxiliaryPioneersService.remove).toHaveBeenCalledWith(
+          'cong-1',
+          expect.objectContaining({ id: 'user-self' }),
+          'aux-new',
+        );
+        expect(reportsRepo.create).not.toHaveBeenCalled();
+      });
+
+      it('a refusal to write the month stops the report as well', async () => {
+        publishersRepo.findOne.mockResolvedValue(
+          makePublisher({ id: 'pub-self', pioneerType: PioneerType.NONE }),
+        );
+        auxiliaryPioneersService.create.mockRejectedValue(
+          new ForbiddenException('not a manager'),
+        );
+
+        await expect(
+          service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
+            reportMonth: '2026-04',
+            hoursReported: 32,
+            bibleStudies: 0,
+            auxiliaryPioneerThisMonth: true,
+          }),
+        ).rejects.toThrow(ForbiddenException);
+
+        expect(reportsRepo.create).not.toHaveBeenCalled();
+      });
+
+      it('without the mark nothing is written, and the plain question stands', async () => {
+        publishersRepo.findOne.mockResolvedValue(
+          makePublisher({ id: 'pub-self', pioneerType: PioneerType.NONE }),
+        );
+        reportsRepo.save.mockResolvedValue(makeReport());
+
+        await service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
+          reportMonth: '2026-04',
+          servedThisMonth: true,
+          bibleStudies: 0,
+        });
+
+        expect(auxiliaryPioneersService.create).not.toHaveBeenCalled();
+      });
     });
 
     it('an active auxiliary pioneer is rejected if they send the non-hours form', async () => {
@@ -3151,6 +3297,7 @@ describe('history and closed months', () => {
       {
         activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()),
         monthsServedBy: jest.fn().mockResolvedValue(new Set()),
+        canManage: jest.fn().mockResolvedValue(true),
       },
     );
     jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({
@@ -3194,6 +3341,7 @@ describe('publisher history — which form each month wants', () => {
     publisher: Record<string, unknown>,
     auxMonths: string[],
     spells: Record<string, unknown>[] = [],
+    canMarkAuxiliary = true,
   ) => {
     const svc = new (ServiceReportsService as any)(
       { find: jest.fn().mockResolvedValue([]), findOne: jest.fn() },
@@ -3211,6 +3359,7 @@ describe('publisher history — which form each month wants', () => {
       {
         activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()),
         monthsServedBy: jest.fn().mockResolvedValue(new Set(auxMonths)),
+        canManage: jest.fn().mockResolvedValue(canMarkAuxiliary),
       },
     );
     jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({

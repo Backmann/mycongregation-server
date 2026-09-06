@@ -38,6 +38,24 @@ export class SubmitReportDto {
   @Min(0)
   hoursReported?: number;
 
+  /**
+   * «В этом месяце он был подсобным пионером» — set only while filling a paper
+   * S-21 card into the app.
+   *
+   * The hours form is refused for a month with no auxiliary spell behind it,
+   * and the month a paper card tells you about is exactly the one the app has
+   * never heard of. Sending the two apart — first the spell, then the hours —
+   * would let the line break between them and leave a month of pioneer service
+   * with no report in it. So the two arrive together, and the server writes
+   * the spell itself.
+   *
+   * Only those who may manage auxiliary pioneers may set it (the service
+   * refuses otherwise); it is ignored for a month already covered by a spell.
+   */
+  @IsOptional()
+  @IsBoolean()
+  auxiliaryPioneerThisMonth?: boolean;
+
   @IsInt()
   @Min(0)
   bibleStudies!: number;

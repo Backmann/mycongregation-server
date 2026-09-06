@@ -91,12 +91,21 @@ export class AuxiliaryPioneersService {
     private readonly clock: CongregationClock,
   ) {}
 
-  /** Managers: admins, body coordinator, secretary, service overseer. */
-  async assertCanManage(
+  /**
+   * Managers: admins, body coordinator, secretary, service overseer — as a
+   * plain answer, without refusing.
+   *
+   * A screen that offers what the server will refuse is worse than a screen
+   * that offers nothing: the history fill is open to a group overseer as well,
+   * and marking a month of auxiliary service is not. He is shown the mark
+   * greyed out with a word about who may set it, and for that the question has
+   * to be askable without throwing.
+   */
+  async canManage(
     congregationId: string,
     user: AuthenticatedUser,
-  ): Promise<void> {
-    if (user.role === UserRole.ADMIN) return;
+  ): Promise<boolean> {
+    if (user.role === UserRole.ADMIN) return true;
     const holds = await this.responsibilityRepo.count({
       where: {
         congregationId,
@@ -104,12 +113,19 @@ export class AuxiliaryPioneersService {
         type: In(MANAGER_RESPONSIBILITIES),
       },
     });
-    if (holds === 0) {
-      throw new ForbiddenException(
-        'Only admins, the body coordinator, the secretary or the service ' +
-          'overseer may manage auxiliary pioneers.',
-      );
-    }
+    return holds > 0;
+  }
+
+  /** Managers: admins, body coordinator, secretary, service overseer. */
+  async assertCanManage(
+    congregationId: string,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    if (await this.canManage(congregationId, user)) return;
+    throw new ForbiddenException(
+      'Only admins, the body coordinator, the secretary or the service ' +
+        'overseer may manage auxiliary pioneers.',
+    );
   }
 
   private normalizeMonth(iso: string): string {

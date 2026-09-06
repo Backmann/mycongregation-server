@@ -160,6 +160,14 @@ export interface PublisherHistoryResponse {
   };
   /** The month this person's history begins at, or null when nothing says. */
   startsFrom: string | null;
+  /**
+   * May the reader mark a month as auxiliary-pioneer service while filling.
+   *
+   * Filling a card is open to a group overseer as well; appointing auxiliary
+   * pioneers is not. Rather than let him meet a refusal at the end of a column
+   * of typing, the mark is shown greyed with a word about who may set it.
+   */
+  canMarkAuxiliary: boolean;
   timeline: PublisherHistoryEntry[];
 }
 
@@ -423,12 +431,32 @@ export class ServiceReportsService {
     }
     // The hours form applies to actual pioneers AND to anyone serving as an
     // auxiliary pioneer in this report month (they report hours that month).
-    const isAuxThisMonth =
+    let isAuxThisMonth =
       await this.auxiliaryPioneersService.isActiveAuxiliaryPioneer(
         tenantId,
         publisher.id,
         reportMonth,
       );
+
+    // The paper card says he pioneered that April; the app has never heard of
+    // it. Writing the spell here — in the same request as the hours — is what
+    // keeps the two from parting company halfway.
+    //
+    // Already covered means nothing to do: a second row for a month a spell
+    // already holds would say the same thing twice, and every reader answers
+    // by membership, so it would change no figure and only litter the journal.
+    let createdAuxSpellId: string | null = null;
+    if (dto.auxiliaryPioneerThisMonth === true && !isAuxThisMonth) {
+      // create() asks for the right to manage auxiliary pioneers and refuses
+      // an unbaptized publisher — both are its rules, kept in its own house.
+      const spell = await this.auxiliaryPioneersService.create(tenantId, user, {
+        publisherId: publisher.id,
+        startMonth: reportMonth,
+        endMonth: reportMonth,
+      });
+      createdAuxSpellId = spell.id;
+      isAuxThisMonth = true;
+    }
     // Which form THIS month wants, asked of the spells.
     //
     // This is not a display: the server REFUSES the wrong shape. A sister who
@@ -444,7 +472,12 @@ export class ServiceReportsService {
         reportMonth,
       ) !== PioneerType.NONE || isAuxThisMonth;
 
-    this.validateFormVariant(dto, isPioneer);
+    try {
+      this.validateFormVariant(dto, isPioneer);
+    } catch (err) {
+      await this.undoAuxSpell(tenantId, user, createdAuxSpellId);
+      throw err;
+    }
 
     const report = this.reportsRepo.create({
       congregationId: tenantId,
@@ -464,7 +497,10 @@ export class ServiceReportsService {
       saved = await this.reportsRepo.save(report);
     } catch (err: any) {
       // PostgreSQL unique_violation — one report per publisher per month.
-      if (err?.code !== '23505') throw err;
+      if (err?.code !== '23505') {
+        await this.undoAuxSpell(tenantId, user, createdAuxSpellId);
+        throw err;
+      }
 
       // WHICH row is in the way. Answering «already submitted» and stopping
       // there is what left a publisher staring at a month his own list and the
@@ -504,6 +540,7 @@ export class ServiceReportsService {
       }
 
       if (existing) {
+        await this.undoAuxSpell(tenantId, user, createdAuxSpellId);
         throw new ConflictException({
           code: 'REPORT_EXISTS',
           reportId: existing.id,
@@ -521,6 +558,7 @@ export class ServiceReportsService {
           `(login card in ${tenantId}) but no such report is visible in this ` +
           'congregation — the row belongs to another congregation_id',
       );
+      await this.undoAuxSpell(tenantId, user, createdAuxSpellId);
       throw new ConflictException({
         code: 'REPORT_EXISTS_ELSEWHERE',
         reportMonth,
@@ -532,6 +570,38 @@ export class ServiceReportsService {
     // Recompute target publisher's status (no-op if manually overridden).
     await this.publishersService.recomputeStatus(tenantId, publisher.id);
     return saved;
+  }
+
+  /**
+   * Take back a month of auxiliary service written a moment ago, because the
+   * report it was written for did not go in.
+   *
+   * There is no transaction around the two writes: the spell belongs to
+   * another service with its own journal, and threading a manager through both
+   * would change code that has nothing to do with filling a card. What must
+   * not happen is the half-state — a month of pioneer service with no report
+   * in it, which the monthly figures for the branch would count as a pioneer
+   * who handed nothing in. So the spell is undone by hand at each point where
+   * the report is refused. The journal keeps both lines, the writing and the
+   * taking back; that is the truth of what happened.
+   *
+   * A failure to undo must not replace the error the caller needs to see — it
+   * is written to the log and swallowed.
+   */
+  private async undoAuxSpell(
+    tenantId: string,
+    user: AuthenticatedUser,
+    spellId: string | null,
+  ): Promise<void> {
+    if (!spellId) return;
+    try {
+      await this.auxiliaryPioneersService.remove(tenantId, user, spellId);
+    } catch (err) {
+      this.logger.error(
+        `auxiliary-pioneer month ${spellId} was written for a report that was ` +
+          `refused, and could not be taken back: ${String(err)}`,
+      );
+    }
   }
 
   /**
@@ -1491,6 +1561,15 @@ export class ServiceReportsService {
       },
       /** First month this person is counted from; earlier ones read as blank. */
       startsFrom: historyFloor,
+      /**
+       * May THIS reader mark a month as auxiliary-pioneer service while
+       * filling. Filling is open to a group overseer; marking is not, and the
+       * screen shows him the mark greyed rather than letting him meet a refusal.
+       */
+      canMarkAuxiliary: await this.auxiliaryPioneersService.canManage(
+        tenantId,
+        user,
+      ),
       timeline,
     };
   }
