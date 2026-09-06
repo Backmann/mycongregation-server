@@ -11,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { UsersService } from './users.service';
 import { User } from '../entities/user.entity';
 import { RefreshSession } from '../entities/refresh-session.entity';
+import { Congregation } from '../entities/congregation.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -104,6 +105,12 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
           // Setting a password now ends the account's open sessions — one
           // implementation for both the self-service and the elder's path.
           useValue: { update: jest.fn().mockResolvedValue({ affected: 0 }) },
+        },
+        {
+          // Read for one line of the invitation letter: whose congregation it
+          // comes from.
+          provide: getRepositoryToken(Congregation),
+          useValue: { findOne: jest.fn().mockResolvedValue({ name: 'Хамм' }) },
         },
         {
           provide: MailService,
@@ -825,6 +832,12 @@ describe('UsersService.linkPublisher', () => {
         {
           provide: getRepositoryToken(RefreshSession),
           useValue: { update: jest.fn().mockResolvedValue({ affected: 0 }) },
+        },
+        {
+          // Read for one line of the invitation letter: whose congregation it
+          // comes from.
+          provide: getRepositoryToken(Congregation),
+          useValue: { findOne: jest.fn().mockResolvedValue({ name: 'Хамм' }) },
         },
         {
           provide: MailService,

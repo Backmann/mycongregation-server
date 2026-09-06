@@ -42,6 +42,15 @@ interface LetterExtras {
    * code is for, so whoever opens it knows to pass it on.
    */
   borrowedMailbox?: boolean;
+  /**
+   * Which congregation this letter comes from.
+   *
+   * Without it the letter arrives from an unfamiliar domain, calls itself
+   * «приложение вашего собрания», and asks the reader to set a password. A
+   * careful person is right to distrust that, and careful people are exactly
+   * the ones who will not click.
+   */
+  congregationName?: string | null;
 }
 
 interface Strings {
@@ -91,6 +100,12 @@ interface Strings {
   codeHint: string;
   codeValid: string;
   orBrowser: string;
+  /** Month names in the genitive, as a date is read aloud: «6 октября». */
+  months: string[];
+  /** Whose congregation this is — said before anything is asked of the reader. */
+  fromCongregation: string;
+  /** Where to turn when the code does not work. */
+  askWhoInvited: string;
 }
 
 const STRINGS: Record<Lang, Strings> = {
@@ -105,13 +120,30 @@ const STRINGS: Record<Lang, Strings> = {
     newestLetter:
       'Если писем с приглашением несколько — откройте самое новое: код из прежних уже не работает.',
     installLead:
-      'Откройте эту страницу на телефоне — там будет то, что нужно для вашего устройства:',
+      'Приложения ещё нет? Откройте эту страницу на телефоне — там всё для вашего устройства:',
     installButton: 'Как установить',
-    codeLead: 'Затем откройте приложение и введите этот код:',
+    codeLead: 'Откройте приложение и введите этот код:',
     codeHint:
       'В приложении нажмите «Вас пригласили?» вверху экрана входа и введите код. Пароль вы придумаете сами на следующем шаге.',
     codeValid: 'Код действует до',
     orBrowser: 'Читаете с компьютера? Откройте ссылку:',
+    months: [
+      'января',
+      'февраля',
+      'марта',
+      'апреля',
+      'мая',
+      'июня',
+      'июля',
+      'августа',
+      'сентября',
+      'октября',
+      'ноября',
+      'декабря',
+    ],
+    fromCongregation: 'Собрание: {{name}}',
+    askWhoInvited:
+      'Если что-то не получается — обратитесь к тому, кто вас пригласил.',
     greeting: 'Здравствуйте!',
     linkHint: 'Если кнопка не открывается, скопируйте ссылку в браузер:',
     footerAuto: 'Это автоматическое сообщение, отвечать на него не нужно.',
@@ -171,13 +203,30 @@ const STRINGS: Record<Lang, Strings> = {
     newestLetter:
       'If several invitation letters arrived, open the newest — codes from earlier ones no longer work.',
     installLead:
-      'Open this page on your phone — it shows what your device needs:',
+      'No app yet? Open this page on your phone — it shows what your device needs:',
     installButton: 'How to install',
-    codeLead: 'Then open the app and enter this code:',
+    codeLead: 'Open the app and enter this code:',
     codeHint:
       'Tap «Were you invited?» at the top of the sign-in screen and enter the code. You will choose your own password on the next step.',
     codeValid: 'The code is valid until',
     orBrowser: 'Reading on a computer? Open the link:',
+    months: [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ],
+    fromCongregation: 'Congregation: {{name}}',
+    askWhoInvited:
+      'If something does not work, ask the person who invited you.',
     greeting: 'Hello!',
     linkHint: "If the button doesn't work, copy this link into your browser:",
     footerAuto: 'This is an automated message — no need to reply.',
@@ -237,13 +286,30 @@ const STRINGS: Record<Lang, Strings> = {
     newestLetter:
       'Sind mehrere Einladungen angekommen, öffnen Sie die neueste — Codes aus älteren gelten nicht mehr.',
     installLead:
-      'Öffnen Sie diese Seite auf Ihrem Telefon — dort steht, was Ihr Gerät braucht:',
+      'Noch keine App? Öffnen Sie diese Seite auf dem Telefon — dort steht, was Ihr Gerät braucht:',
     installButton: 'So wird installiert',
-    codeLead: 'Öffnen Sie dann die App und geben Sie diesen Code ein:',
+    codeLead: 'Öffnen Sie die App und geben Sie diesen Code ein:',
     codeHint:
       'Tippen Sie oben im Anmeldebildschirm auf «Wurden Sie eingeladen?» und geben Sie den Code ein. Ihr Passwort wählen Sie im nächsten Schritt selbst.',
     codeValid: 'Der Code ist gültig bis',
     orBrowser: 'Lesen Sie am Computer? Öffnen Sie den Link:',
+    months: [
+      'Januar',
+      'Februar',
+      'März',
+      'April',
+      'Mai',
+      'Juni',
+      'Juli',
+      'August',
+      'September',
+      'Oktober',
+      'November',
+      'Dezember',
+    ],
+    fromCongregation: 'Versammlung: {{name}}',
+    askWhoInvited:
+      'Wenn etwas nicht klappt, wende dich an die Person, die dich eingeladen hat.',
     greeting: 'Hallo!',
     linkHint:
       'Falls die Schaltfläche nicht funktioniert, kopieren Sie den Link in Ihren Browser:',
@@ -338,12 +404,18 @@ export class MailService {
 
   /** Branded, email-client-safe HTML for one message. */
   /** Formats the day the code stops working, for the reader. */
+  /**
+   * A day, said the way a person says it: «6 октября».
+   *
+   * It used to print «06.10.2026, 12:00» — a machine format nothing else in
+   * this project uses, with a precision to the minute for something that lives
+   * a month, and an hour taken from the server's own clock rather than the
+   * congregation's. Three small wrongs in one short line. The month names are
+   * the ones already written for each language.
+   */
   private until(lang: Strings, when?: Date): string {
     if (!when) return '';
-    void lang;
-    const d = when;
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return `${when.getDate()} ${lang.months[when.getMonth()]}`;
   }
 
   private renderHtml(
@@ -359,6 +431,7 @@ export class MailService {
       recipientName,
       loginName,
       borrowedMailbox,
+      congregationName,
     } = extra;
     const hello = recipientName
       ? s.greetingNamed.replace('{{name}}', recipientName)
@@ -380,18 +453,13 @@ export class MailService {
 <h1 style="font-size:20px;margin:0 0 14px;color:#0f172a;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${m.title}</h1>
 <p style="${p}">${hello}</p>
 <p style="${p}">${m.intro}</p>
-${code && installUrl ? `<p style="${p}">${s.installLead}</p><table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:16px auto 18px;"><tr><td bgcolor="#15788f" style="border-radius:10px;"><a href="${installUrl}" style="display:inline-block;padding:13px 30px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;border-radius:10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${s.installButton}</a></td></tr></table><p style="${small}word-break:break-all;margin:0 0 16px;">${installUrl}</p>` : ''}
-<p style="${p}">${code ? s.codeLead : m.lead}</p>
-${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f172a;text-align:center;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 12px;margin:0 0 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${code}</p><p style="${small}margin:0 0 14px;">${s.codeHint}</p><p style="${small}margin:0 0 14px;">${s.newestLetter}</p>${expiresAt ? `<p style="${small}margin:0 0 14px;">${s.codeValid} ${this.until(s, expiresAt)}</p>` : ''}<p style="${p}">${s.orBrowser}</p>` : ''}
 ${
-  link
-    ? `<table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:20px auto 8px;"><tr>
-<td bgcolor="#15788f" style="border-radius:10px;">
-<a href="${link}" style="display:inline-block;padding:13px 30px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;border-radius:10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${m.button}</a>
-</td></tr></table>
-<p style="${small}text-align:center;margin:6px 0 16px;">${m.validity}</p>`
+  congregationName
+    ? `<p style="${small}margin:0 0 16px;">${s.fromCongregation.replace('{{name}}', congregationName)}</p>`
     : ''
 }
+<p style="${p}">${code ? s.codeLead : m.lead}</p>
+${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f172a;text-align:center;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 12px;margin:0 0 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${code}</p><p style="${small}margin:0 0 14px;">${s.codeHint}</p><p style="${small}margin:0 0 14px;">${s.newestLetter}</p>${expiresAt ? `<p style="${small}margin:0 0 14px;">${s.codeValid} ${this.until(s, expiresAt)}</p>` : ''}` : ''}
 ${
   loginName
     ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:4px 0 18px;"><tr><td style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:12px;padding:14px 16px;">
@@ -401,6 +469,18 @@ ${
 </td></tr></table>`
     : ''
 }
+${code && installUrl ? `<p style="${p}">${s.installLead}</p><table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:16px auto 18px;"><tr><td bgcolor="#15788f" style="border-radius:10px;"><a href="${installUrl}" style="display:inline-block;padding:13px 30px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;border-radius:10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${s.installButton}</a></td></tr></table><p style="${small}word-break:break-all;margin:0 0 16px;">${installUrl}</p>` : ''}
+${code && link ? `<p style="${p}">${s.orBrowser}</p>` : ''}
+${
+  link
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:20px auto 8px;"><tr>
+<td bgcolor="#15788f" style="border-radius:10px;">
+<a href="${link}" style="display:inline-block;padding:13px 30px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;border-radius:10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${m.button}</a>
+</td></tr></table>
+<p style="${small}text-align:center;margin:6px 0 16px;">${m.validity}</p>`
+    : ''
+}
+<p style="${small}margin:0 0 12px;">${s.askWhoInvited}</p>
 ${
   borrowedMailbox
     ? `<p style="${small}background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:11px 13px;margin:0 0 12px;color:#92400e;">${s.passItOn}</p>`
@@ -430,6 +510,7 @@ ${
       recipientName,
       loginName,
       borrowedMailbox,
+      congregationName,
     } = extra;
     return [
       recipientName
@@ -438,7 +519,15 @@ ${
       '',
       m.intro,
       '',
-      ...(code && installUrl ? [s.installLead, installUrl, ''] : []),
+      // Whose congregation this is, before anything is asked of the reader.
+      ...(congregationName
+        ? [s.fromCongregation.replace('{{name}}', congregationName), '']
+        : []),
+      // The code first, then the name — the two things this letter exists to
+      // carry. Everything else (where to get the app, how to do it from a
+      // computer) is a means to using them, and a means belongs after its end.
+      // They used to sit third and last, behind an install button, so the
+      // reader scrolled past the point of the letter to reach it.
       ...(code
         ? [
             s.codeLead,
@@ -450,21 +539,24 @@ ${
               ? [`${s.codeValid} ${this.until(s, expiresAt)}`]
               : []),
             '',
-            // «Or open it in a browser» — but there is nothing to open when
-            // the letter carries no link.
-            ...(borrowedMailbox ? [] : [s.orBrowser]),
           ]
         : [m.lead]),
+      ...(loginName
+        ? [s.loginNameLead, loginName, '', s.loginNameHint, '']
+        : []),
+      ...(code && installUrl ? [s.installLead, installUrl, ''] : []),
+      // «Or open it in a browser» — but there is nothing to open when the
+      // letter carries no link.
+      ...(borrowedMailbox ? [] : [s.orBrowser]),
       ...(borrowedMailbox ? [s.passItOn] : [link]),
       '',
-      // The link's own life, said whenever there is a link. It used to be
-      // suppressed because one date covered both doors; they now expire on
-      // different days, and the shorter one is the one worth saying next to
-      // the thing it applies to.
+      // The link's own life, said next to the link rather than next to the
+      // code: they expire on different days now, and the one worth stating
+      // here is the shorter.
       ...(borrowedMailbox ? [] : [m.validity, '']),
-      ...(loginName
-        ? ['', s.loginNameLead, loginName, '', s.loginNameHint]
-        : []),
+      // Somebody to turn to. «This message is automatic» used to be the last
+      // word, which left a reader whose code did not work with nowhere to go.
+      s.askWhoInvited,
       '',
       m.ignore,
       s.footerAuto,

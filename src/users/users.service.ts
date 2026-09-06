@@ -23,6 +23,7 @@ import { User } from '../entities/user.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Gender } from '../common/enums/gender.enum';
 import { RefreshSession } from '../entities/refresh-session.entity';
+import { Congregation } from '../entities/congregation.entity';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -210,6 +211,14 @@ export class UsersService {
     private readonly publishersRepo: Repository<Publisher>,
     @InjectRepository(RefreshSession)
     private readonly sessionsRepo: Repository<RefreshSession>,
+    /**
+     * Read for one line of one letter: whose congregation this invitation is
+     * from. A letter arriving from an unknown domain and asking somebody to
+     * set a password is, to a careful reader, indistinguishable from a trick —
+     * and the careful readers are exactly the ones who will not click.
+     */
+    @InjectRepository(Congregation)
+    private readonly congregationsRepo: Repository<Congregation>,
     private readonly auditLog: AuditLogService,
     private readonly config: ConfigService,
     private readonly mailService: MailService,
@@ -1161,6 +1170,15 @@ export class UsersService {
       sentTo: null,
     };
 
+    // Whose congregation this is. Read even when there is no letter to send —
+    // it costs one query and keeps the two paths from drifting apart.
+    const congregation = user?.congregationId
+      ? await this.congregationsRepo.findOne({
+          where: { id: user.congregationId },
+          select: { id: true, name: true },
+        })
+      : null;
+
     const address = user?.email ?? null;
     if (!address) {
       // Nowhere to send is not a failure. It is the ordinary case for most of
@@ -1203,6 +1221,7 @@ export class UsersService {
       // and no way to tell which is whose.
       recipientName: card?.firstName ?? null,
       loginName: user?.loginName ?? null,
+      congregationName: congregation?.name ?? null,
     });
     return { ...issued, sentTo: address };
   }

@@ -61,6 +61,74 @@ describe('the invitation letter', () => {
     expect(sent[0].html).not.toContain('{{name}}');
   });
 
+  /**
+   * The order of a letter is not decoration. What a person reads first is what
+   * they act on, and the two things this letter exists to hand over — the code
+   * and the name to sign in with — used to sit third and last, behind a button
+   * about installing the app.
+   */
+  it('puts the code and the login name ahead of the install page', async () => {
+    const { service, sent } = build();
+
+    await service.sendInvite('vera@gmail.com', 'ru', 'https://x/y', {
+      code: 'K7QM-3XPD',
+      loginName: 'sidorova.vera',
+      installUrl: 'https://mycongregation.org/app/',
+      recipientName: 'Вера',
+    });
+
+    const text = sent[0].text;
+    expect(text.indexOf('K7QM-3XPD')).toBeLessThan(
+      text.indexOf('mycongregation.org/app/'),
+    );
+    expect(text.indexOf('sidorova.vera')).toBeLessThan(
+      text.indexOf('mycongregation.org/app/'),
+    );
+  });
+
+  it('names the congregation the invitation comes from', async () => {
+    // A letter from an unfamiliar domain asking somebody to set a password is
+    // indistinguishable from a trick unless it says whose it is.
+    const { service, sent } = build();
+
+    await service.sendInvite('vera@gmail.com', 'ru', 'https://x/y', {
+      code: 'K7QM-3XPD',
+      congregationName: 'Хамм',
+    });
+
+    expect(sent[0].html).toContain('Хамм');
+    expect(sent[0].text).toContain('Хамм');
+  });
+
+  it('says the deadline as a day, not as a timestamp', async () => {
+    // «06.10.2026, 12:00» was a machine format with a precision to the minute
+    // for something that lives a month — and the hour came from the server's
+    // clock, not the congregation's, so it was not even true.
+    const { service, sent } = build();
+
+    await service.sendInvite('vera@gmail.com', 'ru', 'https://x/y', {
+      code: 'K7QM-3XPD',
+      expiresAt: new Date('2026-10-06T12:00:00Z'),
+    });
+
+    expect(sent[0].text).toContain('6 октября');
+    expect(sent[0].text).not.toContain('06.10.2026');
+    expect(sent[0].text).not.toMatch(/\d{2}:\d{2}/);
+  });
+
+  it('names somebody to turn to when it does not work', async () => {
+    // The last word used to be «this message is automatic», which leaves a
+    // reader whose code was refused with nowhere at all to go.
+    const { service, sent } = build();
+
+    await service.sendInvite('vera@gmail.com', 'ru', 'https://x/y', {
+      code: 'K7QM-3XPD',
+    });
+
+    expect(sent[0].text).toContain('кто вас пригласил');
+    expect(sent[0].html).toContain('кто вас пригласил');
+  });
+
   it('says which name is which in a reset letter too', async () => {
     // Two reset letters in one mailbox is the likelier of the two cases: both
     // of them forgot, and each needs to know which is theirs.
