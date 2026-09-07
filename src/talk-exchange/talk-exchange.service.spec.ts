@@ -641,6 +641,79 @@ describe('TalkExchangeService', () => {
     });
   });
 
+  /**
+   * Возврат замены: отметка «не приехал» верна ровно пока она правда.
+   */
+  describe('отмена замены', () => {
+    const closed = () => ({
+      id: 'tx-closed',
+      congregationId: TENANT,
+      date: '2026-06-21',
+      status: 'did_not_happen',
+      publisherId: null,
+      visitingSpeakerId: 'speaker-old',
+      speakerName: 'Walter Getko',
+      speakerCongregation: 'Arnsberg',
+      publicTalkId: 'talk-1',
+      hospitalityPublisherId: null,
+      note: null,
+    });
+
+    it('возвращает визит и убирает запись заменившего', async () => {
+      repo.findOne.mockResolvedValueOnce(closed()).mockResolvedValueOnce({
+        id: 'tx-live',
+        hospitalityPublisherId: null,
+        note: null,
+      });
+      assignmentRepo.findOne.mockResolvedValue({ id: 'asg', status: 'draft' });
+      publicTalkRepo.findOne.mockResolvedValue({
+        id: 'talk-1',
+        number: 65,
+        title: 'Как развивать миролюбие',
+      });
+
+      const out = await service.undoReplacement(TENANT, user(), 'tx-closed');
+
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'tx-closed', status: 'confirmed' }),
+      );
+      expect(repo.softDelete).toHaveBeenCalledWith('tx-live');
+      expect(out.removed).toBe('tx-live');
+      // Программа снова его: председатель прочитает верное имя.
+      expect(assignmentRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          visitingSpeakerId: 'speaker-old',
+          speakerName: 'Walter Getko',
+          publicTalkId: 'talk-1',
+        }),
+      );
+    });
+
+    it('не трогает запись заменившего, если в ней есть своя работа', async () => {
+      // Гостеприимство или заметка — это решение человека, а не след замены.
+      repo.findOne.mockResolvedValueOnce(closed()).mockResolvedValueOnce({
+        id: 'tx-live',
+        hospitalityPublisherId: 'pub-7',
+        note: null,
+      });
+      assignmentRepo.findOne.mockResolvedValue(null);
+
+      const out = await service.undoReplacement(TENANT, user(), 'tx-closed');
+
+      expect(repo.softDelete).not.toHaveBeenCalled();
+      expect(out.removed).toBeNull();
+    });
+
+    it('отказывает, когда визит не был помечен несостоявшимся', async () => {
+      repo.findOne.mockResolvedValueOnce({ ...closed(), status: 'confirmed' });
+
+      await expect(
+        service.undoReplacement(TENANT, user(), 'tx-closed'),
+      ).rejects.toMatchObject({ response: { code: 'NOT_A_MISSED_VISIT' } });
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+  });
+
   describe('связь со справочником', () => {
     it('зеркало не видит несостоявшихся записей', async () => {
       // Иначе после замены оно взяло бы закрытую запись первого брата и

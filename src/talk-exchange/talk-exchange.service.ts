@@ -721,6 +721,105 @@ export class TalkExchangeService {
   }
 
   /**
+   * Он всё-таки приехал — или на кнопку нажали по ошибке.
+   *
+   * Замена оставляет в истории отметку «назначался, не приехал», и это верно
+   * ровно до тех пор, пока она правда. Ошибиться легко: замену делают в спешке
+   * перед встречей, иногда с чужого телефона, иногда не с тем братом в списке.
+   * Без возврата у человека остаётся ложное пятно, стереть которое нечем — а
+   * по нему решают, звать ли его снова.
+   *
+   * Возвращаем ровно то, что замена изменила: закрытая запись снова
+   * состоявшаяся, слот программы снова его, а запись заменившего убирается —
+   * НО только если она пуста от собственной работы координатора. Если к ней
+   * успели приписать гостеприимство, заметку или назначить своего докладчика,
+   * решать за него нельзя: тогда обе записи остаются, и человек разбирается
+   * сам, видя обе.
+   */
+  async undoReplacement(
+    tenantId: string,
+    user: AuthenticatedUser,
+    id: string,
+  ): Promise<{ restored: string; removed: string | null }> {
+    await this.assertCanWrite(user);
+
+    const closed = await this.repo.findOne({
+      where: { id, congregationId: tenantId },
+    });
+    if (!closed) throw new NotFoundException('Entry not found');
+    if (closed.status !== TalkExchangeStatus.DID_NOT_HAPPEN) {
+      throw new BadRequestException({
+        code: 'NOT_A_MISSED_VISIT',
+        message: 'Only a visit marked as not happened can be undone',
+      });
+    }
+
+    const weekStartDate = mondayOf(closed.date);
+    const weekEnd = addDaysISO(weekStartDate, 6);
+
+    // Запись, которая сейчас занимает неделю: её завела замена.
+    const live = await this.repo.findOne({
+      where: {
+        congregationId: tenantId,
+        direction: TalkExchangeDirection.INCOMING,
+        date: Between(weekStartDate, weekEnd),
+        status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
+      },
+    });
+    const liveHasOwnWork =
+      !!live && (!!live.hospitalityPublisherId || !!live.note);
+
+    const before = snapshot(closed);
+    closed.status = TalkExchangeStatus.CONFIRMED;
+    await this.repo.save(closed);
+    await this.auditLog.logUpdate({
+      tenantId,
+      entityType: 'talk_exchange',
+      entityId: closed.id,
+      subjectId: closed.publisherId ?? closed.hospitalityPublisherId,
+      before,
+      after: snapshot(closed),
+      fields: ['status'],
+    });
+
+    let removed: string | null = null;
+    if (live && !liveHasOwnWork) {
+      await this.repo.softDelete(live.id);
+      removed = live.id;
+    }
+
+    // Программа возвращается к нему: председатель снова прочитает верное имя.
+    const slot = await this.assignmentRepo.findOne({
+      where: {
+        congregationId: tenantId,
+        weekStartDate,
+        partKey: PUBLIC_TALK_PART_KEY,
+      },
+    });
+    if (slot) {
+      slot.publisherId = closed.publisherId ?? null;
+      slot.visitingSpeakerId = closed.visitingSpeakerId ?? null;
+      slot.speakerName = closed.publisherId ? null : closed.speakerName;
+      slot.speakerCongregation = closed.publisherId
+        ? null
+        : closed.speakerCongregation;
+      if (closed.publicTalkId) {
+        slot.publicTalkId = closed.publicTalkId;
+        const talk = await this.publicTalkRepo.findOne({
+          where: { id: closed.publicTalkId },
+        });
+        if (talk) slot.partTitle = `№${talk.number}. ${talk.title}`;
+      }
+      if (slot.status === AssignmentStatus.PUBLISHED) {
+        slot.changedSincePublish = true;
+      }
+      await this.assignmentRepo.save(slot);
+    }
+
+    return { restored: closed.id, removed };
+  }
+
+  /**
    * Keep the journal's incoming entry in sync with the program's weekend
    * public-talk slot for a week. Only invited speakers (free-text speakerName,
    * no local publisher) map to a "К нам" entry. Called after the schedule edits

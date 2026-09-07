@@ -60,6 +60,19 @@ export class TalkExchangeController {
     return this.service.replaceSpeaker(tenantId, user, dto);
   }
 
+  /**
+   * Он всё-таки приехал — или нажали по ошибке. Возвращает закрытый визит и
+   * убирает запись, заведённую заменой.
+   */
+  @Post(':id/undo-replacement')
+  undoReplacement(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.undoReplacement(tenantId, user, id);
+  }
+
   @Get(':id')
   findOne(
     @TenantId() tenantId: string,
