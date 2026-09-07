@@ -25,6 +25,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
 import { DutiesService } from '../duties/duties.service';
 import { LocalNeedsService } from '../local-needs/local-needs.service';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 /**
  * The programme used to be announced to everyone with a phone. Now the
@@ -103,6 +104,12 @@ describe('AssignmentsService — telling each assignee their own parts', () => {
         {
           provide: LocalNeedsService,
           useValue: { releaseAssignment: jest.fn() },
+        },
+        {
+          // Часы собрания: обмен неделями судит «прошла ли неделя» по местному
+          // времени, поэтому в подделке день задан явно.
+          provide: CongregationClock,
+          useValue: { todayFor: jest.fn(async () => '2026-06-01') },
         },
       ],
     }).compile();

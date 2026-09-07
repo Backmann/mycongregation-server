@@ -13,6 +13,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
 import { DutiesService } from '../duties/duties.service';
 import { LocalNeedsService } from '../local-needs/local-needs.service';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 jest.mock('../push-notifications/push-notifications.service', () => ({
   PushNotificationsService: class PushNotificationsServiceMock {},
@@ -101,6 +102,12 @@ describe('AssignmentsService — journal sync coverage and public-talk swap', ()
           provide: LocalNeedsService,
           useValue: { releaseAssignment: jest.fn() },
         },
+        {
+          // Часы собрания: обмен неделями судит «прошла ли неделя» по местному
+          // времени, поэтому в подделке день задан явно.
+          provide: CongregationClock,
+          useValue: { todayFor: jest.fn(async () => '2026-06-01') },
+        },
       ],
     }).compile();
     service = moduleRef.get(AssignmentsService);
@@ -186,6 +193,42 @@ describe('AssignmentsService — journal sync coverage and public-talk swap', ()
       expect(res.target.changedSincePublish).toBe(true);
       expect(sync).toHaveBeenCalledWith(CONG, '2026-07-13');
       expect(sync).toHaveBeenCalledWith(CONG, '2026-07-06');
+    });
+
+    /**
+     * Прошедший визит — факт, а не план: брат выступил, его назвали со сцены,
+     * речь легла ему в историю. Передвинуть это значит переписать прошлое.
+     */
+    it('отказывает, когда одна из недель уже прошла', async () => {
+      mockSlots(src(), tgt());
+
+      await expect(
+        service.swapPublicTalk(CONG, {
+          eventType: 'weekend',
+          // Часы подделки стоят на 1 июня 2026; эта неделя кончилась в мае.
+          sourceWeekStartDate: '2026-05-04',
+          targetWeekStartDate: '2026-07-06',
+          mode: 'swap',
+        } as never),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(repo.save).not.toHaveBeenCalled();
+      expect(sync).not.toHaveBeenCalled();
+    });
+
+    it('идущую неделю прошедшей не считает', async () => {
+      // Воскресенье ещё впереди: пока неделя не кончилась, обмен возможен.
+      mockSlots(src(), tgt());
+
+      await expect(
+        service.swapPublicTalk(CONG, {
+          eventType: 'weekend',
+          sourceWeekStartDate: '2026-07-13',
+          // Неделя 1 июня заканчивается 7-го — сегодня 1-е.
+          targetWeekStartDate: '2026-06-01',
+          mode: 'swap',
+        } as never),
+      ).resolves.toBeDefined();
     });
 
     it('move fills the target and clears the source', async () => {

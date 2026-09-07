@@ -10,6 +10,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
 import { LocalNeedsModule } from '../local-needs/local-needs.module';
 import { DutiesModule } from '../duties/duties.module';
+import { CongregationClockModule } from '../common/congregation-clock.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { AssignmentSectionGuard } from '../common/guards/assignment-section.guard';
 import { AssignmentsService } from './assignments.service';
@@ -29,6 +30,8 @@ import { AssignmentsController } from './assignments.controller';
     TalkExchangeModule,
     LocalNeedsModule,
     DutiesModule,
+    // Часы собрания: «неделя прошла» судится по местному времени.
+    CongregationClockModule,
     AuditLogModule,
   ],
   controllers: [AssignmentsController],

@@ -46,6 +46,7 @@ import {
 import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
 import { DutiesService } from '../duties/duties.service';
 import { LocalNeedsService } from '../local-needs/local-needs.service';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
 
@@ -86,6 +87,14 @@ export interface PaginatedResult<T> {
   offset: number;
 }
 
+/** dateStr + n дней, как YYYY-MM-DD. Без часового пояса: это арифметика по
+ * календарю, а не момент времени. */
+function addDaysISO(dateStr: string, n: number): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
 @Injectable()
 export class AssignmentsService {
   private readonly logger = new Logger(AssignmentsService.name);
@@ -110,6 +119,11 @@ export class AssignmentsService {
     // new dependency in the middle would silently shift every argument after
     // it into the wrong slot.
     private readonly localNeeds: LocalNeedsService,
+    /**
+     * Часы собрания — чтобы «неделя уже прошла» значило по местному времени, а
+     * не по времени сервера. Тоже последним, по причине выше.
+     */
+    private readonly clock: CongregationClock,
   ) {}
 
   /**
@@ -635,6 +649,26 @@ export class AssignmentsService {
   ): Promise<{ source: Assignment; target: Assignment }> {
     if (dto.sourceWeekStartDate === dto.targetWeekStartDate) {
       throw new BadRequestException('Source and target weeks must differ');
+    }
+
+    /**
+     * Меняться местами можно только с тем, чего ещё не было.
+     *
+     * Прошедший визит — факт, а не план: брат уже выступил, его назвали со
+     * сцены, его речь легла ему в историю. Передвинуть это значит переписать
+     * прошлое, и до сих пор ничто этого не запрещало — в списке для обмена
+     * стояли и прошлые недели тоже.
+     *
+     * Судится по КОНЦУ недели и по часам собрания: в воскресенье утром неделя
+     * ещё идёт, а на сервере в другом поясе может быть уже понедельник.
+     */
+    const today = await this.clock.todayFor(congregationId);
+    const past = (week: string) => addDaysISO(week, 6) < today;
+    if (past(dto.sourceWeekStartDate) || past(dto.targetWeekStartDate)) {
+      throw new BadRequestException({
+        code: 'WEEK_ALREADY_PAST',
+        message: 'A week that has already happened cannot be swapped',
+      });
     }
     const findSlot = (week: string) =>
       this.repo.findOne({

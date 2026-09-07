@@ -21,6 +21,7 @@ jest.mock('../push-notifications/push-notifications.service', () => ({
 }));
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { LocalNeedsService } from '../local-needs/local-needs.service';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 function makeQb() {
   const qb: Record<string, jest.Mock> = {};
@@ -141,6 +142,12 @@ describe('AssignmentsService draft visibility', () => {
         {
           provide: LocalNeedsService,
           useValue: { releaseAssignment: jest.fn() },
+        },
+        {
+          // Часы собрания: обмен неделями судит «прошла ли неделя» по местному
+          // времени, поэтому в подделке день задан явно.
+          provide: CongregationClock,
+          useValue: { todayFor: jest.fn(async () => '2026-06-01') },
         },
       ],
     }).compile();
@@ -433,6 +440,12 @@ describe('AssignmentsService treasures <-> opening-prayer link', () => {
         {
           provide: LocalNeedsService,
           useValue: { releaseAssignment: jest.fn() },
+        },
+        {
+          // Часы собрания: обмен неделями судит «прошла ли неделя» по местному
+          // времени, поэтому в подделке день задан явно.
+          provide: CongregationClock,
+          useValue: { todayFor: jest.fn(async () => '2026-06-01') },
         },
       ],
     }).compile();
