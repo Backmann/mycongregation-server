@@ -654,20 +654,28 @@ export class AssignmentsService {
 
     type TalkFields = Pick<
       Assignment,
-      'publisherId' | 'speakerName' | 'speakerCongregation' | 'publicTalkId'
+      | 'publisherId'
+      | 'speakerName'
+      | 'speakerCongregation'
+      | 'publicTalkId'
+      // Связь со справочником переезжает вместе с именем: иначе после обмена
+      // неделями визит достался бы другому брату или никому.
+      | 'visitingSpeakerId'
     >;
     const take = (a: Assignment): TalkFields => ({
       publisherId: a.publisherId,
       speakerName: a.speakerName,
       speakerCongregation: a.speakerCongregation,
       publicTalkId: a.publicTalkId,
+      visitingSpeakerId: a.visitingSpeakerId,
     });
     const put = (a: Assignment, f: TalkFields) => {
       const changed =
         a.publisherId !== f.publisherId ||
         a.speakerName !== f.speakerName ||
         a.speakerCongregation !== f.speakerCongregation ||
-        a.publicTalkId !== f.publicTalkId;
+        a.publicTalkId !== f.publicTalkId ||
+        a.visitingSpeakerId !== f.visitingSpeakerId;
       Object.assign(a, f);
       if (changed && a.status === AssignmentStatus.PUBLISHED) {
         a.changedSincePublish = true;
@@ -685,6 +693,7 @@ export class AssignmentsService {
             publisherId: null,
             speakerName: null,
             speakerCongregation: null,
+            visitingSpeakerId: null,
             publicTalkId: null,
           },
     );

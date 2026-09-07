@@ -65,6 +65,17 @@ export class VisitingSpeaker {
   @Column({ type: 'int', array: true, default: () => "'{}'" })
   talkNumbers!: number[];
 
+  /**
+   * Карточку завело приложение, а не человек.
+   *
+   * Так помечается брат, впервые встреченный именем в программе: визит должен
+   * попасть в его историю, значит карточка обязана существовать. У неё нет ни
+   * телефона, ни репертуара — и это стоит показывать, чтобы координатор видел,
+   * куда можно дописать сведения, а не думал, что справочник заполнен.
+   */
+  @Column({ type: 'boolean', default: false })
+  autoCreated!: boolean;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 

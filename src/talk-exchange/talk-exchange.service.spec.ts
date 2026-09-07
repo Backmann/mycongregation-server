@@ -56,8 +56,18 @@ describe('TalkExchangeService', () => {
       findOne: jest.fn(),
       softDelete: jest.fn().mockResolvedValue({}),
     };
-    speakerRepo = { findOne: jest.fn() };
-    congregationRepo = { findOne: jest.fn() };
+    speakerRepo = {
+      findOne: jest.fn(),
+      // Справочник приезжих: программа теперь заводит карточку по имени,
+      // поэтому подделке нужны и поиск списком, и сохранение.
+      find: jest.fn().mockResolvedValue([]),
+      create: jest.fn((x) => x),
+      save: jest.fn((x) => Promise.resolve({ id: 'speaker-new', ...x })),
+    };
+    congregationRepo = {
+      findOne: jest.fn(),
+      find: jest.fn().mockResolvedValue([]),
+    };
     publicTalkRepo = { findOne: jest.fn() };
     responsibilityRepo = { count: jest.fn().mockResolvedValue(0) };
 
@@ -371,6 +381,152 @@ describe('TalkExchangeService', () => {
         publicTalkId: 'talk-1',
       }),
     );
+  });
+
+  /**
+   * Чей это визит — вопрос, на который приложение раньше теряло ответ.
+   *
+   * История брата считается по связи записи с его карточкой. Программа знала
+   * только имя текстом, поэтому зеркало «программа → журнал» не узнавало
+   * привязанную запись и стирало связь. Запись оставалась, имя оставалось, а
+   * визит переставал принадлежать человеку: «ещё не приезжал», обнулённый
+   * промежуток, речь снова непроизнесённая.
+   */
+  describe('связь со справочником', () => {
+    it('не теряет привязку записи, когда программа отражается в журнал', async () => {
+      assignmentRepo.findOne.mockResolvedValue({
+        id: 'asg',
+        publisherId: null,
+        speakerName: 'Walter Getko',
+        speakerCongregation: 'Arnsberg',
+        publicTalkId: 'talk-1',
+        visitingSpeakerId: 'speaker-7',
+      });
+      repo.findOne.mockResolvedValue({
+        id: 'tx-1',
+        publisherId: null,
+        visitingSpeakerId: 'speaker-7',
+        speakerName: 'Walter Getko',
+        speakerCongregation: 'Arnsberg',
+        publicTalkId: 'talk-1',
+      });
+
+      await service.syncProgramToJournal(TENANT, '2026-06-15');
+
+      // Ничего не изменилось — значит и переписывать нечего.
+      expect(repo.save).not.toHaveBeenCalled();
+      expect(speakerRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('заводит карточку, когда имя напечатали руками', async () => {
+      // Так визит попадает в историю брата, даже если координатор никогда не
+      // открывал справочник.
+      assignmentRepo.findOne.mockResolvedValue({
+        id: 'asg',
+        publisherId: null,
+        speakerName: 'Walter Getko',
+        speakerCongregation: 'Arnsberg',
+        publicTalkId: 'talk-1',
+        visitingSpeakerId: null,
+      });
+      repo.findOne.mockResolvedValue(null);
+
+      await service.syncProgramToJournal(TENANT, '2026-06-15');
+
+      expect(speakerRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          firstName: 'Walter',
+          lastName: 'Getko',
+          autoCreated: true,
+        }),
+      );
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ visitingSpeakerId: 'speaker-new' }),
+      );
+    });
+
+    it('берёт существующую карточку, а не плодит вторую', async () => {
+      // Совпало имя без учёта регистра и лишних пробелов И то же собрание.
+      speakerRepo.find.mockResolvedValue([
+        {
+          id: 'speaker-7',
+          firstName: 'Walter',
+          lastName: 'Getko',
+          externalCongregationId: 'ext-1',
+        },
+      ]);
+      congregationRepo.find.mockResolvedValue([
+        { id: 'ext-1', name: 'Arnsberg' },
+      ]);
+      assignmentRepo.findOne.mockResolvedValue({
+        id: 'asg',
+        publisherId: null,
+        speakerName: '  walter   getko ',
+        speakerCongregation: 'arnsberg',
+        publicTalkId: 'talk-1',
+        visitingSpeakerId: null,
+      });
+      repo.findOne.mockResolvedValue(null);
+
+      await service.syncProgramToJournal(TENANT, '2026-06-15');
+
+      expect(speakerRepo.save).not.toHaveBeenCalled();
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ visitingSpeakerId: 'speaker-7' }),
+      );
+    });
+
+    it('не приклеивает визит к тёзке из другого собрания', async () => {
+      // Тёзки обычны. Склеить двух братьев молча хуже, чем завести лишнюю
+      // карточку: лишнюю видно и можно слить, а склейку — нет.
+      speakerRepo.find.mockResolvedValue([
+        {
+          id: 'speaker-7',
+          firstName: 'Walter',
+          lastName: 'Getko',
+          externalCongregationId: 'ext-1',
+        },
+      ]);
+      congregationRepo.find.mockResolvedValue([
+        { id: 'ext-1', name: 'Arnsberg' },
+        { id: 'ext-2', name: 'Soest' },
+      ]);
+      assignmentRepo.findOne.mockResolvedValue({
+        id: 'asg',
+        publisherId: null,
+        speakerName: 'Walter Getko',
+        speakerCongregation: 'Soest',
+        publicTalkId: 'talk-1',
+        visitingSpeakerId: null,
+      });
+      repo.findOne.mockResolvedValue(null);
+
+      await service.syncProgramToJournal(TENANT, '2026-06-15');
+
+      expect(speakerRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ externalCongregationId: 'ext-2' }),
+      );
+    });
+
+    it('запоминает найденную карточку в самом слоте', async () => {
+      // Иначе на каждое сохранение недели поиск повторялся бы, а при малейшем
+      // расхождении заводил бы новую карточку.
+      assignmentRepo.findOne.mockResolvedValue({
+        id: 'asg',
+        publisherId: null,
+        speakerName: 'Walter Getko',
+        speakerCongregation: null,
+        publicTalkId: 'talk-1',
+        visitingSpeakerId: null,
+      });
+      repo.findOne.mockResolvedValue(null);
+
+      await service.syncProgramToJournal(TENANT, '2026-06-15');
+
+      expect(assignmentRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ visitingSpeakerId: 'speaker-new' }),
+      );
+    });
   });
 
   it('keeps the journal entry as a local brother when the slot has a publisher', async () => {

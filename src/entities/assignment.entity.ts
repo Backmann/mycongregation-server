@@ -12,6 +12,7 @@ import {
 import { Congregation } from './congregation.entity';
 import { Publisher } from './publisher.entity';
 import { PublicTalk } from './public-talk.entity';
+import { VisitingSpeaker } from './visiting-speaker.entity';
 import { EventType } from '../common/enums/event-type.enum';
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 
@@ -111,6 +112,26 @@ export class Assignment {
     comment: 'Speaker home congregation name (for invited speakers)',
   })
   speakerCongregation!: string | null;
+
+  /**
+   * WHICH visiting speaker, when he is one we know.
+   *
+   * The name above says what the chairman reads out; this says whose visit it
+   * is. A brother's history is counted through this link, and while the
+   * programme had only text, every mirror between programme and journal
+   * quietly destroyed it — see the migration for how that looked from the
+   * outside.
+   *
+   * Null means «typed by hand and not matched to anybody», which stays a
+   * legitimate state: a guest nobody expects to see again.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  @Index()
+  visitingSpeakerId!: string | null;
+
+  @ManyToOne(() => VisitingSpeaker, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'visiting_speaker_id' })
+  visitingSpeaker!: VisitingSpeaker | null;
 
   // ---- State ----
   @Column({

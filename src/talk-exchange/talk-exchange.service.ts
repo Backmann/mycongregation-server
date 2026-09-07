@@ -193,6 +193,83 @@ export class TalkExchangeService {
   }
 
   /** Clear the weekend public-talk slot if it still reflects an invited speaker. */
+  /**
+   * Кто это, если известно только имя.
+   *
+   * Имя — не личность. Один и тот же брат, записанный «Walter Getko»,
+   * «Вальтер Гетко» и «Getko W.», для любого подсчёта три разных человека, и
+   * история, собранная по написанию, врёт именно тогда, когда она нужна — в
+   * минуту, когда решают, кого звать. Поэтому у каждого визита должна быть
+   * карточка, даже если координатор просто напечатал имя в программе.
+   *
+   * Сопоставление СТРОГОЕ и только по двум признакам: то же имя без учёта
+   * регистра и лишних пробелов И то же собрание (или у обоих собрания нет).
+   * Совпало — берём существующую карточку. Не совпало — заводим новую, а не
+   * приклеиваем визит к похожему: тёзки в собраниях обычны, и склеить двух
+   * братьев молча хуже, чем завести лишнюю карточку, которую видно и можно
+   * слить.
+   *
+   * Собрание ищется по названию и НЕ заводится само: список собраний — это
+   * решение координатора, а не побочный итог опечатки в имени. Не нашли —
+   * карточка живёт без собрания, название остаётся текстом в записи журнала.
+   */
+  private async speakerCardFor(
+    tenantId: string,
+    fullName: string,
+    congregationName: string | null,
+  ): Promise<string | null> {
+    const name = fullName.trim().replace(/\s+/g, ' ');
+    if (name === '') return null;
+
+    const congName = congregationName?.trim() || null;
+    // Сравнение в памяти, а не запросом: собраний у одного собрания десятки, а
+    // не тысячи, зато правило совпадения — одно и то же и для имени, и для
+    // названия, и его видно рядом.
+    const externalId = congName
+      ? ((
+          await this.congregationRepo.find({
+            where: { congregationId: tenantId },
+          })
+        ).find((c) => c.name.trim().toLowerCase() === congName.toLowerCase())
+          ?.id ?? null)
+      : null;
+
+    const candidates = await this.speakerRepo.find({
+      where: { congregationId: tenantId },
+    });
+    const same = candidates.find(
+      (c) =>
+        speakerFullName(c).trim().replace(/\s+/g, ' ').toLowerCase() ===
+          name.toLowerCase() &&
+        (c.externalCongregationId ?? null) === externalId,
+    );
+    if (same) return same.id;
+
+    // Разделение имени на первое слово и остаток — то же, что делает
+    // speakerFullName в обратную сторону, поэтому обратный проход по этой
+    // карточке даст ровно исходную строку.
+    const space = name.indexOf(' ');
+    const firstName = space === -1 ? name : name.slice(0, space);
+    const lastName = space === -1 ? null : name.slice(space + 1);
+
+    const created = await this.speakerRepo.save(
+      this.speakerRepo.create({
+        congregationId: tenantId,
+        firstName,
+        lastName,
+        externalCongregationId: externalId,
+        /**
+         * Заведена приложением, а не человеком. Признак нужен не для порядка:
+         * у такой карточки нет ни телефона, ни репертуара, и на экране её
+         * стоит показывать так, чтобы было видно — сюда можно дописать
+         * сведения.
+         */
+        autoCreated: true,
+      }),
+    );
+    return created.id;
+  }
+
   private async clearProgramSlot(
     tenantId: string,
     entry: TalkExchange,
@@ -311,10 +388,15 @@ export class TalkExchangeService {
       slot.publisherId = localPublisherId;
       slot.speakerName = null;
       slot.speakerCongregation = null;
+      slot.visitingSpeakerId = null;
     } else {
       slot.publisherId = null;
       slot.speakerName = name;
       slot.speakerCongregation = congName;
+      // Связь едет вместе с именем. Без неё обратное зеркало прочитает только
+      // текст, не узнает записи журнала и сотрёт её привязку к карточке — как
+      // и было до сих пор.
+      slot.visitingSpeakerId = entry.visitingSpeakerId ?? null;
     }
     slot.publicTalkId = entry.publicTalkId;
     const talk = await this.publicTalkRepo.findOne({
@@ -532,6 +614,7 @@ export class TalkExchangeService {
           existing.publicTalkId === publicTalkId;
         if (same) return;
         existing.publisherId = publisherId;
+        // Наш брат — не приезжий: связь со справочником снимается намеренно.
         existing.visitingSpeakerId = null;
         existing.speakerName = null;
         existing.speakerCongregation = null;
@@ -553,17 +636,34 @@ export class TalkExchangeService {
     const speakerName = slot!.speakerName!.trim();
     const speakerCongregation = slot!.speakerCongregation?.trim() || null;
 
+    /**
+     * Чей это визит.
+     *
+     * Слот теперь может нести связь сам; если не несёт — значит имя напечатали
+     * руками, и карточку надо найти или завести. Раньше здесь просто ставился
+     * null, и ровно в этой строке визит переставал принадлежать человеку.
+     */
+    const visitingSpeakerId =
+      slot!.visitingSpeakerId ??
+      (await this.speakerCardFor(tenantId, speakerName, speakerCongregation));
+
+    // Слот, в котором имя было напечатано руками, дальше несёт найденную
+    // карточку — иначе на каждое сохранение недели заводилась бы новая.
+    if (visitingSpeakerId && !slot!.visitingSpeakerId) {
+      slot!.visitingSpeakerId = visitingSpeakerId;
+      await this.assignmentRepo.save(slot!);
+    }
+
     if (existing) {
-      const currentName =
-        existing.visitingSpeakerId == null ? existing.speakerName : null;
       const same =
         existing.publisherId == null &&
-        currentName === speakerName &&
+        existing.visitingSpeakerId === visitingSpeakerId &&
+        existing.speakerName === speakerName &&
         existing.speakerCongregation === speakerCongregation &&
         existing.publicTalkId === publicTalkId;
       if (same) return; // idempotent: nothing changed
       existing.publisherId = null;
-      existing.visitingSpeakerId = null;
+      existing.visitingSpeakerId = visitingSpeakerId;
       existing.speakerName = speakerName;
       existing.speakerCongregation = speakerCongregation;
       existing.publicTalkId = publicTalkId;
@@ -575,6 +675,7 @@ export class TalkExchangeService {
       congregationId: tenantId,
       direction: TalkExchangeDirection.INCOMING,
       date: await this.weekendDateFor(tenantId, weekStartDate),
+      visitingSpeakerId,
       speakerName,
       speakerCongregation,
       publicTalkId,
