@@ -16,6 +16,15 @@ export enum ResponsibilityType {
   LIFE_MINISTRY_OVERSEER = 'life_ministry_overseer',
   /** Ответственный за публичные речи — invites speakers, manages exchanges. */
   PUBLIC_TALK_COORDINATOR = 'public_talk_coordinator',
+  /**
+   * Помощник ответственного за публичные речи — те же права.
+   *
+   * Замена докладчика делается за минуты до встречи, и координатора может не
+   * быть рядом: он в отъезде, он и есть докладчик, он просто не подошёл. Пока
+   * право было только у него, программа на сцене оставалась неверной — а
+   * председатель читает со сцены именно её.
+   */
+  PUBLIC_TALK_COORDINATOR_ASSISTANT = 'public_talk_coordinator_assistant',
   /** Секретарь — S-21 records, transfers. */
   SECRETARY = 'secretary',
   /** Координатор полевого служения — field ministry organization. */

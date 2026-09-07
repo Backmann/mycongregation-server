@@ -115,6 +115,28 @@ describe('TalkExchangeService', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
+  it('пускает помощника координатора речей', async () => {
+    /**
+     * Замену делают за минуты до встречи, и координатора может не быть рядом:
+     * он в отъезде, он сам докладчик, он просто не подошёл. Пока право было
+     * только у него, программа на сцене оставалась неверной.
+     */
+    responsibilityRepo.count.mockImplementation(
+      async (opts: { where: { type: { _value: string[] } } }) => {
+        const types = opts.where.type._value;
+        return types.includes('public_talk_coordinator_assistant') ? 1 : 0;
+      },
+    );
+
+    await expect(
+      service.create(
+        TENANT,
+        { direction: TalkExchangeDirection.INCOMING, date: '2026-06-21' },
+        user({ role: UserRole.PUBLISHER }),
+      ),
+    ).resolves.toBeDefined();
+  });
+
   it('auto-fills an empty weekend public-talk slot for an incoming entry', async () => {
     speakerRepo.findOne.mockResolvedValue({
       id: 'spk-1',
@@ -543,6 +565,45 @@ describe('TalkExchangeService', () => {
       }
     });
 
+    it('передаёт гостеприимство тому, кто приехал', async () => {
+      // Иначе приехавшего никто не встречает, а семья узнаёт об этом в зале.
+      assignmentRepo.findOne.mockResolvedValue(slot());
+      repo.findOne
+        .mockResolvedValueOnce({
+          id: 'tx-old',
+          publisherId: null,
+          visitingSpeakerId: 'speaker-old',
+          status: 'confirmed',
+          hospitalityPublisherId: 'pub-host',
+          note: null,
+        })
+        // Порядок обращений: сначала прежняя запись, потом зеркало ищет свою
+        // (её ещё нет), и только затем — запись приехавшего.
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'tx-new', hospitalityPublisherId: null });
+      speakerRepo.findOne.mockResolvedValue({
+        id: 'speaker-new-1',
+        firstName: 'Iwan',
+        lastName: null,
+        externalCongregation: null,
+      });
+
+      await service.replaceSpeaker(TENANT, user(), {
+        weekStartDate: week,
+        visitingSpeakerId: 'speaker-new-1',
+      });
+
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'tx-new',
+          hospitalityPublisherId: 'pub-host',
+        }),
+      );
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'tx-old', hospitalityPublisherId: null }),
+      );
+    });
+
     it('меняет речь вместе с докладчиком', async () => {
       // Приезжает другой брат со своей речью. До сих пор слот сохранял прежний
       // номер, и новому записывалось то, чего он не произносил.
@@ -689,8 +750,27 @@ describe('TalkExchangeService', () => {
       );
     });
 
-    it('не трогает запись заменившего, если в ней есть своя работа', async () => {
-      // Гостеприимство или заметка — это решение человека, а не след замены.
+    it('не трогает запись заменившего, если в ней есть заметка', async () => {
+      // Заметка — решение человека, а не след замены: выбрасывать её нельзя.
+      repo.findOne.mockResolvedValueOnce(closed()).mockResolvedValueOnce({
+        id: 'tx-live',
+        hospitalityPublisherId: null,
+        note: 'договорились о ночлеге',
+      });
+      assignmentRepo.findOne.mockResolvedValue(null);
+
+      const out = await service.undoReplacement(TENANT, user(), 'tx-closed');
+
+      expect(repo.softDelete).not.toHaveBeenCalled();
+      expect(out.removed).toBeNull();
+    });
+
+    it('везёт гостеприимство обратно к вернувшемуся', async () => {
+      /**
+       * Приём принадлежит НЕДЕЛЕ, а не человеку: семья принимает гостя, кем бы
+       * он ни был. Поэтому при замене он переезжает к приехавшему, а при
+       * возврате — обратно, и запись заменившего это на месте не держит.
+       */
       repo.findOne.mockResolvedValueOnce(closed()).mockResolvedValueOnce({
         id: 'tx-live',
         hospitalityPublisherId: 'pub-7',
@@ -700,8 +780,13 @@ describe('TalkExchangeService', () => {
 
       const out = await service.undoReplacement(TENANT, user(), 'tx-closed');
 
-      expect(repo.softDelete).not.toHaveBeenCalled();
-      expect(out.removed).toBeNull();
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'tx-closed',
+          hospitalityPublisherId: 'pub-7',
+        }),
+      );
+      expect(out.removed).toBe('tx-live');
     });
 
     it('отказывает, когда визит не был помечен несостоявшимся', async () => {

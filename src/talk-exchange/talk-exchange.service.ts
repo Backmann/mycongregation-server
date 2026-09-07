@@ -91,6 +91,9 @@ export class TalkExchangeService {
 
   private static readonly MANAGER_RESPONSIBILITIES = [
     ResponsibilityType.PUBLIC_TALK_COORDINATOR,
+    // У помощника те же права: замену делают перед встречей, и координатора
+    // может не быть рядом.
+    ResponsibilityType.PUBLIC_TALK_COORDINATOR_ASSISTANT,
   ];
 
   private async assertCanWrite(user: AuthenticatedUser): Promise<void> {
@@ -104,7 +107,7 @@ export class TalkExchangeService {
     });
     if (held === 0) {
       throw new ForbiddenException(
-        'Only the public talk coordinator may edit the talk exchange',
+        'Only the public talk coordinator or his assistant may edit the talk exchange',
       );
     }
   }
@@ -717,6 +720,26 @@ export class TalkExchangeService {
         status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
       },
     });
+
+    /**
+     * Гостеприимство переезжает к тому, кто приехал.
+     *
+     * Решение Лионеля: семье всё равно, какого докладчика принимать — она
+     * принимает ГОСТЯ ЭТОЙ НЕДЕЛИ. Оставить приём у несостоявшегося визита
+     * значило бы, что приехавшего никто не встречает, а семья об этом узнаёт
+     * в лучшем случае в зале.
+     */
+    if (
+      previous?.hospitalityPublisherId &&
+      entry &&
+      !entry.hospitalityPublisherId
+    ) {
+      entry.hospitalityPublisherId = previous.hospitalityPublisherId;
+      await this.repo.save(entry);
+      previous.hospitalityPublisherId = null;
+      await this.repo.save(previous);
+    }
+
     return { closed, entry };
   }
 
@@ -766,8 +789,15 @@ export class TalkExchangeService {
         status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
       },
     });
-    const liveHasOwnWork =
-      !!live && (!!live.hospitalityPublisherId || !!live.note);
+    /**
+     * Своя работа координатора — только заметка.
+     *
+     * Гостеприимство сюда не входит намеренно: оно принадлежит НЕДЕЛЕ, а не
+     * человеку (семья принимает гостя, кем бы он ни был), и при замене
+     * переезжает вместе с ней. Значит при возврате оно едет обратно, а не
+     * держит запись заменившего на месте.
+     */
+    const liveHasOwnWork = !!live && !!live.note;
 
     const before = snapshot(closed);
     closed.status = TalkExchangeStatus.CONFIRMED;
@@ -784,6 +814,10 @@ export class TalkExchangeService {
 
     let removed: string | null = null;
     if (live && !liveHasOwnWork) {
+      if (live.hospitalityPublisherId && !closed.hospitalityPublisherId) {
+        closed.hospitalityPublisherId = live.hospitalityPublisherId;
+        await this.repo.save(closed);
+      }
       await this.repo.softDelete(live.id);
       removed = live.id;
     }

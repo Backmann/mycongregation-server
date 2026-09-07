@@ -49,6 +49,9 @@ export class VisitingSpeakersService {
 
   private static readonly MANAGER_RESPONSIBILITIES = [
     ResponsibilityType.PUBLIC_TALK_COORDINATOR,
+    // Помощник ведёт те же справочники: иначе он может заменить докладчика,
+    // но не может завести карточку тому, кого заменил.
+    ResponsibilityType.PUBLIC_TALK_COORDINATOR_ASSISTANT,
   ];
 
   /** Admins and the public talk coordinator may edit; everyone else may read. */
