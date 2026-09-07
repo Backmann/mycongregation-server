@@ -610,6 +610,24 @@ export class TalkExchangeService {
       },
     });
 
+    /**
+     * Замена на того же самого — не замена.
+     *
+     * Нажать можно случайно, а последствие тяжёлое: живой визит закрылся бы
+     * как несостоявшийся и тут же завёлся заново, оставив в истории брата
+     * ложную отметку «не приехал».
+     */
+    const sameSpeaker =
+      (dto.visitingSpeakerId &&
+        dto.visitingSpeakerId === slot.visitingSpeakerId) ||
+      (dto.publisherId && dto.publisherId === slot.publisherId);
+    if (sameSpeaker) {
+      throw new BadRequestException({
+        code: 'SAME_SPEAKER',
+        message: 'That speaker already has this week',
+      });
+    }
+
     let closed: string | null = null;
     // Закрываем только чужой визит: если в слоте стоял НАШ брат, он никуда не
     // ездил и «не состоялось» про него говорить нечего — он просто не
@@ -666,6 +684,22 @@ export class TalkExchangeService {
       slot.speakerCongregation = dto.speakerCongregation?.trim() || null;
     } else {
       throw new BadRequestException('Nobody to put in the slot');
+    }
+    /**
+     * Речь меняется вместе с докладчиком — если её назвали.
+     *
+     * Приезжает другой брат со своей речью, и до сих пор слот молча сохранял
+     * прежний номер: новому записывалось то, чего он не говорил, а подсказка
+     * «эта речь у нас уже была» начинала отговаривать от темы, которую никто
+     * не слышал. Не назвали — оставляем как есть: тот же доклад может читать
+     * другой, и это законный случай.
+     */
+    if (dto.publicTalkId) {
+      slot.publicTalkId = dto.publicTalkId;
+      const talk = await this.publicTalkRepo.findOne({
+        where: { id: dto.publicTalkId },
+      });
+      if (talk) slot.partTitle = `№${talk.number}. ${talk.title}`;
     }
     if (slot.status === AssignmentStatus.PUBLISHED) {
       slot.changedSincePublish = true;

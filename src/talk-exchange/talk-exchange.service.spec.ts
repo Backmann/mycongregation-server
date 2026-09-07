@@ -543,6 +543,83 @@ describe('TalkExchangeService', () => {
       }
     });
 
+    it('меняет речь вместе с докладчиком', async () => {
+      // Приезжает другой брат со своей речью. До сих пор слот сохранял прежний
+      // номер, и новому записывалось то, чего он не произносил.
+      assignmentRepo.findOne.mockResolvedValue(slot());
+      repo.findOne.mockResolvedValue(null);
+      speakerRepo.findOne.mockResolvedValue({
+        id: 'speaker-new-1',
+        firstName: 'Iwan',
+        lastName: null,
+        externalCongregation: null,
+      });
+      publicTalkRepo.findOne.mockResolvedValue({
+        id: 'talk-9',
+        number: 9,
+        title: 'Совсем другая речь',
+      });
+
+      await service.replaceSpeaker(TENANT, user(), {
+        weekStartDate: week,
+        visitingSpeakerId: 'speaker-new-1',
+        publicTalkId: 'talk-9',
+      });
+
+      expect(assignmentRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          publicTalkId: 'talk-9',
+          partTitle: '№9. Совсем другая речь',
+        }),
+      );
+    });
+
+    it('оставляет речь, когда её не назвали', async () => {
+      // Тот же доклад читает другой — законный случай.
+      assignmentRepo.findOne.mockResolvedValue(slot());
+      repo.findOne.mockResolvedValue(null);
+      speakerRepo.findOne.mockResolvedValue({
+        id: 'speaker-new-1',
+        firstName: 'Iwan',
+        lastName: null,
+        externalCongregation: null,
+      });
+
+      await service.replaceSpeaker(TENANT, user(), {
+        weekStartDate: week,
+        visitingSpeakerId: 'speaker-new-1',
+      });
+
+      expect(assignmentRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ publicTalkId: 'talk-1' }),
+      );
+    });
+
+    it('отказывает, когда докладчик тот же самый', async () => {
+      // Иначе живой визит закрылся бы как несостоявшийся и завёлся заново,
+      // оставив брату ложное «не приехал».
+      assignmentRepo.findOne.mockResolvedValue(slot());
+      // Карточка существует — иначе отказ пришёл бы по другой причине, и тест
+      // проходил бы, ничего не проверяя. Так он и проходил, пока обратная
+      // проверка не сняла правило и ничего не упало.
+      speakerRepo.findOne.mockResolvedValue({
+        id: 'speaker-old',
+        firstName: 'Walter',
+        lastName: 'Getko',
+        externalCongregation: null,
+      });
+
+      await expect(
+        service.replaceSpeaker(TENANT, user(), {
+          weekStartDate: week,
+          visitingSpeakerId: 'speaker-old',
+        }),
+      ).rejects.toMatchObject({
+        response: { code: 'SAME_SPEAKER' },
+      });
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
     it('отказывает, когда в неделе нет слота публичной речи', async () => {
       assignmentRepo.findOne.mockResolvedValue(null);
 
