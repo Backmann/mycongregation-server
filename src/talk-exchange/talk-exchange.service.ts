@@ -1,11 +1,12 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { Between, MoreThanOrEqual, In, Repository } from 'typeorm';
+import { Between, MoreThanOrEqual, In, Not, Repository } from 'typeorm';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Absence } from '../entities/absence.entity';
@@ -17,10 +18,14 @@ import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
-import { TalkExchangeDirection } from '../common/enums/talk-exchange.enum';
+import {
+  TalkExchangeDirection,
+  TalkExchangeStatus,
+} from '../common/enums/talk-exchange.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { CreateTalkExchangeDto } from './dto/create-talk-exchange.dto';
 import { UpdateTalkExchangeDto } from './dto/update-talk-exchange.dto';
+import { ReplaceSpeakerDto } from './dto/replace-speaker.dto';
 import { mondayOf } from '../common/week';
 
 const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
@@ -506,7 +511,7 @@ export class TalkExchangeService {
   async rebuildFromProgramme(
     tenantId: string,
     from: string,
-  ): Promise<{ weeks: number; created: number }> {
+  ): Promise<{ weeks: number; created: number; linked: number }> {
     const slots = await this.assignmentRepo.find({
       where: {
         congregationId: tenantId,
@@ -516,28 +521,169 @@ export class TalkExchangeService {
       order: { weekStartDate: 'ASC' },
     });
 
-    const before = await this.repo.count({
-      where: {
-        congregationId: tenantId,
-        direction: TalkExchangeDirection.INCOMING,
-        date: MoreThanOrEqual(from),
-      },
-    });
+    /**
+     * Считаем ДВА разных исхода, потому что раньше считали ни одного.
+     *
+     * Прежняя мерка была разницей количеств до и после, а под ней стояла
+     * подпись «если ничего не добавилось — значит журнал и программа уже
+     * совпадают». В первый же настоящий прогон это оказалось неправдой:
+     * записей не прибавилось ни одной, зато четыре визита впервые обрели
+     * хозяина — связь со справочником проставилась там, где её не было. Про
+     * это человеку не сказали ничего.
+     *
+     * Разница количеств не умеет отличить «ничего не произошло» от «поровну
+     * появилось и исчезло» и вовсе слепа к изменениям внутри записи. Поэтому
+     * теперь смотрим на состояние записей: сколько было и у скольких была
+     * связь.
+     */
+    const whereIncoming = {
+      congregationId: tenantId,
+      direction: TalkExchangeDirection.INCOMING,
+      date: MoreThanOrEqual(from),
+    };
+    const before = await this.repo.find({ where: whereIncoming });
+    const linkedBefore = new Set(
+      before.filter((e) => e.visitingSpeakerId).map((e) => e.id),
+    );
 
     const weeks = [...new Set(slots.map((a) => a.weekStartDate))];
     for (const week of weeks) {
       await this.syncProgramToJournal(tenantId, week);
     }
 
-    const after = await this.repo.count({
+    const after = await this.repo.find({ where: whereIncoming });
+    const created = Math.max(0, after.length - before.length);
+    // Связанные заново — те, у кого связь появилась, а запись существовала и
+    // раньше. Новые записи со связью считаются в `created`, дважды одно и то
+    // же событие называть незачем.
+    const linked = after.filter(
+      (e) =>
+        e.visitingSpeakerId &&
+        linkedBefore.has(e.id) === false &&
+        before.some((b) => b.id === e.id),
+    ).length;
+
+    return { weeks: weeks.length, created, linked };
+  }
+
+  /**
+   * Приехал другой брат.
+   *
+   * Это не правка записи, а два факта: визит того, кого ждали, НЕ СОСТОЯЛСЯ, а
+   * визит того, кто приехал, состоялся. Раньше оба умещались в одну строку —
+   * имя переписывали, и первый брат исчезал бесследно: ни следа, что его звали
+   * и он не приехал. А по этому следу и решают, звать ли снова.
+   *
+   * Делается одним действием, потому что делается со сцены. Председатель
+   * объявляет то, что написано в программе, и правка в двух местах подряд в
+   * эту минуту невозможна: программа должна стать верной сразу.
+   *
+   * Порядок важен: сперва закрываем прежнюю запись, и только потом зеркало
+   * заводит новую. Иначе оно нашло бы старую и переписало её именем нового —
+   * ровно та потеря истории, ради которой всё делалось.
+   */
+  async replaceSpeaker(
+    tenantId: string,
+    user: AuthenticatedUser,
+    dto: ReplaceSpeakerDto,
+  ): Promise<{ closed: string | null; entry: TalkExchange | null }> {
+    await this.assertCanWrite(user);
+
+    const slot = await this.assignmentRepo.findOne({
+      where: {
+        congregationId: tenantId,
+        weekStartDate: dto.weekStartDate,
+        partKey: PUBLIC_TALK_PART_KEY,
+      },
+    });
+    if (!slot) {
+      throw new NotFoundException('That week has no public-talk slot');
+    }
+
+    const weekEnd = addDaysISO(dto.weekStartDate, 6);
+    const previous = await this.repo.findOne({
       where: {
         congregationId: tenantId,
         direction: TalkExchangeDirection.INCOMING,
-        date: MoreThanOrEqual(from),
+        date: Between(dto.weekStartDate, weekEnd),
+        status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
       },
     });
 
-    return { weeks: weeks.length, created: Math.max(0, after - before) };
+    let closed: string | null = null;
+    // Закрываем только чужой визит: если в слоте стоял НАШ брат, он никуда не
+    // ездил и «не состоялось» про него говорить нечего — он просто не
+    // выступил, и запись журнала для него не заводилась как приезд.
+    if (previous && !previous.publisherId) {
+      const beforeState = snapshot(previous);
+      previous.status = TalkExchangeStatus.DID_NOT_HAPPEN;
+      if (dto.reason?.trim()) {
+        previous.note = [previous.note, dto.reason.trim()]
+          .filter(Boolean)
+          .join(' · ');
+      }
+      await this.repo.save(previous);
+      closed = previous.id;
+      await this.auditLog.logUpdate({
+        tenantId,
+        entityType: 'talk_exchange',
+        entityId: previous.id,
+        subjectId: previous.publisherId ?? previous.hospitalityPublisherId,
+        before: beforeState,
+        after: snapshot(previous),
+        fields: ['status', 'note'],
+      });
+    }
+
+    // Новый докладчик занимает слот программы — с этой секунды председатель
+    // читает верное имя.
+    const name = dto.speakerName?.trim() || null;
+    if (dto.visitingSpeakerId) {
+      const speaker = await this.speakerRepo.findOne({
+        where: { id: dto.visitingSpeakerId, congregationId: tenantId },
+        relations: { externalCongregation: true },
+      });
+      if (!speaker) throw new NotFoundException('Speaker not found');
+      slot.publisherId = null;
+      slot.visitingSpeakerId = speaker.id;
+      slot.speakerName = speakerFullName(speaker);
+      slot.speakerCongregation = speaker.externalCongregation?.name ?? null;
+    } else if (dto.publisherId) {
+      slot.publisherId = dto.publisherId;
+      slot.visitingSpeakerId = null;
+      slot.speakerName = null;
+      slot.speakerCongregation = null;
+    } else if (name) {
+      slot.publisherId = null;
+      // Карточка заводится или находится здесь же: визит нового брата обязан
+      // попасть в его историю так же, как и любой другой.
+      slot.visitingSpeakerId = await this.speakerCardFor(
+        tenantId,
+        name,
+        dto.speakerCongregation ?? null,
+      );
+      slot.speakerName = name;
+      slot.speakerCongregation = dto.speakerCongregation?.trim() || null;
+    } else {
+      throw new BadRequestException('Nobody to put in the slot');
+    }
+    if (slot.status === AssignmentStatus.PUBLISHED) {
+      slot.changedSincePublish = true;
+    }
+    await this.assignmentRepo.save(slot);
+
+    // Зеркало заводит запись нового визита. Прежняя ему уже не видна.
+    await this.syncProgramToJournal(tenantId, dto.weekStartDate);
+
+    const entry = await this.repo.findOne({
+      where: {
+        congregationId: tenantId,
+        direction: TalkExchangeDirection.INCOMING,
+        date: Between(dto.weekStartDate, weekEnd),
+        status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
+      },
+    });
+    return { closed, entry };
   }
 
   /**
@@ -561,11 +707,20 @@ export class TalkExchangeService {
 
     // Find the existing incoming journal entry for this week (if any).
     const weekEnd = addDaysISO(weekStartDate, 6);
+    /**
+     * Запись, которую зеркало ведёт, — только СОСТОЯВШАЯСЯ.
+     *
+     * После замены в неделе лежат две: несостоявшийся визит первого брата и
+     * визит второго. Если бы зеркало могло выбрать любую, оно рано или поздно
+     * переписало бы историю первого именем второго — и потеря, ради устранения
+     * которой всё затевалось, вернулась бы с другой стороны.
+     */
     const existing = await this.repo.findOne({
       where: {
         congregationId: tenantId,
         direction: TalkExchangeDirection.INCOMING,
         date: Between(weekStartDate, weekEnd),
+        status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
       },
     });
 

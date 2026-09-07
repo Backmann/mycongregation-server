@@ -392,7 +392,199 @@ describe('TalkExchangeService', () => {
    * визит переставал принадлежать человеку: «ещё не приезжал», обнулённый
    * промежуток, речь снова непроизнесённая.
    */
+  /**
+   * Замена в день встречи: приехал не тот, кого ждали.
+   *
+   * Раньше это делалось правкой имени, и первый брат исчезал бесследно.
+   * Теперь это два факта, и оба остаются.
+   */
+  describe('замена докладчика', () => {
+    const week = '2026-06-15';
+    const slot = () => ({
+      id: 'asg',
+      publisherId: null,
+      visitingSpeakerId: 'speaker-old',
+      speakerName: 'Walter Getko',
+      speakerCongregation: 'Arnsberg',
+      publicTalkId: 'talk-1',
+      status: 'draft',
+    });
+
+    it('закрывает прежний визит как несостоявшийся, а не стирает его', async () => {
+      assignmentRepo.findOne.mockResolvedValue(slot());
+      repo.findOne.mockResolvedValue({
+        id: 'tx-old',
+        publisherId: null,
+        visitingSpeakerId: 'speaker-old',
+        speakerName: 'Walter Getko',
+        status: 'confirmed',
+        note: null,
+      });
+      speakerRepo.findOne.mockResolvedValue({
+        id: 'speaker-new-1',
+        firstName: 'Iwan',
+        lastName: 'Schustov',
+        externalCongregation: { name: 'Bielefeld' },
+      });
+
+      const out = await service.replaceSpeaker(TENANT, user(), {
+        weekStartDate: week,
+        visitingSpeakerId: 'speaker-new-1',
+        reason: 'заболел',
+      });
+
+      expect(out.closed).toBe('tx-old');
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'tx-old',
+          status: 'did_not_happen',
+          note: 'заболел',
+        }),
+      );
+      // Запись НЕ удалена: по ней потом решают, звать ли снова.
+      expect(repo.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('ставит нового докладчика в программу немедленно', async () => {
+      // Председатель объявляет то, что написано в программе, и написано это
+      // должно быть до того, как он выйдет на сцену.
+      assignmentRepo.findOne.mockResolvedValue(slot());
+      repo.findOne.mockResolvedValue(null);
+      speakerRepo.findOne.mockResolvedValue({
+        id: 'speaker-new-1',
+        firstName: 'Iwan',
+        lastName: 'Schustov',
+        externalCongregation: { name: 'Bielefeld' },
+      });
+
+      await service.replaceSpeaker(TENANT, user(), {
+        weekStartDate: week,
+        visitingSpeakerId: 'speaker-new-1',
+      });
+
+      expect(assignmentRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          visitingSpeakerId: 'speaker-new-1',
+          speakerName: 'Iwan Schustov',
+          speakerCongregation: 'Bielefeld',
+        }),
+      );
+    });
+
+    it('заводит карточку, когда заменяющего вписали именем', async () => {
+      assignmentRepo.findOne.mockResolvedValue(slot());
+      repo.findOne.mockResolvedValue(null);
+
+      await service.replaceSpeaker(TENANT, user(), {
+        weekStartDate: week,
+        speakerName: 'Sergej Eskow',
+        speakerCongregation: 'Münster',
+      });
+
+      expect(speakerRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ firstName: 'Sergej', autoCreated: true }),
+      );
+      expect(assignmentRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ visitingSpeakerId: 'speaker-new' }),
+      );
+    });
+
+    it('не трогает журнал, когда в слоте стоял наш брат', async () => {
+      // Он никуда не ездил: «не состоялось» про него говорить нечего.
+      assignmentRepo.findOne.mockResolvedValue({
+        ...slot(),
+        publisherId: 'pub-1',
+        visitingSpeakerId: null,
+        speakerName: null,
+      });
+      repo.findOne.mockResolvedValue({
+        id: 'tx-local',
+        publisherId: 'pub-1',
+        status: 'confirmed',
+      });
+      speakerRepo.findOne.mockResolvedValue({
+        id: 'speaker-new-1',
+        firstName: 'Iwan',
+        lastName: null,
+        externalCongregation: null,
+      });
+
+      const out = await service.replaceSpeaker(TENANT, user(), {
+        weekStartDate: week,
+        visitingSpeakerId: 'speaker-new-1',
+      });
+
+      expect(out.closed).toBeNull();
+    });
+
+    it('ищет живую запись недели, а не любую', async () => {
+      /**
+       * После замены в неделе лежат две записи: несостоявшийся визит первого и
+       * визит второго. Если спрашивать «любую запись этой недели», рано или
+       * поздно достанется закрытая — и замена переписала бы историю первого
+       * именем второго. Поэтому в запрос входит состояние.
+       */
+      assignmentRepo.findOne.mockResolvedValue(slot());
+      repo.findOne.mockResolvedValue(null);
+      speakerRepo.findOne.mockResolvedValue({
+        id: 'speaker-new-1',
+        firstName: 'Iwan',
+        lastName: null,
+        externalCongregation: null,
+      });
+
+      await service.replaceSpeaker(TENANT, user(), {
+        weekStartDate: week,
+        visitingSpeakerId: 'speaker-new-1',
+      });
+
+      for (const call of repo.findOne.mock.calls) {
+        expect(Object.keys(call[0].where)).toContain('status');
+      }
+    });
+
+    it('отказывает, когда в неделе нет слота публичной речи', async () => {
+      assignmentRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.replaceSpeaker(TENANT, user(), {
+          weekStartDate: week,
+          speakerName: 'Кто-то',
+        }),
+      ).rejects.toThrow();
+    });
+
+    it('отказывает, когда некого поставить', async () => {
+      assignmentRepo.findOne.mockResolvedValue(slot());
+      repo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.replaceSpeaker(TENANT, user(), { weekStartDate: week }),
+      ).rejects.toThrow();
+    });
+  });
+
   describe('связь со справочником', () => {
+    it('зеркало не видит несостоявшихся записей', async () => {
+      // Иначе после замены оно взяло бы закрытую запись первого брата и
+      // переписало её именем второго — потеря истории с другой стороны.
+      assignmentRepo.findOne.mockResolvedValue({
+        id: 'asg',
+        publisherId: null,
+        speakerName: 'Walter Getko',
+        speakerCongregation: null,
+        publicTalkId: 'talk-1',
+        visitingSpeakerId: 'speaker-7',
+      });
+      repo.findOne.mockResolvedValue(null);
+
+      await service.syncProgramToJournal(TENANT, '2026-06-15');
+
+      expect(Object.keys(repo.findOne.mock.calls[0][0].where)).toContain(
+        'status',
+      );
+    });
+
     it('не теряет привязку записи, когда программа отражается в журнал', async () => {
       assignmentRepo.findOne.mockResolvedValue({
         id: 'asg',

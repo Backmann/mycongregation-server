@@ -16,6 +16,7 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { RebuildFromProgrammeDto } from './dto/rebuild-from-programme.dto';
 import { CreateTalkExchangeDto } from './dto/create-talk-exchange.dto';
 import { UpdateTalkExchangeDto } from './dto/update-talk-exchange.dto';
+import { ReplaceSpeakerDto } from './dto/replace-speaker.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 
 /**
@@ -44,6 +45,19 @@ export class TalkExchangeController {
     @Body() dto: RebuildFromProgrammeDto,
   ) {
     return this.service.rebuildFromProgramme(tenantId, dto.from);
+  }
+
+  /**
+   * Приехал другой брат. Одно действие вместо правки в двух местах — делается
+   * со сцены, когда программа обязана стать верной сразу.
+   */
+  @Post('replace-speaker')
+  replaceSpeaker(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ReplaceSpeakerDto,
+  ) {
+    return this.service.replaceSpeaker(tenantId, user, dto);
   }
 
   @Get(':id')
