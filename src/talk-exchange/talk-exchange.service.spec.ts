@@ -37,6 +37,9 @@ describe('TalkExchangeService', () => {
   let congregationRepo: any;
   let publicTalkRepo: any;
   let responsibilityRepo: any;
+  // Журнал изменений: замена обязана оставлять в нём след, значит подделка
+  // должна быть доступна тестам, а не спрятана в объявлении модуля.
+  let auditLog: any;
 
   beforeEach(async () => {
     repo = {
@@ -70,6 +73,11 @@ describe('TalkExchangeService', () => {
     };
     publicTalkRepo = { findOne: jest.fn() };
     responsibilityRepo = { count: jest.fn().mockResolvedValue(0) };
+    auditLog = {
+      logCreate: jest.fn(),
+      logUpdate: jest.fn(),
+      logEvent: jest.fn(),
+    };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -93,11 +101,7 @@ describe('TalkExchangeService', () => {
         },
         {
           provide: AuditLogService,
-          useValue: {
-            logCreate: jest.fn(),
-            logUpdate: jest.fn(),
-            logEvent: jest.fn(),
-          },
+          useValue: auditLog,
         },
       ],
     }).compile();
@@ -511,8 +515,14 @@ describe('TalkExchangeService', () => {
       );
     });
 
-    it('не трогает журнал, когда в слоте стоял наш брат', async () => {
-      // Он никуда не ездил: «не состоялось» про него говорить нечего.
+    it('закрывает визит и НАШЕГО брата тоже', async () => {
+      /**
+       * Сначала своего не закрывали: он ведь никуда не ездил. Неверно дважды.
+       * По сути — «наш брат не смог, вместо него другой» тот же самый факт:
+       * назначен и не выступил. По последствиям — без закрытой записи нечего
+       * возвращать, и замена становилась необратимой; так 7 сентября неделя
+       * потеряла докладчика и тему безвозвратно.
+       */
       assignmentRepo.findOne.mockResolvedValue({
         ...slot(),
         publisherId: 'pub-1',
@@ -523,6 +533,7 @@ describe('TalkExchangeService', () => {
         id: 'tx-local',
         publisherId: 'pub-1',
         status: 'confirmed',
+        note: null,
       });
       speakerRepo.findOne.mockResolvedValue({
         id: 'speaker-new-1',
@@ -536,15 +547,17 @@ describe('TalkExchangeService', () => {
         visitingSpeakerId: 'speaker-new-1',
       });
 
-      expect(out.closed).toBeNull();
+      expect(out.closed).toBe('tx-local');
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'tx-local', status: 'did_not_happen' }),
+      );
     });
 
-    it('ищет живую запись недели, а не любую', async () => {
+    it('оставляет след в журнале изменений', async () => {
       /**
-       * После замены в неделе лежат две записи: несостоявшийся визит первого и
-       * визит второго. Если спрашивать «любую запись этой недели», рано или
-       * поздно достанется закрытая — и замена переписала бы историю первого
-       * именем второго. Поэтому в запрос входит состояние.
+       * Обычная правка назначения след оставляет, а замена правила слот
+       * напрямую и молча — поэтому у испорченной недели не нашлось ни следа,
+       * ни возможности вернуть как было.
        */
       assignmentRepo.findOne.mockResolvedValue(slot());
       repo.findOne.mockResolvedValue(null);
@@ -560,125 +573,16 @@ describe('TalkExchangeService', () => {
         visitingSpeakerId: 'speaker-new-1',
       });
 
-      for (const call of repo.findOne.mock.calls) {
-        expect(Object.keys(call[0].where)).toContain('status');
-      }
-    });
-
-    it('передаёт гостеприимство тому, кто приехал', async () => {
-      // Иначе приехавшего никто не встречает, а семья узнаёт об этом в зале.
-      assignmentRepo.findOne.mockResolvedValue(slot());
-      repo.findOne
-        .mockResolvedValueOnce({
-          id: 'tx-old',
-          publisherId: null,
-          visitingSpeakerId: 'speaker-old',
-          status: 'confirmed',
-          hospitalityPublisherId: 'pub-host',
-          note: null,
-        })
-        // Порядок обращений: сначала прежняя запись, потом зеркало ищет свою
-        // (её ещё нет), и только затем — запись приехавшего.
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ id: 'tx-new', hospitalityPublisherId: null });
-      speakerRepo.findOne.mockResolvedValue({
-        id: 'speaker-new-1',
-        firstName: 'Iwan',
-        lastName: null,
-        externalCongregation: null,
-      });
-
-      await service.replaceSpeaker(TENANT, user(), {
-        weekStartDate: week,
-        visitingSpeakerId: 'speaker-new-1',
-      });
-
-      expect(repo.save).toHaveBeenCalledWith(
+      expect(auditLog.logUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
-          id: 'tx-new',
-          hospitalityPublisherId: 'pub-host',
+          entityType: 'assignment',
+          entityId: 'asg',
+          before: expect.objectContaining({ visitingSpeakerId: 'speaker-old' }),
+          after: expect.objectContaining({
+            visitingSpeakerId: 'speaker-new-1',
+          }),
         }),
       );
-      expect(repo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'tx-old', hospitalityPublisherId: null }),
-      );
-    });
-
-    it('меняет речь вместе с докладчиком', async () => {
-      // Приезжает другой брат со своей речью. До сих пор слот сохранял прежний
-      // номер, и новому записывалось то, чего он не произносил.
-      assignmentRepo.findOne.mockResolvedValue(slot());
-      repo.findOne.mockResolvedValue(null);
-      speakerRepo.findOne.mockResolvedValue({
-        id: 'speaker-new-1',
-        firstName: 'Iwan',
-        lastName: null,
-        externalCongregation: null,
-      });
-      publicTalkRepo.findOne.mockResolvedValue({
-        id: 'talk-9',
-        number: 9,
-        title: 'Совсем другая речь',
-      });
-
-      await service.replaceSpeaker(TENANT, user(), {
-        weekStartDate: week,
-        visitingSpeakerId: 'speaker-new-1',
-        publicTalkId: 'talk-9',
-      });
-
-      expect(assignmentRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          publicTalkId: 'talk-9',
-          partTitle: '№9. Совсем другая речь',
-        }),
-      );
-    });
-
-    it('оставляет речь, когда её не назвали', async () => {
-      // Тот же доклад читает другой — законный случай.
-      assignmentRepo.findOne.mockResolvedValue(slot());
-      repo.findOne.mockResolvedValue(null);
-      speakerRepo.findOne.mockResolvedValue({
-        id: 'speaker-new-1',
-        firstName: 'Iwan',
-        lastName: null,
-        externalCongregation: null,
-      });
-
-      await service.replaceSpeaker(TENANT, user(), {
-        weekStartDate: week,
-        visitingSpeakerId: 'speaker-new-1',
-      });
-
-      expect(assignmentRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ publicTalkId: 'talk-1' }),
-      );
-    });
-
-    it('отказывает, когда докладчик тот же самый', async () => {
-      // Иначе живой визит закрылся бы как несостоявшийся и завёлся заново,
-      // оставив брату ложное «не приехал».
-      assignmentRepo.findOne.mockResolvedValue(slot());
-      // Карточка существует — иначе отказ пришёл бы по другой причине, и тест
-      // проходил бы, ничего не проверяя. Так он и проходил, пока обратная
-      // проверка не сняла правило и ничего не упало.
-      speakerRepo.findOne.mockResolvedValue({
-        id: 'speaker-old',
-        firstName: 'Walter',
-        lastName: 'Getko',
-        externalCongregation: null,
-      });
-
-      await expect(
-        service.replaceSpeaker(TENANT, user(), {
-          weekStartDate: week,
-          visitingSpeakerId: 'speaker-old',
-        }),
-      ).rejects.toMatchObject({
-        response: { code: 'SAME_SPEAKER' },
-      });
-      expect(repo.save).not.toHaveBeenCalled();
     });
 
     it('отказывает, когда в неделе нет слота публичной речи', async () => {

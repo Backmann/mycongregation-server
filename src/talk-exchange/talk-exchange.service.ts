@@ -67,6 +67,33 @@ function snapshot(row: TalkExchange): Record<string, unknown> {
   };
 }
 
+/**
+ * Как выглядит слот программы в журнале изменений.
+ *
+ * Те же поля, что записывает обычная правка назначения, плюс речь и связь со
+ * справочником — их меняет именно замена, и без них запись в журнале не
+ * позволила бы понять, что произошло.
+ */
+function slotSnapshot(row: Assignment): Record<string, unknown> {
+  return {
+    publisherId: row.publisherId ?? null,
+    speakerName: row.speakerName ?? null,
+    speakerCongregation: row.speakerCongregation ?? null,
+    visitingSpeakerId: row.visitingSpeakerId ?? null,
+    publicTalkId: row.publicTalkId ?? null,
+    partTitle: row.partTitle ?? null,
+  };
+}
+
+const SLOT_FIELDS = [
+  'publisherId',
+  'speakerName',
+  'speakerCongregation',
+  'visitingSpeakerId',
+  'publicTalkId',
+  'partTitle',
+];
+
 @Injectable()
 export class TalkExchangeService {
   constructor(
@@ -602,6 +629,8 @@ export class TalkExchangeService {
     if (!slot) {
       throw new NotFoundException('That week has no public-talk slot');
     }
+    // Снимок до правки: снимается здесь, пока слот ещё не тронут.
+    const slotWas = { ...slot } as Assignment;
 
     const weekEnd = addDaysISO(dto.weekStartDate, 6);
     const previous = await this.repo.findOne({
@@ -632,10 +661,19 @@ export class TalkExchangeService {
     }
 
     let closed: string | null = null;
-    // Закрываем только чужой визит: если в слоте стоял НАШ брат, он никуда не
-    // ездил и «не состоялось» про него говорить нечего — он просто не
-    // выступил, и запись журнала для него не заводилась как приезд.
-    if (previous && !previous.publisherId) {
+    /**
+     * Закрываем визит любого — и приезжего, и НАШЕГО брата.
+     *
+     * Сначала было иначе: считалось, что про своего «не состоялось» говорить
+     * нечего, он ведь никуда не ездил. Это оказалось неверно дважды. По сути:
+     * «наш брат не смог, вместо него другой» бывает не реже приезда гостя, и
+     * это ровно тот же факт — назначен и не выступил. По последствиям хуже:
+     * без закрытой записи нечего возвращать, и замена на такой неделе
+     * становилась необратимой. Именно так 7 сентября неделя с Коршудьянцем
+     * потеряла и докладчика, и тему, и восстанавливать пришлось из резервной
+     * копии.
+     */
+    if (previous) {
       const beforeState = snapshot(previous);
       previous.status = TalkExchangeStatus.DID_NOT_HAPPEN;
       if (dto.reason?.trim()) {
@@ -707,7 +745,25 @@ export class TalkExchangeService {
     if (slot.status === AssignmentStatus.PUBLISHED) {
       slot.changedSincePublish = true;
     }
+    const slotBefore = slotSnapshot(slotWas);
     await this.assignmentRepo.save(slot);
+    /**
+     * След в журнале изменений.
+     *
+     * Обычная правка назначения его оставляет, а замена правила слот напрямую
+     * и молча — поэтому у испорченной недели не нашлось ни следа, ни
+     * возможности вернуть как было. Действие, меняющее программу, обязано
+     * говорить, кто и что изменил.
+     */
+    await this.auditLog.logUpdate({
+      tenantId: tenantId,
+      entityType: 'assignment',
+      entityId: slot.id,
+      subjectId: slot.publisherId ?? null,
+      before: slotBefore,
+      after: slotSnapshot(slot),
+      fields: SLOT_FIELDS,
+    });
 
     // Зеркало заводит запись нового визита. Прежняя ему уже не видна.
     await this.syncProgramToJournal(tenantId, dto.weekStartDate);
@@ -831,6 +887,7 @@ export class TalkExchangeService {
       },
     });
     if (slot) {
+      const slotBefore = slotSnapshot(slot);
       slot.publisherId = closed.publisherId ?? null;
       slot.visitingSpeakerId = closed.visitingSpeakerId ?? null;
       slot.speakerName = closed.publisherId ? null : closed.speakerName;
@@ -848,6 +905,15 @@ export class TalkExchangeService {
         slot.changedSincePublish = true;
       }
       await this.assignmentRepo.save(slot);
+      await this.auditLog.logUpdate({
+        tenantId,
+        entityType: 'assignment',
+        entityId: slot.id,
+        subjectId: slot.publisherId ?? null,
+        before: slotBefore,
+        after: slotSnapshot(slot),
+        fields: SLOT_FIELDS,
+      });
     }
 
     return { restored: closed.id, removed };
