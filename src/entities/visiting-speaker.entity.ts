@@ -76,6 +76,17 @@ export class VisitingSpeaker {
   @Column({ type: 'boolean', default: false })
   autoCreated!: boolean;
 
+  /**
+   * Карточка объединена с другой — ссылка на оставшуюся.
+   *
+   * Не удаление: если через месяц окажется, что это были разные братья,
+   * разъединять будет по чему. Пока ссылка стоит, карточка не показывается в
+   * списках и не участвует в подсчётах — её визиты уже переехали.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  @Index()
+  mergedIntoId!: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 

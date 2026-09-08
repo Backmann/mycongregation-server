@@ -1,12 +1,15 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { In, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
+import { TalkExchange } from '../entities/talk-exchange.entity';
+import { Assignment } from '../entities/assignment.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -45,6 +48,12 @@ export class VisitingSpeakersService {
     @InjectRepository(Responsibility)
     private readonly responsibilitiesRepo: Repository<Responsibility>,
     private readonly auditLog: AuditLogService,
+    // Слияние переносит историю: записи журнала и слоты программы должны
+    // начать указывать на оставшуюся карточку.
+    @InjectRepository(TalkExchange)
+    private readonly talkExchangeRepo: Repository<TalkExchange>,
+    @InjectRepository(Assignment)
+    private readonly assignmentRepo: Repository<Assignment>,
   ) {}
 
   private static readonly MANAGER_RESPONSIBILITIES = [
@@ -73,7 +82,10 @@ export class VisitingSpeakersService {
 
   findAll(tenantId: string): Promise<VisitingSpeaker[]> {
     return this.repo.find({
-      where: { congregationId: tenantId },
+      // Объединённые не показываются: их визиты уже переехали к оставшейся
+      // карточке, и предлагать их к выбору значило бы разводить двойников
+      // заново.
+      where: { congregationId: tenantId, mergedIntoId: IsNull() },
       relations: { externalCongregation: true },
       order: { lastName: 'ASC', firstName: 'ASC' },
     });
@@ -137,6 +149,104 @@ export class VisitingSpeakersService {
       });
     }
     return saved;
+  }
+
+  /**
+   * Два имени — один брат.
+   *
+   * «Иван Ротарюк» и «Rotariuk Iwan» заводятся как двое, потому что связь
+   * визита с человеком выводится по точному совпадению имени. История при
+   * этом делится надвое ровно там, где она нужна: когда решают, кого звать.
+   *
+   * Что переезжает: визиты журнала, ссылки из программы, номера речей. Что
+   * берётся у оставшейся: имя, собрание, телефон, заметка — но ПУСТОЕ поле
+   * заполняется из объединяемой, иначе слияние теряло бы сведения, ради
+   * которых его и делают.
+   *
+   * Объединённая карточка остаётся со ссылкой на оставшуюся. Приложение не
+   * решает за человека, что это точно один брат: тёзки бывают, и разъединять
+   * должно быть по чему.
+   */
+  async merge(
+    tenantId: string,
+    user: AuthenticatedUser,
+    keepId: string,
+    mergeId: string,
+  ): Promise<VisitingSpeaker> {
+    await this.assertCanWrite(user);
+    if (keepId === mergeId) {
+      throw new BadRequestException({
+        code: 'SAME_CARD',
+        message: 'Pick two different cards',
+      });
+    }
+
+    const keep = await this.repo.findOne({
+      where: { id: keepId, congregationId: tenantId },
+    });
+    const merge = await this.repo.findOne({
+      where: { id: mergeId, congregationId: tenantId },
+    });
+    if (!keep || !merge) throw new NotFoundException('Speaker not found');
+    if (keep.mergedIntoId || merge.mergedIntoId) {
+      throw new BadRequestException({
+        code: 'ALREADY_MERGED',
+        message: 'One of these cards is already merged into another',
+      });
+    }
+
+    /**
+     * Снимок для журнала изменений — плоский, как и у остальных записей:
+     * тип сверяет ключи «до» и «после», и вложенные объекты он не примет.
+     */
+    const before: Record<string, unknown> = {
+      talkNumbers: [...keep.talkNumbers],
+      mergedFrom: null,
+    };
+
+    // 1. История переезжает. Записи журнала и слоты программы начинают
+    //    указывать на оставшуюся карточку.
+    await this.talkExchangeRepo.update(
+      { congregationId: tenantId, visitingSpeakerId: mergeId },
+      { visitingSpeakerId: keepId },
+    );
+    await this.assignmentRepo.update(
+      { congregationId: tenantId, visitingSpeakerId: mergeId },
+      { visitingSpeakerId: keepId },
+    );
+
+    // 2. Репертуар складывается, а не заменяется: речь, которую он говорил,
+    //    остаётся его речью, под каким бы написанием имени её ни записали.
+    keep.talkNumbers = [
+      ...new Set([...keep.talkNumbers, ...merge.talkNumbers]),
+    ].sort((a, b) => a - b);
+    // 3. Пустое у оставшейся заполняется из объединяемой.
+    keep.phone = keep.phone ?? merge.phone;
+    keep.note = keep.note ?? merge.note;
+    keep.externalCongregationId =
+      keep.externalCongregationId ?? merge.externalCongregationId;
+    // Карточка, заведённая приложением, перестаёт быть таковой, как только в
+    // неё влилась заведённая человеком.
+    if (!merge.autoCreated) keep.autoCreated = false;
+    await this.repo.save(keep);
+
+    // 4. След. Карточка остаётся и указывает, куда её объединили.
+    merge.mergedIntoId = keep.id;
+    await this.repo.save(merge);
+
+    await this.auditLog.logUpdate({
+      tenantId,
+      entityType: 'visiting_speaker',
+      entityId: keep.id,
+      before,
+      after: {
+        talkNumbers: [...keep.talkNumbers],
+        mergedFrom: merge.id,
+      },
+      fields: ['talkNumbers', 'mergedFrom'],
+    });
+
+    return this.findOne(tenantId, keep.id);
   }
 
   async remove(

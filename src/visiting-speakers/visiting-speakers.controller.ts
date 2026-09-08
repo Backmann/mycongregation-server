@@ -58,6 +58,20 @@ export class VisitingSpeakersController {
     return this.service.update(tenantId, id, dto, user);
   }
 
+  /**
+   * Два имени — один брат. Оставшуюся карточку указывает человек: тёзки
+   * бывают, и решать за него нельзя.
+   */
+  @Post(':keepId/merge/:mergeId')
+  merge(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('keepId', ParseUUIDPipe) keepId: string,
+    @Param('mergeId', ParseUUIDPipe) mergeId: string,
+  ) {
+    return this.service.merge(tenantId, user, keepId, mergeId);
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(
