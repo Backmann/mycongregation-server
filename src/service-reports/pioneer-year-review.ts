@@ -57,8 +57,29 @@ export interface PioneerYearRow {
   toGoal: number | null;
   /** How far from the minimum that allows him to continue. */
   toMinimum: number | null;
-  /** Below the minimum with the months counted so far. */
+  /**
+   * Месяцы года, за которые от него НЕТ отчёта.
+   *
+   * Раньше такой месяц был неотличим от месяца с нулём: считалась сумма, и
+   * человек без августовского отчёта выглядел недобравшим полсотни часов —
+   * ровно в те недели, когда обзор и читают. Теперь он назван, и о нём сказано
+   * словами.
+   */
+  missingMonths: string[];
+  /**
+   * Ниже порога — и это ОКОНЧАТЕЛЬНО.
+   *
+   * Ставится, только когда за год пришли все отчёты. Пока хоть один месяц не
+   * сдан, сумма не итог, а промежуточный счёт, и обвинять по ней нельзя.
+   */
   short: boolean;
+  /**
+   * Ниже порога по тому, что сдано, но год ещё не собран.
+   *
+   * Отдельный признак, потому что говорит другое: не «не дотянул», а «пока не
+   * хватает, и мы ещё не всё знаем».
+   */
+  shortSoFar: boolean;
   /** Only the months where he wrote something — that is where credit lives. */
   notes: { reportMonth: string; note: string }[];
 }
@@ -121,6 +142,24 @@ export function reviewPioneerYear(
       (m) => m.reportMonth >= firstMonth && m.reportMonth <= lastMonth,
     );
     const hours = inYear.reduce((sum, m) => sum + (m.hours ?? 0), 0);
+
+    /**
+     * Какие месяцы года остались без отчёта.
+     *
+     * Считаются только ЗАКОНЧИВШИЕСЯ месяцы и только те, когда он уже был
+     * пионером: месяц, который ещё идёт, никто не обязан был сдать, а месяц до
+     * назначения к нему не относится.
+     */
+    const startFrom =
+      person.pioneerSince && person.pioneerSince > firstMonth
+        ? person.pioneerSince.slice(0, 7) + '-01'
+        : firstMonth;
+    const reportedSet = new Set(
+      inYear.filter((m) => (m.hours ?? 0) > 0).map((m) => m.reportMonth),
+    );
+    const missingMonths = months.filter(
+      (m) => m < thisMonth && m >= startFrom && !reportedSet.has(m),
+    );
     // A month counts as reported when it carries hours — a regular pioneer's
     // report always does. A month reported with nothing but a note is not a
     // month of pioneering, and averaging over it would flatter the pace.
@@ -140,7 +179,16 @@ export function reviewPioneerYear(
       toMinimum: startedMidYear
         ? null
         : Math.max(0, PIONEER_YEAR_MINIMUM - hours),
-      short: !startedMidYear && hours < PIONEER_YEAR_MINIMUM,
+      missingMonths,
+      // Окончательно — только когда год собран целиком.
+      short:
+        !startedMidYear &&
+        missingMonths.length === 0 &&
+        hours < PIONEER_YEAR_MINIMUM,
+      shortSoFar:
+        !startedMidYear &&
+        missingMonths.length > 0 &&
+        hours < PIONEER_YEAR_MINIMUM,
       // In the order the year runs, not the order the database happened to
       // return them: on screen «июнь, июль, сентябрь» reads as a mistake,
       // because September is the FIRST month of the service year, not the last.
@@ -151,11 +199,19 @@ export function reviewPioneerYear(
     };
   });
 
-  // Whoever needs attention first: those below the minimum, the furthest below
-  // at the top; then everybody else by name.
+  /**
+   * Кому внимание в первую очередь.
+   *
+   * Сперва те, у кого год собран и порог не взят — про них уже всё известно.
+   * За ними те, кому не хватает по сданному, но год ещё не полон: с ними
+   * разговор другой — сперва спросить про отчёт. Остальные по имени.
+   */
+  const rank = (r: PioneerYearRow) => (r.short ? 0 : r.shortSoFar ? 1 : 2);
   rows.sort((a, b) => {
-    if (a.short !== b.short) return a.short ? -1 : 1;
-    if (a.short && b.short) return a.hours - b.hours;
+    const ra = rank(a);
+    const rb = rank(b);
+    if (ra !== rb) return ra - rb;
+    if (ra < 2) return a.hours - b.hours;
     return a.displayName.localeCompare(b.displayName);
   });
 

@@ -168,6 +168,95 @@ describe('reviewPioneerYear', () => {
     expect(row.pace).toBe(51.7);
   });
 
+  it('не обвиняет того, чей отчёт ещё не сдан', async () => {
+    /**
+     * Обзор читают с 20 августа по 20 сентября, и в эти недели август
+     * досдают. Месяц без отчёта был неотличим от месяца с нулём: человек,
+     * отслуживший год, выглядел недобравшим полсотни часов — ровно тогда,
+     * когда по этой цифре решают, продолжать ли ему пионерское служение.
+     */
+    const withoutAugust = { ...twelve(50) };
+    delete withoutAugust['2026-08-01'];
+
+    const review = reviewPioneerYear(2026, '2026-09-10', [
+      person({ months: months(withoutAugust) }),
+    ]);
+    const row = review.rows[0];
+
+    expect(row.hours).toBe(550);
+    expect(row.missingMonths).toEqual(['2026-08-01']);
+    // Окончательного обвинения нет: год ещё не собран.
+    expect(row.short).toBe(false);
+    // Но и молчать нельзя — пока не хватает, и это сказано отдельным словом.
+    expect(row.shortSoFar).toBe(true);
+  });
+
+  it('обвиняет, только когда год собран целиком', () => {
+    const review = reviewPioneerYear(2026, '2026-09-10', [
+      person({ months: months(twelve(45)) }),
+    ]);
+    const row = review.rows[0];
+
+    expect(row.hours).toBe(540);
+    expect(row.missingMonths).toEqual([]);
+    expect(row.short).toBe(true);
+    expect(row.shortSoFar).toBe(false);
+  });
+
+  it('не считает недостающим месяц, который ещё идёт', () => {
+    // Сентябрь сдают в октябре: требовать его сейчас — требовать невозможного.
+    const review = reviewPioneerYear(2027, '2026-09-10', [
+      person({ months: [] }),
+    ]);
+
+    expect(review.rows[0].missingMonths).toEqual([]);
+  });
+
+  it('не требует месяцев до того, как он стал пионером', () => {
+    // Он не был пионером в сентябре — и отчёта пионера за сентябрь быть не
+    // может. Прежде такие месяцы попадали бы в недостающие все разом.
+    const review = reviewPioneerYear(2026, '2026-09-10', [
+      person({
+        pioneerSince: '2026-03-01',
+        months: months({ '2026-03-01': 50, '2026-04-01': 50 }),
+      }),
+    ]);
+
+    expect(review.rows[0].missingMonths).toEqual([
+      '2026-05-01',
+      '2026-06-01',
+      '2026-07-01',
+      '2026-08-01',
+    ]);
+  });
+
+  it('ставит первыми тех, про кого уже всё известно', () => {
+    /**
+     * Сперва год собран и порог не взят — тут разговор о служении. За ними
+     * те, кому не хватает по сданному: с ними сперва разговор об отчёте.
+     */
+    const withoutAugust = { ...twelve(40) };
+    delete withoutAugust['2026-08-01'];
+
+    const review = reviewPioneerYear(2026, '2026-09-10', [
+      person({
+        publisherId: 'p-incomplete',
+        displayName: 'Б',
+        months: months(withoutAugust),
+      }),
+      person({
+        publisherId: 'p-final',
+        displayName: 'А',
+        months: months(twelve(45)),
+      }),
+    ]);
+
+    expect(review.rows.map((r) => r.publisherId)).toEqual([
+      'p-final',
+      'p-incomplete',
+    ]);
+  });
+
   it('says which month is still being collected', () => {
     // "Учтено 11 месяцев из 12, август ещё собирается" — without it, the whole
     // list looks behind on 20 August.
