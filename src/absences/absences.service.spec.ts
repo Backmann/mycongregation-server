@@ -178,6 +178,27 @@ describe('AbsencesService — self-absence authorization', () => {
     expect(absenceRepo.softDelete).toHaveBeenCalledWith('abs-1');
   });
 
+  it('не даёт убрать отсутствие, идущее из поездки', async () => {
+    /**
+     * Оно не решение человека, а следствие: брат в этот день у чужого
+     * собрания. Раньше он его убирал, а приложение при следующем сохранении
+     * поездки заводило новое — спор по кругу. Отменять надо поездку, и это
+     * делает координатор речей.
+     */
+    absenceRepo.findOne.mockResolvedValue({
+      id: 'abs-1',
+      publisherId: MY_PUBLISHER,
+      congregationId: TENANT,
+      talkExchangeId: 'tx-1',
+    });
+    publisherRepo.findOne.mockResolvedValue({ id: MY_PUBLISHER });
+
+    await expect(service.remove(TENANT, 'abs-1', user())).rejects.toMatchObject(
+      { response: { code: 'ABSENCE_FROM_TRIP' } },
+    );
+    expect(absenceRepo.softDelete).not.toHaveBeenCalled();
+  });
+
   it("forbids a publisher deleting someone else's absence", async () => {
     absenceRepo.findOne.mockResolvedValue({
       id: 'abs-1',

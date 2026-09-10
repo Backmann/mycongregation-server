@@ -467,14 +467,26 @@ export class TalkExchangeService {
     const note = await this.buildOutgoingNote(tenantId, entry);
 
     if (entry.linkedAbsenceId) {
+      /**
+       * Удалённое отсутствие ВОССТАНАВЛИВАЕТСЯ, а не заводится заново.
+       *
+       * Обычный поиск не видит удалённых, и прежде это означало: не нашли —
+       * создали новое. Брат убирал отсутствие, приложение возвращало другое,
+       * и спор шёл по кругу, потому что ни один из двоих не видел другого.
+       * Теперь возвращается та же самая запись — с её историей и её номером.
+       */
       const abs = await this.absenceRepo.findOne({
         where: { id: entry.linkedAbsenceId, congregationId: tenantId },
+        withDeleted: true,
       });
       if (abs) {
+        if (abs.deletedAt) await this.absenceRepo.restore(abs.id);
         abs.publisherId = entry.publisherId;
         abs.startDate = entry.date;
         abs.endDate = null;
         abs.note = note;
+        abs.talkExchangeId = entry.id;
+        abs.deletedAt = null;
         await this.absenceRepo.save(abs);
         return;
       }
@@ -485,6 +497,9 @@ export class TalkExchangeService {
       publisherId: entry.publisherId,
       startDate: entry.date,
       note: note ?? undefined,
+      // Обратная ссылка: по ней экран объясняет, откуда взялось отсутствие, и
+      // не даёт убрать его в обход поездки.
+      talkExchangeId: entry.id,
     });
     const savedAbs = await this.absenceRepo.save(abs);
     entry.linkedAbsenceId = savedAbs.id;

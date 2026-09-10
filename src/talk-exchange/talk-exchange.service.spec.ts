@@ -58,6 +58,8 @@ describe('TalkExchangeService', () => {
       save: jest.fn((x) => Promise.resolve({ id: 'abs-1', ...x })),
       findOne: jest.fn(),
       softDelete: jest.fn().mockResolvedValue({}),
+      // Удалённое отсутствие теперь восстанавливается, а не заводится заново.
+      restore: jest.fn().mockResolvedValue({}),
     };
     speakerRepo = {
       findOne: jest.fn(),
@@ -294,6 +296,45 @@ describe('TalkExchangeService', () => {
       }),
     );
     expect(result.linkedAbsenceId).toBe('abs-1');
+    // Обратная ссылка: по ней экран объясняет причину и не даёт убрать
+    // отсутствие в обход поездки.
+    expect(absenceRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ talkExchangeId: expect.anything() }),
+    );
+  });
+
+  it('возвращает удалённое отсутствие, а не заводит новое', async () => {
+    /**
+     * Обычный поиск не видит удалённых, и прежде это значило: не нашли —
+     * создали следующее. Брат убирал, приложение возвращало другое, и спор шёл
+     * по кругу — так 8 сентября вернулись два отсутствия Шейфера. Теперь
+     * возвращается та же запись, со своей историей и своим номером.
+     */
+    responsibilityRepo.count.mockResolvedValue(1);
+    repo.findOne.mockResolvedValue({
+      id: 'tx-1',
+      congregationId: TENANT,
+      direction: TalkExchangeDirection.OUTGOING,
+      date: '2026-06-21',
+      publisherId: 'pub-1',
+      linkedAbsenceId: 'abs-1',
+    });
+    absenceRepo.findOne.mockResolvedValue({
+      id: 'abs-1',
+      congregationId: TENANT,
+      deletedAt: new Date('2026-06-01'),
+    });
+
+    await service.update(TENANT, 'tx-1', { note: 'что-нибудь' }, user());
+
+    expect(absenceRepo.restore).toHaveBeenCalledWith('abs-1');
+    expect(absenceRepo.create).not.toHaveBeenCalled();
+    // И сам запрос обязан спрашивать удалённые: без этого поиск не нашёл бы
+    // запись, и всё вернулось бы к заведению новой. Подделка отдаёт её в любом
+    // случае, поэтому проверяется запрос, а не ответ.
+    expect(absenceRepo.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ withDeleted: true }),
+    );
   });
 
   it('clears our own brother from the programme when this entry put him there', async () => {

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -224,6 +225,21 @@ export class AbsencesService {
       throw new NotFoundException('Absence not found');
     }
     await this.assertCanWrite(user, found.publisherId);
+    /**
+     * Отсутствие, идущее из поездки, отдельно не убирается.
+     *
+     * Оно не решение человека, а следствие: брат в этот день у чужого
+     * собрания. Убрать его, оставив поездку, значит соврать программе — и
+     * приложение всё равно вернёт его при следующем сохранении поездки.
+     * Отменять надо поездку, и это делает координатор речей.
+     */
+    if (found.talkExchangeId) {
+      throw new BadRequestException({
+        code: 'ABSENCE_FROM_TRIP',
+        message:
+          'This absence comes from a talk in another congregation. Cancel the trip instead.',
+      });
+    }
     await this.auditLog.logEvent({
       tenantId,
       entityType: 'absence',

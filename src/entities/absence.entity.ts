@@ -65,6 +65,17 @@ export class Absence {
   @Index()
   pioneerSchoolDutyId!: string | null;
 
+  /**
+   * Поездка «От нас», из которой следует это отсутствие.
+   *
+   * Null у всего, что человек завёл сам, — это его решение, и приложение к
+   * нему не притрагивается. Строка с номером поездки принадлежит поездке:
+   * подписана её причиной, не удаляется отдельно и снимается вместе с ней.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  @Index()
+  talkExchangeId!: string | null;
+
   // Login (user id) that recorded this absence; for future self-service.
   @Column({ type: 'uuid', nullable: true })
   createdById!: string | null;
