@@ -107,14 +107,25 @@ export function plansDueBy(today: Date): CalendarTaskPlan[] {
     });
   }
 
-  // End of the service year — appears 20 August, due the 31st. Lionel was
-  // precise about this: not September, and «без промедления».
-  if (reached(8, 20) && stillDue(8, 31)) {
+  /**
+   * Итог служебного года — появляется 20 августа, срок 20 сентября.
+   *
+   * Срок был 31 августа, и это оказалось не по жизни: год кончается 31-го,
+   * отчёты за август собираются весь сентябрь, а обзор без них неполон. К 10
+   * сентября задача уже висела просроченной, хотя работа шла по своему
+   * порядку. Решение Лионеля 10 сентября: окно с 20 августа по 20 сентября.
+   *
+   * `period` — год, КОТОРЫЙ ЗАКОНЧИЛСЯ: у служебного года 2025/2026 метка
+   * 2026, потому что сентябрь относится к следующей. Обзор смотрит назад, и
+   * ссылка обязана нести эту метку — иначе в сентябре откроется начавшийся
+   * год, где у всех нули.
+   */
+  if (reached(8, 20) && stillDue(9, 20)) {
     out.push({
       kind: 'service_year_review',
       period: String(year),
       appears: { month: 8, day: 20 },
-      due: { month: 8, day: 31 },
+      due: { month: 9, day: 20 },
       area: 'ministry',
       assigneeKind: 'service_committee',
     });

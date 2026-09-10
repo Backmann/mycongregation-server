@@ -24,8 +24,13 @@ describe('plansDueBy', () => {
     });
   });
 
-  it('offers the service-year review on 20 August, due the 31st', () => {
-    // Lionel was precise: not September, and it goes to the committee.
+  it('offers the service-year review on 20 August, due 20 September', () => {
+    /**
+     * Срок был 31 августа и оказался не по жизни: год кончается 31-го, отчёты
+     * за август собираются весь сентябрь, а обзор без них неполон. К 10
+     * сентября задача висела просроченной, хотя работа шла своим порядком.
+     * Решение Лионеля 10 сентября — окно с 20 августа по 20 сентября.
+     */
     expect(
       plansDueBy(on('2026-08-19')).some(
         (p) => p.kind === 'service_year_review',
@@ -36,9 +41,25 @@ describe('plansDueBy', () => {
       (p) => p.kind === 'service_year_review',
     );
     expect(plan).toMatchObject({
-      due: { month: 8, day: 31 },
+      due: { month: 9, day: 20 },
       assigneeKind: 'service_committee',
+      // Метка — год, КОТОРЫЙ ЗАКОНЧИЛСЯ. По ней ссылка открывает нужный год.
+      period: '2026',
     });
+  });
+
+  it('держит обзор служебного года до 20 сентября и не дальше', () => {
+    // В сентябре он ещё в работе: отчёты за август досдают.
+    expect(
+      plansDueBy(on('2026-09-10')).some(
+        (p) => p.kind === 'service_year_review',
+      ),
+    ).toBe(true);
+    expect(
+      plansDueBy(on('2026-09-21')).some(
+        (p) => p.kind === 'service_year_review',
+      ),
+    ).toBe(false);
   });
 
   it('offers the accounts check the month AFTER each quarter', () => {
