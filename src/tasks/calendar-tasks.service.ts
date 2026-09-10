@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, IsNull } from 'typeorm';
 import { Congregation } from '../entities/congregation.entity';
 import { ElderTaskCalendarLog } from '../entities/elder-task-calendar-log.entity';
 import {
@@ -186,6 +186,9 @@ export class CalendarTasksService {
       select: { id: true },
     });
     let made = 0;
+    // Сроки, поправленные у уже живых задач: считаются отдельно от
+    // заведённых, потому что это разные события.
+    let moved = 0;
 
     for (const cong of congregations) {
       for (const plan of plans) {
@@ -198,12 +201,42 @@ export class CalendarTasksService {
             period: plan.period,
           },
         });
-        if (offered) continue;
-
         const year = today.getUTCFullYear();
         const due = `${year}-${String(plan.due.month).padStart(2, '0')}-${String(
           plan.due.day,
         ).padStart(2, '0')}`;
+
+        if (offered) {
+          /**
+           * Уже предложенная задача НЕ заводится заново — но срок ей поправить
+           * можно, и это не то же самое.
+           *
+           * Когда правило меняется (обзор служебного года переехал с 31
+           * августа на 20 сентября), у живой задачи остаётся прежний срок, и
+           * она числится просроченной, хотя работа идёт по новому порядку.
+           * Ждать до следующего года — значит целый год показывать неправду.
+           *
+           * Правится ТОЛЬКО задача, которую завело приложение и которую никто
+           * не закрыл: `createdById` пуст, состояние открыто. Срок, сдвинутый
+           * человеком, — его решение, и трогать его нельзя; поэтому меняем
+           * лишь тот, что отличается от нашего же прежнего значения.
+           */
+          const live = await this.tasks.findOne({
+            where: {
+              congregationId: cong.id,
+              kind: plan.kind,
+              kindPeriod: plan.period,
+              status: 'open',
+              createdById: IsNull(),
+            },
+          });
+          if (live && live.dueDate !== due) {
+            live.dueDate = due;
+            await this.tasks.save(live);
+            moved += 1;
+          }
+          continue;
+        }
 
         await this.tasks.save(
           this.tasks.create({
@@ -234,6 +267,7 @@ export class CalendarTasksService {
     }
 
     if (made > 0) this.logger.log(`calendar tasks created: ${made}`);
+    if (moved > 0) this.logger.log(`calendar tasks re-dated: ${moved}`);
     return made;
   }
 }
