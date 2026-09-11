@@ -114,6 +114,82 @@ describe('AbsencesService reads — scoping', () => {
     );
   });
 
+  /**
+   * Заметка поездки называет чужое собрание и номер речи. Отсутствие видеть
+   * нужно многим, причину — нет.
+   */
+  describe('причина поездки', () => {
+    const tripRow = {
+      id: 'a-1',
+      publisherId: 'pub-other',
+      talkExchangeId: 'tx-1',
+      note: '№42 · Unna-Russisch',
+    };
+
+    it('скрыта от того, кто просто держит ответственность', async () => {
+      // Ответственный за уборку знает, что брата не будет, и этого довольно.
+      const { svc } = makeSvc({
+        rows: [tripRow],
+        responsibilitiesRepo: {
+          count: jest.fn(async (q: any) => (q?.where?.type ? 0 : 1)),
+        },
+      });
+
+      const out = await svc.findAll(TENANT, {} as any, member);
+
+      expect(out[0].note).toBeNull();
+      // Само отсутствие остаётся: планирующему оно нужно.
+      expect(out[0].id).toBe('a-1');
+    });
+
+    it('видна координатору речей', async () => {
+      const { svc } = makeSvc({
+        rows: [tripRow],
+        responsibilitiesRepo: { count: jest.fn(async () => 1) },
+      });
+
+      const out = await svc.findAll(TENANT, {} as any, member);
+
+      expect(out[0].note).toBe('№42 · Unna-Russisch');
+    });
+
+    it('видна старейшине-администратору', async () => {
+      const admin = { id: 'u-a', role: 'admin', congregationId: TENANT } as any;
+      const { svc } = makeSvc({ rows: [tripRow] });
+
+      const out = await svc.findAll(TENANT, {} as any, admin);
+
+      expect(out[0].note).toBe('№42 · Unna-Russisch');
+    });
+
+    it('своя заметка остаётся своей', async () => {
+      // Правило про ЧУЖИЕ отсутствия: от самого брата скрывать нечего.
+      const { svc } = makeSvc({
+        rows: [{ ...tripRow, publisherId: 'pub-me' }],
+        responsibilitiesRepo: {
+          count: jest.fn(async (q: any) => (q?.where?.type ? 0 : 1)),
+        },
+      });
+
+      const out = await svc.findAll(TENANT, {} as any, member);
+
+      expect(out[0].note).toBe('№42 · Unna-Russisch');
+    });
+
+    it('обычное отсутствие не трогается', async () => {
+      const { svc } = makeSvc({
+        rows: [{ id: 'a-2', publisherId: 'pub-other', note: 'в отпуске' }],
+        responsibilitiesRepo: {
+          count: jest.fn(async (q: any) => (q?.where?.type ? 0 : 1)),
+        },
+      });
+
+      const out = await svc.findAll(TENANT, {} as any, member);
+
+      expect(out[0].note).toBe('в отпуске');
+    });
+  });
+
   it("findOne forbids reading someone else's absence for a regular user", async () => {
     const { svc } = makeSvc({
       one: { id: 'a1', publisherId: 'pub-OTHER' },

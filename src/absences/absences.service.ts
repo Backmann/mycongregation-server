@@ -84,6 +84,56 @@ export class AbsencesService {
    * the full picture) see everything; a regular publisher sees only their
    * OWN absences. Personal notes must not leak congregation-wide.
    */
+  /**
+   * Кому видна ПРИЧИНА отсутствия, созданного поездкой.
+   *
+   * Такая заметка называет чужое собрание и номер речи. Само отсутствие видеть
+   * нужно многим — тем, кто ставит расписания, обязанности, уборку: им важно
+   * знать, что брата не будет. А вот зачем он уехал — дело тех, кто ведёт
+   * речи, и тех, кто отвечает за собрание целиком.
+   *
+   * Решение Лионеля 10 сентября: администраторы, координатор совета старейшин,
+   * координатор речей с помощником и секретарь. Остальные видят строку
+   * отсутствия без причины.
+   */
+  private static readonly NOTE_READERS = [
+    ResponsibilityType.BODY_COORDINATOR,
+    ResponsibilityType.PUBLIC_TALK_COORDINATOR,
+    ResponsibilityType.PUBLIC_TALK_COORDINATOR_ASSISTANT,
+    ResponsibilityType.SECRETARY,
+  ];
+
+  private async canReadTripNote(user: AuthenticatedUser): Promise<boolean> {
+    if (user.role === UserRole.ADMIN) return true;
+    const held = await this.responsibilitiesRepo.count({
+      where: {
+        congregationId: user.congregationId,
+        userId: user.id,
+        type: In(AbsencesService.NOTE_READERS),
+      },
+    });
+    return held > 0;
+  }
+
+  /**
+   * Своя заметка — всегда своя.
+   *
+   * Правило выше про ЧУЖИЕ отсутствия. Брат, открывший собственное, видит его
+   * целиком: это про него, и скрывать от него нечего.
+   */
+  private async hideTripNotes(
+    rows: Absence[],
+    user: AuthenticatedUser,
+  ): Promise<Absence[]> {
+    if (await this.canReadTripNote(user)) return rows;
+    const myId = await this.ownPublisherId(user);
+    return rows.map((a) =>
+      a.talkExchangeId && a.publisherId !== myId
+        ? ({ ...a, note: null } as Absence)
+        : a,
+    );
+  }
+
   private async canReadAll(user: AuthenticatedUser): Promise<boolean> {
     if (user.role === UserRole.ADMIN || user.role === UserRole.ELDER) {
       return true;
@@ -126,7 +176,8 @@ export class AbsencesService {
       qb.withDeleted();
     }
 
-    return qb.orderBy('a.start_date', 'ASC').getMany();
+    const rows = await qb.orderBy('a.start_date', 'ASC').getMany();
+    return this.hideTripNotes(rows, user);
   }
 
   async findOne(
@@ -147,7 +198,10 @@ export class AbsencesService {
         throw new ForbiddenException('You may only view your own absences');
       }
     }
-    return found;
+    // Карточка отсутствия — то же правило, что и список: причина поездки не
+    // для всех, кто просто планирует расписание.
+    const [visible] = await this.hideTripNotes([found], user);
+    return visible;
   }
 
   async create(
