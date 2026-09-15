@@ -20,10 +20,31 @@ const member = { id: 'u-m', role: 'publisher' } as any;
 function makeSvc(pubOver: Partial<Record<string, any>> = {}) {
   const groupsRepo = {
     findOne: jest.fn(async () => ({ id: 'g1', congregationId: TENANT })),
+    // Список групп строится запросом; подделке довольно вернуть две строки,
+    // чтобы стало видно, какая из них помечена своей.
+    createQueryBuilder: jest.fn(() => {
+      const qb: any = {
+        where: () => qb,
+        andWhere: () => qb,
+        orderBy: () => qb,
+        take: () => qb,
+        skip: () => qb,
+        withDeleted: () => qb,
+        getManyAndCount: async () => [
+          [
+            { id: 'g1', name: '1-я', congregationId: TENANT },
+            { id: 'g2', name: '2-я', congregationId: TENANT },
+          ],
+          2,
+        ],
+      };
+      return qb;
+    }),
   } as any;
   const publishersService = {
     resolvePrivateAccess: jest.fn(async () => pubOver.privileged ?? false),
     findOwnServiceGroupId: jest.fn(async () => pubOver.ownGroup ?? null),
+    findOne: jest.fn(async () => null),
     findAll: jest.fn(async () => ({
       data: pubOver.rows ?? [
         {
@@ -67,6 +88,21 @@ describe('ServiceGroupsService.findPublishers — scoping', () => {
     await expect(
       svc.findPublishers(TENANT, 'g1', {} as any, member),
     ).rejects.toMatchObject({ response: { code: 'OTHER_GROUP' } });
+  });
+
+  it('говорит клиенту, какая группа своя', async () => {
+    /**
+     * Без этого признака экран не мог отличить свою группу от чужой — и
+     * обычный возвещатель тыкался в чужую, получая отказ без объяснения.
+     */
+    const { svc } = makeSvc({ ownGroup: 'g1' });
+
+    const page = (await svc.findAllFor(TENANT, {} as any, member)) as {
+      data: { id: string; mine: boolean }[];
+    };
+
+    expect(page.data.find((g) => g.id === 'g1')?.mine).toBe(true);
+    expect(page.data.some((g) => g.id !== 'g1' && g.mine)).toBe(false);
   });
 
   it('свою группу показывает, но без личных данных', async () => {

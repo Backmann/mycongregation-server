@@ -152,7 +152,26 @@ export class ServiceGroupsService {
       tenantId,
       user,
     );
-    return this.findAll(tenantId, query, privileged);
+    const page = await this.findAll(tenantId, query, privileged);
+    /**
+     * Какая группа — ТВОЯ.
+     *
+     * Приложение этого не знало: в строке группы такого признака не было, и
+     * отдельного запроса тоже. Поэтому экран не мог ни пометить свою группу,
+     * ни погасить чужие — он их не различал, и обычный возвещатель тыкался в
+     * чужую, получая отказ без объяснения.
+     *
+     * Признак считается здесь, а не на клиенте: своя группа известна серверу
+     * по карточке возвещателя, привязанной ко входу.
+     */
+    const ownGroupId = await this.publishersService.findOwnServiceGroupId(
+      tenantId,
+      user.id,
+    );
+    return {
+      ...page,
+      data: page.data.map((g) => ({ ...g, mine: g.id === ownGroupId })),
+    };
   }
 
   async findOneFor(
