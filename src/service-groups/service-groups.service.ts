@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -268,13 +269,21 @@ export class ServiceGroupsService {
   }
 
   /**
-   * Group member list. Privileged callers (admins, elders, members granted
-   * private-data access) get the full rows; a regular publisher may load ONLY
-   * every group, redacted to a name-and-scheduling roster: who serves with
-   * whom is what the composition is for, and the names are on the posted
-   * schedules anyway. What stays shut is the personal data — phones,
-   * addresses, notes and the rest of the card — which is what the earlier
-   * own-group-only rule was really protecting.
+   * Состав группы.
+   *
+   * Администраторы, старейшины и допущенные к личным данным видят полные
+   * строки. Обычный возвещатель — ТОЛЬКО СВОЮ группу, и без личных данных.
+   *
+   * Правило уже было таким, потом его сняли: рассудили, что имена и так висят
+   * на доске, а закрыты должны быть телефоны и карточки. Решение Лионеля 15
+   * сентября вернуло прежнее, и вот почему оно точнее. Список братьев для
+   * обычного возвещателя ограничен его группой — а состав чужих групп
+   * открывал ровно то же самое в два нажатия, так что ограничение списка было
+   * видимостью. Либо закрыто и там и там, либо не закрыто нигде; половинчатое
+   * правило хуже любого из двух.
+   *
+   * Названия чужих групп и их надзирателей это не трогает: их видно в списке
+   * групп, и они там нужны — чтобы знать, к кому обратиться.
    */
   async findPublishers(
     tenantId: string,
@@ -289,6 +298,16 @@ export class ServiceGroupsService {
     );
     if (!privileged) {
       query.includeRemoved = false;
+      const ownGroupId = await this.publishersService.findOwnServiceGroupId(
+        tenantId,
+        user.id,
+      );
+      if (ownGroupId !== id) {
+        throw new ForbiddenException({
+          code: 'OTHER_GROUP',
+          message: 'You may only view your own service group',
+        });
+      }
     }
     const result = await this.publishersService.findAll(tenantId, {
       ...query,

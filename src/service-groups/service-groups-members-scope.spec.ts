@@ -54,16 +54,31 @@ function makeSvc(pubOver: Partial<Record<string, any>> = {}) {
 }
 
 describe('ServiceGroupsService.findPublishers — scoping', () => {
-  // Who serves with whom is what a group's composition is for, and the names
-  // are on the posted schedules anyway. The personal data stays shut.
-  it('lets a regular publisher read another group, still redacted', async () => {
+  /**
+   * Правило было таким, потом его сняли, и 15 сентября Лионель вернул его.
+   *
+   * Причина точнее прежней: список братьев для обычного возвещателя ограничен
+   * его группой, а открытый состав чужих групп давал то же самое в два
+   * нажатия. Половинчатое правило хуже любого из двух.
+   */
+  it('не пускает обычного возвещателя в чужую группу', async () => {
     const { svc } = makeSvc({ ownGroup: 'g-OTHER' });
+
+    await expect(
+      svc.findPublishers(TENANT, 'g1', {} as any, member),
+    ).rejects.toMatchObject({ response: { code: 'OTHER_GROUP' } });
+  });
+
+  it('свою группу показывает, но без личных данных', async () => {
+    const { svc } = makeSvc({ ownGroup: 'g1' });
+
     const res = (await svc.findPublishers(
       TENANT,
       'g1',
       {} as any,
       member,
     )) as unknown as { data: Record<string, unknown>[] };
+
     expect(res.data[0].displayName).toBe('A');
     expect(res.data[0].mobilePhone).toBeUndefined();
   });
