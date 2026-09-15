@@ -32,4 +32,49 @@ describe('publicRosterPage', () => {
     expect(out.data[0].pioneerSince).toBeUndefined();
     expect(out.data[0].pioneerActive).toBe(false);
   });
+
+  /**
+   * Решение Лионеля 15 сентября: обычный возвещатель не видит ни изучающих,
+   * ни неактивных. Первое было с самого начала, второго не было.
+   */
+  it('прячет неактивных', () => {
+    const out = publicRosterPage({
+      data: [
+        {
+          id: 'a',
+          displayName: 'Активный',
+          appointment: 'publisher',
+          status: 'active',
+        },
+        {
+          id: 'i',
+          displayName: 'Неактивный',
+          appointment: 'publisher',
+          status: 'inactive',
+        },
+      ],
+      total: 2,
+    });
+
+    expect(out.data.map((p) => p.id)).toEqual(['a']);
+    // Счёт следует за списком, иначе цифра спорит с тем, что на экране.
+    expect(out.total).toBe(1);
+  });
+
+  it('нерегулярных оставляет', () => {
+    // Он служит, просто с перерывами, и на доске объявлений он есть.
+    const out = publicRosterPage({
+      data: [
+        {
+          id: 'r',
+          displayName: 'Нерегулярный',
+          appointment: 'publisher',
+          status: 'irregular',
+        },
+      ],
+      total: 1,
+    });
+
+    expect(out.data.map((p) => p.id)).toEqual(['r']);
+  });
 });

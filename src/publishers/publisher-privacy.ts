@@ -1,5 +1,6 @@
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
+import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { isActivePermanentPioneer } from '../common/pioneer-status';
 
 /**
@@ -75,10 +76,24 @@ export function redactPrivateFields<T extends object>(publisher: T): T {
  */
 export function publicRosterPage<
   P extends { data: T[]; total: number },
-  T extends { appointment?: unknown },
+  T extends { appointment?: unknown; status?: unknown },
 >(page: P): P {
+  /**
+   * Неактивные — тоже не для общего списка.
+   *
+   * Решение Лионеля 15 сентября: обычный возвещатель не должен видеть ни
+   * изучающих, ни неактивных. Первое здесь было с самого начала, второго не
+   * было, и брат, давно не подающий отчётов, стоял в списке наравне со всеми.
+   *
+   * НЕРЕГУЛЯРНЫЕ остаются — это его отдельное решение и оно верное: человек
+   * служит, просто с перерывами, и на доске объявлений он есть.
+   *
+   * Старейшины и админы сюда не попадают: у них свой, полный список.
+   */
   const visible = page.data.filter(
-    (p) => p.appointment !== PublisherAppointment.STUDENT,
+    (p) =>
+      p.appointment !== PublisherAppointment.STUDENT &&
+      p.status !== PublisherStatus.INACTIVE,
   );
   return {
     ...page,
