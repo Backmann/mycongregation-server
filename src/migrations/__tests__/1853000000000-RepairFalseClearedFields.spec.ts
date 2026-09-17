@@ -1,4 +1,4 @@
-import { RepairFalseClearedFields1853000000000 } from './1853000000000-RepairFalseClearedFields';
+import { RepairFalseClearedFields1853000000000 } from '../1853000000000-RepairFalseClearedFields';
 
 /**
  * The migration is exercised against a stand-in for the database, so the
