@@ -10,7 +10,7 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { minutesOfDayIn, todayIn } from '../common/congregation-clock';
 import { mondayOf } from '../common/week';
-import { weekRules } from '../common/week-rules';
+import { rulesFromContext } from '../common/week-rules.service';
 
 /** One meeting's figure as the report reads it. */
 export interface AttendanceRow {
@@ -402,26 +402,7 @@ export class MeetingAttendanceService {
     // than read off the row: weekContext fetches each by an explicit `type`
     // filter, so the kind is already known here, and the rules must not depend
     // on a column that a caller might not have selected.
-    const rules = weekRules({
-      weekStart,
-      versions: ctx.versions,
-      events: [
-        ...ctx.visits.map((e) => ({ ...e, type: 'circuit_overseer_visit' })),
-        // Conventions and circuit assemblies cancel the week identically; the
-        // query returns only those two, so either label gives the same answer.
-        ...ctx.cancelling.map((e) => ({
-          ...e,
-          type: e.type ?? 'regional_convention',
-        })),
-        ...ctx.memorials.map((e) => ({ ...e, type: 'memorial' })),
-        // These keep their OWN type: the flag rule needs to know what they are
-        // in order to leave alone the ones that have a rule of their own. The
-        // flag itself is set here rather than read off the row — the query
-        // filtered ON it, so it is true by construction, and the rule must not
-        // depend on a column a caller might not have selected.
-        ...ctx.flagged.map((e) => ({ ...e, replacesMeeting: true })),
-      ],
-    });
+    const rules = rulesFromContext(ctx, weekStart);
     const out = rules.meetings.map((m) => ({
       date: m.date,
       eventType: m.kind === 'midweek' ? EventType.MIDWEEK : EventType.WEEKEND,

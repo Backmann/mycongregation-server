@@ -24,7 +24,8 @@ import { GenerateWeekDutiesDto } from './dto/generate-week-duties.dto';
 import { AssignDutyDto } from './dto/assign-duty.dto';
 import { CreateCustomDutyDto } from './dto/create-custom-duty.dto';
 import { CongregationClock } from '../common/congregation-clock.service';
-import { MeetingKind, weekRules, WeekRules } from '../common/week-rules';
+import { MeetingKind, WeekRules } from '../common/week-rules';
+import { rulesFromContext } from '../common/week-rules.service';
 
 /**
  * Non-blocking conflict warning codes returned when a publisher is assigned to
@@ -107,19 +108,10 @@ export class DutiesService {
     const flagged = await this.specialEventRepo.find({
       where: { congregationId, replacesMeeting: true },
     });
-    return weekRules({
-      weekStart: weekStartDate,
-      versions,
-      events: [
-        ...visits.map((e) => ({ ...e, type: 'circuit_overseer_visit' })),
-        ...cancelling.map((e) => ({
-          ...e,
-          type: e.type ?? 'regional_convention',
-        })),
-        ...memorials.map((e) => ({ ...e, type: 'memorial' })),
-        ...flagged.map((e) => ({ ...e, replacesMeeting: true })),
-      ],
-    });
+    return rulesFromContext(
+      { versions, visits, cancelling, memorials, flagged },
+      weekStartDate,
+    );
   }
 
   private async assertEditable(
