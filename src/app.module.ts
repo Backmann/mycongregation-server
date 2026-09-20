@@ -57,6 +57,7 @@ import { AuxiliaryPioneersModule } from './auxiliary-pioneers/auxiliary-pioneers
 import { CleaningModule } from './cleaning/cleaning.module';
 import { CartLocationsModule } from './cart-locations/cart-locations.module';
 import { CartWeeksModule } from './cart-weeks/cart-weeks.module';
+import { ReadinessModule } from './readiness/readiness.module';
 
 import { PublisherActivityModule } from './publisher-activity/publisher-activity.module';
 
@@ -142,6 +143,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     CleaningModule,
     CartLocationsModule,
     CartWeeksModule,
+    ReadinessModule,
     // A broad net against hammering: nothing but login and password reset had
     // any limit before this. Two windows so that a short burst — opening a
     // screen that fires a dozen queries at once — stays comfortable, while a
