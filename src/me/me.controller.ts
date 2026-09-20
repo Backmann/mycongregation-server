@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpCode, Patch, Post } from '@nestjs/common';
 import { MeService } from './me.service';
+import { MePendingService } from './me-pending.service';
 import { DataRightsService } from './data-rights.service';
 import { EraseAccountDto } from './dto/erase-account.dto';
 import { UpdateMyContactsDto } from './dto/update-my-contacts.dto';
@@ -22,6 +23,7 @@ export class MeController {
     private readonly notifications: NotificationsService,
     private readonly dataRights: DataRightsService,
     private readonly tasks: TasksService,
+    private readonly pendingService: MePendingService,
   ) {}
 
   @Get('assignments')
@@ -77,6 +79,19 @@ export class MeController {
    * has to make. This route is the narrow answer: his own, whichever way they
    * were addressed, and refused by the server to anybody asking about another.
    */
+  /**
+   * What is waiting for this person: the report, their contacts, the tasks
+   * that are due. One request instead of four, and no role to check — it
+   * answers about nobody but the caller.
+   */
+  @Get('pending')
+  pending(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.pendingService.pending(tenantId, user);
+  }
+
   @Get('tasks')
   async myTasks(
     @TenantId() tenantId: string,

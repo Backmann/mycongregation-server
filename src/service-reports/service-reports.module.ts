@@ -29,5 +29,8 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
   ],
   controllers: [ServiceReportsController],
   providers: [ServiceReportsService],
+  // The «what is waiting for me» door asks this service for the report
+  // standing rather than working the deadline out a second time.
+  exports: [ServiceReportsService],
 })
 export class ServiceReportsModule {}
