@@ -14,6 +14,7 @@ import { CleaningService } from './cleaning.service';
 import { SetCleaningSlotDto } from './dto/set-cleaning-slot.dto';
 import { ClearCleaningSlotDto } from './dto/clear-cleaning-slot.dto';
 import { QueryCleaningDto } from './dto/query-cleaning.dto';
+import { QueryCleaningRangeDto } from './dto/query-cleaning-range.dto';
 import { PlanThoroughDto } from './dto/plan-thorough.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -30,6 +31,22 @@ import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 @Controller('cleaning')
 export class CleaningController {
   constructor(private readonly service: CleaningService) {}
+
+  /**
+   * Many weeks at once, for a screen that shows more than one. Rows only —
+   * see getRange on the service for why the round-robin hint stays behind.
+   */
+  @Get('range')
+  getRange(
+    @TenantId() congregationId: string,
+    @Query() query: QueryCleaningRangeDto,
+  ) {
+    return this.service.getRange(
+      congregationId,
+      query.weekStart,
+      query.weekEnd,
+    );
+  }
 
   @Get()
   getWeek(

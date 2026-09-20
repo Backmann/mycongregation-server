@@ -137,7 +137,17 @@ export class FieldServiceMeetingsService {
     const qb = this.repo
       .createQueryBuilder('m')
       .where('m.congregationId = :congregationId', { congregationId });
-    if (query.weekStart) {
+    // With an upper bound this reads as a span; without one it stays the
+    // exact week it has always been, so no existing caller changes behaviour.
+    //
+    // NOTE: with NEITHER bound the whole history comes back. Harmless while
+    // there are a few dozen rows, and left alone here because callers already
+    // rely on it — but it will not stay harmless for ever.
+    if (query.weekStart && query.weekEnd) {
+      qb.andWhere('m.weekStartDate >= :weekStart', {
+        weekStart: query.weekStart,
+      }).andWhere('m.weekStartDate < :weekEnd', { weekEnd: query.weekEnd });
+    } else if (query.weekStart) {
       qb.andWhere('m.weekStartDate = :weekStart', {
         weekStart: query.weekStart,
       });

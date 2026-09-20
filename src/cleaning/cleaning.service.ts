@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, Repository } from 'typeorm';
+import { And, LessThan, MoreThanOrEqual, Repository } from 'typeorm';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Publisher } from '../entities/publisher.entity';
@@ -49,6 +49,33 @@ export class CleaningService {
     const suggestedAfterMeetingGroupId =
       await this.suggestNextAfterMeetingGroup(congregationId, weekStart);
     return { assignments, suggestedAfterMeetingGroupId };
+  }
+
+  /**
+   * Every cleaning row in a span of weeks, in ONE query.
+   *
+   * No round-robin hint here, deliberately. The hint answers «whose turn is it
+   * next», which is a question for the person ASSIGNING a group on one week —
+   * and it costs a query of its own per week, which is exactly what asking
+   * week by week already costs the schedule screen today.
+   *
+   * `weekEnd` is EXCLUSIVE, as everywhere else in this API.
+   */
+  async getRange(
+    congregationId: string,
+    weekStart: string,
+    weekEnd: string,
+  ): Promise<CleaningAssignment[]> {
+    if (weekEnd <= weekStart) {
+      throw new BadRequestException('weekEnd must be after weekStart.');
+    }
+    return this.repo.find({
+      where: {
+        congregationId,
+        weekStartDate: And(MoreThanOrEqual(weekStart), LessThan(weekEnd)),
+      },
+      order: { weekStartDate: 'ASC', slotType: 'ASC' },
+    });
   }
 
   /** Groups of a congregation, soft-deleted excluded, ordered by name. */

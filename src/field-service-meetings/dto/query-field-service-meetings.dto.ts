@@ -5,4 +5,13 @@ export class QueryFieldServiceMeetingsDto {
   @IsOptional()
   @IsDateString()
   weekStart?: string;
+
+  /**
+   * EXCLUSIVE upper bound. Given together with weekStart it turns that field
+   * from «this week» into «from this week», which is what a screen showing
+   * several weeks needs. Omitted, nothing changes: one week exactly, as before.
+   */
+  @IsOptional()
+  @IsDateString()
+  weekEnd?: string;
 }
