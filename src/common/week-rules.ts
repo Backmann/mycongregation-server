@@ -92,6 +92,12 @@ export interface WeekSettingsVersion {
   effectiveFrom: string;
   midweekDow?: number | null;
   weekendDow?: number | null;
+  /**
+   * Not used by the rules themselves — carried so that a caller holding the
+   * version for a week can count that weeks duty places without fetching the
+   * settings a second time, and without disagreeing with the duties side.
+   */
+  microphoneSlots?: number | null;
 }
 
 /** A convention or a circuit assembly — both cancel the week's meetings. */

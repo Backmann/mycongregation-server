@@ -5,7 +5,11 @@ import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
 import { EventType } from '../common/enums/event-type.enum';
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
-import { MeetingKind } from '../common/week-rules';
+import { MeetingKind, WeekSettingsVersion } from '../common/week-rules';
+import {
+  SINGLE_SLOT_DUTIES_AFTER_MIC,
+  SINGLE_SLOT_DUTIES_BEFORE_MIC,
+} from '../common/enums/duty-type.enum';
 import { WeekRulesService } from '../common/week-rules.service';
 import { addDaysISO } from '../common/week-rules';
 import { mondayOf } from '../common/week';
@@ -62,6 +66,9 @@ const NOT_OURS_TO_ASSIGN = new Set<string>(['co_service_talk']);
  */
 const MAX_WEEKS = 53;
 
+/** What the duties side falls back to when no settings are recorded. */
+const DEFAULT_MICROPHONE_SLOTS = 2;
+
 export interface ProgrammeReadiness {
   /** False when no programme has been imported for this meeting at all. */
   loaded: boolean;
@@ -72,7 +79,10 @@ export interface ProgrammeReadiness {
 }
 
 export interface DutiesCount {
-  /** False when the week's duties have not been generated yet. */
+  /**
+   * False when no rows have been written for this meeting yet. The count is
+   * the same either way — this only says whether anybody has been here.
+   */
   created: boolean;
   assigned: number;
   total: number;
@@ -159,7 +169,7 @@ export class ReadinessService {
           date: m.date,
           kind: m.kind,
           programme: countProgramme(progByKey.get(key) ?? []),
-          duties: countDuties(dutyByKey.get(key) ?? []),
+          duties: countDuties(dutyByKey.get(key) ?? [], r?.version ?? null),
         };
       });
       return { weekStart, meetings };
@@ -185,8 +195,32 @@ function countProgramme(rows: Assignment[]): ProgrammeReadiness {
   return { loaded: true, assigned, total, missing };
 }
 
-function countDuties(rows: Duty[]): DutiesCount {
-  if (rows.length === 0) return { created: false, assigned: 0, total: 0 };
+/**
+ * How many places a meeting has, when nothing has been written down yet.
+ *
+ * The fixed duties either side of the microphones, plus as many microphones as
+ * the settings in force that week call for. Same source `micCount` reads on
+ * the duties side; the two must not disagree.
+ */
+function placesFromSettings(version: WeekSettingsVersion | null): number {
+  const mics = version?.microphoneSlots ?? DEFAULT_MICROPHONE_SLOTS;
+  return (
+    SINGLE_SLOT_DUTIES_BEFORE_MIC.length +
+    SINGLE_SLOT_DUTIES_AFTER_MIC.length +
+    mics
+  );
+}
+
+function countDuties(
+  rows: Duty[],
+  version: WeekSettingsVersion | null,
+): DutiesCount {
+  // No rows means nobody has opened this week to assign anybody — not that the
+  // meeting has no places. Counting them from the settings says «0 of 8» here
+  // exactly as it does on a week somebody happened to scroll past.
+  if (rows.length === 0) {
+    return { created: false, assigned: 0, total: placesFromSettings(version) };
+  }
   return {
     created: true,
     assigned: rows.filter((d) => d.publisherId).length,

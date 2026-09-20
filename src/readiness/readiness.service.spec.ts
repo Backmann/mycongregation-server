@@ -13,6 +13,8 @@ function build(opts: {
   meetings?: Record<string, { date: string; kind: 'midweek' | 'weekend' }[]>;
   assignments?: Record<string, unknown>[];
   duties?: Record<string, unknown>[];
+  /** The settings version in force that week, as the rules would hand it over. */
+  version?: { microphoneSlots?: number } | null;
 }) {
   const assignmentsRepo = {
     find: () => Promise.resolve(opts.assignments ?? []),
@@ -21,7 +23,11 @@ function build(opts: {
   const weekRules = {
     forWeeks: (_c: string, weeks: string[]) => {
       const m = new Map();
-      for (const w of weeks) m.set(w, { meetings: opts.meetings?.[w] ?? [] });
+      for (const w of weeks)
+        m.set(w, {
+          meetings: opts.meetings?.[w] ?? [],
+          version: opts.version ?? null,
+        });
       return Promise.resolve(m);
     },
   };
@@ -156,13 +162,49 @@ describe('ReadinessService', () => {
     });
   });
 
-  it('says duties were never generated rather than reporting 0 of 0', async () => {
+  it('counts the places even where no rows have been written yet', async () => {
     const s = build({
       meetings: MIDWEEK,
       assignments: [part({ partKey: 'x' })],
     });
     const [week] = await s.forRange('c1', WEEK, '2026-09-21');
-    expect(week.meetings[0].duties.created).toBe(false);
+    // «Created» only says whether anybody has been here; the number of places
+    // is the same either way, so that a week somebody scrolled past and a week
+    // nobody opened do not read differently.
+    expect(week.meetings[0].duties).toEqual({
+      created: false,
+      assigned: 0,
+      total: 8,
+    });
+  });
+
+  it("counts the places from that week's settings, microphones included", async () => {
+    const s = build({
+      meetings: MIDWEEK,
+      assignments: [part({ partKey: 'x' })],
+      version: { microphoneSlots: 3 },
+    });
+    const [week] = await s.forRange('c1', WEEK, '2026-09-21');
+    // Six fixed places either side of the microphones, plus three microphones.
+    expect(week.meetings[0].duties.total).toBe(9);
+  });
+
+  it('counts the rows themselves once there are any — a congregation may have added its own', async () => {
+    const s = build({
+      meetings: MIDWEEK,
+      assignments: [part({ partKey: 'x' })],
+      version: { microphoneSlots: 2 },
+      duties: [
+        duty({ dutyType: 'security' }),
+        duty({ dutyType: 'custom', publisherId: null }),
+      ],
+    });
+    const [week] = await s.forRange('c1', WEEK, '2026-09-21');
+    expect(week.meetings[0].duties).toEqual({
+      created: true,
+      assigned: 1,
+      total: 2,
+    });
   });
 
   it('a convention week has no meetings to be ready about', async () => {
