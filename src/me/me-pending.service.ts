@@ -4,40 +4,32 @@ import { Repository } from 'typeorm';
 import { Publisher } from '../entities/publisher.entity';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { todayIn } from '../common/congregation-clock';
-import { ServiceReportsService } from '../service-reports/service-reports.service';
 import { TasksService } from '../tasks/tasks.service';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
 /**
- * WHAT IS WAITING FOR THIS PERSON — one door instead of four.
+ * WHAT IS WAITING FOR THIS PERSON — contacts to confirm, tasks that are due.
  *
- * The home screen makes fifteen requests and is opened more often than any
- * other screen in the app: once a day by everybody in the congregation. Four
- * of those requests answer one question between them — is there anything I
- * have to do — and each is a separate round trip from a phone that may be on
- * a hall's weak signal. The server reaches the same four places either way,
- * but over its own wire.
+ * THE REPORT IS NOT HERE, on purpose. The home screen already has a card of
+ * its own for it, and that card carries two decisions this block cannot: it
+ * says «handed in» as plainly as «not handed in», because an empty place where
+ * the reminder used to be reads as something broken; and it hides that green
+ * line from whoever collects reports, who already sees himself in the
+ * collection card below. A list of things to do knows only about the undone —
+ * so the report stays with the card that knows both.
  *
- * NOTHING IS COMPUTED HERE THAT ALREADY HAS AN OWNER. The report deadline is
- * `myReportStanding`'s, worked out in the congregation's own timezone and
- * deliberately NOT copied into any client — that copy is how the 10th and the
- * 20th came to disagree once before. The tasks are `myTasks`'s. This service
- * only asks them, drops what is not waiting yet, and puts what is left in the
- * order a person would act on it.
- *
- * NOT A WORD OF RUSSIAN, ENGLISH OR GERMAN LEAVES HERE. Each item carries its
- * KIND and its date; the app names it from its own translations. A sentence
- * built on the server would be a fourth place where screen text lives, and
- * the i18n checks in the app cannot see it.
+ * NO SCREEN TEXT LEAVES HERE, but a task keeps its TITLE. The line between the
+ * two is who wrote it: «Проверьте свои контакты» is the app's to say, and it
+ * lives in the app's translations where the i18n checks can see it; the title
+ * of a task is what a brother typed, there is nothing to translate, and a row
+ * that only said «a task, due on the 20th» would not tell anybody which one.
  *
  * WHAT COUNTS AS WAITING — Lionel's rules, 20 September:
- * - THE REPORT, while it applies and has not been handed in.
- * - CONTACTS, if they were last confirmed more than a year ago. Somebody with
- *   no phone and no address at all is never asked: an empty contact may be a
+ * - CONTACTS, if last confirmed more than a year ago. Somebody with no phone,
+ *   no e-mail and no address is never asked: an empty contact may be a
  *   deliberate choice, and turning it into a standing reproach would be wrong.
  * - TASKS, only the overdue ones and those due within a week. A task due next
- *   February is real work, but it is not waiting — and this congregation has
- *   two of those against one that is due tomorrow.
+ *   February is real work, but it is not waiting.
  * - NOT the unaccepted invitation: whoever has not accepted one is not in the
  *   app to be shown anything.
  */
@@ -51,12 +43,14 @@ const TASK_HORIZON_DAYS = 7;
 /** Beyond this the block would drown the screen it sits on. */
 const MAX_ITEMS = 5;
 
-export type PendingKind = 'report' | 'contacts' | 'task';
+export type PendingKind = 'contacts' | 'task';
 
 export interface PendingItem {
   kind: PendingKind;
   /** Set on a task, so the app can open that one. */
   id?: string;
+  /** What a brother called the task. Data, not screen text — never translated. */
+  title?: string;
   /** The last day it can be done, or null when nothing is pressing. */
   dueOn: string | null;
   /** True when that day has passed — judged by the congregation's clock. */
@@ -74,7 +68,6 @@ export class MePendingService {
   constructor(
     @InjectRepository(Publisher)
     private readonly publishersRepo: Repository<Publisher>,
-    private readonly reports: ServiceReportsService,
     private readonly tasks: TasksService,
     private readonly clock: CongregationClock,
   ) {}
@@ -86,27 +79,16 @@ export class MePendingService {
     const publisher = await this.publishersRepo.findOne({
       where: { congregationId: tenantId, userId: user.id },
     });
-    // An account with no card of its own has no report, no contacts and no
-    // tasks — there is nothing that could be waiting for it.
+    // An account with no card of its own has no contacts and no tasks — there
+    // is nothing that could be waiting for it.
     if (!publisher) return { items: [], more: 0 };
 
     const timezone = await this.clock.timezoneOf(tenantId);
     const today = todayIn(new Date(), timezone);
 
-    const [standing, myTasks] = await Promise.all([
-      this.reports.myReportStanding(tenantId, user),
-      this.tasks.myTasks(tenantId, publisher.id),
-    ]);
+    const myTasks = await this.tasks.myTasks(tenantId, publisher.id);
 
     const items: PendingItem[] = [];
-
-    if (standing.applicable && !standing.submitted) {
-      items.push({
-        kind: 'report',
-        dueOn: standing.closesOn,
-        overdue: !!standing.closesOn && standing.closesOn < today,
-      });
-    }
 
     if (contactsWantConfirming(publisher, today)) {
       items.push({ kind: 'contacts', dueOn: null, overdue: false });
@@ -119,6 +101,7 @@ export class MePendingService {
       items.push({
         kind: 'task',
         id: task.id,
+        title: task.title,
         dueOn: task.dueDate,
         overdue: task.dueDate < today,
       });
@@ -133,11 +116,7 @@ export class MePendingService {
   }
 }
 
-/**
- * Overdue first, then by the nearest deadline, then the ones with no deadline
- * at all. Within a day the order is the order they were added, which puts the
- * report ahead of the tasks — it has one date in the month and they do not.
- */
+/** Overdue first, then by the nearest deadline, then the ones with none. */
 function byUrgency(a: PendingItem, b: PendingItem): number {
   if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
   if (a.dueOn && b.dueOn)
@@ -148,10 +127,10 @@ function byUrgency(a: PendingItem, b: PendingItem): number {
 }
 
 /**
- * Somebody with neither a phone nor an address is not asked: an empty contact
- * may be a choice. Somebody who has never confirmed is asked once their card
- * is a year old, so that a congregation entering its roster does not find
- * every publisher nagged on the first day.
+ * Somebody with neither a phone nor an e-mail nor an address is not asked.
+ * Somebody who has never confirmed is asked once their card is a year old, so
+ * that a congregation entering its roster does not find every publisher
+ * nagged on the first day.
  */
 function contactsWantConfirming(publisher: Publisher, today: string): boolean {
   const hasAny =

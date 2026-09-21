@@ -20,13 +20,11 @@ import { MeController } from './me.controller';
 import { DataRightsService } from './data-rights.service';
 import { CongregationClockModule } from '../common/congregation-clock.module';
 import { TasksModule } from '../tasks/tasks.module';
-import { ServiceReportsModule } from '../service-reports/service-reports.module';
 import { MePendingService } from './me-pending.service';
 
 @Module({
   imports: [
     TasksModule,
-    ServiceReportsModule,
     CongregationClockModule,
     NotificationsModule,
     AuditLogModule,
