@@ -353,6 +353,29 @@ function lastDayToFile(reportMonth: string): string {
 }
 
 /** Whole days from one calendar date to another; negative once it is past. */
+/**
+ * Whether a publisher was still in the congregation when `reportMonth`
+ * (YYYY-MM-01) ended. A departure is recorded as removedAt plus a soft delete
+ * (PublishersService.remove); either one, dated on or after the first day of
+ * the next month, means they were still here for this one.
+ */
+export function memberAtEndOf(
+  reportMonth: string,
+): (p: {
+  removedAt?: Date | string | null;
+  deletedAt?: Date | string | null;
+}) => boolean {
+  const nextMonth = `${addMonthKey(reportMonth.slice(0, 7), 1)}-01`;
+  return (p) => {
+    const gone = p.removedAt ?? p.deletedAt ?? null;
+    if (!gone) return true;
+    const day = (
+      gone instanceof Date ? gone.toISOString() : String(gone)
+    ).slice(0, 10);
+    return day >= nextMonth;
+  };
+}
+
 function daysBetween(fromISO: string, toISO: string): number {
   const a = Date.parse(`${fromISO}T00:00:00Z`);
   const b = Date.parse(`${toISO}T00:00:00Z`);
@@ -1761,9 +1784,16 @@ export class ServiceReportsService {
       );
     }
 
-    const publishers = await this.publishersRepo.find({
+    // Everyone who has ever held a card here, the departed included, so that a
+    // month in the past is counted as it stood then — and then only those who
+    // were still in the congregation when that month ended (see isMember).
+    const everyone = await this.publishersRepo.find({
       where: { congregationId: tenantId },
+      withDeleted: true,
     });
+    const isMember = memberAtEndOf(reportMonth);
+    const publishers = everyone.filter(isMember);
+    const memberIds = new Set(publishers.map((p) => p.id));
 
     // Which publishers actually served as auxiliary pioneers in THIS month.
     // Their line was missing entirely before, so their studies were being
@@ -1875,25 +1905,37 @@ export class ServiceReportsService {
       };
     });
 
-    // «Все активные возвещатели», BY THE FORM'S OWN WORDS.
+    // «Все активные возвещатели»: everyone IN THE CONGREGATION at the end of
+    // this month who SHARED IN THE MINISTRY at least once in it or the five
+    // months before.
     //
-    // S-1 says it plainly: count everyone in the congregation who handed in a
-    // report at least once in the last six months. This used to count service
-    // STATUS instead — active plus irregular — and the two are not the same
-    // rule. The status has its own start of counting and its own restart after
-    // a lapse, so a man whose counting began last month sits inside it while
-    // the form would not have him, and the other way about. A figure copied
-    // into a form sent to the branch must be the figure the form asks for.
+    // It once counted service status (active plus irregular), which is not the
+    // form's rule; then, from 4 September, any report row at all. That second
+    // reading counted two things it should not, and on 23 September a brother
+    // caught it on August's sheet: 89 where the congregation had 86.
+    //  - Reports saying «did not share». A brother and a sister who do not
+    //    preach have «нет» entered for them each month so the collection
+    //    closes; the page counted them among «Все активные» AND among
+    //    «Неактивные» at once. Sharing is `reportedMinistry` — the one rule the
+    //    status and the annual S-10 already count by.
+    //  - Departed publishers. A card removed for moving, death or
+    //    disfellowshipping is soft-deleted and its reports stay for the
+    //    record; this count read the reports without asking whose they were.
+    //    Membership is taken at the end of the month, so a July sheet still
+    //    has someone who left in August.
     const sixMonthFloor = addMonthKey(reportMonth.slice(0, 7), -5);
     const recentRows = await this.reportsRepo.find({
       where: {
         congregationId: tenantId,
         reportMonth: Between(`${sixMonthFloor}-01`, reportMonth),
       },
-      select: ['publisherId'],
+      select: ['publisherId', 'servedThisMonth', 'hoursReported'],
     });
-    const totalActivePublishers = new Set(recentRows.map((r) => r.publisherId))
-      .size;
+    const totalActivePublishers = new Set(
+      recentRows
+        .filter((r) => memberIds.has(r.publisherId) && reportedMinistry(r))
+        .map((r) => r.publisherId),
+    ).size;
 
     // Inactive publishers are counted on their own line and are never added
     // into the active total.

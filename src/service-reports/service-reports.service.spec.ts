@@ -2055,10 +2055,10 @@ describe('ServiceReportsService', () => {
           bibleStudies: 6,
         }),
       ]);
-      // Only the INACTIVE line is a count of statuses now. «Все активные» is
-      // counted the way S-1 words it — everyone who handed in a report at
-      // least once in the last six months — so it comes from the reports
-      // themselves, and here that is the six distinct publishers above.
+      // Only the INACTIVE line is a count of statuses. «Все активные» comes
+      // from the reports: everyone who SHARED at least once in six months —
+      // five here, because p-pub-c's only report says she did not (23 Sept:
+      // a «нет» row used to count, and made 89 of the congregation's 86).
       publishersRepo.count.mockResolvedValue(5);
 
       const result = await service.getSummary(
@@ -2068,7 +2068,7 @@ describe('ServiceReportsService', () => {
       );
 
       expect(result.reportMonth).toBe('2026-04-01');
-      expect(result.totalActivePublishers).toBe(6);
+      expect(result.totalActivePublishers).toBe(5);
       expect(result.totalInactivePublishers).toBe(5);
       expect(result.categories.map((c) => c.pioneerType)).toEqual([
         'none',
@@ -2107,10 +2107,10 @@ describe('ServiceReportsService', () => {
       // 5/42 ≈ 12%; active 42/(42+5) ≈ 89%.
       expect(result.averages.pioneerHours).toBe(90);
       expect(result.averages.bibleStudies).toBeCloseTo(3.2, 1);
-      // Both percentages hang off «все активные», which is now the form's
-      // figure rather than a count of statuses — so they move with it.
-      expect(result.averages.submittedPct).toBe(83);
-      expect(result.averages.activePct).toBe(55);
+      // Both percentages hang off «все активные», so they move with it:
+      // 5 of 5 shared, 5 active of 5 + 5 inactive.
+      expect(result.averages.submittedPct).toBe(100);
+      expect(result.averages.activePct).toBe(50);
     });
 
     it('allows the secretary and returns zeroed categories when no reports', async () => {
@@ -3195,16 +3195,140 @@ describe('ServiceReportsService.findGroupReports — a taken-back report', () =>
 });
 
 /**
- * «Все активные возвещатели», by the S-1 form's own words.
+ * «Все активные возвещатели» on the monthly sheet.
  *
- * The form says it plainly: count everyone who handed in a report at least
- * once in the LAST SIX MONTHS. This used to be a count of service statuses —
- * active plus irregular — and the two are different rules: the status has its
- * own start of counting and its own restart after a lapse. A figure copied
- * into a form sent to the branch has to be the figure the form asks for.
+ * Everyone in the congregation at the end of the month who SHARED IN THE
+ * MINISTRY at least once in it or the five months before. Not a count of
+ * statuses (the status has its own start and restart), not any report row
+ * (a «нет» row is not sharing), and not a departed card whose reports stay
+ * for the record — the last two made August read 89 where the congregation
+ * had 86 (23 September).
  */
-describe('getSummary — «все активные» follows the form, not the status', () => {
-  it('counts distinct publishers who reported in the last six months', async () => {
+const served = (publisherId: string) => ({
+  publisherId,
+  servedThisMonth: true,
+  hoursReported: null,
+});
+const didNot = (publisherId: string) => ({
+  publisherId,
+  servedThisMonth: false,
+  hoursReported: null,
+});
+const card = (id: string, removedAt: string | null = null) => ({
+  id,
+  pioneerType: PioneerType.NONE,
+  removedAt: removedAt ? new Date(`${removedAt}T00:00:00.000Z`) : null,
+  deletedAt: removedAt ? new Date(`${removedAt}T00:00:00.000Z`) : null,
+});
+
+async function activeFor(
+  month: string,
+  cards: ReturnType<typeof card>[],
+  windowRows: object[],
+): Promise<number> {
+  const reportsRepo = {
+    find: jest.fn().mockResolvedValueOnce([]).mockResolvedValue(windowRows),
+    findOne: jest.fn(),
+  };
+  const publishersRepo = {
+    find: jest.fn().mockResolvedValue(cards),
+    findOne: jest.fn(),
+    count: jest.fn().mockResolvedValue(0),
+  };
+  const svc = new (ServiceReportsService as any)(
+    reportsRepo,
+    publishersRepo,
+    { find: jest.fn().mockResolvedValue([]) },
+    { find: jest.fn().mockResolvedValue([]) },
+    { findOne: jest.fn(), find: jest.fn().mockResolvedValue([]) },
+    { find: jest.fn().mockResolvedValue([]) },
+    { timezoneOf: jest.fn().mockResolvedValue('Europe/Berlin') },
+    { findActorsFor: jest.fn().mockResolvedValue([]), logEvent: jest.fn() },
+    { recomputeStatus: jest.fn() },
+    { activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()) },
+  );
+  jest.spyOn(svc, 'buildPermissionContext').mockResolvedValue({
+    alwaysView: true,
+    alwaysEdit: true,
+    overseenGroupIds: [],
+  });
+  jest.spyOn(svc, 'isMonthClosed').mockResolvedValue(false);
+  const out = await svc.getSummary('c1', { id: 'u1', role: 'admin' }, month);
+  return out.totalActivePublishers;
+}
+
+describe('getSummary — «все активные» counts sharing, by members', () => {
+  it('does not count someone whose only reports say «did not share»', async () => {
+    // Two who preach, two who have «нет» entered for them every month.
+    const cards = [card('a'), card('b'), card('x'), card('y')];
+    const rows = [
+      served('a'),
+      served('b'),
+      didNot('x'),
+      didNot('y'),
+      didNot('x'),
+      didNot('y'),
+    ];
+    expect(await activeFor('2026-08', cards, rows)).toBe(2);
+  });
+
+  it('counts someone who shared once in six months, whatever the other months say', async () => {
+    const rows = [didNot('a'), didNot('a'), served('a'), didNot('a')];
+    expect(await activeFor('2026-08', [card('a')], rows)).toBe(1);
+  });
+
+  it('counts a pioneer by his hours', async () => {
+    const rows = [
+      { publisherId: 'p', servedThisMonth: null, hoursReported: 50 },
+    ];
+    expect(await activeFor('2026-08', [card('p')], rows)).toBe(1);
+  });
+
+  it('does not count a publisher who left before the month ended', async () => {
+    // Left on 13 August; shared in March. Not in the congregation on 31 August.
+    const cards = [card('a'), card('gone', '2026-08-13')];
+    expect(
+      await activeFor('2026-08', cards, [served('a'), served('gone')]),
+    ).toBe(1);
+  });
+
+  it('still counts her on the sheet of a month she was here for', async () => {
+    const cards = [card('a'), card('gone', '2026-08-13')];
+    expect(
+      await activeFor('2026-07', cards, [served('a'), served('gone')]),
+    ).toBe(1 + 1);
+  });
+
+  it("August 2026 in small: everyone reports, two only «нет», one departed — the brother's count", async () => {
+    // 5 cards stand for the 88: all handed in August. Two of them never share
+    // (entered as «нет»). One more left on 13 August after reporting «нет» in
+    // July. The old rule said 5 + 1 = 6; the sheet wants 3.
+    const cards = [
+      card('m1'),
+      card('m2'),
+      card('m3'),
+      card('x'),
+      card('y'),
+      card('left', '2026-08-13'),
+    ];
+    const rows = [
+      served('m1'),
+      served('m2'),
+      didNot('m3'),
+      served('m3'),
+      didNot('x'),
+      didNot('y'),
+      didNot('left'),
+    ];
+    expect(await activeFor('2026-08', cards, rows)).toBe(3);
+  });
+});
+
+/**
+ * The window itself: six months ending at the month asked for.
+ */
+describe('getSummary — the six-month window', () => {
+  it('counts distinct publishers who shared in the last six months', async () => {
     const reportsRepo = {
       find: jest
         .fn()
@@ -3212,15 +3336,15 @@ describe('getSummary — «все активные» follows the form, not the s
         .mockResolvedValueOnce([])
         // The six-month window: three people, one of them twice.
         .mockResolvedValue([
-          { publisherId: 'p1' },
-          { publisherId: 'p2' },
-          { publisherId: 'p1' },
-          { publisherId: 'p3' },
+          served('p1'),
+          served('p2'),
+          served('p1'),
+          served('p3'),
         ]),
       findOne: jest.fn(),
     };
     const publishersRepo = {
-      find: jest.fn().mockResolvedValue([]),
+      find: jest.fn().mockResolvedValue([card('p1'), card('p2'), card('p3')]),
       findOne: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
     };
