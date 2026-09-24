@@ -9,7 +9,7 @@ import { MwbImportService } from './mwb-import.service';
  * parts are skipped — but not knowing is what makes somebody do it.
  */
 describe('MwbImportService.coverage', () => {
-  const build = (rows: { week: string; parts: string }[]) => {
+  const build = (rows: { week: string | Date; parts: string }[]) => {
     const getRawMany = jest.fn().mockResolvedValue(rows);
     const service = Object.create(
       MwbImportService.prototype,
@@ -115,5 +115,46 @@ describe('MwbImportService.coverage', () => {
 
     expect(month.month).toBe('2026-09');
     expect(month.firstWeek).toBe('2026-09-07');
+  });
+
+  /**
+   * The database does not hand back strings. node-postgres turns a DATE into a
+   * JavaScript Date, and this read called .slice on it: a 500 on every open
+   * of the import screen once a programme was loaded. The tests above fed it
+   * strings, so they passed; this one feeds it what the database gives.
+   */
+  it('reads a week that comes back from the database as a Date', async () => {
+    const service = build([
+      { week: new Date(2026, 7, 31), parts: '12' },
+      { week: new Date(2026, 8, 7), parts: '12' },
+    ]);
+    const out = await service.coverage('c1');
+    expect(out.map((m) => m.month)).toEqual(['2026-08', '2026-09']);
+    expect(out[0].firstWeek).toBe('2026-08-31');
+    expect(out[1].lastWeek).toBe('2026-09-07');
+  });
+
+  it('asks the database for the week as text', async () => {
+    const select = jest.fn().mockReturnThis();
+    const service = Object.create(
+      MwbImportService.prototype,
+    ) as MwbImportService;
+    Object.assign(service, {
+      assignmentsRepo: {
+        createQueryBuilder: jest.fn(() => ({
+          select,
+          addSelect: jest.fn().mockReturnThis(),
+          where: jest.fn().mockReturnThis(),
+          andWhere: jest.fn().mockReturnThis(),
+          groupBy: jest.fn().mockReturnThis(),
+          orderBy: jest.fn().mockReturnThis(),
+          getRawMany: jest.fn().mockResolvedValue([]),
+        })),
+      },
+    });
+    await service.coverage('c1');
+    expect(String(select.mock.calls[0][0])).toContain(
+      "to_char(a.week_start_date, 'YYYY-MM-DD')",
+    );
   });
 });

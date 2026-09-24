@@ -70,7 +70,11 @@ export class MwbImportService {
       .slice(0, 10);
     const rows = await this.assignmentsRepo
       .createQueryBuilder('a')
-      .select('a.week_start_date', 'week')
+      // As text, not as the DATE it is: node-postgres hands a DATE back as a
+      // JavaScript Date, and this read took it for a string — «week.slice is
+      // not a function», a 500 on every open of the import screen once any
+      // programme was loaded (found by the screen audit, 24 September).
+      .select("to_char(a.week_start_date, 'YYYY-MM-DD')", 'week')
       .addSelect('COUNT(*)', 'parts')
       .where('a.congregation_id = :congregationId', { congregationId })
       .andWhere('a.deleted_at IS NULL')
@@ -81,15 +85,20 @@ export class MwbImportService {
       .andWhere('a.week_start_date >= :from', { from: yearAgo })
       .groupBy('a.week_start_date')
       .orderBy('a.week_start_date', 'ASC')
-      .getRawMany<{ week: string; parts: string }>();
+      .getRawMany<{ week: string | Date; parts: string }>();
 
     const byMonth = new Map<
       string,
       { weeks: number; parts: number; first: string; last: string }
     >();
     for (const row of rows) {
+      // A Date still reads right, should the column ever come back as one:
+      // node-postgres builds it at local midnight, so the local parts are the
+      // calendar day — never toISOString, which would shift it a day east of UTC.
       const week =
-        typeof row.week === 'string' ? row.week.slice(0, 10) : row.week;
+        typeof row.week === 'string'
+          ? row.week.slice(0, 10)
+          : `${row.week.getFullYear()}-${String(row.week.getMonth() + 1).padStart(2, '0')}-${String(row.week.getDate()).padStart(2, '0')}`;
       // The MONTH of the week's Monday. A week straddling two months belongs
       // to the one it starts in — the same way the workbooks are named.
       const month = week.slice(0, 7);
