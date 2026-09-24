@@ -44,9 +44,16 @@ export class MemorialController {
     return this.service.list(tenantId);
   }
 
+  /** A draft goes only to those who may write it — the same two roles. */
   @Get(':id')
-  sheet(@TenantId() tenantId: string, @Param('id', ParseUUIDPipe) id: string) {
-    return this.service.sheet(tenantId, id);
+  sheet(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const planner =
+      user.role === UserRole.ADMIN || user.role === UserRole.ELDER;
+    return this.service.sheet(tenantId, id, planner);
   }
 
   /** Fill an empty Memorial from last year's, or from the template. */

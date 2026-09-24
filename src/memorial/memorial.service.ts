@@ -41,6 +41,12 @@ export interface MemorialSheet {
   items: MemorialItem[];
   /** False once the evening has passed: read it, do not rewrite it. */
   editable: boolean;
+  /**
+   * True when the programme is still a draft and the reader does not plan it:
+   * then `items` is empty and the theme withheld, and the app says «the
+   * programme is being prepared» (decided 24 September).
+   */
+  preparing: boolean;
 }
 
 /** The evening-before reminder goes out after this hour, local time. */
@@ -102,17 +108,46 @@ export class MemorialService {
     );
   }
 
-  /** The whole sheet for one Memorial, in the order it is read. */
+  /**
+   * The whole sheet for one Memorial, in the order it is read.
+   *
+   * A DRAFT is for those who prepare it. Reading is open to the whole
+   * congregation — but only once it is published: before that a publisher
+   * met, in the Programme tab, a sheet of dashes under «Черновик — никто ещё
+   * не оповещён», which is the preparers' note to themselves, not news for
+   * him. The draft is withheld HERE, not hidden in the app, so it never
+   * leaves the server for someone who is not to read it. `planner` is the
+   * caller's word that the reader is an elder or an admin — those who may
+   * write the sheet (see the controller); left out, as by tests and internal
+   * callers, the sheet is whole.
+   */
   async sheet(
     congregationId: string,
     specialEventId: string,
+    planner = true,
   ): Promise<MemorialSheet> {
     const event = await this.getEvent(congregationId, specialEventId);
+    const over = event.endDate ?? event.date;
+    if (!event.memorialPublishedAt && !planner) {
+      return {
+        event: {
+          id: event.id,
+          date: event.date,
+          time: event.time ?? null,
+          address: event.address ?? null,
+          theme: null,
+          themeUrl: null,
+          publishedAt: null,
+        },
+        items: [],
+        editable: false,
+        preparing: true,
+      };
+    }
     const items = await this.repo.find({
       where: { congregationId, specialEventId },
       order: { section: 'ASC', sortOrder: 'ASC' },
     });
-    const over = event.endDate ?? event.date;
     return {
       event: {
         id: event.id,
@@ -125,6 +160,7 @@ export class MemorialService {
       },
       items,
       editable: over >= (await this.clock.todayFor(congregationId)),
+      preparing: false,
     };
   }
 

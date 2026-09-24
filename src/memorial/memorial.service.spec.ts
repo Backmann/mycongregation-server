@@ -519,3 +519,68 @@ describe('MemorialService.remindEveningBefore', () => {
     expect(notified).toHaveLength(0);
   });
 });
+
+/**
+ * A draft is for those who prepare it (24 September). Before publication a
+ * publisher met, in the Programme tab, a sheet of dashes under «Черновик —
+ * никто ещё не оповещён». Now the server keeps the draft to the planners and
+ * tells everyone else only that it is being prepared.
+ */
+describe('MemorialService.sheet — a draft is for those who prepare it', () => {
+  const line = {
+    id: 'l1',
+    section: 'programme',
+    partKey: 'chairman',
+    publisherId: 'p1',
+    sortOrder: 1,
+  };
+  const draft = {
+    id: 'ev-now',
+    congregationId: 'cong-1',
+    type: 'memorial',
+    date: FUTURE,
+    endDate: null,
+    time: '19:30',
+    address: 'Bunsenstr. 46',
+    memorialTheme: 'Цените всё…',
+    memorialThemeUrl: 'https://example.invalid/s-31',
+    memorialPublishedAt: null,
+  };
+
+  it('gives a reader who does not plan only «being prepared» — no lines, no theme', async () => {
+    const { svc } = build({ event: draft, items: [line] });
+    const sheet = await svc.sheet('cong-1', 'ev-now', false);
+    expect(sheet.preparing).toBe(true);
+    expect(sheet.items).toEqual([]);
+    expect(sheet.event.theme).toBeNull();
+    expect(sheet.event.themeUrl).toBeNull();
+    expect(sheet.editable).toBe(false);
+    // The evening itself is no secret: date, time and place still come.
+    expect(sheet.event).toMatchObject({
+      date: FUTURE,
+      time: '19:30',
+      address: 'Bunsenstr. 46',
+    });
+  });
+
+  it('gives the planner the whole draft', async () => {
+    const { svc } = build({ event: draft, items: [line] });
+    const sheet = await svc.sheet('cong-1', 'ev-now', true);
+    expect(sheet.preparing).toBe(false);
+    expect(sheet.items).toHaveLength(1);
+    expect(sheet.event.theme).toBe('Цените всё…');
+  });
+
+  it('gives everyone the whole sheet once it is published', async () => {
+    const { svc } = build({
+      event: {
+        ...draft,
+        memorialPublishedAt: new Date('2026-03-01T10:00:00Z'),
+      },
+      items: [line],
+    });
+    const sheet = await svc.sheet('cong-1', 'ev-now', false);
+    expect(sheet.preparing).toBe(false);
+    expect(sheet.items).toHaveLength(1);
+  });
+});
