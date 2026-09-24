@@ -254,7 +254,15 @@ export class PublishersController {
     });
   }
 
-  /** Call back an invitation that has not been used. Admin only, like the rest. */
+  /**
+   * Call back an invitation that has not been used. Admin only, like the rest.
+   *
+   * The comment said so and the decorator was missing: RolesGuard lets a
+   * route with no roles through, so any signed-in member could cancel
+   * anyone's unused invitation (found by the rights audit, 24 September).
+   * mutating-routes-guarded.spec.ts now fails on such a route.
+   */
+  @Roles(UserRole.ADMIN)
   @Post(':id/access/revoke-invite')
   revokeInvite(
     @Param('id', new ParseUUIDPipe()) id: string,
