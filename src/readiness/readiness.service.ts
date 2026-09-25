@@ -189,7 +189,12 @@ function countProgramme(rows: Assignment[]): ProgrammeReadiness {
     if (NOT_OURS_TO_ASSIGN.has(a.partKey)) continue;
     if (a.status === AssignmentStatus.CANCELLED) continue;
     total += 1;
-    if (a.publisherId) assigned += 1;
+    // A guest speaker from another congregation — and the circuit overseer
+    // at his concluding talk — is written by name, with no card of ours
+    // behind it (speakerName, no publisherId). That part is filled all the
+    // same; counting only publisherId made every weekend with a visiting
+    // speaker «not ready · no speaker» (25 September).
+    if (a.publisherId || a.speakerName?.trim()) assigned += 1;
     else missing.push(a.partKey);
   }
   return { loaded: true, assigned, total, missing };

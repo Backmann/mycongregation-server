@@ -105,6 +105,40 @@ describe('ReadinessService', () => {
     });
   });
 
+  it('counts a guest speaker written by name as assigned', async () => {
+    // A speaker from another congregation has no card here: the part holds
+    // his name and congregation, not a publisher.
+    const WEEKEND = {
+      [WEEK]: [{ date: '2026-09-20', kind: 'weekend' as const }],
+    };
+    const s = build({
+      meetings: WEEKEND,
+      assignments: [
+        part({
+          eventType: EventType.WEEKEND,
+          partKey: 'public_talk_speaker',
+          publisherId: null,
+          speakerName: 'Шмидт Андреас',
+          speakerCongregation: 'Hamm',
+        }),
+        part({ eventType: EventType.WEEKEND, partKey: 'watchtower_conductor' }),
+        part({
+          eventType: EventType.WEEKEND,
+          partKey: 'watchtower_reader',
+          publisherId: null,
+          speakerName: '   ',
+        }),
+      ],
+    });
+    const [week] = await s.forRange('c1', WEEK, '2026-09-21');
+    expect(week.meetings[0].programme).toEqual({
+      loaded: true,
+      assigned: 2,
+      total: 3,
+      missing: ['watchtower_reader'],
+    });
+  });
+
   it('ignores a cancelled row entirely', async () => {
     const s = build({
       meetings: MIDWEEK,
