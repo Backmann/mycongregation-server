@@ -1,3 +1,4 @@
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -123,5 +124,47 @@ describe('MeetingSettingsService', () => {
     expect(res.congregation.name).toBe('Ahlen-Russisch');
     expect(Array.isArray(res.versions)).toBe(true);
     expect(res.effective?.id).toBe('m1');
+  });
+
+  describe('remove: only a version that has not started yet', () => {
+    // 22:30 UTC on 25 September is already 00:30 on the 26th in Berlin — the
+    // congregation's day decides, not the server's.
+    beforeEach(() => {
+      jest.useFakeTimers({ now: Date.parse('2026-09-25T22:30:00Z') });
+    });
+    afterEach(() => jest.useRealTimers());
+
+    it('deletes a version that starts tomorrow', async () => {
+      const row = {
+        id: 'v2',
+        congregationId: 'cong-1',
+        effectiveFrom: '2026-09-27',
+      };
+      repo.findOne.mockResolvedValue(row);
+      await service.remove('cong-1', 'v2');
+      expect(repo.remove).toHaveBeenCalledWith(row);
+    });
+
+    it.each([
+      ['starts today by the congregation clock', '2026-09-26'],
+      ['is in force', '2026-01-01'],
+    ])('refuses a version that %s', async (_label, effectiveFrom) => {
+      repo.findOne.mockResolvedValue({
+        id: 'v1',
+        congregationId: 'cong-1',
+        effectiveFrom,
+      });
+      await expect(service.remove('cong-1', 'v1')).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(repo.remove).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 for a version of another congregation', async () => {
+      repo.findOne.mockResolvedValue(null);
+      await expect(service.remove('cong-1', 'x')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
   });
 });

@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, Repository } from 'typeorm';
@@ -117,6 +121,19 @@ export class MeetingSettingsService {
     });
     if (!row) {
       throw new NotFoundException('Meeting settings version not found');
+    }
+    // Only a version that has not started yet may go (agreed 25 September).
+    // Past weeks are read through the version that was in force then — the
+    // attendance sheet (S-3), duties and the week rules all look it up — so
+    // deleting one that has started would quietly move those weeks onto
+    // another schedule, and deleting the only one would leave the
+    // congregation with no meeting time at all. A mistake in the current
+    // version is corrected by saving it again with the same date.
+    const today = await this.clock.todayFor(tenantId);
+    if (row.effectiveFrom <= today) {
+      throw new ConflictException(
+        'This schedule version is already in force: past weeks are counted by it, so it cannot be deleted. Correct it by saving the schedule with the same start date.',
+      );
     }
     await this.repo.remove(row);
   }
