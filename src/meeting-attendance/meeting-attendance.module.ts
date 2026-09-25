@@ -8,6 +8,7 @@ import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
+import { AttendanceReadGuard } from './attendance-read.guard';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { CongregationClockModule } from '../common/congregation-clock.module';
 
@@ -24,7 +25,11 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
     CongregationClockModule,
   ],
   controllers: [MeetingAttendanceController],
-  providers: [MeetingAttendanceService, ResponsibilityGuard],
+  providers: [
+    MeetingAttendanceService,
+    ResponsibilityGuard,
+    AttendanceReadGuard,
+  ],
   exports: [MeetingAttendanceService],
 })
 export class MeetingAttendanceModule {}

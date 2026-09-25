@@ -7,20 +7,23 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
+import { AttendanceReadGuard } from './attendance-read.guard';
 
 /**
  * Meeting attendance — form S-3.
  *
- * Reading is open to any signed-in member: the figures are about the meeting,
- * not about anybody in particular, and the congregation hears them read out
- * anyway. Writing belongs to the secretary, to whoever holds the attendance
- * responsibility OR stands in for him, and to admins, who always pass.
+ * Reading is for the elders, the secretary, and whoever counts at the meeting
+ * or stands in for him (AttendanceReadGuard) — a publisher has no task that
+ * needs the sheet. Writing belongs to the secretary, to whoever holds the
+ * attendance responsibility OR stands in for him, and to admins, who always
+ * pass.
  */
 @Controller('meeting-attendance')
 export class MeetingAttendanceController {
   constructor(private readonly service: MeetingAttendanceService) {}
 
   @Get()
+  @UseGuards(AttendanceReadGuard)
   range(
     @TenantId() congregationId: string,
     @Query('from') from: string,
@@ -31,6 +34,7 @@ export class MeetingAttendanceController {
 
   /** The S-3 sheet for a service year (September–August). */
   @Get('service-year')
+  @UseGuards(AttendanceReadGuard)
   serviceYear(
     @TenantId() congregationId: string,
     @Query('startYear') startYear?: string,
@@ -47,6 +51,7 @@ export class MeetingAttendanceController {
 
   /** Meetings already held with no figure yet — what the home card offers. */
   @Get('pending')
+  @UseGuards(AttendanceReadGuard)
   pending(@TenantId() congregationId: string) {
     return this.service.pending(congregationId);
   }
