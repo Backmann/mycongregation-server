@@ -149,10 +149,13 @@ export class MeetingSettingsService {
     // the server's UTC date is still yesterday, and a version that starts
     // today would not yet count.
     const date = onDate ?? (await this.clock.todayFor(tenantId));
+    // In force = in force for THIS WEEK (week-rules): a version dated this
+    // Wednesday starts next Monday, and «Сейчас действует» said it already
+    // had. Before any version has started there is none to name.
     const rows = await this.repo.find({
       where: {
         congregationId: tenantId,
-        effectiveFrom: LessThanOrEqual(date),
+        effectiveFrom: LessThanOrEqual(mondayOf(date)),
       },
       order: { effectiveFrom: 'DESC' },
       take: 1,

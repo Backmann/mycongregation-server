@@ -1,3 +1,4 @@
+import { versionForWeek } from '../common/week-rules';
 import {
   BadRequestException,
   ForbiddenException,
@@ -533,10 +534,15 @@ export class TalkExchangeService {
     tenantId: string,
     weekStartDate: string,
   ): Promise<string> {
-    const version = await this.meetingSettingsRepo.findOne({
-      where: { congregationId: tenantId },
-      order: { effectiveFrom: 'DESC' },
-    });
+    // The version in force THAT week — not the latest of all. The latest was
+    // taken, so a change planned for January moved this autumn's journal
+    // entries to January's weekday (26 September).
+    const version = versionForWeek(
+      await this.meetingSettingsRepo.find({
+        where: { congregationId: tenantId },
+      }),
+      weekStartDate,
+    );
     const dow = version?.weekendDow ?? 7; // default Sunday
     return addDaysISO(weekStartDate, dow - 1);
   }

@@ -99,7 +99,13 @@ describe('TalkExchangeService', () => {
         },
         {
           provide: getRepositoryToken(MeetingSettings),
-          useValue: { findOne: jest.fn().mockResolvedValue({ weekendDow: 7 }) },
+          useValue: {
+            find: jest
+              .fn()
+              .mockResolvedValue([
+                { effectiveFrom: '2020-01-06', weekendDow: 7 },
+              ]),
+          },
         },
         {
           provide: AuditLogService,
@@ -447,6 +453,29 @@ describe('TalkExchangeService', () => {
         speakerCongregation: 'Town',
         publicTalkId: 'talk-1',
       }),
+    );
+  });
+
+  // 26 September: the journal took the weekday of the LATEST schedule
+  // version, so a change planned for January moved this summer's entries.
+  it('dates a journal entry by the schedule in force that week, not a later one', async () => {
+    assignmentRepo.findOne.mockResolvedValue({
+      id: 'asg',
+      publisherId: null,
+      speakerName: 'Guest X',
+      speakerCongregation: 'Town',
+      publicTalkId: 'talk-1',
+    });
+    repo.findOne.mockResolvedValue(null);
+    (service as any).meetingSettingsRepo.find.mockResolvedValue([
+      { effectiveFrom: '2027-01-04', weekendDow: 6 },
+      { effectiveFrom: '2020-01-06', weekendDow: 7 },
+    ]);
+
+    await service.syncProgramToJournal(TENANT, '2026-06-15');
+
+    expect(repo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ date: '2026-06-21' }),
     );
   });
 

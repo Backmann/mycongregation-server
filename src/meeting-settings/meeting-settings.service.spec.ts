@@ -1,4 +1,5 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
+import { LessThanOrEqual } from 'typeorm';
 import { Test } from '@nestjs/testing';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -173,6 +174,21 @@ describe('MeetingSettingsService', () => {
         NotFoundException,
       );
     });
+  });
+
+  // «Сейчас действует» is read by the week, as week-rules reads it: on
+  // Thursday 24 September a version dated Wednesday 23rd is not yet in force
+  // (it starts on Monday 28th).
+  it('the version in force is asked for the Monday of the week', async () => {
+    repo.find.mockResolvedValue([]);
+    await service.getEffective('c1', '2026-09-24');
+    expect(repo.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          effectiveFrom: LessThanOrEqual('2026-09-21'),
+        }),
+      }),
+    );
   });
 
   describe('a version dated in the past (26 September)', () => {

@@ -1,5 +1,5 @@
 import { mondayOf } from '../common/week';
-import { addDaysISO } from '../common/week-rules';
+import { addDaysISO, versionForWeek } from '../common/week-rules';
 
 /**
  * What saving a schedule version would change in weeks that have already
@@ -59,15 +59,6 @@ export interface PastImpact {
    * another weekday — figures left on dates with no meeting.
    */
   attendanceOnMovedDays: number;
-}
-
-function versionForWeek<T extends { effectiveFrom: string }>(
-  sorted: T[],
-  monday: string,
-): T | null {
-  let found: T | null = null;
-  for (const v of sorted) if (v.effectiveFrom <= monday) found = v;
-  return found ?? sorted[0] ?? null;
 }
 
 function isoDow(date: string): number {

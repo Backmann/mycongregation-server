@@ -6,7 +6,7 @@ import {
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { SpecialEvent } from '../entities/special-event.entity';
-import { LessThan, LessThanOrEqual, Not, Repository } from 'typeorm';
+import { LessThan, Not, Repository } from 'typeorm';
 import { Duty } from '../entities/duty.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Publisher } from '../entities/publisher.entity';
@@ -24,7 +24,7 @@ import { GenerateWeekDutiesDto } from './dto/generate-week-duties.dto';
 import { AssignDutyDto } from './dto/assign-duty.dto';
 import { CreateCustomDutyDto } from './dto/create-custom-duty.dto';
 import { CongregationClock } from '../common/congregation-clock.service';
-import { MeetingKind, WeekRules } from '../common/week-rules';
+import { versionForWeek, MeetingKind, WeekRules } from '../common/week-rules';
 import { rulesFromContext } from '../common/week-rules.service';
 
 /**
@@ -197,15 +197,14 @@ export class DutiesService {
     congregationId: string,
     onDate: string,
   ): Promise<MeetingSettings | null> {
-    const rows = await this.meetingRepo.find({
-      where: {
-        congregationId,
-        effectiveFrom: LessThanOrEqual(onDate),
-      },
-      order: { effectiveFrom: 'DESC' },
-      take: 1,
-    });
-    return rows[0] ?? null;
+    // By the WEEK, as the week rules read it (a version takes effect on the
+    // Monday on or after its date) — by the day, a version dated this
+    // Wednesday already set this week's microphones while the week itself
+    // still ran on the old one.
+    return versionForWeek(
+      await this.meetingRepo.find({ where: { congregationId } }),
+      onDate,
+    );
   }
 
   /** Microphone-slot count effective for a date (default 2). */

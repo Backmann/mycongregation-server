@@ -1,3 +1,4 @@
+import { versionForWeek } from '../common/week-rules';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -233,11 +234,15 @@ export class CleaningRemindersService {
     const p = CleaningRemindersService.localParts(now, tz);
     if (this.isQuiet(p)) return;
 
-    const settings = await this.meetingSettingsRepo.findOne({
-      where: { congregationId: cong.id },
-      order: { effectiveFrom: 'DESC' },
-    });
     const weekStart = CleaningRemindersService.mondayOf(p.date, p.isoDow);
+    // The version in force this week, not the latest one saved: a change
+    // planned for later was already setting the reminders' day and time.
+    const settings = versionForWeek(
+      await this.meetingSettingsRepo.find({
+        where: { congregationId: cong.id },
+      }),
+      weekStart,
+    );
 
     const assignments = await this.cleaningRepo.find({
       where: { congregationId: cong.id, weekStartDate: weekStart },

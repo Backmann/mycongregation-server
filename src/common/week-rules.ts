@@ -116,16 +116,37 @@ export function eventsOfWeek(
   );
 }
 
-/** The settings version in force for a week. */
+/**
+ * The settings version in force for a week — THE one rule for it (26 September).
+ *
+ * A version takes effect on the Monday on or after its date: one schedule per
+ * week, so a change dated on a Wednesday does not give that week a second
+ * meeting on the new day. Before the first version, the first one applies.
+ *
+ * Any date of the week may be passed; it is read as its week. And the list
+ * may come in any order — this used to keep «the last one that fits» and so
+ * silently needed the caller to sort, while four other places picked the
+ * version their own way: the latest of all (a FUTURE one included) for the
+ * talk journal and the cleaning reminders, and by the day rather than the
+ * week for duties and the «now in force» line.
+ */
 export function versionForWeek<T extends WeekSettingsVersion>(
   versions: T[],
-  weekStart: string,
+  anyDateOfWeek: string,
 ): T | null {
+  const monday = addDaysISO(anyDateOfWeek, 1 - isoDowOf(anyDateOfWeek));
   let found: T | null = null;
+  let first: T | null = null;
   for (const v of versions) {
-    if (v.effectiveFrom <= weekStart) found = v;
+    if (!first || v.effectiveFrom < first.effectiveFrom) first = v;
+    if (
+      v.effectiveFrom <= monday &&
+      (!found || v.effectiveFrom > found.effectiveFrom)
+    ) {
+      found = v;
+    }
   }
-  return found ?? versions[0] ?? null;
+  return found ?? first;
 }
 
 export interface WeekRules {

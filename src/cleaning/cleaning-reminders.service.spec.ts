@@ -88,7 +88,7 @@ function makeSvc(over: Partial<Record<string, any>> = {}) {
 
   const svc = new CleaningRemindersService(
     over.congregationRepo ?? ({ find: jest.fn() } as any),
-    over.meetingSettingsRepo ?? ({ findOne: jest.fn() } as any),
+    over.meetingSettingsRepo ?? ({ find: jest.fn(async () => []) } as any),
     over.cleaningRepo ?? ({ find: jest.fn() } as any),
     over.groupRepo ?? ({} as any),
     over.publisherRepo ??
@@ -179,7 +179,9 @@ describe('CleaningRemindersService.forCongregation', () => {
       },
     ];
     const { svc, sends } = makeSvc({
-      meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
+      meetingSettingsRepo: {
+        find: jest.fn(async () => (settings ? [settings] : [])),
+      } as any,
       cleaningRepo: cleaningRepoWith(rows),
       meetingsThisWeek: [{ date: '2026-05-19', eventType: 'midweek' }],
     });
@@ -188,6 +190,30 @@ describe('CleaningRemindersService.forCongregation', () => {
     expect(sends[0].data.type).toBe('cleaning_after_meeting');
     expect(sends[0].data.meeting).toBe('midweek');
     expect(sends[0].users).toEqual(['u1', 'u2']);
+  });
+
+  // 26 September: the reminders took the LATEST version saved, so a change
+  // planned for later already set today's hour.
+  it('keeps to the version in force this week when a later one is saved', async () => {
+    const rows = [
+      { slotType: CleaningSlotType.AFTER_MEETING, serviceGroupId: 'g-after' },
+    ];
+    const current = { ...settings, effectiveFrom: '2026-01-05' };
+    const later = {
+      ...settings,
+      effectiveFrom: '2027-01-04',
+      midweekTime: '21:00',
+    };
+    const { svc, sends } = makeSvc({
+      meetingSettingsRepo: {
+        find: jest.fn(async () => [later, current]),
+      } as any,
+      cleaningRepo: cleaningRepoWith(rows),
+      meetingsThisWeek: [{ date: '2026-05-19', eventType: 'midweek' }],
+    });
+    // 17:00 Berlin — two hours before 19:00, the hour in force this week.
+    await svc['forCongregation'](cong, new Date('2026-05-19T15:00:00Z'));
+    expect(sends).toHaveLength(1);
   });
 
   it('reminds the group after the MEMORIAL, at the hour the Memorial starts', async () => {
@@ -204,7 +230,9 @@ describe('CleaningRemindersService.forCongregation', () => {
       { slotType: CleaningSlotType.AFTER_MEETING, serviceGroupId: 'g-after' },
     ];
     const { svc, sends } = makeSvc({
-      meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
+      meetingSettingsRepo: {
+        find: jest.fn(async () => (settings ? [settings] : [])),
+      } as any,
       cleaningRepo: cleaningRepoWith(rows),
       meetingsThisWeek: [
         { date: '2026-05-19', kind: 'memorial', time: '19:30' },
@@ -223,7 +251,9 @@ describe('CleaningRemindersService.forCongregation', () => {
       { slotType: CleaningSlotType.AFTER_MEETING, serviceGroupId: 'g-after' },
     ];
     const { svc, sends } = makeSvc({
-      meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
+      meetingSettingsRepo: {
+        find: jest.fn(async () => (settings ? [settings] : [])),
+      } as any,
       cleaningRepo: cleaningRepoWith(rows),
       meetingsThisWeek: [{ date: '2026-05-19', kind: 'memorial', time: null }],
     });
@@ -241,7 +271,9 @@ describe('CleaningRemindersService.forCongregation', () => {
       { slotType: CleaningSlotType.AFTER_MEETING, serviceGroupId: 'g-after' },
     ];
     const { svc, sends } = makeSvc({
-      meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
+      meetingSettingsRepo: {
+        find: jest.fn(async () => (settings ? [settings] : [])),
+      } as any,
       cleaningRepo: cleaningRepoWith(rows),
       meetingsThisWeek: [{ date: '2026-05-19', eventType: 'midweek' }],
     });
@@ -258,7 +290,9 @@ describe('CleaningRemindersService.forCongregation', () => {
       { slotType: CleaningSlotType.AFTER_MEETING, serviceGroupId: 'g-after' },
     ];
     const { svc, sends } = makeSvc({
-      meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
+      meetingSettingsRepo: {
+        find: jest.fn(async () => (settings ? [settings] : [])),
+      } as any,
       cleaningRepo: cleaningRepoWith(rows),
       meetingsThisWeek: [],
     });
@@ -273,7 +307,9 @@ describe('CleaningRemindersService.forCongregation', () => {
       { slotType: CleaningSlotType.AFTER_MEETING, serviceGroupId: 'g-after' },
     ];
     const { svc, sends } = makeSvc({
-      meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
+      meetingSettingsRepo: {
+        find: jest.fn(async () => (settings ? [settings] : [])),
+      } as any,
       cleaningRepo: cleaningRepoWith(rows),
     });
     // Tuesday 14:00 Berlin = 12:00Z — not 17:00.
@@ -291,7 +327,9 @@ describe('CleaningRemindersService.forCongregation', () => {
       },
     ];
     const { svc, sends } = makeSvc({
-      meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
+      meetingSettingsRepo: {
+        find: jest.fn(async () => (settings ? [settings] : [])),
+      } as any,
       cleaningRepo: cleaningRepoWith(rows),
     });
     // Monday 2026-05-18, 09:00 Berlin = 07:00Z.
@@ -312,7 +350,9 @@ describe('CleaningRemindersService.forCongregation', () => {
       },
     ];
     const { svc, sends } = makeSvc({
-      meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
+      meetingSettingsRepo: {
+        find: jest.fn(async () => (settings ? [settings] : [])),
+      } as any,
       cleaningRepo: cleaningRepoWith(rows),
     });
     await svc['forCongregation'](cong, new Date('2026-05-20T14:00:00Z'));
@@ -327,7 +367,9 @@ describe('CleaningRemindersService.forCongregation', () => {
       { slotType: CleaningSlotType.AFTER_MEETING, serviceGroupId: 'g-after' },
     ];
     const { svc, sends } = makeSvc({
-      meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
+      meetingSettingsRepo: {
+        find: jest.fn(async () => (settings ? [settings] : [])),
+      } as any,
       cleaningRepo: cleaningRepoWith(rows),
       meetingsThisWeek: [{ date: '2026-05-19', eventType: 'midweek' }],
     });
@@ -346,7 +388,9 @@ describe('CleaningRemindersService.forCongregation', () => {
       },
     ];
     const { svc, sends } = makeSvc({
-      meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
+      meetingSettingsRepo: {
+        find: jest.fn(async () => (settings ? [settings] : [])),
+      } as any,
       cleaningRepo: cleaningRepoWith(rows),
     });
     // 21:00 Berlin = 19:00Z — within quiet window start guard at forCongregation.
@@ -370,7 +414,9 @@ describe('CleaningRemindersService.forCongregation', () => {
       { userId: 'u3' },
     ];
     const { svc, sends } = makeSvc({
-      meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
+      meetingSettingsRepo: {
+        find: jest.fn(async () => (settings ? [settings] : [])),
+      } as any,
       cleaningRepo: cleaningRepoWith(rows),
       publisherRepo: { find: jest.fn(async () => everyone) } as any,
     });
@@ -389,7 +435,9 @@ describe('CleaningRemindersService.forCongregation', () => {
 
   it('does nothing when no group is assigned', async () => {
     const { svc, sends } = makeSvc({
-      meetingSettingsRepo: { findOne: jest.fn(async () => settings) } as any,
+      meetingSettingsRepo: {
+        find: jest.fn(async () => (settings ? [settings] : [])),
+      } as any,
       cleaningRepo: cleaningRepoWith([]),
     });
     await svc['forCongregation'](cong, new Date('2026-05-19T15:00:00Z'));
