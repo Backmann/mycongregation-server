@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, Between } from 'typeorm';
+import { Repository, In, Between, Brackets } from 'typeorm';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -690,7 +690,26 @@ export class MeService {
         ws: weekFloor,
         we: horizon,
       })
-      .andWhere('f.conductor_publisher_id = :pid', { pid })
+      // The overseer and his assistant go to a visit whoever conducts it.
+      // Asking for the conductor alone left the assistant with no such item
+      // at all (and the overseer, when his assistant conducts), although
+      // everything below was written to describe exactly that pair.
+      .andWhere(
+        new Brackets((w) =>
+          w
+            .where('f.conductor_publisher_id = :pid', { pid })
+            .orWhere(
+              new Brackets((v) =>
+                v
+                  .where('f.service_overseer_visit = true')
+                  .andWhere(
+                    '(f.service_overseer_publisher_id = :pid OR f.service_overseer_assistant_id = :pid)',
+                    { pid },
+                  ),
+              ),
+            ),
+        ),
+      )
       .orderBy('f.week_start_date', 'ASC')
       .getMany();
     // Group names and the other man of each pair, fetched once for all of the

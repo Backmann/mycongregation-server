@@ -58,6 +58,7 @@ describe('ServiceOverseerService — which groups still need a visit', () => {
     const g2 = groups.find((g) => g.serviceGroupId === 'g2')!;
 
     expect(g1.visitsThisYear).toBe(2);
+    expect(g1.madeThisYear).toBe(2);
     expect(g1.lastVisitDate).toBe('2026-03-04');
     expect(g1.lastVisitBy).toBe('p1');
     expect(g2.visitsThisYear).toBe(0);
@@ -95,6 +96,8 @@ describe('ServiceOverseerService — which groups still need a visit', () => {
     expect(g1.nextVisitDate).toBe('2026-08-05');
     // it still counts toward the year, because it is planned inside it
     expect(g1.visitsThisYear).toBe(1);
+    // …but it has not been made yet
+    expect(g1.madeThisYear).toBe(0);
   });
 
   it('ignores a visit whose group is gone', async () => {

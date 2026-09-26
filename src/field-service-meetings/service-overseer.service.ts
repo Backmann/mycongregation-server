@@ -7,8 +7,14 @@ import { ServiceGroup } from '../entities/service-group.entity';
 export interface GroupVisitRow {
   serviceGroupId: string;
   name: string;
-  /** Visits inside the service year asked about. */
+  /** Visits inside the service year asked about, planned ones included. */
   visitsThisYear: number;
+  /**
+   * Of those, the ones that have already happened. The page drew the count
+   * above as «visited» and a planned visit turned the group green beside
+   * «Ещё не посещали» (26 September).
+   */
+  madeThisYear: number;
   /** The most recent visit that has already happened, of any year. */
   lastVisitDate: string | null;
   lastVisitBy: string | null;
@@ -107,6 +113,7 @@ export class ServiceOverseerService {
         serviceGroupId: g.id,
         name: g.name,
         visitsThisYear: 0,
+        madeThisYear: 0,
         lastVisitDate: null,
         lastVisitBy: null,
         nextVisitDate: null,
@@ -123,6 +130,7 @@ export class ServiceOverseerService {
       const date = meetingDate(m.weekStartDate, m.dayOfWeek);
       if (date >= bounds.first && date <= bounds.last) {
         row.visitsThisYear += 1;
+        if (date <= today) row.madeThisYear += 1;
       }
       if (date <= today) {
         if (!row.lastVisitDate || date > row.lastVisitDate) {
