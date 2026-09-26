@@ -1,11 +1,14 @@
 import { Controller, Get } from '@nestjs/common';
 import { AppService } from './app.service';
 import { Public } from './auth/decorators/public.decorator';
+import { BUILD_COMMIT } from './build-stamp';
 
 interface HealthResponse {
   status: 'ok';
   uptime: number;
   timestamp: string;
+  /** The commit this build came from; null outside a deploy. */
+  commit: string | null;
 }
 
 @Controller()
@@ -38,6 +41,7 @@ export class AppController {
       status: 'ok',
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
+      commit: BUILD_COMMIT,
     };
   }
 }

@@ -39,6 +39,11 @@ describe('AppController', () => {
       expect(parsed.toISOString()).toBe(result.timestamp);
     });
 
+    // The deploy stamps the commit; in the repository there is none.
+    it('names the commit it was built from (none outside a deploy)', () => {
+      expect(appController.getHealth().commit).toBeNull();
+    });
+
     it('returns a recent timestamp (within 1 second of now)', () => {
       const before = Date.now();
       const result = appController.getHealth();

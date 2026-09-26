@@ -150,6 +150,14 @@ jobs:
           EOF
           chmod 600 ~/.ssh/config
 
+      # The commit goes INTO the build, so /api/health can say what is live.
+      # Only the file in this runner's checkout is changed; the repository
+      # keeps null.
+      - name: Stamp the commit into the build
+        run: |
+          printf "export const BUILD_COMMIT: string | null = '%s';\n" "$GITHUB_SHA" > src/build-stamp.ts
+          cat src/build-stamp.ts
+
       - name: Create source tarball
         run: |
           tar -czf /tmp/server-src.tar.gz \
@@ -199,6 +207,23 @@ jobs:
           rm /tmp/server-src.tar.gz
           echo "Deploy complete"
           ENDSSH
+
+      # The deploy is done when the LIVE server says it runs this commit — not
+      # when the commands above returned. A container that failed to come up,
+      # or an old one still answering, fails the run here, where it is seen.
+      - name: Confirm the live server runs this commit
+        run: |
+          for i in $(seq 1 30); do
+            BODY="$(curl -fsS "https://api.mycongregation.org/api/health" || true)"
+            if echo "$BODY" | grep -q "\"commit\":\"$GITHUB_SHA\""; then
+              echo "Live: $BODY"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "The live server does not report $GITHUB_SHA after 150s. Last answer:"
+          echo "$BODY"
+          exit 1
 
       - name: Cleanup local
         if: always()
