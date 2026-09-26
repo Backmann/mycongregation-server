@@ -5,9 +5,13 @@ import {
 } from '@nestjs/common';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThanOrEqual, Repository } from 'typeorm';
+import { Between, LessThanOrEqual, Repository } from 'typeorm';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { Congregation } from '../entities/congregation.entity';
+import { MeetingAttendance } from '../entities/meeting-attendance.entity';
+import { pastImpact, type PastImpact } from './past-impact';
+import { mondayOf } from '../common/week';
+import { addDaysISO } from '../common/week-rules';
 import { UpsertMeetingSettingsDto } from './dto/upsert-meeting-settings.dto';
 import { UpdateCongregationDto } from './dto/update-congregation.dto';
 import { CongregationClock } from '../common/congregation-clock.service';
@@ -21,7 +25,71 @@ export class MeetingSettingsService {
     private readonly congRepo: Repository<Congregation>,
     private readonly auditLog: AuditLogService,
     private readonly clock: CongregationClock,
+    @InjectRepository(MeetingAttendance)
+    private readonly attendanceRepo: Repository<MeetingAttendance>,
   ) {}
+
+  /**
+   * What saving this version would change in weeks already begun — asked
+   * before saving, so the screen can say it in plain words (26 September).
+   */
+  async impact(
+    tenantId: string,
+    dto: UpsertMeetingSettingsDto,
+  ): Promise<PastImpact> {
+    const today = await this.clock.todayFor(tenantId);
+    const existing = await this.repo.find({
+      where: { congregationId: tenantId },
+      order: { effectiveFrom: 'ASC' },
+    });
+    const candidate = {
+      effectiveFrom: dto.effectiveFrom.slice(0, 10),
+      midweekDow: dto.midweekDow,
+      midweekTime: dto.midweekTime,
+      weekendDow: dto.weekendDow,
+      weekendTime: dto.weekendTime,
+      address: dto.address,
+      // Saving without the field keeps what the version had (upsert below);
+      // a new version without it gets 2.
+      microphoneSlots:
+        dto.microphoneSlots ??
+        existing.find((v) => v.effectiveFrom === dto.effectiveFrom.slice(0, 10))
+          ?.microphoneSlots ??
+        2,
+    };
+    // Only weeks already begun can hold recorded attendance.
+    const earliest = [
+      candidate.effectiveFrom,
+      ...existing.map((v) => v.effectiveFrom),
+    ].sort()[0];
+    const attendance =
+      earliest <= today
+        ? await this.attendanceRepo.find({
+            where: {
+              congregationId: tenantId,
+              date: Between(mondayOf(earliest), addDaysISO(mondayOf(today), 6)),
+            },
+            select: { date: true, eventType: true },
+          })
+        : [];
+    return pastImpact({
+      existing: existing.map((v) => ({
+        effectiveFrom: v.effectiveFrom,
+        midweekDow: v.midweekDow,
+        midweekTime: v.midweekTime,
+        weekendDow: v.weekendDow,
+        weekendTime: v.weekendTime,
+        address: v.address,
+        microphoneSlots: v.microphoneSlots,
+      })),
+      candidate,
+      today,
+      attendance: attendance.map((a) => ({
+        date: String(a.date).slice(0, 10),
+        eventType: a.eventType,
+      })),
+    });
+  }
 
   private async getCongregation(tenantId: string): Promise<Congregation> {
     const congregation = await this.congRepo.findOne({
@@ -97,6 +165,17 @@ export class MeetingSettingsService {
     tenantId: string,
     dto: UpsertMeetingSettingsDto,
   ): Promise<MeetingSettings> {
+    // Attendance already recorded on a weekday the change takes the meeting
+    // away from cannot be put right afterwards; that one consequence needs a
+    // yes from the person, not only a warning an older app never shows.
+    if (!dto.confirmPast) {
+      const impact = await this.impact(tenantId, dto);
+      if (impact.attendanceOnMovedDays > 0) {
+        throw new ConflictException(
+          `This moves meetings of weeks already begun to another weekday, and attendance for ${impact.attendanceOnMovedDays} of them is already recorded on the old day. Confirm to save.`,
+        );
+      }
+    }
     let row = await this.repo.findOne({
       where: { congregationId: tenantId, effectiveFrom: dto.effectiveFrom },
     });

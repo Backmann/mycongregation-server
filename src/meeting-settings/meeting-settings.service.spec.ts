@@ -5,6 +5,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { MeetingSettingsService } from './meeting-settings.service';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { Congregation } from '../entities/congregation.entity';
+import { MeetingAttendance } from '../entities/meeting-attendance.entity';
 import { clockStub } from '../common/testing/clock-stub';
 import { CongregationClock } from '../common/congregation-clock.service';
 
@@ -18,10 +19,12 @@ describe('MeetingSettingsService', () => {
     remove: jest.Mock;
   };
   let congRepo: { findOne: jest.Mock; save: jest.Mock };
+  let attendanceRepo: { find: jest.Mock };
 
   beforeEach(async () => {
+    attendanceRepo = { find: jest.fn().mockResolvedValue([]) };
     repo = {
-      find: jest.fn(),
+      find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn(),
       create: jest.fn((x) => x),
       save: jest.fn((x) => Promise.resolve({ id: x.id ?? 'm1', ...x })),
@@ -47,6 +50,10 @@ describe('MeetingSettingsService', () => {
         { provide: CongregationClock, useValue: clockStub() },
         { provide: getRepositoryToken(MeetingSettings), useValue: repo },
         { provide: getRepositoryToken(Congregation), useValue: congRepo },
+        {
+          provide: getRepositoryToken(MeetingAttendance),
+          useValue: attendanceRepo,
+        },
       ],
     }).compile();
 
@@ -165,6 +172,62 @@ describe('MeetingSettingsService', () => {
       await expect(service.remove('cong-1', 'x')).rejects.toBeInstanceOf(
         NotFoundException,
       );
+    });
+  });
+
+  describe('a version dated in the past (26 September)', () => {
+    // clockStub's today — the weeks before it have begun.
+    const inForce = {
+      id: 'v1',
+      congregationId: 'c1',
+      effectiveFrom: '2025-01-06',
+      midweekDow: 3,
+      midweekTime: '19:00',
+      weekendDow: 7,
+      weekendTime: '13:00',
+      address: 'Bunsenstr. 46, 59229 Ahlen',
+      microphoneSlots: 2,
+    };
+
+    it('refuses to move meetings off a weekday with recorded attendance unless confirmed', async () => {
+      repo.find.mockResolvedValue([inForce]);
+      const today = await clockStub().todayFor('c1');
+      // A Wednesday meeting recorded in the week before today.
+      const monday = new Date(`${today}T00:00:00Z`);
+      monday.setUTCDate(
+        monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7) - 7,
+      );
+      const wed = new Date(monday);
+      wed.setUTCDate(wed.getUTCDate() + 2);
+      attendanceRepo.find.mockResolvedValue([
+        { date: wed.toISOString().slice(0, 10), eventType: 'midweek' },
+      ]);
+      const moved = {
+        ...dto,
+        effectiveFrom: monday.toISOString().slice(0, 10),
+        midweekDow: 4,
+      };
+      repo.findOne.mockResolvedValue(null);
+      await expect(service.upsert('c1', moved)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(repo.save).not.toHaveBeenCalled();
+      await service.upsert('c1', { ...moved, confirmPast: true });
+      expect(repo.save).toHaveBeenCalled();
+    });
+
+    it('saves a past-dated change of time without asking (nothing is left behind)', async () => {
+      repo.find.mockResolvedValue([inForce]);
+      attendanceRepo.find.mockResolvedValue([
+        { date: '2025-01-08', eventType: 'midweek' },
+      ]);
+      repo.findOne.mockResolvedValue(null);
+      await service.upsert('c1', {
+        ...dto,
+        effectiveFrom: '2025-01-06',
+        midweekTime: '19:30',
+      });
+      expect(repo.save).toHaveBeenCalled();
     });
   });
 });

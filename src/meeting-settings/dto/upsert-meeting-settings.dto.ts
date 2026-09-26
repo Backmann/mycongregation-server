@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsDateString,
   IsInt,
   IsOptional,
@@ -44,4 +45,13 @@ export class UpsertMeetingSettingsDto {
   @Min(1)
   @Max(8)
   microphoneSlots?: number;
+
+  /**
+   * The person has seen what this does to weeks already begun and agrees.
+   * Required only when it would leave recorded attendance on a weekday that
+   * no longer holds the meeting (see past-impact.ts).
+   */
+  @IsOptional()
+  @IsBoolean()
+  confirmPast?: boolean;
 }

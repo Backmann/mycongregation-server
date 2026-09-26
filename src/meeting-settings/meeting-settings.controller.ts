@@ -44,6 +44,14 @@ export class MeetingSettingsController {
     return this.service.upsert(tenantId, dto);
   }
 
+  /** What the save would change in weeks already begun (nothing is saved). */
+  @Roles(UserRole.ADMIN)
+  @Post('impact')
+  @HttpCode(HttpStatus.OK)
+  impact(@TenantId() tenantId: string, @Body() dto: UpsertMeetingSettingsDto) {
+    return this.service.impact(tenantId, dto);
+  }
+
   @Roles(UserRole.ADMIN)
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
