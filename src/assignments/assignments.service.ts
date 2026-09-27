@@ -47,6 +47,7 @@ import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
 import { DutiesService } from '../duties/duties.service';
 import { LocalNeedsService } from '../local-needs/local-needs.service';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { CoVisitTemplateService } from '../special-events/co-visit-template.service';
 
 const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
 
@@ -124,6 +125,8 @@ export class AssignmentsService {
      * не по времени сервера. Тоже последним, по причине выше.
      */
     private readonly clock: CongregationClock,
+    /** The circuit-visit template, offered to a week made by hand. Last, as above. */
+    private readonly coVisitTemplate: CoVisitTemplateService,
   ) {}
 
   /**
@@ -373,6 +376,12 @@ export class AssignmentsService {
     );
     for (const week of talkWeeks) {
       await this.talkExchange.syncProgramToJournal(congregationId, week);
+    }
+    // A meeting created for a week with a circuit visit gets the visit's
+    // programme now — the visit may have been saved long before the week had
+    // anything in it.
+    for (const week of new Set(saved.map((a) => a.weekStartDate))) {
+      await this.coVisitTemplate.applyForWeek(congregationId, week);
     }
     return saved;
   }

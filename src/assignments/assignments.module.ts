@@ -1,3 +1,4 @@
+import { CoVisitTemplateModule } from '../special-events/co-visit-template.module';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Assignment } from '../entities/assignment.entity';
@@ -33,6 +34,7 @@ import { AssignmentsController } from './assignments.controller';
     // Часы собрания: «неделя прошла» судится по местному времени.
     CongregationClockModule,
     AuditLogModule,
+    CoVisitTemplateModule,
   ],
   controllers: [AssignmentsController],
   providers: [AssignmentsService, AssignmentSectionGuard],

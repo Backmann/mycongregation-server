@@ -61,7 +61,17 @@ export const REVERTABLE_FIELDS: Record<string, string[]> = {
     'contactPhone',
     'note',
   ],
-  special_event: ['title', 'startDate', 'endDate', 'note'],
+  // `date`, not `startDate`: the entity's own name. With the wrong one a
+  // changed date could never be undone from the journal.
+  special_event: [
+    'title',
+    'date',
+    'endDate',
+    'time',
+    'timeEnd',
+    'address',
+    'note',
+  ],
   pioneer_school: [
     'title',
     'startDate',

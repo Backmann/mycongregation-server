@@ -13,6 +13,7 @@ import {
   ImportResultDto,
   WeekImportSummary,
 } from '../mwb-import/dto/import-result.dto';
+import { CoVisitTemplateService } from '../special-events/co-visit-template.service';
 
 function isEmptyTemplate(a: Assignment): boolean {
   return !a.publisherId && !a.assistantPublisherId;
@@ -25,6 +26,7 @@ export class WtImportService {
   constructor(
     @InjectRepository(Assignment)
     private readonly assignmentsRepo: Repository<Assignment>,
+    private readonly coVisitTemplate: CoVisitTemplateService,
   ) {}
 
   async import(
@@ -134,6 +136,10 @@ export class WtImportService {
         overall.partsSkipped++;
       }
     }
+
+    // The weekend of a circuit visit loaded after the visit was saved: the
+    // overseer's talks go in now, the reader comes out.
+    await this.coVisitTemplate.applyForWeek(congregationId, weekStartDate);
 
     return summary;
   }

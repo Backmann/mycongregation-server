@@ -6,7 +6,7 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { SpecialEventsService } from './special-events.service';
 import { SpecialEventsController } from './special-events.controller';
-import { CoVisitTemplateService } from './co-visit-template.service';
+import { CoVisitTemplateModule } from './co-visit-template.module';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { CongregationClockModule } from '../common/congregation-clock.module';
 
@@ -15,13 +15,10 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
     CongregationClockModule,
     TypeOrmModule.forFeature([SpecialEvent, Responsibility, Assignment]),
     AuditLogModule,
+    CoVisitTemplateModule,
   ],
   controllers: [SpecialEventsController],
-  providers: [
-    SpecialEventsService,
-    CoVisitTemplateService,
-    ResponsibilityGuard,
-  ],
+  providers: [SpecialEventsService, ResponsibilityGuard],
   exports: [SpecialEventsService],
 })
 export class SpecialEventsModule {}

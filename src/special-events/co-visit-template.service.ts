@@ -1,10 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { EntityManager, In, IsNull, Repository } from 'typeorm';
 import { Assignment } from '../entities/assignment.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { EventType } from '../common/enums/event-type.enum';
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
+import { CongregationClock } from '../common/congregation-clock.service';
+import { mondayOf } from '../common/week';
+import { addDaysISO } from '../common/week-rules';
 
 /** The special-event `type` that drives the circuit-overseer program template. */
 export const CIRCUIT_OVERSEER_VISIT_TYPE = 'circuit_overseer_visit';
@@ -49,21 +52,20 @@ type RevertOp =
       prev: number | string | null;
     }
   | { op: 'added'; id: string }
-  | { op: 'deleted'; id: string };
+  | { op: 'deleted'; id: string }
+  /**
+   * Not a change: a note that this meeting of the week has had the template.
+   *
+   * The two meetings of a visit week are not always loaded together — the
+   * workbook comes first, the weekend is created later, sometimes months
+   * apart. The template used to run once, at the moment the visit was saved,
+   * and a meeting loaded after that never got it: no service talk, the study
+   * still in place. With a mark per meeting the template can be offered again
+   * whenever the week gains a meeting, and do only what is still missing.
+   */
+  | { op: 'meeting'; kind: MeetingKindKey };
 
-function fmtISO(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-/** Monday of the ISO week containing the given date. */
-function mondayOf(iso: string): string {
-  const d = new Date(`${iso}T00:00:00`);
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-  return fmtISO(d);
-}
+type MeetingKindKey = 'midweek' | 'weekend';
 
 function coDisplayName(event: SpecialEvent): string | null {
   const name = [event.coFirstName, event.coLastName]
@@ -80,20 +82,97 @@ export class CoVisitTemplateService {
   constructor(
     @InjectRepository(Assignment)
     private readonly assignmentRepo: Repository<Assignment>,
+    @InjectRepository(SpecialEvent)
+    private readonly eventRepo: Repository<SpecialEvent>,
+    private readonly clock: CongregationClock,
   ) {}
 
   /**
+   * Whether the visit's week is behind us, by the congregation's own clock.
+   *
+   * A week that has been held is history: its programme is what was said on
+   * the day. Entering an old visit for the record, deleting one, moving one —
+   * none of it may rewrite that programme. Judged by the END of the week, as
+   * the swap of talks is: on Sunday morning the week is still running.
+   */
+  async weekIsOver(event: Pick<SpecialEvent, 'congregationId' | 'date'>) {
+    const today = await this.clock.todayFor(event.congregationId);
+    return addDaysISO(mondayOf(event.date), 6) < today;
+  }
+
+  /**
+   * Offers the template to every visit of this week — called whenever a
+   * meeting of a week is created or imported, so a visit saved before the
+   * programme existed still gets it. Does nothing in a week without a visit.
+   */
+  async applyForWeek(congregationId: string, week: string): Promise<void> {
+    const visits = await this.eventRepo.find({
+      where: {
+        congregationId,
+        type: CIRCUIT_OVERSEER_VISIT_TYPE,
+        deletedAt: IsNull(),
+      },
+    });
+    for (const v of visits) {
+      if (mondayOf(v.date) !== week) continue;
+      try {
+        await this.apply(v);
+      } catch (e) {
+        // The import that called us has done its own work; failing it for the
+        // visit would lose that too. Loud in the log, and the next import or
+        // save of the visit offers the template again.
+        this.logger.error(
+          `CO visit ${v.id}: template for week ${week} failed: ${
+            (e as Error).message
+          }`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Which meetings already have the template. New visits carry a mark per
+   * meeting; one saved before the marks existed is read from the rows its
+   * changes touched.
+   */
+  private async appliedKinds(
+    em: EntityManager,
+    ops: RevertOp[],
+  ): Promise<Set<MeetingKindKey>> {
+    const kinds = new Set<MeetingKindKey>();
+    const marks = ops.filter(
+      (o): o is { op: 'meeting'; kind: MeetingKindKey } => o.op === 'meeting',
+    );
+    if (marks.length > 0 || ops.length === 0) {
+      for (const m of marks) kinds.add(m.kind);
+      return kinds;
+    }
+    const ids = ops
+      .filter((o) => o.op !== 'meeting')
+      .map((o) => (o as { id: string }).id);
+    const rows = await em.getRepository(Assignment).find({
+      where: { id: In(ids) },
+      withDeleted: true,
+    });
+    for (const r of rows) {
+      if (r.eventType === EventType.MIDWEEK) kinds.add('midweek');
+      if (r.eventType === EventType.WEEKEND) kinds.add('weekend');
+    }
+    return kinds;
+  }
+
+  /**
    * Applies the circuit-overseer program to the visit week (midweek + weekend)
-   * and records the undo plan on the event. Idempotent: if the event already
-   * carries a revert plan, this is a no-op. Each meeting is only touched when
-   * its programme has already been imported (otherwise we'd create orphan
-   * talks in an empty week).
+   * and records the undo plan on the event. Each meeting is done once — a
+   * meeting that has the template is not touched again — and only when its
+   * programme exists (otherwise we'd create orphan talks in an empty week);
+   * a meeting loaded later gets it through {@link applyForWeek}. A week that
+   * is over is never touched: its programme is history.
    */
   async apply(event: SpecialEvent): Promise<SpecialEvent> {
     if (event.type !== CIRCUIT_OVERSEER_VISIT_TYPE) return event;
-    if (event.coRevertData && (event.coRevertData as RevertOp[]).length > 0) {
-      return event; // already applied
-    }
+    if (event.deletedAt) return event;
+    if (await this.weekIsOver(event)) return event;
 
     const week = mondayOf(event.date);
     const speaker = coDisplayName(event);
@@ -101,7 +180,14 @@ export class CoVisitTemplateService {
     return this.assignmentRepo.manager.transaction(async (em) => {
       const aRepo = em.getRepository(Assignment);
       const eRepo = em.getRepository(SpecialEvent);
-      const ops: RevertOp[] = [];
+      const before = ((event.coRevertData as RevertOp[] | null) ?? []).slice();
+      const ops: RevertOp[] = before.slice();
+      const applied = await this.appliedKinds(em, before);
+      // A visit saved before the marks existed: record what it already has,
+      // so the next offer does not do it a second time.
+      if (!before.some((o) => o.op === 'meeting')) {
+        for (const k of applied) ops.push({ op: 'meeting', kind: k });
+      }
 
       const loadMeeting = (eventType: EventType) =>
         aRepo.find({
@@ -159,7 +245,11 @@ export class CoVisitTemplateService {
 
       // ---- Midweek: CBS -> 30-min service talk by the CO ----
       const midweek = await loadMeeting(EventType.MIDWEEK);
-      if (midweek.length > 0) {
+      if (applied.has('midweek')) {
+        // Already has it — but a workbook imported again brings the study
+        // back as a fresh row. While the visit stands, it stays hidden.
+        await this.foldStrays(em, midweek, MIDWEEK_HIDE_KEYS, ops, hidePart);
+      } else if (midweek.length > 0) {
         const byKey = new Map(midweek.map((a) => [a.partKey, a]));
         const cbs = byKey.get(CBS_CONDUCTOR_KEY);
         const maxOrder = Math.max(0, ...midweek.map((a) => a.partOrder));
@@ -189,11 +279,14 @@ export class CoVisitTemplateService {
             closingPrayer,
           );
         }
+        ops.push({ op: 'meeting', kind: 'midweek' });
       }
 
       // ---- Weekend: CO public talk, 30-min WT study (no reader), concluding talk ----
       const weekend = await loadMeeting(EventType.WEEKEND);
-      if (weekend.length > 0) {
+      if (applied.has('weekend')) {
+        await this.foldStrays(em, weekend, WEEKEND_HIDE_KEYS, ops, hidePart);
+      } else if (weekend.length > 0) {
         const byKey = new Map(weekend.map((a) => [a.partKey, a]));
         const wtConductor = byKey.get(WT_CONDUCTOR_KEY);
         const reader = byKey.get(WT_READER_KEY);
@@ -241,15 +334,70 @@ export class CoVisitTemplateService {
             closingPrayer,
           );
         }
+        ops.push({ op: 'meeting', kind: 'weekend' });
       }
 
+      if (ops.length === before.length) {
+        return event; // nothing new for this week
+      }
       event.coRevertData = ops;
       const persisted = await eRepo.save(event);
       this.logger.log(
-        `CO visit ${event.id}: applied template to week ${week} (${ops.length} changes)`,
+        `CO visit ${event.id}: template on week ${week} (${
+          ops.length - before.length
+        } new entries)`,
       );
       return persisted;
     });
+  }
+
+  /**
+   * The parts a visit replaces, come back as new rows.
+   *
+   * The imports look only at the rows that are showing, so a workbook loaded
+   * again into a visit week does not see the study the visit hid and creates
+   * a second one. Hiding that one too would be half right: taking the visit
+   * away later brings BOTH back, and the week has two studies. So a returning
+   * part is folded into the one the visit hid — its new title and length go
+   * onto that row if nobody was assigned there yet — and the duplicate is
+   * removed. With nothing hidden to fold into, it is hidden as the first was.
+   */
+  private async foldStrays(
+    em: EntityManager,
+    rows: Assignment[],
+    keys: string[],
+    ops: RevertOp[],
+    hidePart: (a: Assignment) => Promise<void>,
+  ): Promise<void> {
+    const strays = rows.filter((a) => keys.includes(a.partKey));
+    if (strays.length === 0) return;
+    const aRepo = em.getRepository(Assignment);
+    const hiddenIds = ops
+      .filter((o): o is { op: 'deleted'; id: string } => o.op === 'deleted')
+      .map((o) => o.id);
+    const hidden = hiddenIds.length
+      ? await aRepo.find({ where: { id: In(hiddenIds) }, withDeleted: true })
+      : [];
+    for (const stray of strays) {
+      const original = hidden.find(
+        (h) =>
+          !!h.deletedAt &&
+          h.partKey === stray.partKey &&
+          h.eventType === stray.eventType,
+      );
+      if (!original) {
+        await hidePart(stray);
+        continue;
+      }
+      if (!original.publisherId && !original.assistantPublisherId) {
+        original.partTitle = stray.partTitle ?? original.partTitle;
+        original.partDurationMin =
+          stray.partDurationMin ?? original.partDurationMin;
+        original.partOrder = stray.partOrder;
+        await aRepo.save(original);
+      }
+      await aRepo.delete({ id: stray.id });
+    }
   }
 
   /**
@@ -326,6 +474,7 @@ export class CoVisitTemplateService {
 
       // Undo in reverse so additions are removed before restores, etc.
       for (const op of [...ops].reverse()) {
+        if (op.op === 'meeting') continue;
         if (op.op === 'added') {
           await aRepo.delete({ id: op.id });
           continue;

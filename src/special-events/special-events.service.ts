@@ -1,13 +1,51 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { Repository } from 'typeorm';
+import { In, IsNull, Not, Repository } from 'typeorm';
 import { SpecialEvent } from '../entities/special-event.entity';
+import { Responsibility } from '../entities/responsibility.entity';
 import { CreateSpecialEventDto } from './dto/create-special-event.dto';
 import { UpdateSpecialEventDto } from './dto/update-special-event.dto';
 import { QuerySpecialEventsDto } from './dto/query-special-events.dto';
-import { CoVisitTemplateService } from './co-visit-template.service';
+import { UpdateAccommodationDto } from './dto/update-accommodation.dto';
+import {
+  CIRCUIT_OVERSEER_VISIT_TYPE,
+  CoVisitTemplateService,
+} from './co-visit-template.service';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { mondayOf } from '../common/week';
+import { UserRole } from '../common/enums/user-role.enum';
+import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
+import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+
+/** The fields the journal records for an event — the ones a reader can follow. */
+const JOURNAL_FIELDS = [
+  'title',
+  'type',
+  'date',
+  'endDate',
+  'time',
+  'timeEnd',
+  'address',
+  'note',
+] as const;
+
+function journalView(e: SpecialEvent): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const f of JOURNAL_FIELDS) out[f] = e[f] ?? null;
+  return out;
+}
+
+/** The last day an event covers. */
+function lastDay(e: { date: string; endDate?: string | null }): string {
+  return e.endDate ?? e.date;
+}
 
 @Injectable()
 export class SpecialEventsService {
@@ -17,24 +55,87 @@ export class SpecialEventsService {
     private readonly coVisitTemplate: CoVisitTemplateService,
     private readonly auditLog: AuditLogService,
     private readonly clock: CongregationClock,
+    // Last on purpose: the spec builds this service positionally.
+    @InjectRepository(Responsibility)
+    private readonly responsibilities: Repository<Responsibility>,
   ) {}
+
+  private async holds(
+    user: AuthenticatedUser,
+    types: ResponsibilityType[],
+  ): Promise<boolean> {
+    const n = await this.responsibilities.count({
+      where: {
+        congregationId: user.congregationId,
+        userId: user.id,
+        type: In(types),
+      },
+    });
+    return n > 0;
+  }
+
+  /** Keeps the events — the controller's own guard, asked here for reads. */
+  async canManage(user: AuthenticatedUser): Promise<boolean> {
+    if (user.role === UserRole.ADMIN) return true;
+    return this.holds(user, [ResponsibilityType.BODY_COORDINATOR]);
+  }
+
+  /**
+   * May read where the circuit overseer stays and with whom.
+   *
+   * A private address, and a family's home. It was sent to every member with
+   * every event list — the app only chose not to draw it. The people who need
+   * it are those who read or arrange the visit schedule: elders (who can open
+   * the schedule), the service overseer and his assistant (who arrange it),
+   * the body coordinator (who keeps the event) and administrators.
+   */
+  async seesAccommodation(user: AuthenticatedUser): Promise<boolean> {
+    if (user.role === UserRole.ADMIN || user.role === UserRole.ELDER) {
+      return true;
+    }
+    return this.holds(user, [
+      ResponsibilityType.BODY_COORDINATOR,
+      ResponsibilityType.SERVICE_OVERSEER,
+      ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+    ]);
+  }
+
+  /**
+   * What leaves the server. The undo plan of the visit template is internal
+   * bookkeeping for everyone; the accommodation only for those above.
+   */
+  private present(e: SpecialEvent, seesAccommodation: boolean): SpecialEvent {
+    const out: Partial<SpecialEvent> = { ...e };
+    delete out.coRevertData;
+    if (!seesAccommodation) {
+      out.coAccommodationAddress = null;
+      out.coAccommodationPublisherId = null;
+    }
+    return out as SpecialEvent;
+  }
 
   /**
    * Lists events for the tenant. By default returns only events that have not
-   * finished yet (COALESCE(end_date, date) >= today in Europe/Berlin), so a
-   * multi-day event stays visible until its last day. Ordered by start date
-   * then time. Pass `all=true` to include past events, `includeRemoved=true`
-   * for soft-deleted.
+   * finished yet (COALESCE(end_date, date) >= today on the congregation's own
+   * clock), so a multi-day event stays visible until its last day. Ordered by
+   * start date then time. Pass `all=true` to include past events; removed
+   * ones (`includeRemoved=true`) only for those who keep the events.
    */
   async findAll(
     tenantId: string,
     query: QuerySpecialEventsDto,
+    user?: AuthenticatedUser,
   ): Promise<SpecialEvent[]> {
     const qb = this.specialEventsRepo
       .createQueryBuilder('e')
       .where('e.congregation_id = :tenantId', { tenantId });
 
-    if (query.includeRemoved === 'true') {
+    // The bin is the keeper's tool. Anyone else asking for it gets the list
+    // without it, as if they had not asked.
+    if (
+      query.includeRemoved === 'true' &&
+      (!user || (await this.canManage(user)))
+    ) {
       qb.withDeleted();
     }
 
@@ -54,7 +155,10 @@ export class SpecialEventsService {
     }
 
     qb.orderBy('e.date', 'ASC').addOrderBy('e.time', 'ASC');
-    return qb.getMany();
+    const rows = await qb.getMany();
+    if (!user) return rows;
+    const sees = await this.seesAccommodation(user);
+    return rows.map((e) => this.present(e, sees));
   }
 
   async findOne(tenantId: string, id: string): Promise<SpecialEvent> {
@@ -71,10 +175,63 @@ export class SpecialEventsService {
     return event;
   }
 
+  /** One event as this person may read it; a removed one only for keepers. */
+  async findOneFor(
+    tenantId: string,
+    id: string,
+    user: AuthenticatedUser,
+  ): Promise<SpecialEvent> {
+    const event = await this.findOne(tenantId, id);
+    if (event.deletedAt && !(await this.canManage(user))) {
+      throw new NotFoundException('Special event not found');
+    }
+    return this.present(event, await this.seesAccommodation(user));
+  }
+
+  private assertDates(date: string, endDate: string | null | undefined) {
+    if (endDate && endDate < date) {
+      throw new BadRequestException({
+        code: 'EVENT_END_BEFORE_START',
+        message: 'The event cannot end before it starts',
+      });
+    }
+  }
+
+  /**
+   * One circuit visit to a week. A second one would lay the template on the
+   * same meetings twice — two service talks, the study hidden twice — and
+   * which of them «the visit» is would depend on the order of a list.
+   */
+  private async assertVisitWeekFree(
+    tenantId: string,
+    date: string,
+    exceptId?: string,
+  ) {
+    const week = mondayOf(date);
+    const visits = await this.specialEventsRepo.find({
+      where: {
+        congregationId: tenantId,
+        type: CIRCUIT_OVERSEER_VISIT_TYPE,
+        deletedAt: IsNull(),
+        ...(exceptId ? { id: Not(exceptId) } : {}),
+      },
+    });
+    if (visits.some((v) => mondayOf(v.date) === week)) {
+      throw new ConflictException({
+        code: 'CO_VISIT_WEEK_TAKEN',
+        message: 'This week already has a circuit overseer visit',
+      });
+    }
+  }
+
   async create(
     tenantId: string,
     dto: CreateSpecialEventDto,
   ): Promise<SpecialEvent> {
+    this.assertDates(dto.date, dto.endDate);
+    if (dto.type === CIRCUIT_OVERSEER_VISIT_TYPE) {
+      await this.assertVisitWeekFree(tenantId, dto.date);
+    }
     const event = this.specialEventsRepo.create({
       ...dto,
       congregationId: tenantId,
@@ -84,33 +241,83 @@ export class SpecialEventsService {
       tenantId,
       entityType: 'special_event',
       entityId: saved.id,
-      after: {
-        title: saved.title,
-        type: saved.type,
-        date: saved.date,
-        endDate: saved.endDate,
-        time: saved.time,
-        address: saved.address,
-      },
+      after: journalView(saved),
     });
-    return this.coVisitTemplate.apply(saved);
+    // A visit entered for the record — its week already held — changes
+    // nothing: the template never touches a week that is over.
+    return this.present(await this.coVisitTemplate.apply(saved), true);
   }
 
+  /**
+   * Changes an event.
+   *
+   * WHEN AN EVENT IS OVER it is history, and what defines it — its days and
+   * its kind — stays as it was: a circuit visit moved out of a week that was
+   * held would take the overseer's talks out of the programme that was
+   * actually given. Its note, place and links can still be put right.
+   *
+   * A VISIT THAT MOVES takes its programme with it. The template's changes
+   * were laid on the week of the old date and stayed there when the date
+   * changed — the old week kept the service talk with the study hidden, the
+   * new week got nothing. Now the old week is given back first, and the new
+   * one gets the template (as far as its programme exists; the rest comes
+   * when it is loaded). The same when an event becomes, or stops being, a
+   * visit.
+   */
   async update(
     tenantId: string,
     id: string,
     dto: UpdateSpecialEventDto,
   ): Promise<SpecialEvent> {
     const event = await this.findOne(tenantId, id);
+    if (event.deletedAt) {
+      throw new NotFoundException('Special event not found');
+    }
+    const today = await this.clock.todayFor(tenantId);
+
+    const nextDate = dto.date ?? event.date;
+    const nextEnd = dto.endDate !== undefined ? dto.endDate : event.endDate;
+    const nextType = dto.type !== undefined ? dto.type : event.type;
+
+    const datesChanged =
+      nextDate !== event.date || (nextEnd ?? null) !== (event.endDate ?? null);
+    const typeChanged = (nextType ?? null) !== (event.type ?? null);
+
+    if (lastDay(event) < today && (datesChanged || typeChanged)) {
+      throw new BadRequestException({
+        code: 'EVENT_PAST_LOCKED',
+        message:
+          'An event that is over keeps its days and its kind; only its note, place and links can change',
+      });
+    }
+    if (datesChanged && lastDay({ date: nextDate, endDate: nextEnd }) < today) {
+      throw new BadRequestException({
+        code: 'EVENT_MOVED_INTO_PAST',
+        message: 'An event cannot be moved into the past',
+      });
+    }
+    this.assertDates(nextDate, nextEnd);
+
+    const weekChanged = mondayOf(nextDate) !== mondayOf(event.date);
+    const templateMoves =
+      (weekChanged || typeChanged) &&
+      (event.type === CIRCUIT_OVERSEER_VISIT_TYPE ||
+        nextType === CIRCUIT_OVERSEER_VISIT_TYPE);
+    if (
+      nextType === CIRCUIT_OVERSEER_VISIT_TYPE &&
+      (weekChanged || typeChanged)
+    ) {
+      await this.assertVisitWeekFree(tenantId, nextDate, event.id);
+    }
+
     const prevName = this.coVisitTemplate.displayName(event);
-    const before = {
-      title: event.title,
-      type: event.type,
-      date: event.date,
-      endDate: event.endDate,
-      time: event.time,
-      address: event.address,
-    };
+    const before = journalView(event);
+
+    if (templateMoves && !(await this.coVisitTemplate.weekIsOver(event))) {
+      // Gives the old week back — sets coRevertData to null on `event`.
+      await this.coVisitTemplate.revert(event);
+    }
+
     Object.assign(event, dto);
     const saved = await this.specialEventsRepo.save(event);
     await this.auditLog.logUpdate({
@@ -118,23 +325,69 @@ export class SpecialEventsService {
       entityType: 'special_event',
       entityId: saved.id,
       before,
-      after: {
-        title: saved.title,
-        type: saved.type,
-        date: saved.date,
-        endDate: saved.endDate,
-        time: saved.time,
-        address: saved.address,
-      },
-      fields: ['title', 'type', 'date', 'endDate', 'time', 'address'],
+      after: journalView(saved),
+      fields: [...JOURNAL_FIELDS],
     });
-    await this.coVisitTemplate.syncSpeaker(saved, prevName);
-    return saved;
+
+    if (templateMoves) {
+      return this.present(await this.coVisitTemplate.apply(saved), true);
+    }
+    if (!(await this.coVisitTemplate.weekIsOver(saved))) {
+      await this.coVisitTemplate.syncSpeaker(saved, prevName);
+    }
+    return this.present(saved, true);
   }
 
-  async remove(tenantId: string, id: string): Promise<void> {
+  /**
+   * Where the circuit overseer stays — the one part of a visit the visit
+   * schedule arranges. The service overseer and his assistant plan the visit
+   * but do not keep the events, so the whole-event edit refused them and the
+   * schedule's «who hosts» could not be saved by the very people it is for.
+   */
+  async updateAccommodation(
+    tenantId: string,
+    id: string,
+    dto: UpdateAccommodationDto,
+  ): Promise<SpecialEvent> {
     const event = await this.findOne(tenantId, id);
-    await this.coVisitTemplate.revert(event);
+    if (event.deletedAt || event.type !== CIRCUIT_OVERSEER_VISIT_TYPE) {
+      throw new NotFoundException('Circuit overseer visit not found');
+    }
+    if (dto.coAccommodationPublisherId !== undefined) {
+      event.coAccommodationPublisherId = dto.coAccommodationPublisherId;
+    }
+    if (dto.coAccommodationAddress !== undefined) {
+      event.coAccommodationAddress = dto.coAccommodationAddress;
+    }
+    return this.present(await this.specialEventsRepo.save(event), true);
+  }
+
+  /**
+   * Removes an event into the bin.
+   *
+   * A coming visit takes its programme changes with it. One that is over is
+   * history and is not removed at all — except by an administrator putting
+   * right an entry made by mistake, and then only the entry goes: the
+   * programme of a week that was held stays as it was given.
+   */
+  async remove(
+    tenantId: string,
+    id: string,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    const event = await this.findOne(tenantId, id);
+    const today = await this.clock.todayFor(tenantId);
+    const over = lastDay(event) < today;
+    if (over && user.role !== UserRole.ADMIN) {
+      throw new ForbiddenException({
+        code: 'EVENT_PAST_ADMIN_ONLY',
+        message:
+          'An event that is over is history; only an administrator can remove it',
+      });
+    }
+    if (!over && !(await this.coVisitTemplate.weekIsOver(event))) {
+      await this.coVisitTemplate.revert(event);
+    }
     await this.auditLog.logEvent({
       tenantId,
       entityType: 'special_event',
@@ -146,8 +399,12 @@ export class SpecialEventsService {
   }
 
   async restore(tenantId: string, id: string): Promise<SpecialEvent> {
+    const found = await this.findOne(tenantId, id);
+    if (found.type === CIRCUIT_OVERSEER_VISIT_TYPE && found.deletedAt) {
+      await this.assertVisitWeekFree(tenantId, found.date, found.id);
+    }
     await this.specialEventsRepo.restore({ id, congregationId: tenantId });
     const event = await this.findOne(tenantId, id);
-    return this.coVisitTemplate.apply(event);
+    return this.present(await this.coVisitTemplate.apply(event), true);
   }
 }

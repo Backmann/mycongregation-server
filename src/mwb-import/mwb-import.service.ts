@@ -25,6 +25,7 @@ import {
 import { ImportResultDto, WeekImportSummary } from './dto/import-result.dto';
 import { ApplyParsedDto } from './dto/apply-parsed.dto';
 import { MeetingAttendanceService } from '../meeting-attendance/meeting-attendance.service';
+import { CoVisitTemplateService } from '../special-events/co-visit-template.service';
 
 /**
  * Returns true if an existing assignment is empty (no publisher and no
@@ -42,6 +43,7 @@ export class MwbImportService {
     @InjectRepository(Assignment)
     private readonly assignmentsRepo: Repository<Assignment>,
     private readonly meetingAttendance: MeetingAttendanceService,
+    private readonly coVisitTemplate: CoVisitTemplateService,
   ) {}
 
   /**
@@ -334,6 +336,10 @@ export class MwbImportService {
         overall.partsSkipped++;
       }
     }
+
+    // A circuit visit saved before this workbook came in: its week gets the
+    // visit's programme now (service talk in place of the study).
+    await this.coVisitTemplate.applyForWeek(congregationId, weekStartDate);
 
     return summary;
   }

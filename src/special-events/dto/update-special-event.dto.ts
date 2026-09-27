@@ -9,10 +9,13 @@ import {
   Max,
   Min,
   IsUUID,
+  ValidateIf,
 } from 'class-validator';
 
 export class UpdateSpecialEventDto {
-  @IsOptional()
+  // Left out is fine; sent as null is not — every event has a title and a
+  // date. (IsOptional would let a null through and blank the row.)
+  @ValidateIf((o: UpdateSpecialEventDto) => o.title !== undefined)
   @IsString()
   @Length(1, 255)
   title?: string;
@@ -20,56 +23,56 @@ export class UpdateSpecialEventDto {
   @IsOptional()
   @IsString()
   @Length(1, 50)
-  type?: string;
+  type?: string | null;
 
-  @IsOptional()
+  @ValidateIf((o: UpdateSpecialEventDto) => o.date !== undefined)
   @IsDateString()
   date?: string;
 
   @IsOptional()
   @IsDateString()
-  endDate?: string;
+  endDate?: string | null;
 
   @IsOptional()
   @IsString()
   @Length(1, 50)
-  time?: string;
+  time?: string | null;
 
   @IsOptional()
   @IsString()
   @Length(0, 5)
-  timeEnd?: string;
+  timeEnd?: string | null;
 
   @IsOptional()
   @IsString()
-  address?: string;
+  address?: string | null;
 
   @IsOptional()
   @IsString()
-  mapUrl?: string;
+  mapUrl?: string | null;
 
   @IsOptional()
   @IsString()
-  programUrl?: string;
+  programUrl?: string | null;
 
   @IsOptional()
   @IsString()
-  note?: string;
-
-  @IsOptional()
-  @IsString()
-  @Length(1, 100)
-  coFirstName?: string;
+  note?: string | null;
 
   @IsOptional()
   @IsString()
   @Length(1, 100)
-  coLastName?: string;
+  coFirstName?: string | null;
 
   @IsOptional()
   @IsString()
   @Length(1, 100)
-  coWifeName?: string;
+  coLastName?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 100)
+  coWifeName?: string | null;
 
   @IsOptional()
   @IsIn(['overseer', 'substitute'])
@@ -78,7 +81,7 @@ export class UpdateSpecialEventDto {
   @IsOptional()
   @IsString()
   @Length(1, 2000)
-  coAccommodationAddress?: string;
+  coAccommodationAddress?: string | null;
 
   @IsOptional()
   @IsUUID()

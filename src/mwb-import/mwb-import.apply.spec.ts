@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { MwbImportService } from './mwb-import.service';
+import { CoVisitTemplateService } from '../special-events/co-visit-template.service';
 import { Assignment } from '../entities/assignment.entity';
 import { EventType } from '../common/enums/event-type.enum';
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
@@ -26,6 +27,11 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
       providers: [
         MwbImportService,
         { provide: getRepositoryToken(Assignment), useValue: repo },
+        {
+          // Offers the circuit-visit template to the week; nothing to offer here.
+          provide: CoVisitTemplateService,
+          useValue: { applyForWeek: jest.fn(async () => undefined) },
+        },
         {
           // The import now asks which meetings the week actually holds — a
           // Memorial or a convention takes one away and its parts must not be
@@ -197,6 +203,11 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
         providers: [
           MwbImportService,
           { provide: getRepositoryToken(Assignment), useValue: repo },
+          {
+            // Offers the circuit-visit template to the week; nothing to offer here.
+            provide: CoVisitTemplateService,
+            useValue: { applyForWeek: jest.fn(async () => undefined) },
+          },
           {
             provide: MeetingAttendanceService,
             useValue: { pendingForWeek: jest.fn(async () => held) },

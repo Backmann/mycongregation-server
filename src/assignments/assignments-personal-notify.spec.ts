@@ -14,6 +14,7 @@ jest.mock('expo-server-sdk', () => {
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { AssignmentsService } from './assignments.service';
+import { CoVisitTemplateService } from '../special-events/co-visit-template.service';
 import { Assignment } from '../entities/assignment.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
@@ -104,6 +105,11 @@ describe('AssignmentsService — telling each assignee their own parts', () => {
         {
           provide: LocalNeedsService,
           useValue: { releaseAssignment: jest.fn() },
+        },
+        {
+          // Offers the circuit-visit template to the week; nothing to offer here.
+          provide: CoVisitTemplateService,
+          useValue: { applyForWeek: jest.fn(async () => undefined) },
         },
         {
           // Часы собрания: обмен неделями судит «прошла ли неделя» по местному
