@@ -430,3 +430,52 @@ describe('Обмен неделями', () => {
     });
   });
 });
+
+describe('Специальные речи для экрана событий', () => {
+  it('день, тема и докладчик — без гостеприимства и заметок', async () => {
+    const { service } = build({});
+    Object.assign(service, {
+      repo: {
+        find: jest.fn(async () => [
+          {
+            id: 'a',
+            date: '2026-09-27',
+            specialTheme: 'Как Библия может вам помочь?',
+            publisher: {
+              displayName: 'Лещенко Тимофей',
+              firstName: 'Тимофей',
+              lastName: 'Лещенко',
+            },
+            visitingSpeaker: null,
+            hospitalityPublisherId: 'p-host',
+            note: 'секрет',
+          },
+          {
+            id: 'b',
+            date: '2027-03-14',
+            specialTheme: 'Возможен ли мир?',
+            publisher: null,
+            visitingSpeaker: null,
+            speakerName: null,
+          },
+        ]),
+      },
+    });
+    expect(await service.specialTalks(T)).toEqual([
+      {
+        id: 'a',
+        date: '2026-09-27',
+        theme: 'Как Библия может вам помочь?',
+        speaker: 'Лещенко Тимофей',
+        speakerCongregation: null,
+      },
+      {
+        id: 'b',
+        date: '2027-03-14',
+        theme: 'Возможен ли мир?',
+        speaker: null,
+        speakerCongregation: null,
+      },
+    ]);
+  });
+});

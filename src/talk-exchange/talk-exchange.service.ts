@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { Between, MoreThanOrEqual, In, Not, Repository } from 'typeorm';
+import { Between, IsNull, MoreThanOrEqual, In, Not, Repository } from 'typeorm';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Absence } from '../entities/absence.entity';
@@ -179,6 +179,53 @@ export class TalkExchangeService {
       where: { congregationId: tenantId },
       order: { date: 'DESC' },
     });
+  }
+
+  /**
+   * The congregation's special talks, for the events screen (27 September).
+   *
+   * A special talk is an occasion the whole congregation looks forward to,
+   * and it lives in this journal, not among the events — so the events screen
+   * asks here. Only what a member needs to see it coming: the day, the theme
+   * and who gives it; not the hospitality or the coordinator's notes.
+   */
+  async specialTalks(tenantId: string): Promise<
+    {
+      id: string;
+      date: string;
+      theme: string;
+      speaker: string | null;
+      speakerCongregation: string | null;
+    }[]
+  > {
+    const rows = await this.repo.find({
+      where: {
+        congregationId: tenantId,
+        direction: TalkExchangeDirection.INCOMING,
+        specialTheme: Not(IsNull()),
+        status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
+      },
+      relations: {
+        publisher: true,
+        visitingSpeaker: { externalCongregation: true },
+      },
+      order: { date: 'ASC' },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      date: r.date,
+      theme: r.specialTheme!,
+      speaker: r.publisher
+        ? r.publisher.displayName ||
+          [r.publisher.lastName, r.publisher.firstName].join(' ')
+        : r.visitingSpeaker
+          ? speakerFullName(r.visitingSpeaker)
+          : r.speakerName?.trim() || null,
+      speakerCongregation: r.publisher
+        ? null
+        : (r.visitingSpeaker?.externalCongregation?.name ??
+          (r.speakerCongregation?.trim() || null)),
+    }));
   }
 
   async findOne(tenantId: string, id: string): Promise<TalkExchange> {

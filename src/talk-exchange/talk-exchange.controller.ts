@@ -33,6 +33,12 @@ export class TalkExchangeController {
     return this.service.findAll(tenantId);
   }
 
+  /** Special talks — date, theme, speaker — for the events screen. */
+  @Get('special-talks')
+  specialTalks(@TenantId() tenantId: string) {
+    return this.service.specialTalks(tenantId);
+  }
+
   /**
    * Rebuild the journal from the weekend programme, from a date onwards.
    *
