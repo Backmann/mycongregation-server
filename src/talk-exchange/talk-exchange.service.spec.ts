@@ -1,8 +1,11 @@
+// The notifications chain reaches the push SDK, which ships as ESM only.
+jest.mock('expo-server-sdk', () => ({ Expo: class {} }));
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException } from '@nestjs/common';
 import { TalkExchangeService } from './talk-exchange.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { SpecialTalkNotificationsService } from './special-talk-notifications.service';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Absence } from '../entities/absence.entity';
@@ -40,6 +43,7 @@ describe('TalkExchangeService', () => {
   // Журнал изменений: замена обязана оставлять в нём след, значит подделка
   // должна быть доступна тестам, а не спрятана в объявлении модуля.
   let auditLog: any;
+  let specialTalkNotifications: any;
 
   beforeEach(async () => {
     repo = {
@@ -75,6 +79,7 @@ describe('TalkExchangeService', () => {
     };
     publicTalkRepo = { findOne: jest.fn() };
     responsibilityRepo = { count: jest.fn().mockResolvedValue(0) };
+    specialTalkNotifications = { announceIfNew: jest.fn(async () => {}) };
     auditLog = {
       logCreate: jest.fn(),
       logUpdate: jest.fn(),
@@ -110,6 +115,10 @@ describe('TalkExchangeService', () => {
         {
           provide: AuditLogService,
           useValue: auditLog,
+        },
+        {
+          provide: SpecialTalkNotificationsService,
+          useValue: specialTalkNotifications,
         },
       ],
     }).compile();

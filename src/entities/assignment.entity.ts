@@ -96,6 +96,14 @@ export class Assignment {
   @JoinColumn({ name: 'public_talk_id' })
   publicTalk!: PublicTalk | null;
 
+  /**
+   * Специальная речь: темы нет в каталоге, она в `partTitle`, номера нет.
+   * Ставится из журнала «К нам / От нас» и снимается, как только слоту
+   * выбирают речь из каталога.
+   */
+  @Column({ type: 'boolean', default: false })
+  specialTalk!: boolean;
+
   @Column({
     type: 'varchar',
     length: 255,

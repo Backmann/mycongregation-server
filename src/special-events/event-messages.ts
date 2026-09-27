@@ -286,3 +286,51 @@ export function signatureOf(e: EventForMessage): string {
     e.coMidweekDow ?? '',
   ].join('|');
 }
+
+const SPECIAL_TALK: Record<
+  SupportedLanguage,
+  { title: string; body: (theme: string, when: string) => string }
+> = {
+  ru: {
+    title: 'Специальная речь',
+    body: (theme, when) => `«${theme}» — ${when}, на встрече в выходные.`,
+  },
+  en: {
+    title: 'Special talk',
+    body: (theme, when) => `“${theme}” — ${when}, at the weekend meeting.`,
+  },
+  de: {
+    title: 'Sondervortrag',
+    body: (theme, when) =>
+      `„${theme}“ — ${when}, in der Zusammenkunft am Wochenende.`,
+  },
+};
+
+/**
+ * «Специальная речь: «…» — воскресенье, 14 марта».
+ *
+ * Специальная речь с 27 сентября не событие, а речь в журнале; но для
+ * собрания это по-прежнему новость, которую стоит сказать всем, — один раз,
+ * когда тема записана. Напоминания накануне у неё нет: это обычная встреча.
+ */
+export function specialTalkMessage(
+  theme: string,
+  date: string,
+  lang: SupportedLanguage,
+): Message {
+  const s = SPECIAL_TALK[lang];
+  const when = whenOf(
+    {
+      title: theme,
+      type: null,
+      date,
+      endDate: null,
+      time: null,
+      timeEnd: null,
+      address: null,
+      replacesMeeting: false,
+    },
+    lang,
+  );
+  return { title: s.title, body: s.body(theme, when) };
+}

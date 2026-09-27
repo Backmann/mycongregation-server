@@ -28,6 +28,7 @@ import { CreateTalkExchangeDto } from './dto/create-talk-exchange.dto';
 import { UpdateTalkExchangeDto } from './dto/update-talk-exchange.dto';
 import { ReplaceSpeakerDto } from './dto/replace-speaker.dto';
 import { mondayOf } from '../common/week';
+import { SpecialTalkNotificationsService } from './special-talk-notifications.service';
 
 const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
 
@@ -58,6 +59,7 @@ function snapshot(row: TalkExchange): Record<string, unknown> {
     date: row.date,
     status: row.status,
     publicTalkId: row.publicTalkId,
+    specialTheme: row.specialTheme,
     visitingSpeakerId: row.visitingSpeakerId,
     speakerName: row.speakerName,
     speakerCongregation: row.speakerCongregation,
@@ -83,6 +85,7 @@ function slotSnapshot(row: Assignment): Record<string, unknown> {
     visitingSpeakerId: row.visitingSpeakerId ?? null,
     publicTalkId: row.publicTalkId ?? null,
     partTitle: row.partTitle ?? null,
+    specialTalk: row.specialTalk ?? false,
   };
 }
 
@@ -93,7 +96,37 @@ const SLOT_FIELDS = [
   'visitingSpeakerId',
   'publicTalkId',
   'partTitle',
+  'specialTalk',
 ];
+
+/**
+ * Тема специальной речи и номер из каталога исключают друг друга.
+ *
+ * Тема выигрывает, если она есть; номер, выбранный без слова о теме, её
+ * снимает — так координатор, передумавший и выбравший речь из каталога, не
+ * оставляет за собой невидимую тему.
+ */
+function settleSpecialTheme(
+  row: TalkExchange,
+  fields: { publicTalkId?: string | null; specialTheme?: string | null },
+): void {
+  if (fields.publicTalkId && fields.specialTheme === undefined) {
+    row.specialTheme = null;
+  }
+  const theme = row.specialTheme?.trim() || null;
+  row.specialTheme = theme;
+  if (theme) row.publicTalkId = null;
+}
+
+/** Есть ли в слоте хоть что-то, что поставил человек. */
+function slotOccupied(slot: Assignment): boolean {
+  return !!(
+    slot.publisherId ||
+    slot.publicTalkId ||
+    slot.speakerName?.trim() ||
+    slot.specialTalk
+  );
+}
 
 @Injectable()
 export class TalkExchangeService {
@@ -115,6 +148,7 @@ export class TalkExchangeService {
     @InjectRepository(MeetingSettings)
     private readonly meetingSettingsRepo: Repository<MeetingSettings>,
     private readonly auditLog: AuditLogService,
+    private readonly specialTalkNotifications: SpecialTalkNotificationsService,
   ) {}
 
   private static readonly MANAGER_RESPONSIBILITIES = [
@@ -163,7 +197,9 @@ export class TalkExchangeService {
     await this.assertCanWrite(user);
     const { overwriteProgram, ...fields } = dto;
     const row = this.repo.create({ ...fields, congregationId: tenantId });
+    settleSpecialTheme(row, fields);
     const saved = await this.repo.save(row);
+    await this.specialTalkNotifications.announceIfNew(saved, null);
     await this.auditLog.logCreate({
       tenantId,
       entityType: 'talk_exchange',
@@ -187,8 +223,11 @@ export class TalkExchangeService {
     const row = await this.findOne(tenantId, id);
     // Snapshot BEFORE Object.assign — the row is mutated in place.
     const before = snapshot(row);
+    const was = { specialTheme: row.specialTheme, date: row.date };
     Object.assign(row, fields);
+    settleSpecialTheme(row, fields);
     const saved = await this.repo.save(row);
+    await this.specialTalkNotifications.announceIfNew(saved, was);
     await this.auditLog.logUpdate({
       tenantId,
       entityType: 'talk_exchange',
@@ -329,13 +368,14 @@ export class TalkExchangeService {
     const putHereByThisEntry =
       entry.publisherId != null && slot.publisherId === entry.publisherId;
     if (slot.publisherId && !putHereByThisEntry) return;
-    if (!slot.publisherId && !slot.speakerName && !slot.publicTalkId) return;
+    if (!slotOccupied(slot)) return;
 
     slot.publisherId = null;
     slot.speakerName = null;
     slot.speakerCongregation = null;
     slot.publicTalkId = null;
     slot.partTitle = null;
+    slot.specialTalk = false;
     if (slot.status === AssignmentStatus.PUBLISHED)
       slot.changedSincePublish = true;
     await this.assignmentRepo.save(slot);
@@ -365,13 +405,20 @@ export class TalkExchangeService {
    * Fill the weekend public-talk slot for the entry's week with the visiting
    * speaker + talk. If the slot is already filled with something else and
    * overwrite is false, leave it and flag a conflict for the app to confirm.
+   *
+   * Что именно переносится (27 сентября): докладчик, если он есть, и речь —
+   * номер из каталога или тема специальной речи. Раньше без номера не
+   * переносилось ничего, и специальная речь, у которой номера нет по природе,
+   * до программы не доходила. Запись, в которой нет ни докладчика, ни речи,
+   * по-прежнему ничего не трогает.
    */
   private async applyIncomingToProgram(
     tenantId: string,
     entry: TalkExchange,
     overwrite: boolean,
+    speakerAlone = false,
   ): Promise<TalkExchangeResult> {
-    if (!entry.publicTalkId) return entry;
+    const theme = entry.specialTheme?.trim() || null;
 
     const localPublisherId = entry.publisherId ?? null;
     let name: string | null = null;
@@ -391,7 +438,13 @@ export class TalkExchangeService {
         name = entry.speakerName.trim();
         congName = entry.speakerCongregation?.trim() || null;
       }
-      if (!name) return entry; // nothing to fill the slot with
+    }
+    const hasSpeaker = !!localPublisherId || !!name;
+    const hasTalk = !!entry.publicTalkId || !!theme;
+    // A speaker with no talk yet is kept to the journal on a normal save, as
+    // before; the programme gets him only into an empty slot (fillEmptySlot).
+    if (!hasTalk && !(hasSpeaker && speakerAlone)) {
+      return entry;
     }
 
     const weekStartDate = mondayOf(entry.date);
@@ -404,28 +457,36 @@ export class TalkExchangeService {
     });
     if (!slot) return entry; // no weekend programme for that week yet
 
-    const alreadyThis = localPublisherId
-      ? slot.publisherId === localPublisherId &&
-        slot.publicTalkId === entry.publicTalkId
-      : slot.publicTalkId === entry.publicTalkId && slot.speakerName === name;
-    const occupied = !!(
-      slot.publisherId ||
-      slot.publicTalkId ||
-      slot.speakerName?.trim()
-    );
+    const talkSame = theme
+      ? slot.specialTalk && (slot.partTitle ?? '').trim() === theme
+      : !slot.specialTalk && slot.publicTalkId === (entry.publicTalkId ?? null);
+    const speakerSame = localPublisherId
+      ? slot.publisherId === localPublisherId
+      : name
+        ? !slot.publisherId && slot.speakerName === name
+        : !slot.publisherId && !slot.speakerName?.trim();
+    const alreadyThis = talkSame && speakerSame;
 
-    if (occupied && !overwrite && !alreadyThis) {
+    // A slot that holds only this very talk — the theme put there before the
+    // speaker was known — is not somebody else's decision: the speaker joins it
+    // without asking.
+    const slotHasSpeaker = !!(slot.publisherId || slot.speakerName?.trim());
+    const conflict = slotHasSpeaker
+      ? !alreadyThis
+      : slotOccupied(slot) && !talkSame;
+    if (conflict && !overwrite) {
       const result = entry as TalkExchangeResult;
       result.programConflict = true;
       return result;
     }
+    if (alreadyThis) return entry;
 
     if (localPublisherId) {
       slot.publisherId = localPublisherId;
       slot.speakerName = null;
       slot.speakerCongregation = null;
       slot.visitingSpeakerId = null;
-    } else {
+    } else if (name) {
       slot.publisherId = null;
       slot.speakerName = name;
       slot.speakerCongregation = congName;
@@ -433,18 +494,72 @@ export class TalkExchangeService {
       // текст, не узнает записи журнала и сотрёт её привязку к карточке — как
       // и было до сих пор.
       slot.visitingSpeakerId = entry.visitingSpeakerId ?? null;
+    } else {
+      // Тема без докладчика (его ещё не назначили): в слоте никого.
+      slot.publisherId = null;
+      slot.speakerName = null;
+      slot.speakerCongregation = null;
+      slot.visitingSpeakerId = null;
     }
-    slot.publicTalkId = entry.publicTalkId;
-    const talk = await this.publicTalkRepo.findOne({
-      where: { id: entry.publicTalkId },
-    });
-    slot.partTitle = talk ? `№${talk.number}. ${talk.title}` : slot.partTitle;
+    if (theme) {
+      slot.publicTalkId = null;
+      slot.partTitle = theme;
+      slot.specialTalk = true;
+    } else if (entry.publicTalkId) {
+      slot.publicTalkId = entry.publicTalkId;
+      const talk = await this.publicTalkRepo.findOne({
+        where: { id: entry.publicTalkId },
+      });
+      slot.partTitle = talk ? `№${talk.number}. ${talk.title}` : slot.partTitle;
+      slot.specialTalk = false;
+    } else {
+      slot.publicTalkId = null;
+      slot.partTitle = null;
+      slot.specialTalk = false;
+    }
     if (slot.status === AssignmentStatus.PUBLISHED) {
       slot.changedSincePublish = true;
     }
     await this.assignmentRepo.save(slot);
     return entry;
-    return entry;
+  }
+
+  /**
+   * Программа подхватывает журнал — только в ПУСТУЮ строку (27 сентября).
+   *
+   * Координатор договаривается о речах на месяцы вперёд, а программа недели
+   * появляется позже — импортом «Сторожевой башни» или вручную. До сих пор
+   * такая неделя приходила пустой, и докладчика приходилось вписывать второй
+   * раз; хуже того, зеркало видело пустой слот и убирало запись нашего брата
+   * из журнала как «снятую».
+   *
+   * Теперь новая неделя сразу получает то, что записано в журнале. Занятый
+   * слот не трогается никогда: там решение уже принято, и принимал его
+   * человек.
+   */
+  async fillEmptySlot(tenantId: string, weekStartDate: string): Promise<void> {
+    const slot = await this.assignmentRepo.findOne({
+      where: {
+        congregationId: tenantId,
+        weekStartDate,
+        partKey: PUBLIC_TALK_PART_KEY,
+      },
+    });
+    if (!slot || slot.status === AssignmentStatus.CANCELLED) return;
+    if (slotOccupied(slot)) return;
+
+    const entry = await this.repo.findOne({
+      where: {
+        congregationId: tenantId,
+        direction: TalkExchangeDirection.INCOMING,
+        date: Between(weekStartDate, addDaysISO(weekStartDate, 6)),
+        status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
+      },
+      order: { date: 'ASC' },
+    });
+    if (!entry) return;
+
+    await this.applyIncomingToProgram(tenantId, entry, false, true);
   }
 
   /**
@@ -758,6 +873,7 @@ export class TalkExchangeService {
      */
     if (dto.publicTalkId) {
       slot.publicTalkId = dto.publicTalkId;
+      slot.specialTalk = false;
       const talk = await this.publicTalkRepo.findOne({
         where: { id: dto.publicTalkId },
       });
@@ -915,8 +1031,13 @@ export class TalkExchangeService {
       slot.speakerCongregation = closed.publisherId
         ? null
         : closed.speakerCongregation;
-      if (closed.publicTalkId) {
+      if (closed.specialTheme) {
+        slot.publicTalkId = null;
+        slot.partTitle = closed.specialTheme;
+        slot.specialTalk = true;
+      } else if (closed.publicTalkId) {
         slot.publicTalkId = closed.publicTalkId;
+        slot.specialTalk = false;
         const talk = await this.publicTalkRepo.findOne({
           where: { id: closed.publicTalkId },
         });
@@ -1004,7 +1125,8 @@ export class TalkExchangeService {
         !!existing &&
         (!!existing.visitingSpeakerId ||
           !!existing.hospitalityPublisherId ||
-          !!existing.note);
+          !!existing.note ||
+          !!existing.specialTheme);
       if (existing && (cancelled || !coordinatorsOwn)) {
         await this.repo.softDelete(existing.id);
       }
@@ -1012,6 +1134,15 @@ export class TalkExchangeService {
     }
 
     const publicTalkId = slot!.publicTalkId ?? null;
+    /**
+     * Тема специальной речи идёт из программы, как и докладчик: у недели с
+     * докладчиком тема — ровно то, что стоит в слоте. Иначе при обмене
+     * неделями тема оставалась у недели, а не у речи, и доставалась гостю,
+     * который приехал с каталожной речью.
+     */
+    const specialTheme = slot!.specialTalk
+      ? slot!.partTitle?.trim() || null
+      : null;
 
     if (hasLocal) {
       const publisherId = slot!.publisherId!;
@@ -1020,7 +1151,8 @@ export class TalkExchangeService {
           existing.publisherId === publisherId &&
           existing.visitingSpeakerId == null &&
           existing.speakerName == null &&
-          existing.publicTalkId === publicTalkId;
+          existing.publicTalkId === publicTalkId &&
+          (existing.specialTheme ?? null) === specialTheme;
         if (same) return;
         existing.publisherId = publisherId;
         // Наш брат — не приезжий: связь со справочником снимается намеренно.
@@ -1028,6 +1160,7 @@ export class TalkExchangeService {
         existing.speakerName = null;
         existing.speakerCongregation = null;
         existing.publicTalkId = publicTalkId;
+        existing.specialTheme = specialTheme;
         await this.repo.save(existing);
         return;
       }
@@ -1037,6 +1170,7 @@ export class TalkExchangeService {
         date: await this.weekendDateFor(tenantId, weekStartDate),
         publisherId,
         publicTalkId,
+        specialTheme,
       });
       await this.repo.save(entry);
       return;
@@ -1069,13 +1203,15 @@ export class TalkExchangeService {
         existing.visitingSpeakerId === visitingSpeakerId &&
         existing.speakerName === speakerName &&
         existing.speakerCongregation === speakerCongregation &&
-        existing.publicTalkId === publicTalkId;
+        existing.publicTalkId === publicTalkId &&
+        (existing.specialTheme ?? null) === specialTheme;
       if (same) return; // idempotent: nothing changed
       existing.publisherId = null;
       existing.visitingSpeakerId = visitingSpeakerId;
       existing.speakerName = speakerName;
       existing.speakerCongregation = speakerCongregation;
       existing.publicTalkId = publicTalkId;
+      existing.specialTheme = specialTheme;
       await this.repo.save(existing);
       return;
     }
@@ -1088,6 +1224,7 @@ export class TalkExchangeService {
       speakerName,
       speakerCongregation,
       publicTalkId,
+      specialTheme,
     });
     await this.repo.save(entry);
   }

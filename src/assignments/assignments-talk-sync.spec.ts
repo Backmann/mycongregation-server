@@ -93,7 +93,10 @@ describe('AssignmentsService — journal sync coverage and public-talk swap', ()
         },
         {
           provide: TalkExchangeService,
-          useValue: { syncProgramToJournal: sync },
+          useValue: {
+            syncProgramToJournal: sync,
+            fillEmptySlot: jest.fn(async () => undefined),
+          },
         },
         {
           provide: DutiesService,

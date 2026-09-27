@@ -337,6 +337,12 @@ export class AssignmentsService {
     // Keep the "К нам" journal in sync when the weekend public-talk slot is
     // created directly with a speaker (not only via update).
     if (saved.partKey === PUBLIC_TALK_PART_KEY) {
+      // A week made after the talk was arranged takes it from the journal —
+      // into an empty slot only — before the mirror looks at it.
+      await this.talkExchange.fillEmptySlot(
+        congregationId,
+        saved.weekStartDate,
+      );
       await this.talkExchange.syncProgramToJournal(
         congregationId,
         saved.weekStartDate,
@@ -375,6 +381,7 @@ export class AssignmentsService {
         .map((a) => a.weekStartDate),
     );
     for (const week of talkWeeks) {
+      await this.talkExchange.fillEmptySlot(congregationId, week);
       await this.talkExchange.syncProgramToJournal(congregationId, week);
     }
     // A meeting created for a week with a circuit visit gets the visit's
@@ -422,6 +429,8 @@ export class AssignmentsService {
     const partTitleReplaced =
       dto.partTitle !== undefined && dto.partTitle !== existing.partTitle;
     Object.assign(existing, dto);
+    // A talk from the catalogue ends a special talk: the number is the title.
+    if (dto.publicTalkId) existing.specialTalk = false;
     if (changed) existing.changedSincePublish = true;
     const saved = await this.repo.save(existing);
     if (partTitleReplaced) {
@@ -704,6 +713,10 @@ export class AssignmentsService {
       // Связь со справочником переезжает вместе с именем: иначе после обмена
       // неделями визит достался бы другому брату или никому.
       | 'visitingSpeakerId'
+      // Тема специальной речи — это и есть её название; без неё отметка
+      // «специальная» переехала бы на неделю пустой.
+      | 'partTitle'
+      | 'specialTalk'
     >;
     const take = (a: Assignment): TalkFields => ({
       publisherId: a.publisherId,
@@ -711,6 +724,8 @@ export class AssignmentsService {
       speakerCongregation: a.speakerCongregation,
       publicTalkId: a.publicTalkId,
       visitingSpeakerId: a.visitingSpeakerId,
+      partTitle: a.partTitle,
+      specialTalk: a.specialTalk,
     });
     const put = (a: Assignment, f: TalkFields) => {
       const changed =
@@ -718,7 +733,8 @@ export class AssignmentsService {
         a.speakerName !== f.speakerName ||
         a.speakerCongregation !== f.speakerCongregation ||
         a.publicTalkId !== f.publicTalkId ||
-        a.visitingSpeakerId !== f.visitingSpeakerId;
+        a.visitingSpeakerId !== f.visitingSpeakerId ||
+        a.specialTalk !== f.specialTalk;
       Object.assign(a, f);
       if (changed && a.status === AssignmentStatus.PUBLISHED) {
         a.changedSincePublish = true;
@@ -738,6 +754,8 @@ export class AssignmentsService {
             speakerCongregation: null,
             visitingSpeakerId: null,
             publicTalkId: null,
+            partTitle: null,
+            specialTalk: false,
           },
     );
 

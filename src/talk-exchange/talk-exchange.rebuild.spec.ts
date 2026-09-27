@@ -1,3 +1,5 @@
+// The notifications chain reaches the push SDK, which ships as ESM only.
+jest.mock('expo-server-sdk', () => ({ Expo: class {} }));
 import { TalkExchangeService } from './talk-exchange.service';
 
 /**

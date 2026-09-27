@@ -29,6 +29,12 @@ export class UpdateTalkExchangeDto {
   @IsUUID()
   publicTalkId?: string | null;
 
+  /** Тема специальной речи; вместе с ней номер речи не хранится. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  specialTheme?: string | null;
+
   @IsOptional()
   @IsUUID()
   visitingSpeakerId?: string | null;

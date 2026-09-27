@@ -11,6 +11,10 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { TalkExchangeService } from './talk-exchange.service';
 import { TalkExchangeController } from './talk-exchange.controller';
+import { SpecialTalkNotificationsService } from './special-talk-notifications.service';
+import { User } from '../entities/user.entity';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { CongregationClockModule } from '../common/congregation-clock.module';
 
 @Module({
   imports: [
@@ -23,11 +27,14 @@ import { TalkExchangeController } from './talk-exchange.controller';
       PublicTalk,
       Responsibility,
       MeetingSettings,
+      User,
     ]),
     AuditLogModule,
+    NotificationsModule,
+    CongregationClockModule,
   ],
   controllers: [TalkExchangeController],
-  providers: [TalkExchangeService],
+  providers: [TalkExchangeService, SpecialTalkNotificationsService],
   exports: [TalkExchangeService],
 })
 export class TalkExchangeModule {}

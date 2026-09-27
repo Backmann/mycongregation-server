@@ -68,6 +68,16 @@ export class TalkExchange {
   @JoinColumn({ name: 'public_talk_id' })
   publicTalk!: PublicTalk | null;
 
+  /**
+   * Тема СПЕЦИАЛЬНОЙ речи — той, что есть не в каталоге, а приходит отдельно
+   * раз-два в год. Заполнена — значит номера нет (publicTalkId пуст), а в
+   * программе эта тема стоит вместо названия речи с отметкой «Специальная
+   * речь». Раньше такая речь заводилась событием и жила отдельно от
+   * докладчика.
+   */
+  @Column({ type: 'text', nullable: true })
+  specialTheme!: string | null;
+
   // ---- Incoming side ----
   @Column({ type: 'uuid', nullable: true })
   @Index()

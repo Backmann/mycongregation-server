@@ -13,10 +13,25 @@ import {
   ImportResultDto,
   WeekImportSummary,
 } from '../mwb-import/dto/import-result.dto';
+import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
 import { CoVisitTemplateService } from '../special-events/co-visit-template.service';
 
+/**
+ * A part nobody has filled — the import may rewrite its title.
+ *
+ * The public talk counts as filled by a visiting speaker, a talk or a
+ * special theme too, not only by one of ours: re-importing the Watchtower
+ * used to wipe the title of a week whose speaker came from elsewhere.
+ */
 function isEmptyTemplate(a: Assignment): boolean {
-  return !a.publisherId && !a.assistantPublisherId;
+  return (
+    !a.publisherId &&
+    !a.assistantPublisherId &&
+    !a.speakerName?.trim() &&
+    !a.visitingSpeakerId &&
+    !a.publicTalkId &&
+    !a.specialTalk
+  );
 }
 
 @Injectable()
@@ -27,6 +42,7 @@ export class WtImportService {
     @InjectRepository(Assignment)
     private readonly assignmentsRepo: Repository<Assignment>,
     private readonly coVisitTemplate: CoVisitTemplateService,
+    private readonly talkExchange: TalkExchangeService,
   ) {}
 
   async import(
@@ -140,6 +156,10 @@ export class WtImportService {
     // The weekend of a circuit visit loaded after the visit was saved: the
     // overseer's talks go in now, the reader comes out.
     await this.coVisitTemplate.applyForWeek(congregationId, weekStartDate);
+    // A talk arranged in the journal before the week existed goes into the
+    // new, empty slot; then the journal mirrors the week as it now stands.
+    await this.talkExchange.fillEmptySlot(congregationId, weekStartDate);
+    await this.talkExchange.syncProgramToJournal(congregationId, weekStartDate);
 
     return summary;
   }
