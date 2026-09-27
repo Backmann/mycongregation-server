@@ -134,6 +134,14 @@ export class AbsencesService {
     );
   }
 
+  /**
+   * Whether the list this person gets is everyone's — the «Собрание»
+   * contents says «сейчас в отъезде: N» only then (27 September).
+   */
+  readsAll(user: AuthenticatedUser): Promise<boolean> {
+    return this.canReadAll(user);
+  }
+
   private async canReadAll(user: AuthenticatedUser): Promise<boolean> {
     if (user.role === UserRole.ADMIN || user.role === UserRole.ELDER) {
       return true;

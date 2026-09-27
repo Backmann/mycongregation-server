@@ -58,6 +58,7 @@ import { CleaningModule } from './cleaning/cleaning.module';
 import { CartLocationsModule } from './cart-locations/cart-locations.module';
 import { CartWeeksModule } from './cart-weeks/cart-weeks.module';
 import { ReadinessModule } from './readiness/readiness.module';
+import { CongregationSummaryModule } from './congregation-summary/congregation-summary.module';
 import { DevInfoModule } from './dev-info/dev-info.module';
 
 import { PublisherActivityModule } from './publisher-activity/publisher-activity.module';
@@ -145,6 +146,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     CartLocationsModule,
     CartWeeksModule,
     ReadinessModule,
+    CongregationSummaryModule,
     DevInfoModule,
     // A broad net against hammering: nothing but login and password reset had
     // any limit before this. Two windows so that a short burst — opening a
