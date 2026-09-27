@@ -27,6 +27,11 @@ export interface EventForMessage {
   coFirstName?: string | null;
   coLastName?: string | null;
   coMidweekDow?: number | null;
+  /** How the congregation meeting goes that day — see meeting-mode.ts. */
+  meetingMode?: string | null;
+  meetingNote?: string | null;
+  meetingTime?: string | null;
+  meetingAddress?: string | null;
 }
 
 export interface Message {
@@ -51,6 +56,9 @@ type Strings = {
   memorialInsteadWeekend: string;
   wontHappen: (when: string) => string;
   visitTomorrow: (who: string) => string;
+  meetingChanged: string;
+  meetingAt: (x: string) => string;
+  meetingBack: string;
 };
 
 const STR: Record<SupportedLanguage, Strings> = {
@@ -74,6 +82,9 @@ const STR: Record<SupportedLanguage, Strings> = {
       who
         ? `Будняя встреча с районным старейшиной — ${who}.`
         : 'Будняя встреча с районным старейшиной.',
+    meetingChanged: 'Встреча собрания в этот день идёт с изменениями',
+    meetingAt: (x) => `Встреча: ${x}.`,
+    meetingBack: 'Встреча собрания в этот день идёт как обычно.',
   },
   en: {
     created: (t) => `New event: ${t}`,
@@ -95,6 +106,9 @@ const STR: Record<SupportedLanguage, Strings> = {
       who
         ? `Midweek meeting with the circuit overseer — ${who}.`
         : 'Midweek meeting with the circuit overseer.',
+    meetingChanged: 'The congregation meeting that day goes ahead with changes',
+    meetingAt: (x) => `Meeting: ${x}.`,
+    meetingBack: 'The congregation meeting that day is held as usual.',
   },
   de: {
     created: (t) => `Neues Ereignis: ${t}`,
@@ -116,6 +130,10 @@ const STR: Record<SupportedLanguage, Strings> = {
       who
         ? `Zusammenkunft unter der Woche mit dem Kreisaufseher — ${who}.`
         : 'Zusammenkunft unter der Woche mit dem Kreisaufseher.',
+    meetingChanged:
+      'Die Zusammenkunft an diesem Tag findet mit Änderungen statt',
+    meetingAt: (x) => `Zusammenkunft: ${x}.`,
+    meetingBack: 'Die Zusammenkunft an diesem Tag findet wie gewohnt statt.',
   },
 };
 
@@ -206,6 +224,19 @@ function effectOf(
       : s.memorialInsteadMidweek;
   }
   if (e.replacesMeeting) return s.noMeetingThatDay;
+  if (e.meetingMode === 'changed') {
+    const note = e.meetingNote?.trim();
+    const at = [
+      e.meetingTime ? s.startsAt(e.meetingTime) : null,
+      e.meetingAddress?.trim() || null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    return sentence([
+      `${s.meetingChanged}${note ? `: ${note}` : ''}.`,
+      at ? s.meetingAt(at) : null,
+    ]);
+  }
   return null;
 }
 
@@ -243,7 +274,9 @@ export function eventMessage(
         ? s.noMeetingsBack
         : e.type === VISIT
           ? s.midweekBack
-          : null;
+          : e.replacesMeeting || e.meetingMode === 'changed'
+            ? s.meetingBack
+            : null;
       return {
         title: s.cancelled(e.title),
         body: sentence([s.wontHappen(when), back]),
@@ -284,6 +317,11 @@ export function signatureOf(e: EventForMessage): string {
     e.address ?? '',
     e.replacesMeeting ? '1' : '0',
     e.coMidweekDow ?? '',
+    // «usual» is the absence of an answer: an old row and a new one agree.
+    e.meetingMode && e.meetingMode !== 'usual' ? e.meetingMode : '',
+    e.meetingTime ?? '',
+    e.meetingAddress ?? '',
+    e.meetingNote ?? '',
   ].join('|');
 }
 

@@ -281,12 +281,15 @@ export class CleaningRemindersService {
             // itself shows. The Memorial is the exception — it brings its own
             // hour, and reaching for the settings would put the reminder at
             // the time of a meeting that is not being held.
+            // A meeting moved to another hour by an event's day («with
+            // changes») arrives with that hour; otherwise the settings'.
             time:
               today.kind === 'memorial'
                 ? today.time
-                : today.kind === 'midweek'
-                  ? settings.midweekTime
-                  : settings.weekendTime,
+                : (today.time ??
+                  (today.kind === 'midweek'
+                    ? settings.midweekTime
+                    : settings.weekendTime)),
           }
         : null;
       // A Memorial with no hour recorded cannot be reminded about — two hours

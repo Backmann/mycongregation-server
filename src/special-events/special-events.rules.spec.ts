@@ -331,3 +331,54 @@ describe('telling the congregation', () => {
     );
   });
 });
+
+describe('how the meeting goes that day', () => {
+  const branch = (over: Partial<SpecialEvent> = {}) =>
+    row({
+      type: 'branch_representative_visit',
+      coRevertData: null,
+      date: '2026-10-25',
+      endDate: null,
+      ...over,
+    });
+
+  it('«с изменениями» сохраняется и объявляется', async () => {
+    const { svc, repo, notices } = build({ event: branch() });
+    await svc.update(TENANT, 'e1', {
+      meetingMode: 'changed',
+      meetingNote: 'Речь представителя вместо публичной',
+      meetingTime: '10:00',
+    });
+    expect(repo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        meetingMode: 'changed',
+        meetingTime: '10:00',
+        replacesMeeting: false,
+      }),
+    );
+    expect(notices.announce).toHaveBeenCalledWith(expect.anything(), 'changed');
+  });
+
+  it('у прошедшего не меняется, была ли встреча', async () => {
+    const { svc } = build({
+      event: branch({ date: '2026-03-15', meetingMode: 'usual' }),
+    });
+    await expect(
+      svc.update(TENANT, 'e1', { meetingMode: 'none' }),
+    ).rejects.toMatchObject({ response: { code: 'EVENT_PAST_LOCKED' } });
+  });
+
+  it('у прошедшего можно поправить время и место встречи', async () => {
+    const { svc, repo } = build({
+      event: branch({
+        date: '2026-03-15',
+        meetingMode: 'changed',
+        meetingTime: '10:00',
+      }),
+    });
+    await svc.update(TENANT, 'e1', { meetingTime: '09:30' });
+    expect(repo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ meetingTime: '09:30' }),
+    );
+  });
+});

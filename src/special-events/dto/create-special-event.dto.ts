@@ -9,7 +9,12 @@ import {
   Max,
   Min,
   IsUUID,
+  Matches,
 } from 'class-validator';
+import {
+  MEETING_MODES,
+  type MeetingMode,
+} from '../../entities/special-event.entity';
 
 export class CreateSpecialEventDto {
   @IsString()
@@ -91,4 +96,23 @@ export class CreateSpecialEventDto {
   @IsOptional()
   @IsBoolean()
   replacesMeeting?: boolean;
+
+  /** Как идёт встреча в день события; см. SpecialEvent.meetingMode. */
+  @IsOptional()
+  @IsIn(MEETING_MODES)
+  meetingMode?: MeetingMode;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 500)
+  meetingNote?: string | null;
+
+  @IsOptional()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+  meetingTime?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 500)
+  meetingAddress?: string | null;
 }

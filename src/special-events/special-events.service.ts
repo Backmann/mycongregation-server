@@ -25,6 +25,7 @@ import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { EventNotificationsService } from './event-notifications.service';
 import { signatureOf } from './event-messages';
+import { settleMeeting } from './meeting-mode';
 
 /** The fields the journal records for an event — the ones a reader can follow. */
 const JOURNAL_FIELDS = [
@@ -36,6 +37,10 @@ const JOURNAL_FIELDS = [
   'timeEnd',
   'address',
   'note',
+  'meetingMode',
+  'meetingNote',
+  'meetingTime',
+  'meetingAddress',
 ] as const;
 
 function journalView(e: SpecialEvent): Record<string, unknown> {
@@ -240,6 +245,20 @@ export class SpecialEventsService {
       ...dto,
       congregationId: tenantId,
     });
+    Object.assign(
+      event,
+      settleMeeting(
+        {
+          type: event.type,
+          meetingMode: 'usual',
+          meetingNote: null,
+          meetingTime: null,
+          meetingAddress: null,
+          replacesMeeting: false,
+        },
+        dto,
+      ),
+    );
     const saved = await this.specialEventsRepo.save(event);
     await this.auditLog.logCreate({
       tenantId,
@@ -289,12 +308,19 @@ export class SpecialEventsService {
     const datesChanged =
       nextDate !== event.date || (nextEnd ?? null) !== (event.endDate ?? null);
     const typeChanged = (nextType ?? null) !== (event.type ?? null);
+    const meeting = settleMeeting({ ...event, type: nextType }, dto);
+    // Whether the meeting was held is history too: attendance was counted by
+    // it. The hour, the place and the words can still be put right.
+    const modeChanged = meeting.meetingMode !== (event.meetingMode ?? 'usual');
 
-    if (lastDay(event) < today && (datesChanged || typeChanged)) {
+    if (
+      lastDay(event) < today &&
+      (datesChanged || typeChanged || modeChanged)
+    ) {
       throw new BadRequestException({
         code: 'EVENT_PAST_LOCKED',
         message:
-          'An event that is over keeps its days and its kind; only its note, place and links can change',
+          'An event that is over keeps its days, its kind and whether the meeting was held; only its note, place and links can change',
       });
     }
     if (datesChanged && lastDay({ date: nextDate, endDate: nextEnd }) < today) {
@@ -326,7 +352,7 @@ export class SpecialEventsService {
       await this.coVisitTemplate.revert(event);
     }
 
-    Object.assign(event, dto);
+    Object.assign(event, dto, meeting);
     const saved = await this.specialEventsRepo.save(event);
     await this.auditLog.logUpdate({
       tenantId,

@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, IsNull, Repository } from 'typeorm';
@@ -77,8 +78,15 @@ export class EventNotificationsService {
     switch (change) {
       case 'created':
         return `event:${e.id}:created`;
+      // The signature is hashed: written out it carries the address and the
+      // meeting note, and a key longer than the outbox column (96) failed to
+      // insert — which notify() reads as «already said», so a change to an
+      // event with an address was never announced.
       case 'changed':
-        return `event:${e.id}:changed:${signatureOf(e)}`;
+        return `event:${e.id}:changed:${createHash('sha1')
+          .update(signatureOf(e))
+          .digest('hex')
+          .slice(0, 16)}`;
       // A cancellation and a return can each happen more than once (cancelled,
       // restored, cancelled again): the moment tells them apart.
       case 'cancelled':

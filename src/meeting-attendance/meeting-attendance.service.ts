@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, In, Repository } from 'typeorm';
+import { Between, In, LessThanOrEqual, Repository } from 'typeorm';
 import { MeetingAttendance } from '../entities/meeting-attendance.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
@@ -328,6 +328,27 @@ export class MeetingAttendanceService {
       for (const g of out) {
         if (g.kind === 'memorial') g.time = memorial.time ?? null;
       }
+    }
+    /**
+     * A meeting that goes ahead «with changes» on an event's day may start at
+     * another hour (27 September — a branch representative's visit). Whoever
+     * reminds people about that meeting must use that hour, not the one from
+     * the settings.
+     */
+    const changed = await this.eventsRepo.find({
+      where: {
+        congregationId: tenantId,
+        meetingMode: 'changed',
+        date: LessThanOrEqual(weekEnd),
+      },
+    });
+    for (const g of out) {
+      if (g.kind === 'memorial') continue;
+      const e = changed.find(
+        (c) =>
+          c.meetingTime && c.date <= g.date && (c.endDate ?? c.date) >= g.date,
+      );
+      if (e) g.time = e.meetingTime;
     }
     return out.sort((a, b) => a.date.localeCompare(b.date));
   }

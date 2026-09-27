@@ -18,6 +18,9 @@ import { Congregation } from './congregation.entity';
  * without a migration); `title` is the display name. `date` is the start;
  * `endDate` is set for multi-day events (e.g. conventions, week-long visits).
  */
+export const MEETING_MODES = ['usual', 'changed', 'none'] as const;
+export type MeetingMode = (typeof MEETING_MODES)[number];
+
 @Entity('special_events')
 export class SpecialEvent {
   @PrimaryGeneratedColumn('uuid')
@@ -103,6 +106,26 @@ export class SpecialEvent {
 
   @Column({ type: 'boolean', default: false })
   replacesMeeting!: boolean;
+
+  /**
+   * Как идёт встреча собрания в день события: как обычно, с изменениями или
+   * её нет. `replacesMeeting` держится равным «none» — его читают правила
+   * недели. Только у визита представителя филиала и «Другого».
+   */
+  @Column({ type: 'varchar', length: 10, default: 'usual' })
+  meetingMode!: MeetingMode;
+
+  /** «С изменениями»: что меняется, словами. */
+  @Column({ type: 'text', nullable: true })
+  meetingNote!: string | null;
+
+  /** «С изменениями»: начало встречи в этот день, HH:mm. */
+  @Column({ type: 'varchar', length: 5, nullable: true })
+  meetingTime!: string | null;
+
+  /** «С изменениями»: где проходит встреча в этот день. */
+  @Column({ type: 'text', nullable: true })
+  meetingAddress!: string | null;
 
   // ---- Memorial ---------------------------------------------------------
   // One theme and one moment of publication belong to the EVENING, not to a

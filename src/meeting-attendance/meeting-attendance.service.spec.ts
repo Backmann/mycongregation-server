@@ -580,7 +580,11 @@ describe('MeetingAttendanceService — the Memorial is counted, once', () => {
    * the reminder to the wrong hour. No test would have caught it: the cleaning
    * spec stubs this method out entirely.
    */
-  function build(memorialDate: string | null, time: string | null = '19:30') {
+  function build(
+    memorialDate: string | null,
+    time: string | null = '19:30',
+    changed: { date: string; meetingTime: string | null }[] = [],
+  ) {
     const settingsRepo = {
       find: jest
         .fn()
@@ -591,8 +595,14 @@ describe('MeetingAttendanceService — the Memorial is counted, once', () => {
     const eventsFind = jest.fn(async (opts: unknown) => {
       const where = (opts as { where: unknown }).where;
       if (Array.isArray(where)) return [];
-      const w = where as { type?: string; replacesMeeting?: boolean };
+      const w = where as {
+        type?: string;
+        replacesMeeting?: boolean;
+        meetingMode?: string;
+      };
       if (w.replacesMeeting) return [];
+      if (w.meetingMode === 'changed')
+        return changed.map((c) => ({ ...c, endDate: null }));
       return w.type === 'memorial' && memorialDate
         ? [{ date: memorialDate, endDate: null, time }]
         : [];
@@ -631,6 +641,18 @@ describe('MeetingAttendanceService — the Memorial is counted, once', () => {
     const out = await svc.gatheringsForWeek('cong-1', '2026-04-06');
     expect(out.map((g) => g.kind)).toEqual(['midweek', 'weekend']);
     expect(out.every((g) => g.time === null)).toBe(true);
+  });
+
+  it('a meeting «with changes» carries the event’s hour', async () => {
+    // Sunday 12 April: the branch representative's day, meeting at 10:00.
+    const svc = build(null, null, [
+      { date: '2026-04-12', meetingTime: '10:00' },
+    ]);
+    const out = await svc.gatheringsForWeek('cong-1', '2026-04-06');
+    expect(out).toEqual([
+      { date: '2026-04-09', kind: 'midweek', time: null },
+      { date: '2026-04-12', kind: 'weekend', time: '10:00' },
+    ]);
   });
 });
 

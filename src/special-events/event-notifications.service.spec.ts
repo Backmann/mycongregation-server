@@ -85,6 +85,32 @@ describe('announcing an event', () => {
     expect(a).toBe(b);
     expect(a).not.toBe(c);
   });
+
+  it('every key fits the outbox column, address and meeting note included', () => {
+    // A key longer than 96 failed to insert and was taken for «already said».
+    const long = ev({
+      id: '9f6ac9b3-0000-4000-8000-000000000000',
+      type: 'branch_representative_visit',
+      endDate: '2026-11-09',
+      time: '09:40',
+      timeEnd: '16:00',
+      address: 'Westfalenhallen, Rheinlanddamm 200, 44139 Dortmund, Halle 3',
+      meetingMode: 'changed',
+      meetingNote: 'Речь представителя филиала вместо публичной речи',
+      meetingTime: '10:00',
+      meetingAddress: 'Königreichssaal Hamm, Ostenallee 1',
+    } as never);
+    for (const change of [
+      'created',
+      'changed',
+      'cancelled',
+      'restored',
+    ] as const) {
+      expect(
+        EventNotificationsService.keyOf(change, long, new Date()).length,
+      ).toBeLessThanOrEqual(96);
+    }
+  });
 });
 
 describe('the evening before', () => {
