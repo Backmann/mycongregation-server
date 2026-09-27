@@ -382,3 +382,33 @@ describe('how the meeting goes that day', () => {
     );
   });
 });
+
+describe('the Memorial', () => {
+  it('needs its hour', async () => {
+    const { svc } = build({});
+    await expect(
+      svc.create(TENANT, {
+        title: 'Вечеря',
+        type: 'memorial',
+        date: '2027-03-22',
+      }),
+    ).rejects.toMatchObject({
+      response: { code: 'EVENT_MEMORIAL_NEEDS_TIME' },
+    });
+  });
+
+  it('is held once a service year', async () => {
+    const { svc, repo } = build({});
+    repo.find.mockResolvedValueOnce([
+      row({ id: 'm1', type: 'memorial', date: '2027-04-10' }),
+    ]);
+    await expect(
+      svc.create(TENANT, {
+        title: 'Вечеря',
+        type: 'memorial',
+        date: '2027-03-22',
+        time: '19:30',
+      }),
+    ).rejects.toMatchObject({ response: { code: 'EVENT_MEMORIAL_TAKEN' } });
+  });
+});

@@ -26,6 +26,7 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { EventNotificationsService } from './event-notifications.service';
 import { signatureOf } from './event-messages';
 import { settleMeeting } from './meeting-mode';
+import { assertEventShape, serviceYearOf } from './event-shape';
 
 /** The fields the journal records for an event — the ones a reader can follow. */
 const JOURNAL_FIELDS = [
@@ -233,11 +234,48 @@ export class SpecialEventsService {
     }
   }
 
+  /**
+   * The Memorial is held once a year: a second one in the same service year
+   * is a mistake, and every screen that asks «which Memorial» would pick
+   * one of the two by chance. It also needs its hour — without it nobody
+   * can be reminded (the reminder is sent for a time, not a day).
+   */
+  private async assertMemorial(
+    tenantId: string,
+    next: { type?: string | null; date: string; time?: string | null },
+    exceptId?: string,
+  ) {
+    if (next.type !== 'memorial') return;
+    if (!next.time?.trim()) {
+      throw new BadRequestException({
+        code: 'EVENT_MEMORIAL_NEEDS_TIME',
+        message: 'The Memorial needs its starting time',
+      });
+    }
+    const others = await this.specialEventsRepo.find({
+      where: {
+        congregationId: tenantId,
+        type: 'memorial',
+        deletedAt: IsNull(),
+        ...(exceptId ? { id: Not(exceptId) } : {}),
+      },
+    });
+    const year = serviceYearOf(next.date);
+    if (others.some((o) => serviceYearOf(o.date) === year)) {
+      throw new ConflictException({
+        code: 'EVENT_MEMORIAL_TAKEN',
+        message: 'This service year already has a Memorial',
+      });
+    }
+  }
+
   async create(
     tenantId: string,
     dto: CreateSpecialEventDto,
   ): Promise<SpecialEvent> {
     this.assertDates(dto.date, dto.endDate);
+    assertEventShape(dto, null);
+    await this.assertMemorial(tenantId, dto);
     if (dto.type === CIRCUIT_OVERSEER_VISIT_TYPE) {
       await this.assertVisitWeekFree(tenantId, dto.date);
     }
@@ -330,6 +368,20 @@ export class SpecialEventsService {
       });
     }
     this.assertDates(nextDate, nextEnd);
+    assertEventShape({ ...event, ...dto }, event);
+    const nextTime = dto.time !== undefined ? dto.time : event.time;
+    const memorialTouched =
+      nextType === 'memorial' &&
+      (typeChanged ||
+        mondayOf(nextDate) !== mondayOf(event.date) ||
+        (nextTime ?? null) !== (event.time ?? null));
+    if (memorialTouched) {
+      await this.assertMemorial(
+        tenantId,
+        { type: nextType, date: nextDate, time: nextTime },
+        event.id,
+      );
+    }
 
     const weekChanged = mondayOf(nextDate) !== mondayOf(event.date);
     const templateMoves =

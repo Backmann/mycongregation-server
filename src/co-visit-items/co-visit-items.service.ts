@@ -1,10 +1,13 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
+import { Responsibility } from '../entities/responsibility.entity';
+import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { CoVisitItem } from '../entities/co-visit-item.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { CreateCoVisitItemDto } from './dto/create-co-visit-item.dto';
@@ -147,7 +150,41 @@ export class CoVisitItemsService {
     private readonly auxiliaryPioneersService: AuxiliaryPioneersService,
     private readonly auditLog: AuditLogService,
     private readonly clock: CongregationClock,
+    @InjectRepository(Responsibility)
+    private readonly responsibilitiesRepo: Repository<Responsibility>,
   ) {}
+
+  /**
+   * Who may read the visit schedule (27 September).
+   *
+   * Elders and the administrator, as before — and now also the ones who plan
+   * the visit without being elders: the service overseer's assistant, a
+   * ministerial servant, could already change the schedule and was refused
+   * the moment he opened it. Phones and addresses still follow
+   * `canViewPrivate`.
+   */
+  async assertCanViewSchedule(
+    congregationId: string,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    if (user.role === UserRole.ADMIN || user.role === UserRole.ELDER) return;
+    const held = await this.responsibilitiesRepo.count({
+      where: {
+        congregationId,
+        userId: user.id,
+        type: In([
+          ResponsibilityType.SERVICE_OVERSEER,
+          ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+          ResponsibilityType.BODY_COORDINATOR,
+        ]),
+      },
+    });
+    if (held === 0) {
+      throw new ForbiddenException(
+        'Only elders and those who plan the visit may read its schedule',
+      );
+    }
+  }
 
   /**
    * The signed-in person's own slice of upcoming circuit-overseer visits,

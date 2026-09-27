@@ -5,6 +5,7 @@ import { Between, IsNull, Repository } from 'typeorm';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { User } from '../entities/user.entity';
 import { NotificationsService } from '../notifications/notifications.service';
+import { MemorialService } from '../memorial/memorial.service';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { minutesOfDayIn, todayIn } from '../common/congregation-clock';
 import { addDaysISO } from '../common/week-rules';
@@ -55,6 +56,7 @@ export class EventNotificationsService {
     private readonly events: Repository<SpecialEvent>,
     private readonly clock: CongregationClock,
     private readonly notifications: NotificationsService,
+    private readonly memorial: MemorialService,
   ) {}
 
   /** Everyone in the congregation who can sign in, by language. */
@@ -152,7 +154,14 @@ export class EventNotificationsService {
       if (minutes >= REMINDER_UNTIL_HOUR * 60) continue;
 
       const byLang = await this.membersByLanguage(e.congregationId);
-      for (const [lang, userIds] of byLang) {
+      // Those with a part at the Memorial are told at 19:00 with their part.
+      const told =
+        e.type === 'memorial'
+          ? new Set(await this.memorial.assigneeUserIds(e))
+          : new Set<string>();
+      for (const [lang, all] of byLang) {
+        const userIds = all.filter((id) => !told.has(id));
+        if (userIds.length === 0) continue;
         const msg = reminderMessage(e, lang);
         await this.notifications.notify({
           tenantId: e.congregationId,

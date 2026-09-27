@@ -54,6 +54,7 @@ describe('CoVisitItemsService — a removed item is kept, not erased', () => {
       {} as any,
       audit as never,
       clockStub(),
+      { count: jest.fn(async () => 0) } as any,
     );
     return { svc, repo };
   };
@@ -208,6 +209,7 @@ describe('CoVisitItemsService.mine', () => {
       auxService,
       { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
       clockStub(),
+      { count: jest.fn(async () => 0) } as any,
     );
   }
   const base = {
@@ -325,6 +327,7 @@ describe('CoVisitItemsService.mine', () => {
       auxService,
       { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
       clockStub(),
+      { count: jest.fn(async () => 0) } as any,
     );
     expect((await svc.mine(CONG, USER))[0]?.items).toHaveLength(1);
   });
@@ -386,6 +389,7 @@ describe('CoVisitItemsService.hostStats', () => {
       {} as any,
       { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
       clockStub(),
+      { count: jest.fn(async () => 0) } as any,
     );
     const out = await svc.hostStats('c1');
     const p1lunch = out.find(
@@ -435,6 +439,7 @@ describe('CoVisitItemsService.hostStats — counted per kind', () => {
       {} as any,
       { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
       clockStub(),
+      { count: jest.fn(async () => 0) } as any,
     ).hostStats('c1');
   }
 
@@ -511,6 +516,7 @@ describe('CoVisitItemsService.mine — accommodation host & legacy copies', () =
       auxService,
       { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
       clockStub(),
+      { count: jest.fn(async () => 0) } as any,
     );
   }
 
@@ -590,6 +596,7 @@ describe('CoVisitItemsService.fieldService', () => {
       } as any,
       { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
       clockStub(),
+      { count: jest.fn(async () => 0) } as any,
     );
   }
 
@@ -723,6 +730,7 @@ describe('CoVisitItemsService — a visit already over is a record', () => {
       {} as any,
       audit as never,
       clockStub(),
+      { count: jest.fn(async () => 0) } as any,
     );
     return { svc, repo, audit };
   }
@@ -770,5 +778,41 @@ describe('CoVisitItemsService — a visit already over is a record', () => {
     const { svc, repo } = build(FUTURE);
     await svc.remove('cong-1', 'it-1', 'u-1');
     expect(repo.softDelete).toHaveBeenCalled();
+  });
+});
+
+describe('who reads the visit schedule', () => {
+  const svc = (held: number) =>
+    new CoVisitItemsService(
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      { count: jest.fn(async () => held) } as any,
+    );
+  const u = (role: string) => ({ id: 'u', role, congregationId: 'c' }) as any;
+
+  it('elders and the admin', async () => {
+    await expect(
+      svc(0).assertCanViewSchedule('c', u('elder')),
+    ).resolves.toBeUndefined();
+    await expect(
+      svc(0).assertCanViewSchedule('c', u('admin')),
+    ).resolves.toBeUndefined();
+  });
+
+  it('the service overseer’s assistant, a ministerial servant, too', async () => {
+    await expect(
+      svc(1).assertCanViewSchedule('c', u('ministerial_servant')),
+    ).resolves.toBeUndefined();
+  });
+
+  it('not a publisher without the responsibility', async () => {
+    await expect(
+      svc(0).assertCanViewSchedule('c', u('publisher')),
+    ).rejects.toThrow();
   });
 });

@@ -25,7 +25,11 @@ const ev = (over: Partial<SpecialEvent>): SpecialEvent =>
     ...over,
   }) as SpecialEvent;
 
-function build(events: SpecialEvent[], today = '2026-09-27') {
+function build(
+  events: SpecialEvent[],
+  today = '2026-09-27',
+  memorialAssignees: string[] = [],
+) {
   const notify = jest.fn();
   const users = {
     find: jest.fn().mockResolvedValue([
@@ -42,6 +46,7 @@ function build(events: SpecialEvent[], today = '2026-09-27') {
     eventsRepo as never,
     clock,
     { notify } as never,
+    { assigneeUserIds: jest.fn(async () => memorialAssignees) } as never,
   );
   return { svc, notify };
 }
@@ -152,5 +157,29 @@ describe('the evening before', () => {
   it('nothing for an event that is not tomorrow', async () => {
     const { svc } = build([ev({ date: '2026-11-09' })]);
     expect(await svc.remindEveningBefore(at('17:00'))).toBe(0);
+  });
+});
+
+describe('the Memorial, the evening before', () => {
+  // Saturday 7 November 2026 at 18:30 Berlin; the Memorial on the 8th.
+  const at = new Date('2026-11-07T17:30:00Z');
+  const memorial = ev({
+    type: 'memorial',
+    title: 'Вечеря',
+    date: '2026-11-08',
+  });
+
+  it('leaves out those with a part — they hear at 19:00 with it', async () => {
+    const { svc, notify } = build([memorial], '2026-11-07', ['u-ru2']);
+    expect(await svc.remindEveningBefore(at)).toBe(1);
+    const sentTo = notify.mock.calls.flatMap((c) => c[0].userIds);
+    expect(sentTo.sort()).toEqual(['u-de', 'u-ru']);
+  });
+
+  it('everybody else still gets it', async () => {
+    const { svc, notify } = build([memorial], '2026-11-07', []);
+    await svc.remindEveningBefore(at);
+    const sentTo = notify.mock.calls.flatMap((c) => c[0].userIds);
+    expect(sentTo.sort()).toEqual(['u-de', 'u-ru', 'u-ru2']);
   });
 });

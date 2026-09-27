@@ -16,9 +16,6 @@ import { CoVisitItemsService } from './co-visit-items.service';
 import { CreateCoVisitItemDto } from './dto/create-co-visit-item.dto';
 import { UpdateCoVisitItemDto } from './dto/update-co-visit-item.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
-import { Roles } from '../common/decorators/roles.decorator';
-import { RolesGuard } from '../common/guards/roles.guard';
-import { UserRole } from '../common/enums/user-role.enum';
 import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
@@ -54,20 +51,22 @@ export class CoVisitItemsController {
 
   /** Hosting rotation across all visits (for the host picker). */
   @Get('host-stats')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
-  hostStats(@TenantId() congregationId: string) {
+  async hostStats(
+    @TenantId() congregationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.service.assertCanViewSchedule(congregationId, user);
     return this.service.hostStats(congregationId);
   }
 
+  /** Elders, the admin, and those who plan the visit (see the service). */
   @Get()
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
-  list(
+  async list(
     @TenantId() congregationId: string,
     @Query('specialEventId', ParseUUIDPipe) specialEventId: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
+    await this.service.assertCanViewSchedule(congregationId, user);
     return this.service.list(congregationId, specialEventId, user);
   }
 

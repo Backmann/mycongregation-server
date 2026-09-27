@@ -7,6 +7,7 @@ import { Assignment } from '../entities/assignment.entity';
 import { SpecialEventsService } from './special-events.service';
 import { SpecialEventsController } from './special-events.controller';
 import { CoVisitTemplateModule } from './co-visit-template.module';
+import { MemorialModule } from '../memorial/memorial.module';
 import { EventNotificationsService } from './event-notifications.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { User } from '../entities/user.entity';
@@ -20,6 +21,7 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
     NotificationsModule,
     AuditLogModule,
     CoVisitTemplateModule,
+    MemorialModule,
   ],
   controllers: [SpecialEventsController],
   providers: [

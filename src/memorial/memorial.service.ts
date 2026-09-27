@@ -493,6 +493,26 @@ export class MemorialService {
    * duty of the third kind of meeting, which is exactly why it can be asked
    * for by week.
    */
+  /**
+   * The accounts of everyone with something to do at this Memorial — they
+   * hear about it personally the evening before (19:00), with their part, so
+   * the congregation-wide «Tomorrow — the Memorial» at 18:00 leaves them out:
+   * two messages about the same evening, an hour apart, was one too many
+   * (Lionel, 27 September).
+   */
+  async assigneeUserIds(event: SpecialEvent): Promise<string[]> {
+    const byPublisher = await this.sheetAssignees(event.congregationId, event);
+    if (byPublisher.size === 0) return [];
+    const publishers = await this.publishersRepo.find({
+      where: {
+        congregationId: event.congregationId,
+        id: In([...byPublisher.keys()]),
+      },
+      select: { id: true, userId: true },
+    });
+    return publishers.map((p) => p.userId).filter((id): id is string => !!id);
+  }
+
   private async sheetAssignees(
     congregationId: string,
     event: SpecialEvent,
