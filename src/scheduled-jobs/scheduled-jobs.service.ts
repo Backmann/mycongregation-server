@@ -9,6 +9,7 @@ import { CleaningRemindersService } from '../cleaning/cleaning-reminders.service
 import { CalendarTasksService } from '../tasks/calendar-tasks.service';
 import { TaskRemindersService } from '../tasks/task-reminders.service';
 import { GroupVisitTasksService } from '../field-service-meetings/group-visit-tasks.service';
+import { EventNotificationsService } from '../special-events/event-notifications.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -24,7 +25,25 @@ export class ScheduledJobsService {
     private readonly taskReminders: TaskRemindersService,
     private readonly groupVisitTasks: GroupVisitTasksService,
     private readonly memorial: MemorialService,
+    private readonly eventNotifications: EventNotificationsService,
   ) {}
+
+  /**
+   * «Tomorrow — …» for the congregation's events — every 15 minutes, sent
+   * between 18:00 and 21:00 in the congregation's own time on the evening
+   * before. The key carries the day, so a repeated tick sends nothing.
+   */
+  @Cron('*/15 * * * *', {
+    name: 'event-reminders',
+    timeZone: 'UTC',
+  })
+  async handleEventReminders(): Promise<void> {
+    try {
+      await this.eventNotifications.remindEveningBefore();
+    } catch (err) {
+      this.logger.error('[EventReminders] tick failed', err as Error);
+    }
+  }
 
   /**
    * «The Memorial is tomorrow» — every 15 minutes, sent after 19:00 in the

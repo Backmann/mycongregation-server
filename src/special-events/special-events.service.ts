@@ -23,6 +23,8 @@ import { mondayOf } from '../common/week';
 import { UserRole } from '../common/enums/user-role.enum';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { EventNotificationsService } from './event-notifications.service';
+import { signatureOf } from './event-messages';
 
 /** The fields the journal records for an event — the ones a reader can follow. */
 const JOURNAL_FIELDS = [
@@ -58,6 +60,8 @@ export class SpecialEventsService {
     // Last on purpose: the spec builds this service positionally.
     @InjectRepository(Responsibility)
     private readonly responsibilities: Repository<Responsibility>,
+    /** Tells the congregation. Last, for the same reason. */
+    private readonly eventNotifications: EventNotificationsService,
   ) {}
 
   private async holds(
@@ -244,8 +248,11 @@ export class SpecialEventsService {
       after: journalView(saved),
     });
     // A visit entered for the record — its week already held — changes
-    // nothing: the template never touches a week that is over.
-    return this.present(await this.coVisitTemplate.apply(saved), true);
+    // nothing: the template never touches a week that is over. Nor is it
+    // announced: the announcement, too, is only for what is ahead.
+    const applied = await this.coVisitTemplate.apply(saved);
+    await this.eventNotifications.announce(applied, 'created');
+    return this.present(applied, true);
   }
 
   /**
@@ -312,6 +319,7 @@ export class SpecialEventsService {
 
     const prevName = this.coVisitTemplate.displayName(event);
     const before = journalView(event);
+    const signatureBefore = signatureOf(event);
 
     if (templateMoves && !(await this.coVisitTemplate.weekIsOver(event))) {
       // Gives the old week back — sets coRevertData to null on `event`.
@@ -329,12 +337,20 @@ export class SpecialEventsService {
       fields: [...JOURNAL_FIELDS],
     });
 
+    // Told again only when what people plan by has changed — the days, the
+    // hours, the place, the kind, whether the meeting goes. A corrected note
+    // or link is not worth a message on every phone.
+    const told = signatureOf(saved) !== signatureBefore;
+
     if (templateMoves) {
-      return this.present(await this.coVisitTemplate.apply(saved), true);
+      const applied = await this.coVisitTemplate.apply(saved);
+      if (told) await this.eventNotifications.announce(applied, 'changed');
+      return this.present(applied, true);
     }
     if (!(await this.coVisitTemplate.weekIsOver(saved))) {
       await this.coVisitTemplate.syncSpeaker(saved, prevName);
     }
+    if (told) await this.eventNotifications.announce(saved, 'changed');
     return this.present(saved, true);
   }
 
@@ -396,6 +412,7 @@ export class SpecialEventsService {
       detail: { title: event.title, date: event.date },
     });
     await this.specialEventsRepo.softDelete({ id, congregationId: tenantId });
+    if (!over) await this.eventNotifications.announce(event, 'cancelled');
   }
 
   async restore(tenantId: string, id: string): Promise<SpecialEvent> {
@@ -405,6 +422,10 @@ export class SpecialEventsService {
     }
     await this.specialEventsRepo.restore({ id, congregationId: tenantId });
     const event = await this.findOne(tenantId, id);
-    return this.present(await this.coVisitTemplate.apply(event), true);
+    const applied = await this.coVisitTemplate.apply(event);
+    if (found.deletedAt) {
+      await this.eventNotifications.announce(applied, 'restored');
+    }
+    return this.present(applied, true);
   }
 }

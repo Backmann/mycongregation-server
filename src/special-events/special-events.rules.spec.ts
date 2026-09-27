@@ -1,3 +1,6 @@
+// The push SDK ships as ESM, which jest does not load; nothing here pushes.
+jest.mock('expo-server-sdk', () => ({ Expo: class {} }));
+
 import { SpecialEventsService } from './special-events.service';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -92,14 +95,16 @@ function build(opts: {
   const responsibilities = {
     count: jest.fn().mockResolvedValue(opts.responsibilities ?? 0),
   };
+  const notices = { announce: jest.fn() };
   const svc = new SpecialEventsService(
     repo as never,
     template as never,
     audit as never,
     clock as never,
     responsibilities as never,
+    notices as never,
   );
-  return { svc, repo, qb, template, event };
+  return { svc, repo, qb, template, event, notices };
 }
 
 describe('a circuit visit that moves', () => {
@@ -275,5 +280,54 @@ describe('what leaves the server', () => {
     await expect(
       svc.findOneFor(TENANT, 'e1', user(UserRole.PUBLISHER)),
     ).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe('telling the congregation', () => {
+  it('a new event is announced', async () => {
+    const { svc, notices } = build({});
+    await svc.create(TENANT, {
+      title: 'Конгресс',
+      type: 'circuit_assembly',
+      date: '2026-11-08',
+    });
+    expect(notices.announce).toHaveBeenCalledWith(expect.anything(), 'created');
+  });
+
+  it('a new hour is announced; a corrected note is not', async () => {
+    const other = () =>
+      row({ type: 'other', coRevertData: null, time: '09:00' });
+    const a = build({ event: other() });
+    await a.svc.update(TENANT, 'e1', { note: 'Перчатки' });
+    expect(a.notices.announce).not.toHaveBeenCalled();
+    const b = build({ event: other() });
+    await b.svc.update(TENANT, 'e1', { time: '10:00' });
+    expect(b.notices.announce).toHaveBeenCalledWith(
+      expect.anything(),
+      'changed',
+    );
+  });
+
+  it('a coming event removed is announced as cancelled; one that is over, not', async () => {
+    const a = build({ responsibilities: 1 });
+    await a.svc.remove(TENANT, 'e1', user(UserRole.ELDER));
+    expect(a.notices.announce).toHaveBeenCalledWith(
+      expect.anything(),
+      'cancelled',
+    );
+    const b = build({
+      event: row({ date: '2026-03-10', endDate: null, coRevertData: [] }),
+    });
+    await b.svc.remove(TENANT, 'e1', user(UserRole.ADMIN));
+    expect(b.notices.announce).not.toHaveBeenCalled();
+  });
+
+  it('an event brought back from the bin is announced as on again', async () => {
+    const { svc, notices } = build({ event: row({ deletedAt: new Date() }) });
+    await svc.restore(TENANT, 'e1');
+    expect(notices.announce).toHaveBeenCalledWith(
+      expect.anything(),
+      'restored',
+    );
   });
 });

@@ -62,6 +62,8 @@ describe('ScheduledJobsService', () => {
       // evening. The service decides whether anything is due; this tick only
       // asks.
       { remindEveningBefore: jest.fn(async () => 0) } as never,
+      // «Tomorrow — …» for the congregation's events, the same way.
+      { remindEveningBefore: jest.fn(async () => 0) } as never,
     );
   });
 

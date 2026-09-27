@@ -30,6 +30,8 @@ export const NOTIFICATION_CATEGORIES = [
   'cleaning',
   'reports',
   'admin',
+  // The congregation's events — new, changed, cancelled, and tomorrow's.
+  'events',
 ] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
@@ -41,6 +43,7 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
   if (kind.startsWith('cleaning')) return 'cleaning';
   if (kind === 'report_reminder') return 'reports';
   if (kind === 'status_change') return 'admin';
+  if (kind === 'special_event') return 'events';
   return 'other';
 }
 

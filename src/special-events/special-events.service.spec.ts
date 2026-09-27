@@ -1,3 +1,6 @@
+// The push SDK ships as ESM, which jest does not load; nothing here pushes.
+jest.mock('expo-server-sdk', () => ({ Expo: class {} }));
+
 import { SpecialEventsService } from './special-events.service';
 import { clockStub } from '../common/testing/clock-stub';
 
@@ -34,6 +37,7 @@ describe('SpecialEventsService.findAll — which day is "today"', () => {
       {} as never,
       clockStub('Pacific/Auckland'),
       { count: jest.fn().mockResolvedValue(0) } as never,
+      { announce: jest.fn() } as never,
     );
     return { svc, qb };
   }

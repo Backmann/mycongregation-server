@@ -7,18 +7,26 @@ import { Assignment } from '../entities/assignment.entity';
 import { SpecialEventsService } from './special-events.service';
 import { SpecialEventsController } from './special-events.controller';
 import { CoVisitTemplateModule } from './co-visit-template.module';
+import { EventNotificationsService } from './event-notifications.service';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { User } from '../entities/user.entity';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { CongregationClockModule } from '../common/congregation-clock.module';
 
 @Module({
   imports: [
     CongregationClockModule,
-    TypeOrmModule.forFeature([SpecialEvent, Responsibility, Assignment]),
+    TypeOrmModule.forFeature([SpecialEvent, Responsibility, Assignment, User]),
+    NotificationsModule,
     AuditLogModule,
     CoVisitTemplateModule,
   ],
   controllers: [SpecialEventsController],
-  providers: [SpecialEventsService, ResponsibilityGuard],
-  exports: [SpecialEventsService],
+  providers: [
+    SpecialEventsService,
+    EventNotificationsService,
+    ResponsibilityGuard,
+  ],
+  exports: [SpecialEventsService, EventNotificationsService],
 })
 export class SpecialEventsModule {}
