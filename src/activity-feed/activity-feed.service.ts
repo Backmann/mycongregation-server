@@ -120,7 +120,13 @@ export class ActivityFeedService {
     const reportPubIds = reports.map((r) => r.publisherId);
     const allPubIds = uniq([...directPubIds, ...reportPubIds]);
     const publishers = allPubIds.length
-      ? await this.publisherRepo.findBy({ id: In(allPubIds) })
+      ? // Deleted cards too (28 September): the phone read «удалённая
+        // карточка: статус …» for people whose names are still on record;
+        // an anonymised card carries its anonymous name, as everywhere.
+        await this.publisherRepo.find({
+          where: { congregationId, id: In(allPubIds) },
+          withDeleted: true,
+        })
       : [];
     const pubMap = new Map(publishers.map((p) => [p.id, p]));
 

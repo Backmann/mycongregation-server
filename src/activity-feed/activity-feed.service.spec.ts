@@ -12,6 +12,11 @@ describe('ActivityFeedService', () => {
     auditRepo = { find: jest.fn() };
     userRepo = { findBy: jest.fn().mockResolvedValue([]) };
     publisherRepo = { findBy: jest.fn().mockResolvedValue([]) };
+    // The target cards are read with `find` (deleted ones included); the
+    // tests set one list for both.
+    publisherRepo.find = jest.fn((opts: any) =>
+      publisherRepo.findBy(opts.where),
+    );
     reportRepo = { findBy: jest.fn().mockResolvedValue([]) };
 
     service = new ActivityFeedService(
@@ -214,6 +219,12 @@ describe('ActivityFeedService', () => {
     // Only cards of this congregation may lend a name.
     expect(publisherRepo.findBy).toHaveBeenCalledWith(
       expect.objectContaining({ congregationId: 'cong-1' }),
+    );
+    expect(publisherRepo.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ congregationId: 'cong-1' }),
+        withDeleted: true,
+      }),
     );
   });
 
