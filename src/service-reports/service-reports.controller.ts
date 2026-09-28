@@ -145,15 +145,18 @@ export class ServiceReportsController {
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Query('year') yearRaw?: string,
+    @Query('window') windowRaw?: string,
   ) {
-    const now = new Date();
-    const defaultYear =
-      now.getUTCMonth() >= 8 ? now.getUTCFullYear() + 1 : now.getUTCFullYear();
-    const year = yearRaw ? parseInt(yearRaw, 10) || defaultYear : defaultYear;
+    // The defaults are the congregation's own date, not the server's UTC —
+    // decided in the service, where its clock is.
+    const year = yearRaw ? parseInt(yearRaw, 10) || undefined : undefined;
+    const window =
+      windowRaw === 'half' || windowRaw === 'year' ? windowRaw : undefined;
     return this.serviceReportsService.getPioneerYearReview(
       tenantId,
       user,
       year,
+      window,
     );
   }
 

@@ -29,7 +29,12 @@ import {
 } from '../common/report-month-window';
 import { reportingPublisherWhere } from '../common/reporting-publishers';
 import { CongregationClock } from '../common/congregation-clock.service';
-import { reviewPioneerYear, PioneerYearReview } from './pioneer-year-review';
+import {
+  reviewPioneerYear,
+  PioneerYearReview,
+  MID_YEAR_THROUGH_MONTH,
+  pioneerReviewDefaults,
+} from './pioneer-year-review';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import {
   PublishersService,
@@ -2021,7 +2026,8 @@ export class ServiceReportsService {
   async getPioneerYearReview(
     tenantId: string,
     user: AuthenticatedUser,
-    serviceYear: number,
+    requestedYear?: number,
+    requestedWindow?: 'half' | 'year',
   ): Promise<PioneerYearReview> {
     const ctx = await this.buildPermissionContext(tenantId, user);
     if (!ctx.alwaysView) {
@@ -2029,6 +2035,16 @@ export class ServiceReportsService {
         "Only elders may review the pioneers' service year.",
       );
     }
+    const today = await this.clock.todayFor(tenantId);
+    const { serviceYear, window } = pioneerReviewDefaults(
+      today,
+      requestedYear,
+      requestedWindow,
+    );
+    const through =
+      window === 'half'
+        ? `${serviceYear}-${String(MID_YEAR_THROUGH_MONTH).padStart(2, '0')}-01`
+        : undefined;
 
     // Whoever was a REGULAR PIONEER AT ANY POINT IN THIS SERVICE YEAR, not
     // whoever is one today.
@@ -2059,9 +2075,8 @@ export class ServiceReportsService {
           where: { congregationId: tenantId, id: In([...idsInYear]) },
         })
       : [];
-    const today = await this.clock.todayFor(tenantId);
     if (pioneers.length === 0) {
-      return reviewPioneerYear(serviceYear, today, []);
+      return reviewPioneerYear(serviceYear, today, [], { through });
     }
 
     const reports = await this.reportsRepo.find({
@@ -2100,12 +2115,22 @@ export class ServiceReportsService {
             )
             .map((sp) => sp.startMonth.slice(0, 10))
             .sort()[0] ?? p.pioneerSince,
+        // Every regular spell of his, so a man who stopped in December is
+        // not asked for the months after it.
+        spans: spells
+          .filter((sp) => sp.publisherId === p.id)
+          .map((sp) => ({
+            start: sp.startMonth.slice(0, 10),
+            end: sp.endMonth ? sp.endMonth.slice(0, 10) : null,
+          })),
         months: (byPublisher.get(p.id) ?? []).map((r) => ({
           reportMonth: r.reportMonth.slice(0, 10),
           hours: r.hoursReported,
+          bibleStudies: r.bibleStudies,
           note: r.notes,
         })),
       })),
+      { through },
     );
   }
 

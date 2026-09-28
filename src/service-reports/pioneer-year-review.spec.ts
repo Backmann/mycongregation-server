@@ -1,5 +1,6 @@
 import {
   reviewPioneerYear,
+  pioneerReviewDefaults,
   PIONEER_YEAR_GOAL,
   PIONEER_YEAR_MINIMUM,
 } from './pioneer-year-review';
@@ -313,5 +314,147 @@ describe('reviewPioneerYear', () => {
     expect(review.rows[0].notes).toEqual([
       { reportMonth: '2026-01-01', note: 'болел, лежал в больнице' },
     ]);
+  });
+
+  describe('the review in the middle of the year (28 September)', () => {
+    const half = (spec: Record<string, number | null>) =>
+      months(spec).slice(0, 6);
+
+    it('looks at September to February and measures by the months counted', () => {
+      // 10 March: all six months are in. 6 × 50 = 300, 560 × 6/12 = 280.
+      const review = reviewPioneerYear(
+        2026,
+        '2026-03-10',
+        [person({ months: half(twelve(45)) })],
+        { through: '2026-02-01' },
+      );
+      expect(review.window).toBe('part');
+      expect(review.windowMonths).toBe(6);
+      expect(review.monthsElapsed).toBe(6);
+      expect(review.windowComplete).toBe(true);
+      expect(review.expectedGoal).toBe(300);
+      expect(review.expectedMinimum).toBe(280);
+      const row = review.rows[0];
+      expect(row.hours).toBe(270);
+      expect(row.toMinimum).toBe(10);
+      expect(row.short).toBe(true);
+      // The talk in March: 290 left to 560, six months to go — 49 a month.
+      expect(row.yearLeftToMinimum).toBe(290);
+      expect(row.perMonthToMinimum).toBe(49);
+    });
+
+    it('does not accuse anybody in the middle of the year by the whole year', () => {
+      // Before: 300 hours against 560 read as «не хватает 260» for everybody.
+      const review = reviewPioneerYear(
+        2026,
+        '2026-03-10',
+        [person({ months: half(twelve(50)) })],
+        { through: '2026-02-01' },
+      );
+      expect(review.rows[0].short).toBe(false);
+      expect(review.rows[0].shortSoFar).toBe(false);
+      expect(review.rows[0].toMinimum).toBe(0);
+    });
+
+    it('leaves out whoever was not a pioneer in any month of it', () => {
+      const review = reviewPioneerYear(
+        2026,
+        '2026-03-10',
+        [person({ pioneerSince: '2026-03-01', months: [] })],
+        { through: '2026-02-01' },
+      );
+      expect(review.rows).toEqual([]);
+    });
+
+    it('says February is still being handed in, and does not require it', () => {
+      const review = reviewPioneerYear(
+        2026,
+        '2026-02-20',
+        [person({ months: half(twelve(50)).slice(0, 5) })],
+        { through: '2026-02-01' },
+      );
+      expect(review.monthsElapsed).toBe(5);
+      expect(review.windowComplete).toBe(false);
+      expect(review.collectingMonth).toBe('2026-02-01');
+      expect(review.rows[0].missingMonths).toEqual([]);
+      expect(review.rows[0].months.map((m) => m.state).slice(4)).toEqual([
+        'reported',
+        'collecting',
+      ]);
+    });
+  });
+
+  it('does not ask for months after his pioneering ended', () => {
+    // Stopped in December: until 28 September January–August were «missing»
+    // and he was measured against 600.
+    const review = reviewPioneerYear(2026, '2026-09-10', [
+      person({
+        spans: [{ start: '2019-09-01', end: '2025-12-01' }],
+        months: months({
+          '2025-09-01': 50,
+          '2025-10-01': 50,
+          '2025-11-01': 50,
+          '2025-12-01': 50,
+          '2026-01-01': 10,
+        }),
+      }),
+    ]);
+    const row = review.rows[0];
+    expect(row.endedIn).toBe('2025-12-01');
+    expect(row.missingMonths).toEqual([]);
+    expect(row.toMinimum).toBeNull();
+    expect(row.short).toBe(false);
+    // January was a publisher's report, not a pioneer's.
+    expect(row.hours).toBe(200);
+    expect(row.months[4].state).toBe('notPioneer');
+  });
+
+  it('tells a report with no hours from no report at all', () => {
+    const review = reviewPioneerYear(2026, '2026-01-10', [
+      person({
+        months: [
+          { reportMonth: '2025-09-01', hours: 50, bibleStudies: 2, note: null },
+          { reportMonth: '2025-10-01', hours: 0, note: 'болел' },
+        ],
+      }),
+    ]);
+    const lines = review.rows[0].months;
+    expect(lines.slice(0, 4).map((l) => l.state)).toEqual([
+      'reported',
+      'zero',
+      'missing',
+      'missing',
+    ]);
+    expect(lines[0].bibleStudies).toBe(2);
+    expect(lines[1].note).toBe('болел');
+    expect(lines[4].state).toBe('collecting');
+    expect(lines[5].state).toBe('upcoming');
+    expect(review.rows[0].missingMonths).toEqual(['2025-11-01', '2025-12-01']);
+  });
+
+  describe('what opens without a year in the link', () => {
+    it('the ended year until the 20th of October', () => {
+      expect(pioneerReviewDefaults('2026-09-28')).toEqual({
+        serviceYear: 2026,
+        window: 'year',
+      });
+      expect(pioneerReviewDefaults('2026-10-20').serviceYear).toBe(2026);
+      expect(pioneerReviewDefaults('2026-10-21').serviceYear).toBe(2027);
+    });
+
+    it('September to February from February to April', () => {
+      expect(pioneerReviewDefaults('2027-02-15')).toEqual({
+        serviceYear: 2027,
+        window: 'half',
+      });
+      expect(pioneerReviewDefaults('2027-05-01').window).toBe('year');
+    });
+
+    it('what the link asks for, when it asks', () => {
+      expect(pioneerReviewDefaults('2027-02-15', 2026, 'year')).toEqual({
+        serviceYear: 2026,
+        window: 'year',
+      });
+    });
   });
 });

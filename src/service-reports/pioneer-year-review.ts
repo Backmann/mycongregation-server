@@ -24,6 +24,44 @@ export interface PioneerMonthHours {
   /** `YYYY-MM-01`. */
   reportMonth: string;
   hours: number | null;
+  /** Bible studies reported that month, when known. */
+  bibleStudies?: number | null;
+  note: string | null;
+}
+
+/** A stretch of regular pioneering, first and last month inclusive. */
+export interface PioneerSpan {
+  /** `YYYY-MM-01`. */
+  start: string;
+  /** `YYYY-MM-01`, or null while it runs. */
+  end: string | null;
+}
+
+/**
+ * One month of the window as the committee reads it on the pioneer's card
+ * (28 September: «при раскрытии пионера — его история за эти месяцы»).
+ *
+ *   reported   — a report with hours;
+ *   zero       — a report came, with no hours (ill, credit in the note…) —
+ *                NOT the same as no report, and it used to be shown as one;
+ *   missing    — the month is over, he was a pioneer, and no report came;
+ *   collecting — the month now being handed in;
+ *   upcoming   — not reached yet;
+ *   notPioneer — he was not a regular pioneer that month.
+ */
+export type PioneerMonthState =
+  | 'reported'
+  | 'zero'
+  | 'missing'
+  | 'collecting'
+  | 'upcoming'
+  | 'notPioneer';
+
+export interface PioneerMonthLine {
+  reportMonth: string;
+  state: PioneerMonthState;
+  hours: number | null;
+  bibleStudies: number | null;
   note: string | null;
 }
 
@@ -41,9 +79,16 @@ export interface PioneerYearRow {
    * when — no target, no highlight.
    */
   startedMidYear: boolean;
-  /** Hours reported so far in this service year. */
+  /**
+   * His pioneering ended before the window did — the last month he served,
+   * or null. The same reasoning as `startedMidYear`: the months after it are
+   * not his to answer for, and until 28 September they were counted as
+   * missing and measured against the whole year.
+   */
+  endedIn: string | null;
+  /** Hours reported in the window, in the months he was a pioneer. */
   hours: number;
-  /** Months of this year that have a report from him. */
+  /** Months of the window with hours from him. */
   monthsReported: number;
   /**
    * Hours per reported month.
@@ -53,43 +98,67 @@ export interface PioneerYearRow {
    * stopped in May. The first needs nothing, the second needs a visit.
    */
   pace: number | null;
-  /** How far from the year's goal — null when the year does not apply to him. */
+  /**
+   * How far from the goal FOR THE MONTHS COUNTED — 50 a month. Over a whole
+   * finished year that is 600; in February it is 50 × the months that are in.
+   * Null when the window does not apply to him.
+   */
   toGoal: number | null;
-  /** How far from the minimum that allows him to continue. */
+  /** The same for the minimum that lets him carry on (560 a year, pro rata). */
   toMinimum: number | null;
   /**
-   * Месяцы года, за которые от него НЕТ отчёта.
-   *
-   * Раньше такой месяц был неотличим от месяца с нулём: считалась сумма, и
-   * человек без августовского отчёта выглядел недобравшим полсотни часов —
-   * ровно в те недели, когда обзор и читают. Теперь он назван, и о нём сказано
-   * словами.
+   * What is left to 560 for the whole year, and per remaining month — the
+   * figure a conversation in March is about («осталось 200, по 33 в месяц»).
+   * Null once the year is over, or when the year does not apply to him.
+   */
+  yearLeftToMinimum: number | null;
+  perMonthToMinimum: number | null;
+  /**
+   * Месяцы окна, за которые от него НЕТ отчёта (законченные, в пору его
+   * пионерского служения). Месяц, сданный с нулём, сюда не входит — он сдан.
    */
   missingMonths: string[];
   /**
-   * Ниже порога — и это ОКОНЧАТЕЛЬНО.
-   *
-   * Ставится, только когда за год пришли все отчёты. Пока хоть один месяц не
-   * сдан, сумма не итог, а промежуточный счёт, и обвинять по ней нельзя.
+   * Ниже мерки — и это ОКОНЧАТЕЛЬНО для посчитанных месяцев: все их отчёты
+   * пришли. В законченном году это «не дотянул до 560»; в феврале — «отстаёт
+   * от темпа».
    */
   short: boolean;
   /**
-   * Ниже порога по тому, что сдано, но год ещё не собран.
-   *
-   * Отдельный признак, потому что говорит другое: не «не дотянул», а «пока не
+   * Ниже мерки по тому, что сдано, но не всё сдано. Не «отстаёт», а «пока не
    * хватает, и мы ещё не всё знаем».
    */
   shortSoFar: boolean;
   /** Only the months where he wrote something — that is where credit lives. */
   notes: { reportMonth: string; note: string }[];
+  /** Every month of the window, in the order the service year runs. */
+  months: PioneerMonthLine[];
 }
 
 export interface PioneerYearReview {
   serviceYear: number;
   firstMonth: string;
   lastMonth: string;
-  /** How many of the twelve months have finished by today. */
+  /**
+   * The last month the review looks at: August for the year, February for
+   * the review in the middle of it.
+   */
+  throughMonth: string;
+  /** 'year' — September to August; 'part' — September to `throughMonth`. */
+  window: 'year' | 'part';
+  /** Months in the window. */
+  windowMonths: number;
+  /**
+   * How many of the window's months have finished by today — what the
+   * measure is taken over. (Kept under its old name: how many of the twelve
+   * when the window is the year.)
+   */
   monthsElapsed: number;
+  /** Every month of the window is over — the numbers are final once all are in. */
+  windowComplete: boolean;
+  /** 50 × counted months, and 560/12 × counted months, rounded. */
+  expectedGoal: number;
+  expectedMinimum: number;
   /**
    * The month currently being collected, if the year is still running.
    *
@@ -113,9 +182,15 @@ const monthsOfServiceYear = (serviceYear: number): string[] => {
 };
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
+const firstOf = (iso: string) => `${iso.slice(0, 7)}-01`;
+
+/** The month of the mid-year review: the window runs September to February. */
+export const MID_YEAR_THROUGH_MONTH = 2;
 
 /**
  * @param today `YYYY-MM-DD` in the congregation's own timezone.
+ * @param opts.through the last month to look at (`YYYY-MM-01`) — February for
+ *   the review in the middle of the year; the whole year when left out.
  */
 export function reviewPioneerYear(
   serviceYear: number,
@@ -124,79 +199,138 @@ export function reviewPioneerYear(
     publisherId: string;
     displayName: string;
     pioneerSince: string | null;
+    /** His regular-pioneer spells; when absent, «since pioneerSince». */
+    spans?: PioneerSpan[];
     months: PioneerMonthHours[];
   }[],
+  opts: { through?: string } = {},
 ): PioneerYearReview {
-  const months = monthsOfServiceYear(serviceYear);
-  const firstMonth = months[0];
-  const lastMonth = months[11];
-  const thisMonth = `${today.slice(0, 7)}-01`;
+  const year = monthsOfServiceYear(serviceYear);
+  const firstMonth = year[0];
+  const lastMonth = year[11];
+  const through =
+    opts.through && opts.through >= firstMonth && opts.through < lastMonth
+      ? firstOf(opts.through)
+      : lastMonth;
+  const months = year.filter((m) => m <= through);
+  const thisMonth = firstOf(today);
 
-  const elapsed = months.filter((m) => m < thisMonth).length;
-  const monthsElapsed = Math.min(12, elapsed);
+  const counted = months.filter((m) => m < thisMonth);
+  const monthsElapsed = counted.length;
+  const windowComplete = monthsElapsed === months.length;
   const collectingMonth =
     thisMonth >= firstMonth && thisMonth <= lastMonth ? thisMonth : null;
+  const goalFor = (n: number) => PIONEER_MONTH_PACE * n;
+  const minimumFor = (n: number) => Math.round((PIONEER_YEAR_MINIMUM * n) / 12);
+  // Months of the whole year still to come after the counted ones — for «по
+  // N в месяц до 560».
+  const yearMonthsLeft = year.filter((m) => m >= thisMonth).length;
 
-  const rows: PioneerYearRow[] = people.map((person) => {
-    const inYear = person.months.filter(
-      (m) => m.reportMonth >= firstMonth && m.reportMonth <= lastMonth,
-    );
-    const hours = inYear.reduce((sum, m) => sum + (m.hours ?? 0), 0);
+  const rows: PioneerYearRow[] = people.flatMap((person) => {
+    const spans: PioneerSpan[] =
+      person.spans && person.spans.length > 0
+        ? person.spans.map((sp) => ({
+            start: firstOf(sp.start),
+            end: sp.end ? firstOf(sp.end) : null,
+          }))
+        : [
+            {
+              start: person.pioneerSince
+                ? firstOf(person.pioneerSince)
+                : firstMonth,
+              end: null,
+            },
+          ];
+    const pioneerIn = (m: string) =>
+      spans.some((sp) => sp.start <= m && (!sp.end || sp.end >= m));
 
-    /**
-     * Какие месяцы года остались без отчёта.
-     *
-     * Считаются только ЗАКОНЧИВШИЕСЯ месяцы и только те, когда он уже был
-     * пионером: месяц, который ещё идёт, никто не обязан был сдать, а месяц до
-     * назначения к нему не относится.
-     */
-    const startFrom =
-      person.pioneerSince && person.pioneerSince > firstMonth
-        ? person.pioneerSince.slice(0, 7) + '-01'
-        : firstMonth;
-    const reportedSet = new Set(
-      inYear.filter((m) => (m.hours ?? 0) > 0).map((m) => m.reportMonth),
+    const byMonth = new Map(
+      person.months
+        .filter((m) => m.reportMonth >= firstMonth && m.reportMonth <= through)
+        .map((m) => [firstOf(m.reportMonth), m]),
     );
-    const missingMonths = months.filter(
-      (m) => m < thisMonth && m >= startFrom && !reportedSet.has(m),
-    );
-    // A month counts as reported when it carries hours — a regular pioneer's
-    // report always does. A month reported with nothing but a note is not a
-    // month of pioneering, and averaging over it would flatter the pace.
-    const monthsReported = inYear.filter((m) => (m.hours ?? 0) > 0).length;
-    const startedMidYear =
-      !!person.pioneerSince && person.pioneerSince > firstMonth;
+    const served = months.filter(pioneerIn);
+    // Not a pioneer in any month of the window — appointed in March, say,
+    // and the window is September to February: he has no place in it.
+    if (served.length === 0) return [];
+    const servedWhole = served.length === months.length;
+    const startedMidYear = !pioneerIn(firstMonth);
+    const lastServed = served[served.length - 1] ?? null;
+    const endedIn =
+      lastServed && lastServed < through && !pioneerIn(through)
+        ? lastServed
+        : null;
 
-    return {
-      publisherId: person.publisherId,
-      displayName: person.displayName,
-      pioneerSince: person.pioneerSince,
-      startedMidYear,
-      hours: round1(hours),
-      monthsReported,
-      pace: monthsReported > 0 ? round1(hours / monthsReported) : null,
-      toGoal: startedMidYear ? null : Math.max(0, PIONEER_YEAR_GOAL - hours),
-      toMinimum: startedMidYear
-        ? null
-        : Math.max(0, PIONEER_YEAR_MINIMUM - hours),
-      missingMonths,
-      // Окончательно — только когда год собран целиком.
-      short:
-        !startedMidYear &&
-        missingMonths.length === 0 &&
-        hours < PIONEER_YEAR_MINIMUM,
-      shortSoFar:
-        !startedMidYear &&
-        missingMonths.length > 0 &&
-        hours < PIONEER_YEAR_MINIMUM,
-      // In the order the year runs, not the order the database happened to
-      // return them: on screen «июнь, июль, сентябрь» reads as a mistake,
-      // because September is the FIRST month of the service year, not the last.
-      notes: inYear
-        .filter((m) => (m.note ?? '').trim() !== '')
-        .sort((x, y) => x.reportMonth.localeCompare(y.reportMonth))
-        .map((m) => ({ reportMonth: m.reportMonth, note: m.note!.trim() })),
-    };
+    const lines: PioneerMonthLine[] = months.map((m) => {
+      const r = byMonth.get(m);
+      const hours = r?.hours ?? null;
+      const state: PioneerMonthState = !pioneerIn(m)
+        ? 'notPioneer'
+        : r && (hours ?? 0) > 0
+          ? 'reported'
+          : r
+            ? 'zero'
+            : m === thisMonth
+              ? 'collecting'
+              : m > thisMonth
+                ? 'upcoming'
+                : 'missing';
+      return {
+        reportMonth: m,
+        state,
+        hours,
+        bibleStudies: r?.bibleStudies ?? null,
+        note: r?.note?.trim() ? r.note.trim() : null,
+      };
+    });
+
+    // Only his pioneer months count: hours from before he was appointed or
+    // after he stopped were a publisher's, not a pioneer's.
+    const mine = lines.filter((l) => l.state !== 'notPioneer');
+    const hours = round1(mine.reduce((sum, l) => sum + (l.hours ?? 0), 0));
+    const monthsReported = mine.filter((l) => l.state === 'reported').length;
+    const missingMonths = mine
+      .filter((l) => l.state === 'missing')
+      .map((l) => l.reportMonth);
+
+    // A measure only for whoever pioneered through the whole window — the
+    // others get what they did and since/until when, no target.
+    const measured = servedWhole && monthsElapsed > 0;
+    const expectedMin = minimumFor(monthsElapsed);
+    const expectedGoal = goalFor(monthsElapsed);
+    const below = measured && hours < expectedMin;
+    const yearOver = thisMonth > lastMonth;
+    const yearLeft =
+      year.every(pioneerIn) && !yearOver
+        ? Math.max(0, PIONEER_YEAR_MINIMUM - hours)
+        : null;
+
+    return [
+      {
+        publisherId: person.publisherId,
+        displayName: person.displayName,
+        pioneerSince: person.pioneerSince,
+        startedMidYear,
+        endedIn,
+        hours,
+        monthsReported,
+        pace: monthsReported > 0 ? round1(hours / monthsReported) : null,
+        toGoal: measured ? Math.max(0, round1(expectedGoal - hours)) : null,
+        toMinimum: measured ? Math.max(0, round1(expectedMin - hours)) : null,
+        yearLeftToMinimum: yearLeft,
+        perMonthToMinimum:
+          yearLeft !== null && yearMonthsLeft > 0
+            ? Math.ceil(yearLeft / yearMonthsLeft)
+            : null,
+        missingMonths,
+        short: below && missingMonths.length === 0,
+        shortSoFar: below && missingMonths.length > 0,
+        notes: lines
+          .filter((l) => l.note !== null && l.state !== 'notPioneer')
+          .map((l) => ({ reportMonth: l.reportMonth, note: l.note as string })),
+        months: lines,
+      },
+    ];
   });
 
   /**
@@ -219,8 +353,50 @@ export function reviewPioneerYear(
     serviceYear,
     firstMonth,
     lastMonth,
+    throughMonth: through,
+    window: through === lastMonth ? 'year' : 'part',
+    windowMonths: months.length,
     monthsElapsed,
+    windowComplete,
+    expectedGoal: goalFor(monthsElapsed),
+    expectedMinimum: minimumFor(monthsElapsed),
     collectingMonth,
     rows,
+  };
+}
+
+/**
+ * Which year and which window the review opens on when the link names none
+ * (28 September).
+ *
+ * The YEAR. From 1 September the running year is a new one with no reports
+ * in it — opened then, every pioneer stood at zero, and the list was a list
+ * of false alarms. The year that ended is what the brothers look at while
+ * August is handed in (the review task runs 20 August – 20 September), and
+ * the new year has its first month only once September's reports are due on
+ * the 20th of October. So until 20 October the ended year opens.
+ *
+ * The WINDOW. The review in the middle of the year (the task from 15
+ * February) looks at September to February; it is read until the February
+ * reports are in, in March. From 1 February to 30 April the running year
+ * opens on that window; otherwise on the whole year.
+ *
+ * Either is only the first view: the screen switches both.
+ */
+export function pioneerReviewDefaults(
+  today: string,
+  year?: number,
+  window?: 'half' | 'year',
+): { serviceYear: number; window: 'half' | 'year' } {
+  const y = Number(today.slice(0, 4));
+  const m = Number(today.slice(5, 7));
+  const d = Number(today.slice(8, 10));
+  const running = m >= 9 ? y + 1 : y;
+  const inAutumnGrace = m === 9 || (m === 10 && d <= 20);
+  const serviceYear = year ?? (inAutumnGrace ? running - 1 : running);
+  const midYearSeason = serviceYear === running && m >= 2 && m <= 4;
+  return {
+    serviceYear,
+    window: window ?? (midYearSeason ? 'half' : 'year'),
   };
 }
