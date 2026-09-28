@@ -370,6 +370,7 @@ describe('ServiceReportsService', () => {
         reportId: null,
         closesOn: null,
         daysLeft: null,
+        closed: false,
       });
     });
 
@@ -412,6 +413,7 @@ describe('ServiceReportsService', () => {
         // the rule, and it is answered here so the app never counts it twice.
         closesOn: '2026-05-19',
         daysLeft: 4,
+        closed: false,
       });
     });
 
@@ -428,6 +430,26 @@ describe('ServiceReportsService', () => {
         reportId: 'r-april',
         closesOn: '2026-05-19',
         daysLeft: 4,
+        closed: false,
+      });
+    });
+
+    it('past the deadline a missing report is still owed — until the secretary closes the month', async () => {
+      // 28 May: April's last day was the 19th. Nothing closed it yet, so the
+      // report is still taken (submitOwnReport refuses only a closed month).
+      jest.setSystemTime(new Date('2026-05-28T09:00:00'));
+      publishersRepo.findOne.mockResolvedValue(makePublisher());
+      reportsRepo.findOne.mockResolvedValue(null);
+      closuresRepo.count.mockResolvedValue(0);
+      const open = await service.myReportStanding('cong-1', user);
+      expect(open.daysLeft).toBeLessThan(0);
+      expect(open.closed).toBe(false);
+
+      closuresRepo.count.mockResolvedValue(1);
+      const closed = await service.myReportStanding('cong-1', user);
+      expect(closed.closed).toBe(true);
+      expect(closuresRepo.count).toHaveBeenLastCalledWith({
+        where: { congregationId: 'cong-1', reportMonth: '2026-04-01' },
       });
     });
 

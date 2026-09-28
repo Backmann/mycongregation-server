@@ -76,6 +76,15 @@ export interface MyReportStanding {
   closesOn: string | null;
   /** Days from today to `closesOn` inclusive; 0 on the last day itself. */
   daysLeft: number | null;
+  /**
+   * The secretary has closed the month (28 September). Only then is a report
+   * refused — past `closesOn` a missing one is still taken (submitOwnReport
+   * asks the same question), only a filed one can no longer be corrected.
+   * The Reports screen used to judge «closed» by the date alone and said
+   * «обратитесь к секретарю» while the Home screen, rightly, still said
+   * «Сдать отчёт за август».
+   */
+  closed: boolean;
 }
 
 export interface GroupReportsResponse {
@@ -761,6 +770,7 @@ export class ServiceReportsService {
       reportId: null,
       closesOn: null,
       daysLeft: null,
+      closed: false,
     };
 
     const publisher = await this.publishersRepo.findOne({
@@ -799,6 +809,7 @@ export class ServiceReportsService {
       reportId: report?.id ?? null,
       closesOn,
       daysLeft: daysBetween(today, closesOn),
+      closed: await this.isMonthClosed(tenantId, reportMonth),
     };
   }
 
@@ -1765,7 +1776,7 @@ export class ServiceReportsService {
       // A month is past its deadline exactly when it has closed — one piece
       // of arithmetic, asked twice, rather than two that can disagree.
       pastDeadline: reportMonth <= lastClosed,
-      closed: await this.isMonthClosed(tenantId, reportMonth),
+      closed: false,
     };
   }
 
