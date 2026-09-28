@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { PublicTalksService } from './public-talks.service';
+import { RestrictedScheduleService } from './restricted-schedule.service';
 import { CreatePublicTalkDto } from './dto/create-public-talk.dto';
 import { UpdatePublicTalkDto } from './dto/update-public-talk.dto';
 import { BulkImportDto } from './dto/bulk-import.dto';
@@ -27,7 +28,10 @@ import { UserRole } from '../common/enums/user-role.enum';
 
 @Controller('public-talks')
 export class PublicTalksController {
-  constructor(private readonly service: PublicTalksService) {}
+  constructor(
+    private readonly service: PublicTalksService,
+    private readonly restricted: RestrictedScheduleService,
+  ) {}
 
   @Get()
   list(
@@ -79,6 +83,15 @@ export class PublicTalksController {
       dto.numbers ?? numbers,
       dto.from,
     );
+  }
+
+  /**
+   * Talks no longer given that are still promised from today on — in the
+   * programme or in either direction of the log. Read-only.
+   */
+  @Get('restricted-scheduled')
+  restrictedScheduled(@TenantId() congregationId: string) {
+    return this.restricted.find(congregationId);
   }
 
   /** Every decision about the catalogue, newest first. */

@@ -503,7 +503,7 @@ export class PublicTalksService {
    * would have gone and given a talk that is no longer used, and nothing here
    * would have said a word.
    */
-  private async scheduledAfter(
+  async scheduledAfter(
     congregationId: string,
     talkIds: string[],
     from: string,
