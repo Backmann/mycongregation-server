@@ -13,8 +13,12 @@ import { addDaysISO } from '../common/week-rules';
  * replaces.
  */
 
-/** How far ahead the programme line looks, in weeks. */
-export const PROGRAMME_WINDOW_WEEKS = 8;
+/**
+ * How far ahead the programme line looks, in weeks — this week and the next
+ * three. Four is the horizon every brother should be able to see his part in
+ * (Lionel, 28 September); eight made a line nobody could act on this week.
+ */
+export const PROGRAMME_WINDOW_WEEKS = 4;
 
 export interface ProgrammeSummary {
   windowWeeks: number;

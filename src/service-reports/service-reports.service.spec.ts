@@ -2825,6 +2825,25 @@ describe('ServiceReportsService', () => {
       expect(result.pastDeadline).toBe(true);
     });
 
+    it('says whether the secretary has closed the month being collected', async () => {
+      setNow(Date.UTC(2026, 8, 28, 9, 0, 0)); // 28 September — August's reports
+      publishersRepo.findOne.mockResolvedValue(null as any);
+      publishersRepo.find.mockResolvedValue(scopePublishers as any);
+      reportsRepo.find.mockResolvedValue([] as any);
+
+      closuresRepo.count.mockResolvedValue(0);
+      expect((await service.getReportCollection('cong-1', admin)).closed).toBe(
+        false,
+      );
+
+      closuresRepo.count.mockResolvedValue(1);
+      const result = await service.getReportCollection('cong-1', admin);
+      expect(result.closed).toBe(true);
+      expect(closuresRepo.count).toHaveBeenLastCalledWith({
+        where: { congregationId: 'cong-1', reportMonth: '2026-08-01' },
+      });
+    });
+
     it('counts only his own groups for a group overseer', async () => {
       setNow(Date.UTC(2026, 7, 3, 9, 0, 0));
       publishersRepo.findOne.mockResolvedValue({ id: 'pub-o' } as any);

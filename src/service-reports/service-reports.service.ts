@@ -1781,7 +1781,10 @@ export class ServiceReportsService {
       // A month is past its deadline exactly when it has closed — one piece
       // of arithmetic, asked twice, rather than two that can disagree.
       pastDeadline: reportMonth <= lastClosed,
-      closed: false,
+      // The card goes quiet once the secretary closes the month (28
+      // September: «сдали все 86 · можно закрыть» stood on Home a month after
+      // it was closed, because this read `false`).
+      closed: await this.isMonthClosed(tenantId, reportMonth),
     };
   }
 

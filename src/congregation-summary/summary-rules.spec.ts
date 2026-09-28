@@ -52,7 +52,7 @@ describe('programmeSummary', () => {
   it('counts the loaded meetings still short of a person, from today on', () => {
     // 23 September has passed: its missing parts no longer count.
     expect(programmeSummary(WEEKS, '2026-09-27')).toEqual({
-      windowWeeks: 8,
+      windowWeeks: 4,
       notReady: 2,
       loadedUntil: '2026-10-18',
     });
@@ -63,7 +63,7 @@ describe('programmeSummary', () => {
       { weekStart: '2026-10-12', meetings: [WEEKS[3].meetings[0]] },
     ];
     expect(programmeSummary(only, '2026-09-27')).toEqual({
-      windowWeeks: 8,
+      windowWeeks: 4,
       notReady: 0,
       loadedUntil: null,
     });

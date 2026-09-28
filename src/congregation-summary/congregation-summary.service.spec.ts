@@ -34,9 +34,10 @@ function build(opts: {
       ]),
   });
   const publishers = repo({ count: jest.fn().mockResolvedValue(88) });
+  const readiness = { forRange: jest.fn().mockResolvedValue([]) };
   const service = new CongregationSummaryService(
     { todayFor: jest.fn().mockResolvedValue('2026-09-27') } as never,
-    { forRange: jest.fn().mockResolvedValue([]) } as never,
+    readiness as never,
     {
       findAll: jest.fn().mockResolvedValue([]),
       readsAll: jest.fn().mockResolvedValue(!!opts.readsAll),
@@ -61,7 +62,7 @@ function build(opts: {
     repo() as never,
     repo() as never,
   );
-  return { service, tasks, publishers };
+  return { service, tasks, publishers, readiness };
 }
 
 describe('CongregationSummaryService — who is told what', () => {
@@ -96,11 +97,23 @@ describe('CongregationSummaryService — who is told what', () => {
     const { service } = build({ responsibilities: 1 });
     const s = await service.forUser(TENANT, user(UserRole.MINISTERIAL_SERVANT));
     expect(s.programme).toEqual({
-      windowWeeks: 8,
+      windowWeeks: 4,
       notReady: 0,
       loadedUntil: null,
     });
     expect(s.tasks).toBeUndefined();
+  });
+
+  it('the programme line looks four weeks ahead: this week and the next three', async () => {
+    const { service, readiness } = build({ responsibilities: 1 });
+    await service.forUser(TENANT, user(UserRole.MINISTERIAL_SERVANT));
+    // Today is Sunday 27 September: its week began on the 21st, and the
+    // range ends before Monday 19 October.
+    expect(readiness.forRange).toHaveBeenCalledWith(
+      TENANT,
+      '2026-09-21',
+      '2026-10-19',
+    );
   });
 
   it('an admin gets every line', async () => {
