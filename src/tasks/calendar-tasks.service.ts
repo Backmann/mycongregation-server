@@ -95,13 +95,20 @@ export function plansDueBy(today: Date): CalendarTaskPlan[] {
   const stillDue = (m: number, d: number) =>
     month < m || (month === m && day <= d);
 
-  // Review of the pioneers' ministry — appears mid-February, due 1 March.
-  if (reached(2, 15) && stillDue(3, 1)) {
+  /**
+   * Обзор служения пионеров за полгода (сентябрь – февраль) — с 15 февраля
+   * по 15 марта.
+   *
+   * Срок был 1 марта, но февральские отчёты сдают до 20 марта, и к 1-му
+   * обзор видел только сентябрь – январь. Решение Лионеля 28 сентября: окно с
+   * 15 февраля по 15 марта; экран сам говорит, что февраль ещё собирается.
+   */
+  if (reached(2, 15) && stillDue(3, 15)) {
     out.push({
       kind: 'pioneer_service_review',
       period: String(year),
       appears: { month: 2, day: 15 },
-      due: { month: 3, day: 1 },
+      due: { month: 3, day: 15 },
       area: 'ministry',
       assigneeKind: 'people',
     });

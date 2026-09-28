@@ -146,9 +146,11 @@ describe('reviewPioneerYear', () => {
     expect(review.rows[0].pace).toBe(50);
   });
 
-  it('sets no target for somebody who started pioneering mid-year', () => {
-    // He was not a pioneer for twelve months. Measuring him against 600 would
-    // report a shortfall he could not have avoided.
+  it('measures somebody who started mid-year pro rata to his months', () => {
+    // 28 September, Lionel: «если он служит не с начала служебного года, а
+    // позже, время считается пропорционально месяцам». Until then he had no
+    // measure at all; against 600 he would have been accused of the months
+    // before his appointment.
     const review = reviewPioneerYear(2026, '2026-08-20', [
       person({
         pioneerSince: '2026-03-01',
@@ -162,11 +164,42 @@ describe('reviewPioneerYear', () => {
 
     const row = review.rows[0];
     expect(row.startedMidYear).toBe(true);
-    expect(row.toGoal).toBeNull();
-    expect(row.toMinimum).toBeNull();
-    expect(row.short).toBe(false);
     expect(row.hours).toBe(155);
     expect(row.pace).toBe(51.7);
+    // March–July are over: 5 of his months → 560 × 5/12 ≈ 233, 50 × 5 = 250.
+    expect(row.countedMonths).toBe(5);
+    expect(row.expectedMinimum).toBe(233);
+    expect(row.expectedGoal).toBe(250);
+    expect(row.toMinimum).toBe(78);
+    // June and July have no report: not final yet.
+    expect(row.short).toBe(false);
+    expect(row.shortSoFar).toBe(true);
+    // His year is March–August: 280, and August is still his to serve.
+    expect(row.yearMinimum).toBe(280);
+    expect(row.yearLeftToMinimum).toBe(125);
+    expect(row.perMonthToMinimum).toBe(125);
+  });
+
+  it('a pioneer from March, all reports in, below his own measure', () => {
+    const review = reviewPioneerYear(2026, '2026-09-10', [
+      person({
+        pioneerSince: '2026-03-01',
+        months: months({
+          '2026-03-01': 40,
+          '2026-04-01': 40,
+          '2026-05-01': 40,
+          '2026-06-01': 40,
+          '2026-07-01': 40,
+          '2026-08-01': 40,
+        }),
+      }),
+    ]);
+    const row = review.rows[0];
+    // 6 months: 280 needed, 240 done — final, and pro rata.
+    expect(row.expectedMinimum).toBe(280);
+    expect(row.toMinimum).toBe(40);
+    expect(row.short).toBe(true);
+    expect(row.yearLeftToMinimum).toBeNull();
   });
 
   it('не обвиняет того, чей отчёт ещё не сдан', async () => {
@@ -402,8 +435,12 @@ describe('reviewPioneerYear', () => {
     const row = review.rows[0];
     expect(row.endedIn).toBe('2025-12-01');
     expect(row.missingMonths).toEqual([]);
-    expect(row.toMinimum).toBeNull();
+    // Pro rata to his four months: 560 × 4/12 ≈ 187 — met.
+    expect(row.countedMonths).toBe(4);
+    expect(row.expectedMinimum).toBe(187);
+    expect(row.toMinimum).toBe(0);
     expect(row.short).toBe(false);
+    expect(row.yearLeftToMinimum).toBeNull();
     // January was a publisher's report, not a pioneer's.
     expect(row.hours).toBe(200);
     expect(row.months[4].state).toBe('notPioneer');

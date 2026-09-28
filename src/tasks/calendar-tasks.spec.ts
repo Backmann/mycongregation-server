@@ -11,7 +11,7 @@ describe('plansDueBy', () => {
     expect(plansDueBy(on('2026-01-20'))).toEqual([]);
   });
 
-  it('offers the pioneers review from mid-February, due 1 March', () => {
+  it('offers the pioneers review from 15 February, due 15 March', () => {
     expect(plansDueBy(on('2026-02-14'))).toEqual([]);
 
     const plan = plansDueBy(on('2026-02-15')).find(
@@ -19,9 +19,20 @@ describe('plansDueBy', () => {
     );
     expect(plan).toMatchObject({
       period: '2026',
-      due: { month: 3, day: 1 },
+      due: { month: 3, day: 15 },
       assigneeKind: 'people',
     });
+    // Still on the list on the 15th (Lionel, 28 September), gone on the 16th.
+    expect(
+      plansDueBy(on('2026-03-15')).some(
+        (p) => p.kind === 'pioneer_service_review',
+      ),
+    ).toBe(true);
+    expect(
+      plansDueBy(on('2026-03-16')).some(
+        (p) => p.kind === 'pioneer_service_review',
+      ),
+    ).toBe(false);
   });
 
   it('offers the service-year review on 20 August, due 20 September', () => {

@@ -73,17 +73,16 @@ export interface PioneerYearRow {
   /**
    * True when the pioneering began after the service year did.
    *
-   * Then the year's numbers do not apply to him: he was not a pioneer for
-   * twelve months, and comparing him with 600 would accuse him of a shortfall
-   * he could not have avoided. The screen shows what he did and says since
-   * when — no target, no highlight.
+   * Comparing him with 600 would accuse him of a shortfall he could not have
+   * avoided; since 28 September he is measured pro rata to his months
+   * (Lionel's rule), not left without a measure.
    */
   startedMidYear: boolean;
   /**
    * His pioneering ended before the window did — the last month he served,
-   * or null. The same reasoning as `startedMidYear`: the months after it are
-   * not his to answer for, and until 28 September they were counted as
-   * missing and measured against the whole year.
+   * or null. The months after it are not his to answer for: until 28
+   * September they were counted as missing and measured against the whole
+   * year. Measured pro rata, like `startedMidYear`.
    */
   endedIn: string | null;
   /** Hours reported in the window, in the months he was a pioneer. */
@@ -100,8 +99,8 @@ export interface PioneerYearRow {
   pace: number | null;
   /**
    * How far from the goal FOR THE MONTHS COUNTED — 50 a month. Over a whole
-   * finished year that is 600; in February it is 50 × the months that are in.
-   * Null when the window does not apply to him.
+   * finished year that is 600; in February it is 50 × the months that are in;
+   * for a pioneer of part of the year, 50 × HIS months. Null before any.
    */
   toGoal: number | null;
   /** The same for the minimum that lets him carry on (560 a year, pro rata). */
@@ -112,6 +111,13 @@ export interface PioneerYearRow {
    * Null once the year is over, or when the year does not apply to him.
    */
   yearLeftToMinimum: number | null;
+  /** 560 for a pioneer of the whole year; pro rata to his months otherwise. */
+  yearMinimum: number;
+  /** His months of the window that are over — what his measure is taken over. */
+  countedMonths: number;
+  /** His own measure: 560/12 and 50 × his counted months; null when none. */
+  expectedMinimum: number | null;
+  expectedGoal: number | null;
   perMonthToMinimum: number | null;
   /**
    * Месяцы окна, за которые от него НЕТ отчёта (законченные, в пору его
@@ -222,9 +228,6 @@ export function reviewPioneerYear(
     thisMonth >= firstMonth && thisMonth <= lastMonth ? thisMonth : null;
   const goalFor = (n: number) => PIONEER_MONTH_PACE * n;
   const minimumFor = (n: number) => Math.round((PIONEER_YEAR_MINIMUM * n) / 12);
-  // Months of the whole year still to come after the counted ones — for «по
-  // N в месяц до 560».
-  const yearMonthsLeft = year.filter((m) => m >= thisMonth).length;
 
   const rows: PioneerYearRow[] = people.flatMap((person) => {
     const spans: PioneerSpan[] =
@@ -253,7 +256,6 @@ export function reviewPioneerYear(
     // Not a pioneer in any month of the window — appointed in March, say,
     // and the window is September to February: he has no place in it.
     if (served.length === 0) return [];
-    const servedWhole = served.length === months.length;
     const startedMidYear = !pioneerIn(firstMonth);
     const lastServed = served[served.length - 1] ?? null;
     const endedIn =
@@ -293,16 +295,27 @@ export function reviewPioneerYear(
       .filter((l) => l.state === 'missing')
       .map((l) => l.reportMonth);
 
-    // A measure only for whoever pioneered through the whole window — the
-    // others get what they did and since/until when, no target.
-    const measured = servedWhole && monthsElapsed > 0;
-    const expectedMin = minimumFor(monthsElapsed);
-    const expectedGoal = goalFor(monthsElapsed);
+    /**
+     * The measure, pro rata to the months he was a pioneer (28 September,
+     * Lionel: «если он служит не с начала служебного года, а позже, время
+     * считается пропорционально месяцам»). For a pioneer of the whole window
+     * this is the window's own measure; for one appointed in March or who
+     * stopped in December, the months of the window that are over AND were his.
+     * Until then such a man had no measure at all.
+     */
+    const countedMine = mine.filter((l) => l.reportMonth < thisMonth).length;
+    const measured = countedMine > 0;
+    const expectedMin = minimumFor(countedMine);
+    const expectedGoal = goalFor(countedMine);
     const below = measured && hours < expectedMin;
+    // For the whole year: 560 × (his months of the year) / 12, and what is
+    // left of it over his months still to come. None once he has stopped.
     const yearOver = thisMonth > lastMonth;
+    const hisYear = year.filter(pioneerIn);
+    const hisMonthsLeft = hisYear.filter((m) => m >= thisMonth).length;
     const yearLeft =
-      year.every(pioneerIn) && !yearOver
-        ? Math.max(0, PIONEER_YEAR_MINIMUM - hours)
+      !yearOver && hisMonthsLeft > 0
+        ? Math.max(0, minimumFor(hisYear.length) - hours)
         : null;
 
     return [
@@ -319,9 +332,11 @@ export function reviewPioneerYear(
         toMinimum: measured ? Math.max(0, round1(expectedMin - hours)) : null,
         yearLeftToMinimum: yearLeft,
         perMonthToMinimum:
-          yearLeft !== null && yearMonthsLeft > 0
-            ? Math.ceil(yearLeft / yearMonthsLeft)
-            : null,
+          yearLeft !== null ? Math.ceil(yearLeft / hisMonthsLeft) : null,
+        yearMinimum: minimumFor(hisYear.length),
+        countedMonths: countedMine,
+        expectedMinimum: measured ? expectedMin : null,
+        expectedGoal: measured ? expectedGoal : null,
         missingMonths,
         short: below && missingMonths.length === 0,
         shortSoFar: below && missingMonths.length > 0,
