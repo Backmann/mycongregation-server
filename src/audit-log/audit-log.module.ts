@@ -9,6 +9,8 @@ import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
+import { ExternalCongregation } from '../entities/external-congregation.entity';
+import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { AuditLogService } from './audit-log.service';
 import { JournalService } from './journal.service';
 import { JournalController } from './journal.controller';
@@ -26,6 +28,8 @@ import { JournalController } from './journal.controller';
       FieldServiceMeeting,
       PublicTalk,
       ServiceGroup,
+      ExternalCongregation,
+      VisitingSpeaker,
     ]),
   ],
   controllers: [JournalController],

@@ -92,6 +92,17 @@ export class ActivityFeedService {
       ? await this.userRepo.findBy({ id: In(userIds) })
       : [];
     const userMap = new Map(users.map((u) => [u.id, u]));
+    // Who did it, by the name the congregation knows him by — the card linked
+    // to his account — and only then by his login (28 September: the feed
+    // read «vil.natalya updated Виль Наталья»).
+    const actorCards = userIds.length
+      ? await this.publisherRepo.findBy({ congregationId, userId: In(userIds) })
+      : [];
+    const actorNameByUser = new Map(
+      actorCards
+        .filter((p) => p.userId)
+        .map((p) => [p.userId as string, p.displayName]),
+    );
 
     // Batch enrich publisher & report targets
     const directPubIds = pageRows
@@ -114,7 +125,7 @@ export class ActivityFeedService {
     const pubMap = new Map(publishers.map((p) => [p.id, p]));
 
     const items = pageRows.map((row) =>
-      this.buildEntry(row, userMap, pubMap, reportMap),
+      this.buildEntry(row, userMap, pubMap, reportMap, actorNameByUser),
     );
     const nextCursor = hasMore
       ? pageRows[pageRows.length - 1].createdAt.toISOString()
@@ -128,11 +139,14 @@ export class ActivityFeedService {
     userMap: Map<string, User>,
     pubMap: Map<string, Publisher>,
     reportMap: Map<string, ServiceReport>,
+    actorNameByUser: Map<string, string> = new Map(),
   ): ActivityFeedEntry {
     // A system change has no actor by design — say so rather than showing it
     // as an unknown person, which reads like a fault.
     const actor = row.actorUserId ? userMap.get(row.actorUserId) : undefined;
-    const actorName = formatUserName(actor);
+    const actorName =
+      (row.actorUserId ? actorNameByUser.get(row.actorUserId) : undefined) ??
+      formatUserName(actor);
     const actorLabel =
       actorName ?? (row.source === 'system' ? '(system)' : '(unknown actor)');
     const before = parseJson(row.beforeJson);
@@ -141,7 +155,8 @@ export class ActivityFeedService {
 
     if (row.entityType === 'publisher') {
       const publisher = pubMap.get(row.entityId) as any;
-      const publisherName = publisher?.displayName ?? '(deleted publisher)';
+      const knownName: string | undefined = publisher?.displayName;
+      const publisherName = knownName ?? '(deleted publisher)';
 
       const beforeOverride = before?.statusManuallyOverridden === true;
       const afterOverride = after?.statusManuallyOverridden === true;
@@ -157,7 +172,7 @@ export class ActivityFeedService {
           targetType: 'publisher',
           targetId: row.entityId,
           summary: `${actorLabel} manually set ${publisherName}'s status to ${afterStatus ?? 'unknown'}`,
-          publisherName,
+          publisherName: knownName,
           oldStatus: beforeStatus,
           newStatus: afterStatus,
         };
@@ -172,7 +187,7 @@ export class ActivityFeedService {
           targetType: 'publisher',
           targetId: row.entityId,
           summary: `${actorLabel} cleared status override for ${publisherName}`,
-          publisherName,
+          publisherName: knownName,
         };
       }
 
@@ -189,7 +204,7 @@ export class ActivityFeedService {
           targetType: 'publisher',
           targetId: row.entityId,
           summary: `${publisherName}'s status changed from ${beforeStatus} to ${afterStatus}`,
-          publisherName,
+          publisherName: knownName,
           oldStatus: beforeStatus,
           newStatus: afterStatus,
         };
@@ -203,14 +218,15 @@ export class ActivityFeedService {
         targetType: 'publisher',
         targetId: row.entityId,
         summary: `${actorLabel} updated ${publisherName}`,
-        publisherName,
+        publisherName: knownName,
       };
     }
 
     if (row.entityType === 'service_report') {
       const report = reportMap.get(row.entityId);
       const publisher = report ? (pubMap.get(report.publisherId) as any) : null;
-      const publisherName = publisher?.displayName ?? '(unknown publisher)';
+      const knownName: string | undefined = publisher?.displayName;
+      const publisherName = knownName ?? '(unknown publisher)';
       const reportMonth =
         report?.reportMonth ??
         after?.reportMonth ??
@@ -229,7 +245,7 @@ export class ActivityFeedService {
           targetType: 'service_report',
           targetId: row.entityId,
           summary: `${publisherName} submitted ${monthLabel} report`,
-          publisherName,
+          publisherName: knownName,
           reportMonth: reportMonth ?? undefined,
         };
       }
@@ -242,7 +258,7 @@ export class ActivityFeedService {
         targetType: 'service_report',
         targetId: row.entityId,
         summary: `${actorLabel} updated ${publisherName}'s ${monthLabel} report`,
-        publisherName,
+        publisherName: knownName,
         reportMonth: reportMonth ?? undefined,
       };
     }

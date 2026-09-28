@@ -10,6 +10,8 @@ import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
+import { ExternalCongregation } from '../entities/external-congregation.entity';
+import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { isRevertable } from '../audit-revert/revertable';
 
 export interface JournalPerson {
@@ -126,6 +128,10 @@ export class JournalService {
     private readonly publicTalksRepo: Repository<PublicTalk>,
     @InjectRepository(ServiceGroup)
     private readonly serviceGroupsRepo: Repository<ServiceGroup>,
+    @InjectRepository(ExternalCongregation)
+    private readonly externalCongregationsRepo: Repository<ExternalCongregation>,
+    @InjectRepository(VisitingSpeaker)
+    private readonly visitingSpeakersRepo: Repository<VisitingSpeaker>,
   ) {}
 
   async find(tenantId: string, filters: JournalFilters): Promise<JournalPage> {
@@ -332,23 +338,45 @@ export class JournalService {
     // printing the bare uuid — «пусто → 4bc48ac6-…», which tells a reader
     // nothing at all. One more lookup in the same place, so every screen that
     // reads this dictionary gains the name at once.
-    const [byId, byUserId, users, groups] = await Promise.all([
-      this.publishersRepo.find({
-        where: { congregationId: tenantId, id: In(wanted) },
-      }),
-      this.publishersRepo.find({
-        where: { congregationId: tenantId, userId: In(wanted) },
-      }),
-      this.usersRepo.find({
-        where: { congregationId: tenantId, id: In(wanted) },
-      }),
-      this.serviceGroupsRepo.find({
-        where: { congregationId: tenantId, id: In(wanted) },
-      }),
-    ]);
+    // A visiting speaker and the congregation he comes from hide there too:
+    // the Android pass of 28 September found «Собрание: 3f0c…» under a
+    // public talk given by a guest.
+    const [byId, byUserId, users, groups, congregations, speakers] =
+      await Promise.all([
+        this.publishersRepo.find({
+          where: { congregationId: tenantId, id: In(wanted) },
+        }),
+        this.publishersRepo.find({
+          where: { congregationId: tenantId, userId: In(wanted) },
+        }),
+        this.usersRepo.find({
+          where: { congregationId: tenantId, id: In(wanted) },
+        }),
+        this.serviceGroupsRepo.find({
+          where: { congregationId: tenantId, id: In(wanted) },
+        }),
+        this.externalCongregationsRepo.find({
+          where: { congregationId: tenantId, id: In(wanted) },
+          withDeleted: true,
+        }),
+        this.visitingSpeakersRepo.find({
+          where: { congregationId: tenantId, id: In(wanted) },
+          withDeleted: true,
+        }),
+      ]);
 
     const names = new Map<string, string>();
     for (const g of groups) names.set(g.id, g.name);
+    for (const c of congregations) {
+      names.set(
+        c.id,
+        c.city && !c.name.includes(c.city) ? `${c.name} (${c.city})` : c.name,
+      );
+    }
+    for (const v of speakers) {
+      const name = [v.lastName, v.firstName].filter(Boolean).join(' ').trim();
+      if (name) names.set(v.id, name);
+    }
     for (const t of talks) names.set(t.id, `№${t.number}. ${t.title}`);
     const fullName = (p: Publisher) =>
       [p.lastName, p.firstName].filter(Boolean).join(' ').trim();

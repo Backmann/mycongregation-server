@@ -9,6 +9,8 @@ import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { User } from '../entities/user.entity';
+import { ExternalCongregation } from '../entities/external-congregation.entity';
+import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { JournalService } from './journal.service';
 
 const row = (over: Partial<AuditLog> = {}): AuditLog =>
@@ -40,6 +42,8 @@ describe('JournalService', () => {
   let fieldServiceRepo: { find: jest.Mock };
   let publicTalksRepo: { find: jest.Mock };
   let serviceGroupsRepo: { find: jest.Mock };
+  let externalCongregationsRepo: { find: jest.Mock };
+  let visitingSpeakersRepo: { find: jest.Mock };
 
   beforeEach(async () => {
     auditRepo = { find: jest.fn().mockResolvedValue([]) };
@@ -51,6 +55,8 @@ describe('JournalService', () => {
     fieldServiceRepo = { find: jest.fn().mockResolvedValue([]) };
     publicTalksRepo = { find: jest.fn().mockResolvedValue([]) };
     serviceGroupsRepo = { find: jest.fn().mockResolvedValue([]) };
+    externalCongregationsRepo = { find: jest.fn().mockResolvedValue([]) };
+    visitingSpeakersRepo = { find: jest.fn().mockResolvedValue([]) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -72,6 +78,14 @@ describe('JournalService', () => {
         {
           provide: getRepositoryToken(ServiceGroup),
           useValue: serviceGroupsRepo,
+        },
+        {
+          provide: getRepositoryToken(ExternalCongregation),
+          useValue: externalCongregationsRepo,
+        },
+        {
+          provide: getRepositoryToken(VisitingSpeaker),
+          useValue: visitingSpeakersRepo,
         },
       ],
     }).compile();
@@ -236,6 +250,33 @@ describe('JournalService', () => {
     // screen can render "Сидоров Пётр → Ковалёв Андрей".
     expect(page.names[wasId]).toBe('Сидоров Пётр');
     expect(page.names[nowId]).toBe('Ковалёв Андрей');
+  });
+
+  it('names a guest speaker and his congregation, within this congregation', async () => {
+    const speakerId = '33333333-3333-3333-3333-333333333333';
+    const congId = '44444444-4444-4444-4444-444444444444';
+    auditRepo.find.mockResolvedValue([
+      row({
+        entityType: 'assignment',
+        changedFields: ['visitingSpeakerId', 'externalCongregationId'],
+        afterJson: `{"visitingSpeakerId":"${speakerId}","externalCongregationId":"${congId}"}`,
+      }),
+    ]);
+    visitingSpeakersRepo.find.mockResolvedValue([
+      { id: speakerId, firstName: 'Павел', lastName: 'Гость' },
+    ]);
+    externalCongregationsRepo.find.mockResolvedValue([
+      { id: congId, name: 'Bielefeld-Russisch', city: 'Bielefeld' },
+    ]);
+
+    const page = await service.find('cong-1', {});
+
+    expect(page.names[speakerId]).toBe('Гость Павел');
+    // The city is already in the name — not said twice.
+    expect(page.names[congId]).toBe('Bielefeld-Russisch');
+    for (const repo of [visitingSpeakersRepo, externalCongregationsRepo]) {
+      expect(repo.find.mock.calls[0][0].where.congregationId).toBe('cong-1');
+    }
   });
 
   it('survives nonsense in the before side as well', async () => {

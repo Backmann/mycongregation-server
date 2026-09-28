@@ -186,7 +186,35 @@ describe('ActivityFeedService', () => {
     publisherRepo.findBy.mockResolvedValue([]); // publisher deleted
 
     const result = await service.findFeed('cong-1', {});
-    expect(result.items[0].publisherName).toBe('(deleted publisher)');
+    // The English sentence still says so; the name field stays empty, so the
+    // app says «удалённая карточка» in the reader's language.
+    expect(result.items[0].summary).toContain('(deleted publisher)');
+    expect(result.items[0].publisherName).toBeUndefined();
+  });
+
+  it('names the actor by his publisher card, not by his login', async () => {
+    auditRepo.find.mockResolvedValue([
+      makeAuditLog({
+        beforeJson: JSON.stringify({ status: 'inactive' }),
+        afterJson: JSON.stringify({ status: 'active' }),
+      }),
+    ]);
+    userRepo.findBy.mockResolvedValue([
+      { id: 'user-1', loginName: 'vil.natalya' },
+    ]);
+    publisherRepo.findBy.mockImplementation(async (where: any) =>
+      'userId' in where
+        ? [{ id: 'pub-9', userId: 'user-1', displayName: 'Виль Наталья' }]
+        : [{ id: 'pub-1', displayName: 'Иванов Иван' }],
+    );
+
+    const result = await service.findFeed('cong-1', {});
+    expect(result.items[0].actorName).toBe('Виль Наталья');
+    expect(result.items[0].publisherName).toBe('Иванов Иван');
+    // Only cards of this congregation may lend a name.
+    expect(publisherRepo.findBy).toHaveBeenCalledWith(
+      expect.objectContaining({ congregationId: 'cong-1' }),
+    );
   });
 
   it('clamps limit to max 100', async () => {
