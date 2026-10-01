@@ -65,7 +65,11 @@ export type TaskKind =
   // Not from the calendar like the three above: raised when a group has gone
   // a service year without a visit, and lowered when one is planned. Lives in
   // field-service-meetings, the module that knows what a visit is.
-  | 'service_overseer_visits';
+  | 'service_overseer_visits'
+  // Raised on 1 September by the annual report: «save what was sent to the
+  // branch». Closes itself when it is saved; due 20 October, when the app
+  // freezes its own figures if nobody has. Lives in annual-report.
+  | 'annual_report_sent';
 
 @Entity('elder_tasks')
 @Index(['congregationId', 'status'])

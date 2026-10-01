@@ -65,6 +65,28 @@ describe('reportsAsOf — the reports as they stood on a past day', () => {
     expect(out.late.map((f) => f.kind)).toEqual(['report_changed']);
   });
 
+  it('undoes a later correction to the studies — the monthly sheet reads them', () => {
+    const out = reportsAsOf(
+      [
+        row('r1', 'p1', '2026-08', '2026-09-02T08:00:00Z', {
+          bibleStudies: 5,
+        }),
+      ],
+      [
+        {
+          entityId: 'r1',
+          action: 'UPDATE',
+          at: new Date('2026-09-24T08:00:00Z'),
+          before: { bibleStudies: 1 },
+        },
+      ],
+      at,
+    );
+
+    expect(out.reports[0].bibleStudies).toBe(1);
+    expect(out.late.map((f) => f.kind)).toEqual(['report_changed']);
+  });
+
   it('takes the earliest later edit when a field changed twice', () => {
     const out = reportsAsOf(
       [

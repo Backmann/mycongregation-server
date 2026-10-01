@@ -12,6 +12,7 @@ import { ServiceGroup } from '../entities/service-group.entity';
 import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { ElderTask } from '../entities/elder-task.entity';
+import { ReportSnapshot } from '../entities/report-snapshot.entity';
 import { AuditLogService } from './audit-log.service';
 import { JournalService } from './journal.service';
 import { JournalController } from './journal.controller';
@@ -32,6 +33,7 @@ import { JournalController } from './journal.controller';
       ExternalCongregation,
       VisitingSpeaker,
       ElderTask,
+      ReportSnapshot,
     ]),
   ],
   controllers: [JournalController],

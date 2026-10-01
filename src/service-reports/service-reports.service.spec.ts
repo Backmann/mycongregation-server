@@ -30,6 +30,7 @@ import { ServiceGroup } from '../entities/service-group.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
 import { UserRole } from '../common/enums/user-role.enum';
+import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -95,6 +96,7 @@ function makeReport(overrides: Partial<ServiceReport> = {}): ServiceReport {
 describe('ServiceReportsService', () => {
   let service: ServiceReportsService;
   let reportsRepo: jest.Mocked<Repository<ServiceReport>>;
+  let snapshotsRepo: { findOne: jest.Mock };
   let publishersRepo: jest.Mocked<Repository<Publisher>>;
   let serviceGroupsRepo: jest.Mocked<Repository<ServiceGroup>>;
   let responsibilitiesRepo: jest.Mocked<Repository<Responsibility>>;
@@ -119,12 +121,15 @@ describe('ServiceReportsService', () => {
   };
 
   beforeEach(() => {
+    snapshotsRepo = { findOne: jest.fn(async () => null) };
     reportsRepo = {
       findOne: jest.fn(),
       find: jest.fn(),
       save: jest.fn(),
       create: jest.fn((data: Partial<ServiceReport>) => data),
       createQueryBuilder: jest.fn(),
+      // The S-21 asks the year's kept report what each person was in it.
+      manager: { getRepository: () => snapshotsRepo },
     } as unknown as jest.Mocked<Repository<ServiceReport>>;
 
     publishersRepo = {
@@ -876,7 +881,7 @@ describe('ServiceReportsService', () => {
         const pgErr: any = new Error('duplicate key');
         pgErr.code = '23505';
         reportsRepo.save.mockRejectedValue(pgErr);
-        reportsRepo.findOne.mockResolvedValue(null as any);
+        reportsRepo.findOne.mockResolvedValue(null);
 
         await expect(
           service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
@@ -1736,6 +1741,39 @@ describe('ServiceReportsService', () => {
       expect(result.publishers).toHaveLength(2);
     });
 
+    it('keeps on a past month somebody who left after it ended', async () => {
+      // Served all of April, moved on 1 May (entered weeks later): April's
+      // list still has him. Gone before April ended: he is not on it.
+      setNow(Date.UTC(2026, 5, 5));
+      publishersRepo.find.mockResolvedValue([
+        makePublisher({ id: 'p-here' }),
+        makePublisher({
+          id: 'p-moved-may',
+          removedAt: new Date('2026-05-01'),
+          deletedAt: new Date('2026-05-27T10:00:00Z'),
+        }),
+        makePublisher({
+          id: 'p-gone-march',
+          removedAt: new Date('2026-03-15'),
+          deletedAt: new Date('2026-03-16T10:00:00Z'),
+        }),
+      ]);
+      reportsRepo.find.mockResolvedValue([]);
+      serviceGroupsRepo.find.mockResolvedValue([]);
+
+      const result = await service.findGroupReports(
+        'cong-1',
+        makeUser({ id: 'admin', role: UserRole.ADMIN }),
+        '2026-04',
+      );
+
+      expect(result.publishers.map((p) => p.publisherId).sort()).toEqual([
+        'p-here',
+        'p-moved-may',
+      ]);
+      expect(publishersRepo.find.mock.calls[0][0]?.withDeleted).toBe(true);
+    });
+
     it('returns the caller\u2019s own group id as myGroupId', async () => {
       setNow(Date.UTC(2026, 4, 5));
       publishersRepo.findOne.mockResolvedValue(
@@ -2091,7 +2129,16 @@ describe('ServiceReportsService', () => {
 
       expect(result.reportMonth).toBe('2026-04-01');
       expect(result.totalActivePublishers).toBe(5);
-      expect(result.totalInactivePublishers).toBe(5);
+      // «Неактивные» as April ended, by the status rule — not the count of
+      // cards that say inactive today. p-pub-c began in April and her one
+      // month says she did not share: six closed months of nothing is not
+      // needed when there is only one month to judge, and that one is empty.
+      expect(result.totalInactivePublishers).toBe(1);
+      expect(publishersRepo.count).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ status: expect.anything() }),
+        }),
+      );
       expect(result.categories.map((c) => c.pioneerType)).toEqual([
         'none',
         'auxiliary',
@@ -2130,9 +2177,45 @@ describe('ServiceReportsService', () => {
       expect(result.averages.pioneerHours).toBe(90);
       expect(result.averages.bibleStudies).toBeCloseTo(3.2, 1);
       // Both percentages hang off «все активные», so they move with it:
-      // 5 of 5 shared, 5 active of 5 + 5 inactive.
+      // 5 of 5 shared, 5 active of 5 + 1 inactive.
       expect(result.averages.submittedPct).toBe(100);
-      expect(result.averages.activePct).toBe(50);
+      expect(result.averages.activePct).toBe(83);
+    });
+
+    it('counts «Неактивные» as the month ended, not as the cards say today', async () => {
+      // He served in March and has said nothing since: by October his card
+      // reads inactive, but April's sheet was sent with him active, and it
+      // must go on saying so.
+      responsibilitiesRepo.count.mockResolvedValue(1);
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ id: 'pub-sec', userId: 'sec-id' }),
+      );
+      publishersRepo.find.mockResolvedValue([
+        makePublisher({
+          id: 'p-later',
+          baptismDate: '2010-01-01',
+          status: PublisherStatus.INACTIVE,
+        }),
+      ]);
+      // What the old count asked: cards whose status is inactive today.
+      publishersRepo.count.mockImplementation(async (opts: any) =>
+        opts?.where?.status ? 1 : 0,
+      );
+      reportsRepo.find.mockResolvedValue([
+        makeReport({
+          publisherId: 'p-later',
+          reportMonth: '2026-03-01',
+          servedThisMonth: true,
+        }),
+      ]);
+
+      const result = await service.getSummary(
+        'cong-1',
+        makeUser({ id: 'sec-id', role: UserRole.PUBLISHER }),
+        '2026-04',
+      );
+
+      expect(result.totalInactivePublishers).toBe(0);
     });
 
     it('allows the secretary and returns zeroed categories when no reports', async () => {
@@ -2140,10 +2223,15 @@ describe('ServiceReportsService', () => {
       publishersRepo.findOne.mockResolvedValue(
         makePublisher({ id: 'pub-sec', userId: 'sec-id' }),
       );
-      publishersRepo.find.mockResolvedValue([]);
+      // Two brothers baptized long ago with nothing reported in the window:
+      // both inactive as April ended. The cards' own status says nothing here.
+      publishersRepo.find.mockResolvedValue([
+        makePublisher({ id: 'p-quiet-1', baptismDate: '2010-01-01' }),
+        makePublisher({ id: 'p-quiet-2', baptismDate: '2012-06-01' }),
+      ]);
       reportsRepo.find.mockResolvedValue([]);
       publishersRepo.count.mockImplementation(async (opts: any) =>
-        typeof opts?.where?.status === 'string' ? 2 : 7,
+        typeof opts?.where?.status === 'string' ? 9 : 7,
       );
 
       const result = await service.getSummary(
@@ -2420,6 +2508,57 @@ describe('ServiceReportsService', () => {
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
+    it('opens the card of somebody who has since moved away', async () => {
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({
+          id: 'pub-1',
+          removedAt: new Date('2026-09-01'),
+          deletedAt: new Date('2026-09-27T10:00:00Z'),
+        }),
+      );
+      reportsRepo.find.mockResolvedValue([]);
+
+      const result = await service.getS21Data(
+        'cong-1',
+        makeUser({ id: 'elder', role: UserRole.ELDER }),
+        'pub-1',
+        2026,
+      );
+
+      expect(result.publisher.id).toBe('pub-1');
+      expect(publishersRepo.findOne.mock.calls[0][0]).toEqual(
+        expect.objectContaining({ withDeleted: true }),
+      );
+    });
+
+    it('shows the appointment he held in that year, where the year kept it', async () => {
+      // Appointed a ministerial servant in October 2026; on the card for
+      // 2025/26 he was a publisher, and the sent report says so.
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({
+          id: 'pub-1',
+          appointment: PublisherAppointment.MINISTERIAL_SERVANT,
+        }),
+      );
+      reportsRepo.find.mockResolvedValue([]);
+      snapshotsRepo.findOne.mockResolvedValue({
+        id: 's',
+        appointments: { 'pub-1': PublisherAppointment.PUBLISHER },
+      });
+
+      const result = await service.getS21Data(
+        'cong-1',
+        makeUser({ id: 'elder', role: UserRole.ELDER }),
+        'pub-1',
+        2026,
+      );
+
+      expect(result.publisher.appointment).toBe(PublisherAppointment.PUBLISHER);
+      expect(snapshotsRepo.findOne.mock.calls[0][0].where).toEqual(
+        expect.objectContaining({ kind: 'annual', period: '2025' }),
+      );
+    });
+
     it('allows an elder and returns the year rows', async () => {
       publishersRepo.findOne.mockResolvedValue(
         makePublisher({ id: 'pub-1', firstName: 'Anna', lastName: 'B' }),
@@ -2509,69 +2648,6 @@ describe('ServiceReportsService', () => {
           2026,
         ),
       ).rejects.toBeInstanceOf(BadRequestException);
-    });
-  });
-
-  describe('getYearSummary', () => {
-    it('forbids a plain publisher', async () => {
-      publishersRepo.findOne.mockResolvedValue(
-        makePublisher({ id: 'pub', userId: 'user-x' }),
-      );
-      await expect(
-        service.getYearSummary(
-          'cong-1',
-          makeUser({ id: 'user-x', role: UserRole.PUBLISHER }),
-          2026,
-        ),
-      ).rejects.toBeInstanceOf(ForbiddenException);
-    });
-
-    it('sums hours and studies across the service year for an admin', async () => {
-      publishersRepo.findOne.mockResolvedValue(null);
-      publishersRepo.find.mockResolvedValue([
-        makePublisher({ id: 'p-reg', pioneerType: PioneerType.REGULAR }),
-        makePublisher({ id: 'p-pub', pioneerType: PioneerType.NONE }),
-      ]);
-      reportsRepo.find.mockResolvedValue([
-        makeReport({
-          publisherId: 'p-reg',
-          reportMonth: '2025-09-01',
-          servedThisMonth: null,
-          hoursReported: 50,
-          bibleStudies: 2,
-        }),
-        makeReport({
-          publisherId: 'p-reg',
-          reportMonth: '2025-10-01',
-          servedThisMonth: null,
-          hoursReported: 60,
-          bibleStudies: 3,
-        }),
-        makeReport({
-          publisherId: 'p-pub',
-          reportMonth: '2025-09-01',
-          servedThisMonth: true,
-          hoursReported: null,
-          bibleStudies: 1,
-        }),
-      ]);
-
-      const result = await service.getYearSummary(
-        'cong-1',
-        makeUser({ id: 'admin', role: UserRole.ADMIN }),
-        2026,
-      );
-
-      expect(result.serviceYear).toBe(2026);
-      expect(result.firstMonth).toBe('2025-09-01');
-      expect(result.lastMonth).toBe('2026-08-01');
-      expect(result.totalHours).toBe(110);
-      expect(result.totalStudies).toBe(6);
-      expect(result.monthly).toHaveLength(12);
-      // September bucket: 50 hours, studies 2 (reg) + 1 (pub) = 3.
-      const sep = result.monthly.find((m) => m.reportMonth === '2025-09-01');
-      expect(sep?.hours).toBe(50);
-      expect(sep?.studies).toBe(3);
     });
   });
 
@@ -2798,7 +2874,7 @@ describe('ServiceReportsService', () => {
 
     it('counts who has handed a report in for the month being collected', async () => {
       setNow(Date.UTC(2026, 7, 3, 9, 0, 0)); // 3 August
-      publishersRepo.findOne.mockResolvedValue(null as any);
+      publishersRepo.findOne.mockResolvedValue(null);
       publishersRepo.find.mockResolvedValue(scopePublishers as any);
       reportsRepo.find.mockResolvedValue([{ publisherId: 'p1' }] as any);
 
@@ -2815,9 +2891,9 @@ describe('ServiceReportsService', () => {
 
     it('says the deadline has passed once it has', async () => {
       setNow(Date.UTC(2026, 7, 20, 9, 0, 0)); // 20 August
-      publishersRepo.findOne.mockResolvedValue(null as any);
+      publishersRepo.findOne.mockResolvedValue(null);
       publishersRepo.find.mockResolvedValue(scopePublishers as any);
-      reportsRepo.find.mockResolvedValue([] as any);
+      reportsRepo.find.mockResolvedValue([]);
 
       const result = await service.getReportCollection('cong-1', admin);
 
@@ -2827,9 +2903,9 @@ describe('ServiceReportsService', () => {
 
     it('says whether the secretary has closed the month being collected', async () => {
       setNow(Date.UTC(2026, 8, 28, 9, 0, 0)); // 28 September — August's reports
-      publishersRepo.findOne.mockResolvedValue(null as any);
+      publishersRepo.findOne.mockResolvedValue(null);
       publishersRepo.find.mockResolvedValue(scopePublishers as any);
-      reportsRepo.find.mockResolvedValue([] as any);
+      reportsRepo.find.mockResolvedValue([]);
 
       closuresRepo.count.mockResolvedValue(0);
       expect((await service.getReportCollection('cong-1', admin)).closed).toBe(
@@ -2865,7 +2941,7 @@ describe('ServiceReportsService', () => {
     it('refuses an ordinary publisher', async () => {
       setNow(Date.UTC(2026, 7, 3, 9, 0, 0));
       publishersRepo.findOne.mockResolvedValue({ id: 'pub-x' } as any);
-      serviceGroupsRepo.find.mockResolvedValue([] as any);
+      serviceGroupsRepo.find.mockResolvedValue([]);
 
       await expect(
         service.getReportCollection('cong-1', {
@@ -2912,15 +2988,15 @@ describe('ServiceReportsService.findOne — the report names its owner', () => {
       { timezoneOf: jest.fn().mockResolvedValue('Europe/Berlin') },
       { recomputeStatus: jest.fn() },
     );
-    jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({
+    jest.spyOn(svc, 'buildPermissionContext').mockResolvedValue({
       alwaysView: true,
       alwaysEdit: true,
       overseenGroupIds: [],
     });
-    jest.spyOn(svc as any, 'isMonthClosed').mockResolvedValue(false);
-    jest.spyOn(svc as any, 'enrichEditorNames').mockResolvedValue(undefined);
+    jest.spyOn(svc, 'isMonthClosed').mockResolvedValue(false);
+    jest.spyOn(svc, 'enrichEditorNames').mockResolvedValue(undefined);
 
-    const out = await svc.findOne('c1', { id: 'user-1' } as never, 'r1');
+    const out = await svc.findOne('c1', { id: 'user-1' }, 'r1');
 
     expect(out.publisherName).toBe('Беловодская Наталья');
     expect(out.publisherIsPioneer).toBe(true);
@@ -2958,7 +3034,7 @@ describe('ServiceReportsService.removeReport', () => {
       publishers,
       { find: jest.fn().mockResolvedValue([]) },
     );
-    jest.spyOn(svc as any, 'findOne').mockResolvedValue({
+    jest.spyOn(svc, 'findOne').mockResolvedValue({
       id: 'r1',
       publisherId: 'pub-2',
       reportMonth: '2026-08-01',
@@ -2971,9 +3047,9 @@ describe('ServiceReportsService.removeReport', () => {
   it('takes the row out of the counts and writes it down', async () => {
     const { svc, reportsRepo, audit, publishers } = build(true);
 
-    await expect(
-      svc.removeReport('c1', { id: 'u1' } as never, 'r1'),
-    ).resolves.toEqual({ removed: true });
+    await expect(svc.removeReport('c1', { id: 'u1' }, 'r1')).resolves.toEqual({
+      removed: true,
+    });
 
     expect(reportsRepo.softDelete).toHaveBeenCalledWith('r1');
     // Softly: the row keeps its place, so the screen can say «убрана, кем и
@@ -2989,7 +3065,7 @@ describe('ServiceReportsService.removeReport', () => {
     const { svc, reportsRepo } = build(false);
 
     await expect(
-      svc.removeReport('c1', { id: 'u1' } as never, 'r1'),
+      svc.removeReport('c1', { id: 'u1' }, 'r1'),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(reportsRepo.softDelete).not.toHaveBeenCalled();
   });
@@ -3039,27 +3115,19 @@ describe('findGroupReports — the row asks the spells', () => {
       { recomputeStatus: jest.fn() },
       { activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()) },
     );
-    jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({
+    jest.spyOn(svc, 'buildPermissionContext').mockResolvedValue({
       alwaysView: true,
       alwaysEdit: true,
       overseenGroupIds: [],
       myPublisherId: null,
     });
-    jest.spyOn(svc as any, 'isMonthClosed').mockResolvedValue(false);
-    jest.spyOn(svc as any, 'enrichEditorNames').mockResolvedValue(undefined);
+    jest.spyOn(svc, 'isMonthClosed').mockResolvedValue(false);
+    jest.spyOn(svc, 'enrichEditorNames').mockResolvedValue(undefined);
 
-    const inside = await svc.findGroupReports(
-      'c1',
-      { id: 'u1' } as never,
-      '2026-04-01',
-    );
+    const inside = await svc.findGroupReports('c1', { id: 'u1' }, '2026-04-01');
     expect(inside.publishers[0].isPioneer).toBe(true);
 
-    const after = await svc.findGroupReports(
-      'c1',
-      { id: 'u1' } as never,
-      '2026-06-01',
-    );
+    const after = await svc.findGroupReports('c1', { id: 'u1' }, '2026-06-01');
     expect(after.publishers[0].isPioneer).toBe(false);
   });
 });
@@ -3107,20 +3175,16 @@ describe('ServiceReportsService.findGroupReports — the missed-months count', (
         activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()),
       },
     );
-    jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({
+    jest.spyOn(svc, 'buildPermissionContext').mockResolvedValue({
       alwaysView: true,
       alwaysEdit: true,
       overseenGroupIds: [],
       myPublisherId: null,
     });
-    jest.spyOn(svc as any, 'isMonthClosed').mockResolvedValue(false);
-    jest.spyOn(svc as any, 'enrichEditorNames').mockResolvedValue(undefined);
+    jest.spyOn(svc, 'isMonthClosed').mockResolvedValue(false);
+    jest.spyOn(svc, 'enrichEditorNames').mockResolvedValue(undefined);
 
-    const out = await svc.findGroupReports(
-      'c1',
-      { id: 'u1' } as never,
-      '2026-08-01',
-    );
+    const out = await svc.findGroupReports('c1', { id: 'u1' }, '2026-08-01');
 
     expect(out.publishers[0].consecutiveMissing).toBe(0);
     restoreNow();
@@ -3196,20 +3260,16 @@ describe('ServiceReportsService.findGroupReports — a taken-back report', () =>
         activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()),
       },
     );
-    jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({
+    jest.spyOn(svc, 'buildPermissionContext').mockResolvedValue({
       alwaysView: true,
       alwaysEdit: true,
       overseenGroupIds: [],
       myPublisherId: null,
     });
-    jest.spyOn(svc as any, 'isMonthClosed').mockResolvedValue(false);
-    jest.spyOn(svc as any, 'enrichEditorNames').mockResolvedValue(undefined);
+    jest.spyOn(svc, 'isMonthClosed').mockResolvedValue(false);
+    jest.spyOn(svc, 'enrichEditorNames').mockResolvedValue(undefined);
 
-    const out = await svc.findGroupReports(
-      'c1',
-      { id: 'u1' } as never,
-      '2026-08-01',
-    );
+    const out = await svc.findGroupReports('c1', { id: 'u1' }, '2026-08-01');
 
     // The rows only reach us because the query asks for the deleted ones.
     // Without this the mock would happily hand them over and the test would
@@ -3401,16 +3461,16 @@ describe('getSummary — the six-month window', () => {
       { recomputeStatus: jest.fn() },
       { activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()) },
     );
-    jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({
+    jest.spyOn(svc, 'buildPermissionContext').mockResolvedValue({
       alwaysView: true,
       alwaysEdit: true,
       overseenGroupIds: [],
     });
-    jest.spyOn(svc as any, 'isMonthClosed').mockResolvedValue(false);
+    jest.spyOn(svc, 'isMonthClosed').mockResolvedValue(false);
 
     const out = await svc.getSummary(
       'c1',
-      { id: 'u1', role: 'admin' } as never,
+      { id: 'u1', role: 'admin' },
       '2026-08',
     );
 
@@ -3465,21 +3525,16 @@ describe('history and closed months', () => {
         canManage: jest.fn().mockResolvedValue(true),
       },
     );
-    jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({
+    jest.spyOn(svc, 'buildPermissionContext').mockResolvedValue({
       alwaysView: true,
       alwaysEdit: true,
       overseenGroupIds: [],
     });
-    jest.spyOn(svc as any, 'closedMonthsSet').mockResolvedValue(new Set());
-    jest.spyOn(svc as any, 'enrichEditorNames').mockResolvedValue(undefined);
+    jest.spyOn(svc, 'closedMonthsSet').mockResolvedValue(new Set());
+    jest.spyOn(svc, 'enrichEditorNames').mockResolvedValue(undefined);
     setNow(Date.UTC(2026, 8, 4));
 
-    const out = await svc.findHistoryForPublisher(
-      'c1',
-      { id: 'u1' } as never,
-      'p1',
-      24,
-    );
+    const out = await svc.findHistoryForPublisher('c1', { id: 'u1' }, 'p1', 24);
 
     // The screen hides earlier months when READING, and opens all of them
     // while FILLING — the months a secretary comes to enter are exactly the
@@ -3527,13 +3582,13 @@ describe('publisher history — which form each month wants', () => {
         canManage: jest.fn().mockResolvedValue(canMarkAuxiliary),
       },
     );
-    jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({
+    jest.spyOn(svc, 'buildPermissionContext').mockResolvedValue({
       alwaysView: true,
       alwaysEdit: true,
       overseenGroupIds: [],
     });
-    jest.spyOn(svc as any, 'closedMonthsSet').mockResolvedValue(new Set());
-    jest.spyOn(svc as any, 'enrichEditorNames').mockResolvedValue(undefined);
+    jest.spyOn(svc, 'closedMonthsSet').mockResolvedValue(new Set());
+    jest.spyOn(svc, 'enrichEditorNames').mockResolvedValue(undefined);
     return svc;
   };
 
@@ -3552,7 +3607,7 @@ describe('publisher history — which form each month wants', () => {
   const monthsOf = async (svc: unknown) => {
     const out = await (svc as any).findHistoryForPublisher(
       'c1',
-      { id: 'u1' } as never,
+      { id: 'u1' },
       'p1',
       12,
     );
@@ -3644,12 +3699,15 @@ describe('publisher history — which form each month wants', () => {
  * in the review of a year he spent as an ordinary publisher.
  */
 describe('getPioneerYearReview — the year decides, not today', () => {
-  const build = (spells: Record<string, unknown>[]) => {
+  const build = (
+    spells: Record<string, unknown>[],
+    card: Record<string, unknown> = {},
+  ) => {
     const publishersRepo = {
       find: jest
         .fn()
         .mockResolvedValue([
-          { id: 'p-was', lastName: 'Бывший', firstName: 'Пионер' },
+          { id: 'p-was', lastName: 'Бывший', firstName: 'Пионер', ...card },
         ]),
       findOne: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
@@ -3670,7 +3728,7 @@ describe('getPioneerYearReview — the year decides, not today', () => {
       { recomputeStatus: jest.fn() },
       { activePublisherIdsForMonth: jest.fn().mockResolvedValue(new Set()) },
     );
-    jest.spyOn(svc as any, 'buildPermissionContext').mockResolvedValue({
+    jest.spyOn(svc, 'buildPermissionContext').mockResolvedValue({
       alwaysView: true,
       alwaysEdit: true,
       overseenGroupIds: [],
@@ -3689,11 +3747,7 @@ describe('getPioneerYearReview — the year decides, not today', () => {
       },
     ]);
 
-    const out = await svc.getPioneerYearReview(
-      'c1',
-      { id: 'u1' } as never,
-      2026,
-    );
+    const out = await svc.getPioneerYearReview('c1', { id: 'u1' }, 2026);
 
     expect(out.rows).toHaveLength(1);
     expect(publishersRepo.find).toHaveBeenCalled();
@@ -3709,11 +3763,47 @@ describe('getPioneerYearReview — the year decides, not today', () => {
       },
     ]);
 
-    const out = await svc.getPioneerYearReview(
-      'c1',
-      { id: 'u1' } as never,
-      2026,
+    const out = await svc.getPioneerYearReview('c1', { id: 'u1' }, 2026);
+
+    expect(out.rows).toHaveLength(0);
+  });
+
+  it('keeps a pioneer who moved away after the year — it was his year', async () => {
+    const { svc, publishersRepo } = build(
+      [
+        {
+          publisherId: 'p-was',
+          pioneerType: 'regular',
+          startMonth: '2019-09-01',
+          endMonth: null,
+        },
+      ],
+      {
+        removedAt: new Date('2026-10-15'),
+        deletedAt: new Date('2026-10-16T09:00:00Z'),
+      },
     );
+
+    const out = await svc.getPioneerYearReview('c1', { id: 'u1' }, 2026);
+
+    expect(out.rows).toHaveLength(1);
+    expect(publishersRepo.find.mock.calls[0][0].withDeleted).toBe(true);
+  });
+
+  it('leaves out a pioneer who moved away before the year ended', async () => {
+    const { svc } = build(
+      [
+        {
+          publisherId: 'p-was',
+          pioneerType: 'regular',
+          startMonth: '2019-09-01',
+          endMonth: null,
+        },
+      ],
+      { removedAt: new Date('2026-03-01'), deletedAt: new Date('2026-03-02') },
+    );
+
+    const out = await svc.getPioneerYearReview('c1', { id: 'u1' }, 2026);
 
     expect(out.rows).toHaveLength(0);
   });
@@ -3728,11 +3818,7 @@ describe('getPioneerYearReview — the year decides, not today', () => {
       },
     ]);
 
-    const out = await svc.getPioneerYearReview(
-      'c1',
-      { id: 'u1' } as never,
-      2026,
-    );
+    const out = await svc.getPioneerYearReview('c1', { id: 'u1' }, 2026);
 
     expect(out.rows).toHaveLength(0);
   });

@@ -13,24 +13,24 @@ import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { JournalService } from './journal.service';
 import { ElderTask } from '../entities/elder-task.entity';
+import { ReportSnapshot } from '../entities/report-snapshot.entity';
 
-const row = (over: Partial<AuditLog> = {}): AuditLog =>
-  ({
-    id: 'a1',
-    congregationId: 'cong-1',
-    entityType: 'assignment',
-    entityId: 'as-1',
-    action: 'UPDATE',
-    actorUserId: 'user-1',
-    subjectId: 'pub-1',
-    source: 'user',
-    beforeJson: null,
-    afterJson: null,
-    changedFields: ['publisherId'],
-    redactedAt: null,
-    createdAt: new Date('2026-07-21T10:00:00Z'),
-    ...over,
-  }) as AuditLog;
+const row = (over: Partial<AuditLog> = {}): AuditLog => ({
+  id: 'a1',
+  congregationId: 'cong-1',
+  entityType: 'assignment',
+  entityId: 'as-1',
+  action: 'UPDATE',
+  actorUserId: 'user-1',
+  subjectId: 'pub-1',
+  source: 'user',
+  beforeJson: null,
+  afterJson: null,
+  changedFields: ['publisherId'],
+  redactedAt: null,
+  createdAt: new Date('2026-07-21T10:00:00Z'),
+  ...over,
+});
 
 describe('JournalService', () => {
   let service: JournalService;
@@ -46,6 +46,7 @@ describe('JournalService', () => {
   let externalCongregationsRepo: { find: jest.Mock };
   let visitingSpeakersRepo: { find: jest.Mock };
   let tasksRepo: { find: jest.Mock };
+  let snapshotsRepo: { find: jest.Mock };
 
   beforeEach(async () => {
     auditRepo = { find: jest.fn().mockResolvedValue([]) };
@@ -60,6 +61,7 @@ describe('JournalService', () => {
     externalCongregationsRepo = { find: jest.fn().mockResolvedValue([]) };
     visitingSpeakersRepo = { find: jest.fn().mockResolvedValue([]) };
     tasksRepo = { find: jest.fn().mockResolvedValue([]) };
+    snapshotsRepo = { find: jest.fn().mockResolvedValue([]) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -91,6 +93,10 @@ describe('JournalService', () => {
           useValue: visitingSpeakersRepo,
         },
         { provide: getRepositoryToken(ElderTask), useValue: tasksRepo },
+        {
+          provide: getRepositoryToken(ReportSnapshot),
+          useValue: snapshotsRepo,
+        },
       ],
     }).compile();
 
@@ -341,6 +347,37 @@ describe('JournalService', () => {
     expect(asked.where.congregationId).toBe('cong-1');
     expect(asked.select).not.toHaveProperty('title');
     expect(asked.select).not.toHaveProperty('details');
+  });
+
+  it('names a sheet sent to the branch by its period', async () => {
+    auditRepo.find.mockResolvedValue([
+      row({
+        id: 'log-1',
+        entityType: 'annual_report',
+        entityId: 's-1',
+        action: 'UPDATE',
+      }),
+      row({
+        id: 'log-2',
+        entityType: 'monthly_report',
+        entityId: 's-2',
+        action: 'CREATE',
+      }),
+    ]);
+    snapshotsRepo.find.mockResolvedValue([
+      { id: 's-1', kind: 'annual', period: '2025' },
+      { id: 's-2', kind: 'monthly', period: '2026-08' },
+    ]);
+
+    const page = await service.find('cong-1', {});
+
+    expect(page.items.map((i) => i.context)).toEqual([
+      { kind: 'annual', title: '2025' },
+      { kind: 'monthly', title: '2026-08' },
+    ]);
+    expect(snapshotsRepo.find.mock.calls[0][0].where.congregationId).toBe(
+      'cong-1',
+    );
   });
 
   it('scopes the lookup to the congregation like everything else', async () => {

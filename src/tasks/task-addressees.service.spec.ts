@@ -77,6 +77,30 @@ describe('TaskAddresseesService', () => {
     expect(publishers.find).toHaveBeenCalled();
   });
 
+  it('reminds whoever is secretary now about «save what was sent»', async () => {
+    // The task names the secretary of 1 September; should the office change
+    // hands in October, the new one is the one to hear about it.
+    const { service } = build({
+      responsibilities: {
+        find: jest.fn(async () => [
+          { userId: 'u-new', type: ResponsibilityType.SECRETARY },
+        ]),
+      },
+      publishers: {
+        find: jest.fn(async () => [{ id: 'p-new', userId: 'u-new' }]),
+      },
+    });
+
+    const out = await service.remindees({
+      congregationId: 'c1',
+      kind: 'annual_report_sent',
+      assigneeKind: 'people',
+      assignees: [{ id: 'p-old' }],
+    } as never);
+
+    expect(out.map((p) => p.id)).toEqual(['p-new']);
+  });
+
   it('takes the named brothers as they are when the task names them', async () => {
     const { service, responsibilities } = build();
 

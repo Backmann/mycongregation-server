@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { AnnualReportModule } from '../annual-report/annual-report.module';
+import { ServiceReportsModule } from '../service-reports/service-reports.module';
 import { ScheduledJobsService } from './scheduled-jobs.service';
 import { AdminController } from './admin.controller';
 import { PublishersModule } from '../publishers/publishers.module';
@@ -22,6 +24,8 @@ import { FieldServiceMeetingsModule } from '../field-service-meetings/field-serv
     CleaningModule,
     MemorialModule,
     SpecialEventsModule,
+    AnnualReportModule,
+    ServiceReportsModule,
   ],
   controllers: [AdminController],
   providers: [ScheduledJobsService],

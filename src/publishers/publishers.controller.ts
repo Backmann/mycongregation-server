@@ -308,10 +308,11 @@ export class PublishersController {
   @Post(':id/remove')
   remove(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RemovePublisherDto,
   ) {
-    return this.publishersService.remove(tenantId, id, dto);
+    return this.publishersService.remove(tenantId, id, dto, user?.id);
   }
 
   @UseGuards(ResponsibilityGuard)
@@ -319,9 +320,10 @@ export class PublishersController {
   @Post(':id/restore')
   restore(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.publishersService.restore(tenantId, id);
+    return this.publishersService.restore(tenantId, id, user?.id);
   }
 
   @Roles(UserRole.ADMIN)

@@ -10,6 +10,8 @@ import { CalendarTasksService } from '../tasks/calendar-tasks.service';
 import { TaskRemindersService } from '../tasks/task-reminders.service';
 import { GroupVisitTasksService } from '../field-service-meetings/group-visit-tasks.service';
 import { EventNotificationsService } from '../special-events/event-notifications.service';
+import { AnnualSentService } from '../annual-report/annual-sent.service';
+import { MonthlySentService } from '../service-reports/monthly-sent.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -26,6 +28,8 @@ export class ScheduledJobsService {
     private readonly groupVisitTasks: GroupVisitTasksService,
     private readonly memorial: MemorialService,
     private readonly eventNotifications: EventNotificationsService,
+    private readonly annualSent: AnnualSentService,
+    private readonly monthlySent: MonthlySentService,
   ) {}
 
   /**
@@ -143,6 +147,32 @@ export class ScheduledJobsService {
       await this.calendarTasks.ensureForToday();
     } catch (e) {
       this.logger.error(`calendar tasks failed: ${String(e)}`);
+    }
+  }
+
+  /**
+   * The annual report's own calendar: from 1 September «save what was sent»
+   * on the secretary's list, and from 21 October the year frozen as the app
+   * counts it if nobody did. After the calendar tasks, so the list is whole.
+   */
+  @Cron('35 3 * * *', {
+    name: 'annual-report-sent',
+    timeZone: 'Europe/Berlin',
+  })
+  async handleAnnualReportSent(): Promise<void> {
+    try {
+      const done = await this.annualSent.nightly();
+      if (done > 0) this.logger.log(`annual report: ${done} change(s)`);
+    } catch (e) {
+      this.logger.error(`annual report round failed: ${String(e)}`);
+    }
+    // The S-1 of a month whose deadline has passed and that nobody closed:
+    // kept as the app counts it, so it stops moving.
+    try {
+      const frozen = await this.monthlySent.nightly();
+      if (frozen > 0) this.logger.log(`S-1 frozen: ${frozen}`);
+    } catch (e) {
+      this.logger.error(`S-1 freeze round failed: ${String(e)}`);
     }
   }
 

@@ -1,11 +1,19 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import { AnnualReportService } from './annual-report.service';
+import { AnnualSentService } from './annual-sent.service';
+import { SaveAnnualSentDto } from './dto/save-annual-sent.dto';
+import {
+  CurrentUser,
+  type AuthenticatedUser,
+} from '../auth/decorators/current-user.decorator';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
@@ -21,7 +29,10 @@ import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 @UseGuards(ResponsibilityGuard)
 @RequireResponsibility(ResponsibilityType.SECRETARY)
 export class AnnualReportController {
-  constructor(private readonly service: AnnualReportService) {}
+  constructor(
+    private readonly service: AnnualReportService,
+    private readonly sent: AnnualSentService,
+  ) {}
 
   @Get()
   figures(
@@ -59,5 +70,34 @@ export class AnnualReportController {
       throw new BadRequestException('day must be a date, YYYY-MM-DD');
     }
     return this.service.figuresAsOf(congregationId, year, day);
+  }
+
+  /**
+   * What went to the branch for a year, set beside what the reports say now —
+   * and, where the two part, who makes the difference and why.
+   */
+  @Get('sent')
+  sentView(
+    @TenantId() congregationId: string,
+    @Query('startYear') startYear?: string,
+  ) {
+    const year = Number(startYear);
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+      throw new BadRequestException('startYear must be a year, e.g. 2025');
+    }
+    return this.sent.view(congregationId, year);
+  }
+
+  /** «This is what I sent» — saved, or corrected, with a journal entry. */
+  @Put('sent')
+  saveSent(
+    @TenantId() congregationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: SaveAnnualSentDto,
+  ) {
+    return this.sent.save(congregationId, user.id, dto.startYear, {
+      sentOn: dto.sentOn.slice(0, 10),
+      figures: dto.figures,
+    });
   }
 }

@@ -20,6 +20,8 @@ import type { PushNotificationsService } from '../push-notifications/push-notifi
 
 describe('ScheduledJobsService', () => {
   let service: ScheduledJobsService;
+  let annualSent: { nightly: jest.Mock };
+  let monthlySent: { nightly: jest.Mock };
   let publishersService: { recomputeEveryCongregation: jest.Mock };
   let pushNotificationsService: jest.Mocked<PushNotificationsService>;
   let auditLogService: { cleanupOldAuditLogs: jest.Mock };
@@ -48,6 +50,8 @@ describe('ScheduledJobsService', () => {
       deliverDue: jest.fn().mockResolvedValue({ sent: 0 }),
       cleanupOld: jest.fn().mockResolvedValue(0),
     };
+    annualSent = { nightly: jest.fn(async () => 0) };
+    monthlySent = { nightly: jest.fn(async () => 0) };
     service = new ScheduledJobsService(
       publishersService as any,
       pushNotificationsService,
@@ -64,6 +68,9 @@ describe('ScheduledJobsService', () => {
       { remindEveningBefore: jest.fn(async () => 0) } as never,
       // «Tomorrow — …» for the congregation's events, the same way.
       { remindEveningBefore: jest.fn(async () => 0) } as never,
+      // The annual report's calendar: the September task and the freeze.
+      annualSent as never,
+      monthlySent as never,
     );
   });
 
@@ -92,5 +99,16 @@ describe('ScheduledJobsService', () => {
   it('handleAuditLogCleanup swallows errors so the cron host stays alive', async () => {
     auditLogService.cleanupOldAuditLogs.mockRejectedValue(new Error('boom'));
     await expect(service.handleAuditLogCleanup()).resolves.toBeUndefined();
+  });
+
+  it('runs the annual report round and survives its failure', async () => {
+    await service.handleAnnualReportSent();
+    expect(annualSent.nightly).toHaveBeenCalledTimes(1);
+    expect(monthlySent.nightly).toHaveBeenCalledTimes(1);
+
+    // One failing does not stop the other.
+    annualSent.nightly.mockRejectedValueOnce(new Error('boom'));
+    await expect(service.handleAnnualReportSent()).resolves.toBeUndefined();
+    expect(monthlySent.nightly).toHaveBeenCalledTimes(2);
   });
 });

@@ -19,6 +19,7 @@ import { addMonthKey } from './service-status-rule';
 type Departure = {
   removedAt?: Date | string | null;
   deletedAt?: Date | string | null;
+  restoredAt?: Date | string | null;
 };
 
 /** Calendar day of a stored date or timestamp, as YYYY-MM-DD. */
@@ -33,6 +34,10 @@ function dayOf(v: Date | string): string {
 export function memberAtEndOf(reportMonth: string): (p: Departure) => boolean {
   const nextMonth = `${addMonthKey(reportMonth.slice(0, 7), 1)}-01`;
   return (p) => {
+    // Put back on the roll: restoring leaves the old departure date on the
+    // card (it is history), so without this a brother who came back would
+    // count as gone for ever.
+    if (!p.deletedAt && p.restoredAt) return true;
     const gone = p.removedAt ?? p.deletedAt ?? null;
     if (!gone) return true;
     return dayOf(gone) >= nextMonth;

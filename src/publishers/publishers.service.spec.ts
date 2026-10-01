@@ -203,7 +203,12 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
   let publishersRepo: jest.Mocked<Repository<Publisher>>;
   let reportsRepo: jest.Mocked<Repository<ServiceReport>>;
   let closuresRepo: jest.Mocked<Repository<ReportMonthClosure>>;
-  let auditLogService: { logUpdate: jest.Mock; findForEntity: jest.Mock };
+  let auditLogService: {
+    logUpdate: jest.Mock;
+    findForEntity: jest.Mock;
+    logRawUpdate: jest.Mock;
+    logEvent: jest.Mock;
+  };
   let pushNotificationsService: {
     sendStatusChange: jest.Mock;
     sendStatusChangeToUser: jest.Mock;
@@ -234,6 +239,8 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
     auditLogService = {
       logUpdate: jest.fn(),
       findForEntity: jest.fn(),
+      logRawUpdate: jest.fn(),
+      logEvent: jest.fn(),
     };
     pushNotificationsService = {
       sendStatusChange: jest.fn().mockResolvedValue(undefined),
@@ -399,7 +406,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         status: PublisherStatus.ACTIVE,
         statusManuallyOverridden: false,
         userId: null,
-      } as any);
+      });
       publishersRepo.findOne.mockResolvedValue(pub);
       reportsRepo.find.mockResolvedValue([]);
       publishersRepo.save.mockImplementation(async (x: any) => x);
@@ -418,7 +425,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         status: PublisherStatus.ACTIVE,
         statusManuallyOverridden: false,
         userId: 'user-his-own',
-      } as any);
+      });
       publishersRepo.findOne.mockResolvedValue(pub);
       reportsRepo.find.mockResolvedValue([]);
       publishersRepo.save.mockImplementation(async (x: any) => x);
@@ -533,7 +540,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         statusManuallyOverridden: false,
         serviceGroupId: null,
         userId: 'user-his-own',
-      } as any);
+      });
       publishersRepo.findOne.mockResolvedValue(pub);
       (publishersRepo.manager.find as jest.Mock).mockResolvedValue([
         { id: 'user-admin-1' },
@@ -930,7 +937,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
           status: PublisherStatus.INACTIVE,
           serviceGroupId: null,
           userId: 'user-a',
-        } as any),
+        }),
       );
       reportsRepo.find.mockResolvedValue([
         makeReport({ reportMonth: '2026-06-01', servedThisMonth: true }),
@@ -1154,7 +1161,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         gender: Gender.BROTHER,
         appointment: PublisherAppointment.PUBLISHER,
         pioneerType: PioneerType.REGULAR,
-      } as any);
+      });
       expect(result.pioneerType).toBe(PioneerType.REGULAR);
     });
 
@@ -1186,7 +1193,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       await service.update('cong-1', 'pub-1', {
         pioneerType: PioneerType.REGULAR,
         pioneerSince: '2026-08-01',
-      } as any);
+      });
 
       expect(
         auxiliaryPioneersService.closeActiveForPublisher,
@@ -1205,7 +1212,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
 
       await service.update('cong-1', 'pub-1', {
         mobilePhone: '123',
-      } as any);
+      });
 
       expect(
         auxiliaryPioneersService.closeActiveForPublisher,
@@ -1221,6 +1228,112 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
    * appointed after the migration quietly leaves the pioneer lines of the
    * monthly figures — the figures that go to the branch.
    */
+  /**
+   * What a past year's reports rest on is journaled with its values; how to
+   * reach the person is not. Before this, «when did the card start saying
+   * deaf, and who said so» had no answer.
+   */
+  describe('the journal of the card', () => {
+    const recordCalls = () =>
+      auditLogService.logUpdate.mock.calls
+        .map((c) => c[0])
+        .filter((c) => c.fields?.includes('isDeaf'));
+
+    it('journals a change of appointment or circumstance with its values', async () => {
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({
+          id: 'pub-1',
+          appointment: PublisherAppointment.PUBLISHER,
+          isDeaf: false,
+        }),
+      );
+      publishersRepo.save.mockImplementation(async (x: any) => ({ ...x }));
+
+      await service.update(
+        'cong-1',
+        'pub-1',
+        {
+          appointment: PublisherAppointment.MINISTERIAL_SERVANT,
+          isDeaf: true,
+        },
+        'actor-1',
+      );
+
+      const call = recordCalls()[0];
+      expect(call.entityType).toBe('publisher');
+      expect(call.actorUserId).toBe('actor-1');
+      expect(call.before).toEqual(
+        expect.objectContaining({ appointment: 'publisher', isDeaf: false }),
+      );
+      expect(call.after).toEqual(
+        expect.objectContaining({
+          appointment: 'ministerial_servant',
+          isDeaf: true,
+        }),
+      );
+    });
+
+    it('never puts contact details into it', async () => {
+      publishersRepo.findOne.mockResolvedValue(makePublisher({ id: 'pub-1' }));
+      publishersRepo.save.mockImplementation(async (x: any) => ({ ...x }));
+
+      await service.update('cong-1', 'pub-1', { mobilePhone: '0151' });
+
+      for (const call of recordCalls()) {
+        expect(call.fields).not.toContain('mobilePhone');
+        expect(JSON.stringify(call.after)).not.toContain('0151');
+      }
+    });
+
+    it('records a departure with the day he left and why, not the note', async () => {
+      const pub = makePublisher({ id: 'pub-1', userId: 'u-1' });
+      publishersRepo.findOne.mockResolvedValue(pub);
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+      (publishersRepo as any).softDelete = jest.fn();
+
+      await service.remove(
+        'cong-1',
+        'pub-1',
+        {
+          reason: 'moved',
+          date: '2026-09-01',
+          note: 'к сыну в Ганновер',
+        } as any,
+        'secretary-1',
+      );
+
+      expect(auditLogService.logRawUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityType: 'publisher',
+          entityId: 'pub-1',
+          actorUserId: 'secretary-1',
+          after: { removedAt: '2026-09-01', removalReason: 'moved' },
+        }),
+      );
+      expect(
+        JSON.stringify(auditLogService.logRawUpdate.mock.calls),
+      ).not.toContain('Ганновер');
+    });
+
+    it('records a card put back on the roll', async () => {
+      publishersRepo.findOne.mockResolvedValue(
+        makePublisher({ id: 'pub-1', deletedAt: new Date() }),
+      );
+      publishersRepo.save.mockImplementation(async (x: any) => x);
+      (publishersRepo as any).restore = jest.fn();
+
+      await service.restore('cong-1', 'pub-1', 'secretary-1');
+
+      expect(auditLogService.logEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'RESTORE',
+          entityId: 'pub-1',
+          actorUserId: 'secretary-1',
+        }),
+      );
+    });
+  });
+
   describe('update — spells follow the card', () => {
     it('tells the spells whenever a card is saved', async () => {
       const pub = makePublisher({ id: 'pub-1', congregationId: 'c1' });

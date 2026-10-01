@@ -11,12 +11,21 @@ import { todayIn } from '../common/congregation-clock';
 import { memberAtEndOf } from '../common/members-of-period';
 import {
   addMonthKey,
+  computeServiceStatus,
   resolveReportingStartMonth,
 } from '../common/service-status-rule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, In, MoreThanOrEqual, Not, Repository } from 'typeorm';
+import {
+  Between,
+  In,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+  Not,
+  Repository,
+} from 'typeorm';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Publisher } from '../entities/publisher.entity';
+import { ReportSnapshot } from '../entities/report-snapshot.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
@@ -261,21 +270,6 @@ export interface S21DataResponse {
   months: S21MonthRow[];
 }
 
-export interface ServiceYearSummary {
-  serviceYear: number;
-  firstMonth: string;
-  lastMonth: string;
-  totalHours: number;
-  totalStudies: number;
-  avgMonthlyPioneerReports: number;
-  monthly: {
-    reportMonth: string;
-    hours: number;
-    studies: number;
-    reporters: number;
-  }[];
-}
-
 /** Where the collection of one month's reports stands, for the home card. */
 export interface ReportCollection {
   /** The month being collected — the previous calendar month. */
@@ -289,6 +283,12 @@ export interface ReportCollection {
   pastDeadline: boolean;
   closed: boolean;
 }
+
+/**
+ * The people behind an S-1, by card id: «active», «inactive», and who was
+ * counted on each line («reported:none», «reported:auxiliary», …).
+ */
+export type SummaryMembers = Record<string, string[]>;
 
 export interface ServiceReportSummary {
   reportMonth: string;
@@ -1186,6 +1186,7 @@ export class ServiceReportsService {
           appointment: Not(PublisherAppointment.STUDENT),
         },
         order: { lastName: 'ASC', firstName: 'ASC' },
+        withDeleted: true,
       });
       scopeLabel = 'Congregation';
     } else {
@@ -1211,9 +1212,17 @@ export class ServiceReportsService {
           appointment: Not(PublisherAppointment.STUDENT),
         },
         order: { lastName: 'ASC', firstName: 'ASC' },
+        withDeleted: true,
       });
       scopeLabel = overseerGroups.map((g) => g.name).join(', ');
     }
+
+    // The group as it stood when the month ended. A brother who served all of
+    // August and moved away on 1 September is still on August's list, with
+    // his report; reading only today's roll took him and it off the page —
+    // the same mistake the annual report made with the whole year.
+    const wasMember = memberAtEndOf(normalizedMonth);
+    publisherScope = publisherScope.filter(wasMember);
 
     const groupByPubId = new Map(
       publisherScope.map((p) => [p.id, p.serviceGroupId ?? null]),
@@ -1412,8 +1421,12 @@ export class ServiceReportsService {
     publisherId: string,
     months: number,
   ): Promise<PublisherHistoryResponse> {
+    // Departed cards too: a brother who moved away keeps his history, and the
+    // elders may need to read it — for a letter of introduction, or to answer
+    // for a year he served here. Refusing it as «not found» lost it entirely.
     const publisher = await this.publishersRepo.findOne({
       where: { id: publisherId, congregationId: tenantId },
+      withDeleted: true,
     });
     if (!publisher) {
       throw new NotFoundException('Publisher not found.');
@@ -1612,12 +1625,30 @@ export class ServiceReportsService {
       );
     }
 
+    // Departed cards too — the record card of a year he served here does not
+    // stop existing because he has since moved away.
     const publisher = await this.publishersRepo.findOne({
       where: { id: publisherId, congregationId: tenantId },
+      withDeleted: true,
     });
     if (!publisher) {
       throw new NotFoundException('Publisher not found.');
     }
+    // What he was IN THAT YEAR, where the year's report kept it: an elder
+    // appointed in October is not an elder on the card for the year before.
+    const sheet = await this.reportsRepo.manager
+      .getRepository(ReportSnapshot)
+      .findOne({
+        where: {
+          congregationId: tenantId,
+          kind: 'annual',
+          period: String(serviceYear - 1),
+        },
+        select: { id: true, appointments: true },
+      });
+    const appointmentThen = sheet?.appointments?.[publisher.id] as
+      | PublisherAppointment
+      | undefined;
     // Students don't submit service reports, so an S-21 card is meaningless.
     if (publisher.appointment === PublisherAppointment.STUDENT) {
       throw new BadRequestException(
@@ -1680,7 +1711,7 @@ export class ServiceReportsService {
         birthDate: publisher.birthDate,
         baptismDate: publisher.baptismDate,
         spiritualStatus: publisher.spiritualStatus,
-        appointment: publisher.appointment,
+        appointment: appointmentThen ?? publisher.appointment,
         pioneerType: publisher.pioneerType,
       },
       months,
@@ -1766,6 +1797,60 @@ export class ServiceReportsService {
     };
   }
 
+  /**
+   * Who was inactive when `reportMonth` ended, by the status rule: six closed
+   * months without sharing, counting from when the person began (or began
+   * again). Every report up to that month is read, because a restart after an
+   * earlier lapse moves where the counting begins.
+   */
+  private async inactiveAtEndOf(
+    tenantId: string,
+    reportMonth: string,
+    members: Publisher[],
+  ): Promise<string[]> {
+    if (members.length === 0) return [];
+    const month = reportMonth.slice(0, 7);
+    const rows = await this.reportsRepo.find({
+      where: {
+        congregationId: tenantId,
+        publisherId: In(members.map((p) => p.id)),
+        reportMonth: LessThanOrEqual(reportMonth),
+      },
+      select: [
+        'publisherId',
+        'reportMonth',
+        'servedThisMonth',
+        'hoursReported',
+      ],
+    });
+    const shared = new Map<string, Set<string>>();
+    const first = new Map<string, string>();
+    for (const r of rows) {
+      const m = String(r.reportMonth).slice(0, 7);
+      const was = first.get(r.publisherId);
+      if (!was || m < was) first.set(r.publisherId, m);
+      if (!reportedMinistry(r)) continue;
+      const set = shared.get(r.publisherId) ?? new Set<string>();
+      set.add(m);
+      shared.set(r.publisherId, set);
+    }
+    return members
+      .filter(
+        (p) =>
+          computeServiceStatus({
+            participated: shared.get(p.id) ?? new Set<string>(),
+            startMonth: resolveReportingStartMonth({
+              ministryStartDate: p.ministryStartDate,
+              baptismDate: p.baptismDate,
+              firstReportMonth: first.get(p.id) ?? null,
+            }),
+            lastClosedMonth: month,
+            collectedMonth: month,
+          }) === PublisherStatus.INACTIVE,
+      )
+      .map((p) => p.id);
+  }
+
   async getSummary(
     tenantId: string,
     user: AuthenticatedUser,
@@ -1781,6 +1866,19 @@ export class ServiceReportsService {
       );
     }
 
+    return (await this.computeSummary(tenantId, reportMonth)).summary;
+  }
+
+  /**
+   * The S-1 figures for a month, worked out from the reports — and the people
+   * behind each line, by card id, so that what was sent can be kept with them.
+   * No permission check: the callers make it.
+   */
+  async computeSummary(
+    tenantId: string,
+    reportMonthInput: string,
+  ): Promise<{ summary: ServiceReportSummary; members: SummaryMembers }> {
+    const reportMonth = this.normalizeReportMonth(reportMonthInput);
     // Everyone who has ever held a card here, the departed included, so that a
     // month in the past is counted as it stood then — and then only those who
     // were still in the congregation when that month ended (see isMember).
@@ -1835,10 +1933,7 @@ export class ServiceReportsService {
         reportMonth,
       );
       if (inMonth !== PioneerType.NONE) {
-        return inMonth as
-          | PioneerType.REGULAR
-          | PioneerType.SPECIAL
-          | PioneerType.MISSIONARY;
+        return inMonth;
       }
       // A permanent appointment that has already started outranks an auxiliary
       // period; only below it does the period decide.
@@ -1866,6 +1961,9 @@ export class ServiceReportsService {
       { count: number; hours: number; bibleStudies: number }
     >(order.map((t) => [t, { count: 0, hours: 0, bibleStudies: 0 }]));
 
+    const reportersOf = new Map<ServiceSummaryCategoryKey, string[]>(
+      order.map((t) => [t, []]),
+    );
     for (const report of reports) {
       const category = categoryByPubId.get(report.publisherId);
       if (category === undefined) continue;
@@ -1881,10 +1979,12 @@ export class ServiceReportsService {
         if (reportedMinistry(report)) {
           bucket.count += 1;
           bucket.bibleStudies += report.bibleStudies ?? 0;
+          reportersOf.get(category)!.push(report.publisherId);
         }
       } else {
         // Auxiliary pioneers report hours just as permanent ones do.
         bucket.count += 1;
+        reportersOf.get(category)!.push(report.publisherId);
         bucket.hours += report.hoursReported ?? 0;
         bucket.bibleStudies += report.bibleStudies ?? 0;
       }
@@ -1928,20 +2028,29 @@ export class ServiceReportsService {
       },
       select: ['publisherId', 'servedThisMonth', 'hoursReported'],
     });
-    const totalActivePublishers = new Set(
-      recentRows
-        .filter((r) => memberIds.has(r.publisherId) && reportedMinistry(r))
-        .map((r) => r.publisherId),
-    ).size;
+    const activeIds = [
+      ...new Set(
+        recentRows
+          .filter((r) => memberIds.has(r.publisherId) && reportedMinistry(r))
+          .map((r) => r.publisherId),
+      ),
+    ];
+    const totalActivePublishers = activeIds.length;
 
-    // Inactive publishers are counted on their own line and are never added
-    // into the active total.
-    const totalInactivePublishers = await this.publishersRepo.count({
-      where: {
-        congregationId: tenantId,
-        status: PublisherStatus.INACTIVE,
-      },
-    });
+    // «Неактивные» — AS THE MONTH ENDED, not as things stand today.
+    //
+    // It was the count of cards whose status is inactive NOW: open August in
+    // October and it answered for October, and a sheet already sent changed
+    // whenever anybody's status did. Now it is the status rule itself, asked
+    // at the end of this month, of the people who were here then — the same
+    // arithmetic that sets the badge, so the two cannot disagree about one
+    // month. Counted on its own line and never added into the active total.
+    const inactiveIds = await this.inactiveAtEndOf(
+      tenantId,
+      reportMonth,
+      publishers.filter((p) => p.appointment !== PublisherAppointment.STUDENT),
+    );
+    const totalInactivePublishers = inactiveIds.length;
 
     const closed = await this.isMonthClosed(tenantId, reportMonth);
 
@@ -1982,20 +2091,24 @@ export class ServiceReportsService {
     };
 
     return {
-      reportMonth,
-      categories,
-      totalActivePublishers,
-      totalInactivePublishers,
-      averages,
-      closed,
+      summary: {
+        reportMonth,
+        categories,
+        totalActivePublishers,
+        totalInactivePublishers,
+        averages,
+        closed,
+      },
+      members: {
+        active: activeIds.sort(),
+        inactive: [...inactiveIds].sort(),
+        ...Object.fromEntries(
+          order.map((k) => [`reported:${k}`, [...reportersOf.get(k)!].sort()]),
+        ),
+      },
     };
   }
 
-  /**
-   * Yearly totals for a service year (September of year-1 through August of
-   * `year`), plus a per-month breakdown for the trend. Same audience as the
-   * monthly summary (admin/secretary).
-   */
   /**
    * Where each regular pioneer stands in the service year — the working screen
    * behind the calendar task «Обзор служения общих пионеров».
@@ -2051,10 +2164,18 @@ export class ServiceReportsService {
         )
         .map((sp) => sp.publisherId),
     );
+    // Those still here when the window ended — whatever happened after. A
+    // pioneer who served the whole year and moved in October is reviewed for
+    // that year; reading today's roll dropped him from it the day his
+    // departure was entered.
+    const stillHere = memberAtEndOf(through ?? yearTo);
     const pioneers = idsInYear.size
-      ? await this.publishersRepo.find({
-          where: { congregationId: tenantId, id: In([...idsInYear]) },
-        })
+      ? (
+          await this.publishersRepo.find({
+            where: { congregationId: tenantId, id: In([...idsInYear]) },
+            withDeleted: true,
+          })
+        ).filter(stillHere)
       : [];
     if (pioneers.length === 0) {
       return reviewPioneerYear(serviceYear, today, [], { through });
@@ -2113,102 +2234,6 @@ export class ServiceReportsService {
       })),
       { through },
     );
-  }
-
-  async getYearSummary(
-    tenantId: string,
-    user: AuthenticatedUser,
-    serviceYear: number,
-  ): Promise<ServiceYearSummary> {
-    const ctx = await this.buildPermissionContext(tenantId, user);
-    if (!ctx.alwaysEdit) {
-      throw new ForbiddenException(
-        'Only administrators and the secretary may view the service summary.',
-      );
-    }
-
-    // Service year runs Sep (year-1) .. Aug (year).
-    const months: string[] = [];
-    for (let i = 0; i < 12; i++) {
-      const d = new Date(Date.UTC(serviceYear - 1, 8 + i, 1)); // month 8 = Sep
-      months.push(
-        `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(
-          2,
-          '0',
-        )}-01`,
-      );
-    }
-    const first = months[0];
-    const last = months[months.length - 1];
-
-    const publishers = await this.publishersRepo.find({
-      where: { congregationId: tenantId },
-    });
-    const typeByPubId = new Map<string, PioneerType>(
-      publishers.map((p) => [p.id, p.pioneerType]),
-    );
-
-    const reports = await this.reportsRepo.find({
-      where: {
-        congregationId: tenantId,
-        reportMonth: Between(first, last),
-      },
-    });
-
-    // Per-month accumulation.
-    const monthAcc = new Map<
-      string,
-      { hours: number; studies: number; reporters: number; pioneers: number }
-    >(
-      months.map((m) => [
-        m.slice(0, 7),
-        { hours: 0, studies: 0, reporters: 0, pioneers: 0 },
-      ]),
-    );
-    let totalHours = 0;
-    let totalStudies = 0;
-    let totalPioneerReports = 0;
-
-    for (const r of reports) {
-      const key = r.reportMonth.slice(0, 7);
-      const bucket = monthAcc.get(key);
-      if (!bucket) continue;
-      const type = typeByPubId.get(r.publisherId);
-      const shared = reportedMinistry(r);
-      if (shared) {
-        bucket.reporters += 1;
-        bucket.studies += r.bibleStudies ?? 0;
-        totalStudies += r.bibleStudies ?? 0;
-      }
-      if (type !== undefined && type !== PioneerType.NONE) {
-        const h = r.hoursReported ?? 0;
-        bucket.hours += h;
-        bucket.pioneers += 1;
-        totalHours += h;
-        totalPioneerReports += 1;
-      }
-    }
-
-    const monthly = months.map((m) => {
-      const b = monthAcc.get(m.slice(0, 7))!;
-      return {
-        reportMonth: m,
-        hours: b.hours,
-        studies: b.studies,
-        reporters: b.reporters,
-      };
-    });
-
-    return {
-      serviceYear,
-      firstMonth: first,
-      lastMonth: last,
-      totalHours,
-      totalStudies,
-      avgMonthlyPioneerReports:
-        Math.round((totalPioneerReports / 12) * 10) / 10,
-      monthly,
-    };
   }
 
   /**

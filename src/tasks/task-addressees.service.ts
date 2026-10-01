@@ -134,6 +134,15 @@ export class TaskAddresseesService {
       if (nowServing.length > 0) return nowServing;
     }
 
+    // The same for «save what was sent»: the secretary's work, and whoever is
+    // secretary when the reminder goes out is the one to hear about it.
+    if (task.kind === 'annual_report_sent') {
+      const secretary = await this.byResponsibility(task.congregationId, [
+        ResponsibilityType.SECRETARY,
+      ]);
+      if (secretary.length > 0) return secretary;
+    }
+
     const assigned = await this.membersOf(task);
     if (assigned.length > 0) return assigned;
 

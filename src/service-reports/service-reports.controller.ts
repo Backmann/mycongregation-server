@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { ServiceReportsService } from './service-reports.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { MonthlySentService } from './monthly-sent.service';
 import { UserRole } from '../common/enums/user-role.enum';
 import { SubmitReportDto } from './dto/submit-report.dto';
 import { UpdateReportDto } from './dto/update-report.dto';
@@ -49,6 +50,7 @@ export class ServiceReportsController {
   constructor(
     private readonly serviceReportsService: ServiceReportsService,
     private readonly auditLogService: AuditLogService,
+    private readonly monthlySent: MonthlySentService,
   ) {}
 
   @Post()
@@ -61,16 +63,28 @@ export class ServiceReportsController {
   }
 
   @Post('close')
-  closeMonth(
+  async closeMonth(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Body('reportMonth') reportMonth?: string,
   ) {
-    return this.serviceReportsService.closeMonth(
+    const month = requireMonth(reportMonth);
+    const before = await this.serviceReportsService.getClosureStatus(
       tenantId,
       user,
-      requireMonth(reportMonth),
+      month,
     );
+    const after = await this.serviceReportsService.closeMonth(
+      tenantId,
+      user,
+      month,
+    );
+    // Closing is «done, sent»: keep the figures as they stand. Only when it
+    // actually closed now — a second tap must not move the day it was sent.
+    if (!before.closed && after.closed) {
+      await this.monthlySent.saveSent(tenantId, user.id, month);
+    }
+    return after;
   }
 
   @Post('reopen')
@@ -124,16 +138,17 @@ export class ServiceReportsController {
   }
 
   @Get('summary')
-  getSummary(
+  async getSummary(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Query('reportMonth') reportMonthRaw?: string,
   ) {
-    return this.serviceReportsService.getSummary(
+    const live = await this.serviceReportsService.getSummary(
       tenantId,
       user,
       requireMonth(reportMonthRaw),
     );
+    return this.monthlySent.withSent(tenantId, live);
   }
 
   /**
@@ -158,20 +173,6 @@ export class ServiceReportsController {
       year,
       window,
     );
-  }
-
-  @Get('year-summary')
-  getYearSummary(
-    @TenantId() tenantId: string,
-    @CurrentUser() user: AuthenticatedUser,
-    @Query('year') yearRaw?: string,
-  ) {
-    // Default to the current service year: Sep..Dec belong to next year's label.
-    const now = new Date();
-    const defaultYear =
-      now.getUTCMonth() >= 8 ? now.getUTCFullYear() + 1 : now.getUTCFullYear();
-    const year = yearRaw ? parseInt(yearRaw, 10) || defaultYear : defaultYear;
-    return this.serviceReportsService.getYearSummary(tenantId, user, year);
   }
 
   @Get('collection')

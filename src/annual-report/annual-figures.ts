@@ -86,6 +86,7 @@ export interface AnnualReportRow {
   reportMonth: string;
   servedThisMonth?: boolean | null;
   hoursReported?: number | null;
+  bibleStudies?: number | null;
 }
 
 /** What the figures need to know about a card — nothing more. */
@@ -219,7 +220,7 @@ export function computeAnnualFigures(input: {
       .map((r) => r.publisherId),
   );
   const belongs = (p: AnnualPublisher) =>
-    p.appointment !== PublisherAppointment.STUDENT &&
+    String(p.appointment) !== String(PublisherAppointment.STUDENT) &&
     isMember(p) &&
     (reportedInYear.has(p.id) ||
       !p.createdAt ||

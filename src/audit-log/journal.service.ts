@@ -13,6 +13,7 @@ import { ServiceGroup } from '../entities/service-group.entity';
 import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { ElderTask } from '../entities/elder-task.entity';
+import { ReportSnapshot } from '../entities/report-snapshot.entity';
 import { isRevertable } from '../audit-revert/revertable';
 
 export interface JournalPerson {
@@ -135,6 +136,8 @@ export class JournalService {
     private readonly visitingSpeakersRepo: Repository<VisitingSpeaker>,
     @InjectRepository(ElderTask)
     private readonly tasksRepo: Repository<ElderTask>,
+    @InjectRepository(ReportSnapshot)
+    private readonly snapshotsRepo: Repository<ReportSnapshot>,
   ) {}
 
   async find(tenantId: string, filters: JournalFilters): Promise<JournalPage> {
@@ -243,6 +246,16 @@ export class JournalService {
     const out = new Map<string, JournalContext>();
     const idsOf = (t: string) => [...(byType.get(t) ?? [])];
 
+    // A sheet that went to the branch by its period: «2025» for the year
+    // 2025/26, «2026-08» for August. The figures are in the entry itself.
+    const sheetIds = [...idsOf('annual_report'), ...idsOf('monthly_report')];
+    const sheets = sheetIds.length
+      ? await this.snapshotsRepo.find({
+          where: { congregationId: tenantId, id: In(sheetIds) },
+          select: { id: true, kind: true, period: true },
+        })
+      : [];
+
     const [assignments, duties, cleaning, fieldService, tasks] =
       await Promise.all([
         idsOf('assignment').length
@@ -307,6 +320,10 @@ export class JournalService {
         date: m.weekStartDate,
         title: m.address ?? undefined,
       });
+    }
+
+    for (const sheet of sheets) {
+      perEntity.set(sheet.id, { kind: sheet.kind, title: sheet.period });
     }
 
     for (const t of tasks) {

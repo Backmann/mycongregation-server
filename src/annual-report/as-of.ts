@@ -72,7 +72,16 @@ export interface UnsureReport {
  */
 const REFILE_GRACE_MS = 60_000;
 
-const VALUE_FIELDS = ['servedThisMonth', 'hoursReported'] as const;
+/**
+ * The figures a report carries. Studies too: the annual report does not read
+ * them, but the monthly sheet does, and a later correction to them is as much
+ * a change to what was sent as one to the hours.
+ */
+const VALUE_FIELDS = [
+  'servedThisMonth',
+  'hoursReported',
+  'bibleStudies',
+] as const;
 
 export function reportsAsOf(
   rows: StoredReport[],
@@ -152,6 +161,7 @@ export function reportsAsOf(
       reportMonth: row.reportMonth,
       servedThisMonth: row.servedThisMonth,
       hoursReported: row.hoursReported,
+      bibleStudies: row.bibleStudies,
     };
     const undone = new Set<string>();
     let redacted = false;

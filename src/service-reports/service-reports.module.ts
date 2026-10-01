@@ -1,3 +1,7 @@
+import { ReportSnapshot } from '../entities/report-snapshot.entity';
+import { AuditLog } from '../entities/audit-log.entity';
+import { Congregation } from '../entities/congregation.entity';
+import { MonthlySentService } from './monthly-sent.service';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ServiceReport } from '../entities/service-report.entity';
@@ -21,6 +25,9 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
       Responsibility,
       ReportMonthClosure,
       PioneerSpell,
+      ReportSnapshot,
+      AuditLog,
+      Congregation,
     ]),
     AuditLogModule,
     PublishersModule,
@@ -28,9 +35,9 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
     CongregationClockModule,
   ],
   controllers: [ServiceReportsController],
-  providers: [ServiceReportsService],
+  providers: [ServiceReportsService, MonthlySentService],
   // The «what is waiting for me» door asks this service for the report
   // standing rather than working the deadline out a second time.
-  exports: [ServiceReportsService],
+  exports: [ServiceReportsService, MonthlySentService],
 })
 export class ServiceReportsModule {}

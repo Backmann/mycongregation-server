@@ -357,7 +357,7 @@ export class PublishersService {
         entityType: 'publisher',
         entityId: publisher.id,
         before,
-        after: { status: null } as { status: PublisherStatus | null },
+        after: { status: null },
         fields: ['status'],
       });
       return 'updated';
@@ -1191,6 +1191,7 @@ export class PublishersService {
       baptismDate: publisher.baptismDate ?? null,
       ministryStartDate: publisher.ministryStartDate ?? null,
     };
+    const recordBefore = recordFieldsOf(publisher);
     // Contacts count as checked whenever somebody touches them — the publisher
     // themselves or the secretary on their behalf. One rule, so the card always
     // shows a date somebody can trust.
@@ -1237,6 +1238,22 @@ export class PublishersService {
 
     publisher.lastEditedById = actorUserId ?? publisher.lastEditedById;
     const saved = await this.publishersRepo.save(publisher);
+    // What the reports of a past year rest on: the appointment, the pioneer
+    // kind, the dates counting starts from, the group, and the three marks the
+    // S-10 asks about. A sent report keeps its own copy, but somebody asking
+    // «when did he become deaf on the card, and who said so» had no answer at
+    // all. Contact details stay out — they are journaled by name only,
+    // elsewhere, and the journal must not become a second copy of them.
+    await this.auditLogService.logUpdate({
+      tenantId,
+      entityType: 'publisher',
+      entityId: saved.id,
+      actorUserId: actorUserId ?? null,
+      subjectId: saved.userId ?? null,
+      before: recordBefore,
+      after: recordFieldsOf(saved),
+      fields: [...RECORD_FIELDS],
+    });
 
     // Becoming a regular/special/missionary pioneer ends any open auxiliary
     // period — the two must not overlap. Uses the pioneer start month if given,
@@ -1359,6 +1376,7 @@ export class PublishersService {
     tenantId: string,
     id: string,
     dto: RemovePublisherDto,
+    actorUserId?: string,
   ): Promise<Publisher> {
     const publisher = await this.findOne(tenantId, id);
     if (publisher.deletedAt) {
@@ -1371,6 +1389,23 @@ export class PublishersService {
     publisher.isActive = false;
     await this.publishersRepo.save(publisher);
     await this.publishersRepo.softDelete(id);
+    // A departure moves every report about the months after it, and the day
+    // it is ENTERED is not the day he left. Both are kept: the entry's own
+    // time, and the day and reason as typed. The note stays out — it is the
+    // secretary's words about a person.
+    await this.auditLogService.logRawUpdate({
+      tenantId,
+      entityType: 'publisher',
+      entityId: id,
+      actorUserId: actorUserId ?? null,
+      subjectId: publisher.userId ?? null,
+      changedFields: ['removedAt', 'removalReason'],
+      before: { removedAt: null, removalReason: null },
+      after: {
+        removedAt: publisher.removedAt.toISOString().slice(0, 10),
+        removalReason: publisher.removalReason,
+      },
+    });
     return this.findOne(tenantId, id);
   }
 
@@ -1464,7 +1499,11 @@ export class PublishersService {
     return { deleted: true };
   }
 
-  async restore(tenantId: string, id: string): Promise<Publisher> {
+  async restore(
+    tenantId: string,
+    id: string,
+    actorUserId?: string,
+  ): Promise<Publisher> {
     const publisher = await this.findOne(tenantId, id);
     if (!publisher.deletedAt) {
       throw new BadRequestException('Publisher is not removed');
@@ -1474,6 +1513,14 @@ export class PublishersService {
     publisher.isActive = true;
     publisher.deletedAt = null;
     await this.publishersRepo.save(publisher);
+    await this.auditLogService.logEvent({
+      tenantId,
+      entityType: 'publisher',
+      entityId: id,
+      action: 'RESTORE',
+      actorUserId: actorUserId ?? null,
+      subjectId: publisher.userId ?? null,
+    });
     return this.findOne(tenantId, id);
   }
 
@@ -1487,4 +1534,29 @@ export class PublishersService {
   ): string {
     return [lastName, firstName, middleName].filter(Boolean).join(' ');
   }
+}
+
+/**
+ * The card's fields that the reports of a past year rest on — journaled with
+ * their values when they change. Nothing about how to reach the person.
+ */
+const RECORD_FIELDS = [
+  'appointment',
+  'pioneerType',
+  'pioneerSince',
+  'baptismDate',
+  'ministryStartDate',
+  'serviceGroupId',
+  'isDeaf',
+  'isBlind',
+  'isImprisoned',
+] as const;
+
+function recordFieldsOf(p: Publisher): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const f of RECORD_FIELDS) {
+    const v = (p as unknown as Record<string, unknown>)[f];
+    out[f] = v instanceof Date ? v.toISOString().slice(0, 10) : (v ?? null);
+  }
+  return out;
 }
