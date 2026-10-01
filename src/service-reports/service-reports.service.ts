@@ -295,6 +295,13 @@ export interface ServiceReportSummary {
   categories: ServiceReportSummaryCategory[];
   totalActivePublishers: number;
   totalInactivePublishers: number;
+  /**
+   * Members the records cannot answer for at the end of this month — nothing
+   * entered for them, or silent in every recorded month while the six months
+   * asked about reach back before the records. Not in the inactive total;
+   * named so the secretary can settle them from the paper cards.
+   */
+  inactiveUnknown?: { id: string; name: string }[];
   averages: {
     /** Average hours among pioneers who reported hours this month. */
     pioneerHours: number;
@@ -1831,18 +1838,38 @@ export class ServiceReportsService {
   }
 
   /**
-   * Who was inactive when `reportMonth` ended, by the status rule: six closed
-   * months without sharing, counting from when the person began (or began
-   * again). Every report up to that month is read, because a restart after an
-   * earlier lapse moves where the counting begins.
+   * Who was inactive when `reportMonth` ended, by the status rule — and who
+   * the records cannot answer for.
+   *
+   * A month before the congregation's first report row is not a month of
+   * silence; it is a month the app did not keep. Reading it as silence put
+   * three departed brothers, whose reports were never typed in, into
+   * «Неактивные» for September 2025 to April 2026 — 6 and 5 where the
+   * congregation had 2. So counting never starts before the first record,
+   * and two kinds of person are named rather than counted:
+   *  - a member with no report at all up to this month: nothing was entered,
+   *    which says nothing about whether he preached;
+   *  - one who is silent in every recorded month while the six months the
+   *    rule looks at reach back before the records — he may well have been
+   *    inactive for years, but that is on paper, not here.
    */
   private async inactiveAtEndOf(
     tenantId: string,
     reportMonth: string,
     members: Publisher[],
-  ): Promise<string[]> {
-    if (members.length === 0) return [];
+  ): Promise<{ inactive: string[]; unknown: Publisher[] }> {
+    if (members.length === 0) return { inactive: [], unknown: [] };
     const month = reportMonth.slice(0, 7);
+    const earliest = await this.reportsRepo.findOne({
+      where: { congregationId: tenantId },
+      order: { reportMonth: 'ASC' },
+      select: ['id', 'reportMonth'],
+    });
+    if (!earliest) return { inactive: [], unknown: [] };
+    const firstCovered = String(earliest.reportMonth).slice(0, 7);
+    const windowFloor = addMonthKey(month, -5);
+    const windowCovered = windowFloor >= firstCovered;
+
     const rows = await this.reportsRepo.find({
       where: {
         congregationId: tenantId,
@@ -1867,21 +1894,41 @@ export class ServiceReportsService {
       set.add(m);
       shared.set(r.publisherId, set);
     }
-    return members
-      .filter(
-        (p) =>
-          computeServiceStatus({
-            participated: shared.get(p.id) ?? new Set<string>(),
-            startMonth: resolveReportingStartMonth({
-              ministryStartDate: p.ministryStartDate,
-              baptismDate: p.baptismDate,
-              firstReportMonth: first.get(p.id) ?? null,
-            }),
-            lastClosedMonth: month,
-            collectedMonth: month,
-          }) === PublisherStatus.INACTIVE,
-      )
-      .map((p) => p.id);
+
+    const inactive: string[] = [];
+    const unknown: Publisher[] = [];
+    for (const p of members) {
+      const start = resolveReportingStartMonth({
+        ministryStartDate: p.ministryStartDate,
+        baptismDate: p.baptismDate,
+        firstReportMonth: first.get(p.id) ?? null,
+      });
+      // Not begun yet: nothing to judge.
+      if (start !== null && start > month) continue;
+      // Nothing entered at all — not silence, a gap.
+      if (!first.has(p.id)) {
+        unknown.push(p);
+        continue;
+      }
+      const preRecords = start === null || start < firstCovered;
+      const participated = shared.get(p.id) ?? new Set<string>();
+      const status = computeServiceStatus({
+        participated,
+        startMonth: preRecords ? firstCovered : start,
+        lastClosedMonth: month,
+        collectedMonth: month,
+      });
+      if (status === PublisherStatus.INACTIVE) {
+        inactive.push(p.id);
+        continue;
+      }
+      // Silent in every month we hold, and the six the rule asks about reach
+      // back before we held any: the answer is on paper.
+      if (preRecords && !windowCovered && participated.size === 0) {
+        unknown.push(p);
+      }
+    }
+    return { inactive, unknown };
   }
 
   async getSummary(
@@ -2078,11 +2125,14 @@ export class ServiceReportsService {
     // at the end of this month, of the people who were here then — the same
     // arithmetic that sets the badge, so the two cannot disagree about one
     // month. Counted on its own line and never added into the active total.
-    const inactiveIds = await this.inactiveAtEndOf(
-      tenantId,
-      reportMonth,
-      publishers.filter((p) => p.appointment !== PublisherAppointment.STUDENT),
-    );
+    const { inactive: inactiveIds, unknown: inactiveUnknownCards } =
+      await this.inactiveAtEndOf(
+        tenantId,
+        reportMonth,
+        publishers.filter(
+          (p) => p.appointment !== PublisherAppointment.STUDENT,
+        ),
+      );
     const totalInactivePublishers = inactiveIds.length;
 
     const closed = await this.isMonthClosed(tenantId, reportMonth);
@@ -2129,6 +2179,14 @@ export class ServiceReportsService {
         categories,
         totalActivePublishers,
         totalInactivePublishers,
+        // Named, not counted: the records cannot say whether they were
+        // inactive then (see inactiveAtEndOf).
+        inactiveUnknown: inactiveUnknownCards
+          .map((p) => ({
+            id: p.id,
+            name: [p.lastName, p.firstName].filter(Boolean).join(' ').trim(),
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name, 'ru')),
         averages,
         closed,
       },

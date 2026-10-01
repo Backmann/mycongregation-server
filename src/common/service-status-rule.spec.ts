@@ -199,3 +199,47 @@ describe('explainServiceStatus', () => {
     expect(out.windowFrom).toBeNull();
   });
 });
+
+/**
+ * «Ровно шесть месяцев без отчётов — неактивный» (Lionel, 1 October 2026):
+ * not one month sooner, however short somebody's history is.
+ */
+describe('computeServiceStatus — inactive takes six closed months', () => {
+  const status = (
+    participated: string[],
+    start: string | null,
+    month: string,
+  ) =>
+    computeServiceStatus({
+      participated: new Set(participated),
+      startMonth: start,
+      lastClosedMonth: month,
+      collectedMonth: month,
+    });
+
+  it('a newcomer whose first month says «нет» is irregular, not inactive', () => {
+    expect(status([], '2026-08', '2026-08')).toBe(PublisherStatus.IRREGULAR);
+  });
+
+  it('five silent months from the start are still irregular', () => {
+    expect(status([], '2026-04', '2026-08')).toBe(PublisherStatus.IRREGULAR);
+  });
+
+  it('the sixth makes him inactive', () => {
+    expect(status([], '2026-03', '2026-08')).toBe(PublisherStatus.INACTIVE);
+  });
+
+  it('somebody with a long history and six silent months is inactive', () => {
+    expect(status(['2025-12'], '2010-01', '2026-08')).toBe(
+      PublisherStatus.INACTIVE,
+    );
+  });
+
+  it('a month without sharing after a return is a missed month, not a lapse', () => {
+    // Six silent, back in March, silent in April: counting began again in
+    // March, and one missed month is irregular.
+    expect(status(['2026-03'], '2025-01', '2026-04')).toBe(
+      PublisherStatus.IRREGULAR,
+    );
+  });
+});

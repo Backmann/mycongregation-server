@@ -252,9 +252,15 @@ export function computeServiceStatus(
     // it IS six, the restart above has already moved the window, so reaching
     // here with a report in hand means a shorter silence and a man who is
     // plainly still serving.
-    return servedOpen > 0
-      ? PublisherStatus.IRREGULAR
-      : PublisherStatus.INACTIVE;
+    if (servedOpen > 0) return PublisherStatus.IRREGULAR;
+    // SIX closed months, not «every month there has been». Somebody whose
+    // counting began four months ago and who has not shared since has missed
+    // four months — irregular. A newcomer whose first month says «нет» was
+    // called inactive the day it closed; Lionel's rule, 1 October 2026:
+    // «ровно шесть месяцев без отчётов — неактивный», and not one sooner.
+    return expected >= STATUS_WINDOW_MONTHS
+      ? PublisherStatus.INACTIVE
+      : PublisherStatus.IRREGULAR;
   }
   if (servedClosed >= expected) return PublisherStatus.ACTIVE;
   return PublisherStatus.IRREGULAR;

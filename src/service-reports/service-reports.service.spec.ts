@@ -2177,9 +2177,9 @@ describe('ServiceReportsService', () => {
       expect(result.totalActivePublishers).toBe(5);
       // «Неактивные» as April ended, by the status rule — not the count of
       // cards that say inactive today. p-pub-c began in April and her one
-      // month says she did not share: six closed months of nothing is not
-      // needed when there is only one month to judge, and that one is empty.
-      expect(result.totalInactivePublishers).toBe(1);
+      // month says she did not share: one silent month is irregular, not
+      // inactive — inactive takes six (Lionel, 1 October 2026).
+      expect(result.totalInactivePublishers).toBe(0);
       expect(publishersRepo.count).not.toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({ status: expect.anything() }),
@@ -2223,9 +2223,9 @@ describe('ServiceReportsService', () => {
       expect(result.averages.pioneerHours).toBe(90);
       expect(result.averages.bibleStudies).toBeCloseTo(3.2, 1);
       // Both percentages hang off «все активные», so they move with it:
-      // 5 of 5 shared, 5 active of 5 + 1 inactive.
+      // 5 of 5 shared, 5 active of 5 + 0 inactive.
       expect(result.averages.submittedPct).toBe(100);
-      expect(result.averages.activePct).toBe(83);
+      expect(result.averages.activePct).toBe(100);
     });
 
     it('counts «Неактивные» as the month ended, not as the cards say today', async () => {
@@ -2264,13 +2264,85 @@ describe('ServiceReportsService', () => {
       expect(result.totalInactivePublishers).toBe(0);
     });
 
+    describe('«Неактивные» where the records begin', () => {
+      // Records in this congregation begin in September 2025. Before that the
+      // app kept nothing — which is not silence.
+      const rep = (publisherId: string, month: string, served: boolean) =>
+        makeReport({
+          publisherId,
+          reportMonth: `${month}-01`,
+          servedThisMonth: served,
+        });
+      const silentYear = [
+        '2025-09',
+        '2025-10',
+        '2025-11',
+        '2025-12',
+        '2026-01',
+        '2026-02',
+      ];
+
+      beforeEach(() => {
+        responsibilitiesRepo.count.mockResolvedValue(1);
+        publishersRepo.findOne.mockResolvedValue(
+          makePublisher({ id: 'pub-sec', userId: 'sec-id' }),
+        );
+        (reportsRepo.findOne as jest.Mock).mockResolvedValue({
+          id: 'first',
+          reportMonth: '2025-09-01',
+        });
+        publishersRepo.find.mockResolvedValue([
+          makePublisher({ id: 'never', baptismDate: '2001-01-01' }),
+          makePublisher({ id: 'gap', baptismDate: '2010-01-01' }),
+          makePublisher({ id: 'steady', baptismDate: '2010-01-01' }),
+        ]);
+        reportsRepo.find.mockResolvedValue([
+          ...silentYear.map((m) => rep('never', m, false)),
+          ...silentYear.map((m) => rep('steady', m, true)),
+        ]);
+      });
+
+      const at = (month: string) =>
+        service.getSummary(
+          'cong-1',
+          makeUser({ id: 'sec-id', role: UserRole.PUBLISHER }),
+          month,
+        );
+
+      it('does not count the months before the records as silence', async () => {
+        const sep = await at('2025-09');
+
+        // «never» says «нет», but the six months asked about reach back into
+        // months the app does not hold: named, not counted. «gap» has nothing
+        // entered at all: named too.
+        expect(sep.totalInactivePublishers).toBe(0);
+        expect(sep.inactiveUnknown?.map((x) => x.id).sort()).toEqual([
+          'gap',
+          'never',
+        ]);
+      });
+
+      it('counts him once six recorded months are silent', async () => {
+        const feb = await at('2026-02');
+
+        expect(feb.totalInactivePublishers).toBe(1);
+        // «gap» still has nothing entered — still named, never counted.
+        expect(feb.inactiveUnknown?.map((x) => x.id)).toEqual(['gap']);
+      });
+    });
+
     it('allows the secretary and returns zeroed categories when no reports', async () => {
       responsibilitiesRepo.count.mockResolvedValue(1);
       publishersRepo.findOne.mockResolvedValue(
         makePublisher({ id: 'pub-sec', userId: 'sec-id' }),
       );
-      // Two brothers baptized long ago with nothing reported in the window:
-      // both inactive as April ended. The cards' own status says nothing here.
+      // Two brothers baptized long ago with nothing entered at all: the
+      // records cannot say they were silent — they are named, not counted.
+      // The cards' own status says nothing here either.
+      (reportsRepo.findOne as jest.Mock).mockResolvedValue({
+        id: 'first',
+        reportMonth: '2025-09-01',
+      });
       publishersRepo.find.mockResolvedValue([
         makePublisher({ id: 'p-quiet-1', baptismDate: '2010-01-01' }),
         makePublisher({ id: 'p-quiet-2', baptismDate: '2012-06-01' }),
@@ -2290,7 +2362,11 @@ describe('ServiceReportsService', () => {
       // months, and the form's figure is zero. It used to answer 7, the count
       // of publishers whose STATUS said active.
       expect(result.totalActivePublishers).toBe(0);
-      expect(result.totalInactivePublishers).toBe(2);
+      expect(result.totalInactivePublishers).toBe(0);
+      expect(result.inactiveUnknown?.map((x) => x.id).sort()).toEqual([
+        'p-quiet-1',
+        'p-quiet-2',
+      ]);
       expect(result.categories).toHaveLength(5);
       expect(result.categories.every((c) => c.count === 0)).toBe(true);
       expect(result.categories[0].bibleStudies).toBe(0);
