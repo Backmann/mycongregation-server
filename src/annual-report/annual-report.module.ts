@@ -5,12 +5,18 @@ import { AnnualReportController } from './annual-report.controller';
 import { AnnualReportService } from './annual-report.service';
 import { ServiceReport } from '../entities/service-report.entity';
 import { Publisher } from '../entities/publisher.entity';
+import { AuditLog } from '../entities/audit-log.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ServiceReport, Publisher, Responsibility]),
+    TypeOrmModule.forFeature([
+      ServiceReport,
+      Publisher,
+      AuditLog,
+      Responsibility,
+    ]),
     CongregationClockModule,
   ],
   controllers: [AnnualReportController],

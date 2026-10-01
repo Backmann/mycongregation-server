@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { reportedMinistry } from '../common/reported-ministry';
 import { todayIn } from '../common/congregation-clock';
+import { memberAtEndOf } from '../common/members-of-period';
 import {
   addMonthKey,
   resolveReportingStartMonth,
@@ -367,29 +368,6 @@ function lastDayToFile(reportMonth: string): string {
 }
 
 /** Whole days from one calendar date to another; negative once it is past. */
-/**
- * Whether a publisher was still in the congregation when `reportMonth`
- * (YYYY-MM-01) ended. A departure is recorded as removedAt plus a soft delete
- * (PublishersService.remove); either one, dated on or after the first day of
- * the next month, means they were still here for this one.
- */
-export function memberAtEndOf(
-  reportMonth: string,
-): (p: {
-  removedAt?: Date | string | null;
-  deletedAt?: Date | string | null;
-}) => boolean {
-  const nextMonth = `${addMonthKey(reportMonth.slice(0, 7), 1)}-01`;
-  return (p) => {
-    const gone = p.removedAt ?? p.deletedAt ?? null;
-    if (!gone) return true;
-    const day = (
-      gone instanceof Date ? gone.toISOString() : String(gone)
-    ).slice(0, 10);
-    return day >= nextMonth;
-  };
-}
-
 function daysBetween(fromISO: string, toISO: string): number {
   const a = Date.parse(`${fromISO}T00:00:00Z`);
   const b = Date.parse(`${toISO}T00:00:00Z`);

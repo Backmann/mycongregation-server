@@ -53,14 +53,20 @@ function build(reportsGiven: unknown[], publishers: unknown[]) {
   return make([...coverage(), ...reportsGiven], publishers);
 }
 
-function make(reports: unknown[], publishers: unknown[]) {
+function make(
+  reports: unknown[],
+  publishers: unknown[],
+  journal: unknown[] = [],
+) {
   const reportsRepo = { find: jest.fn().mockResolvedValue(reports) } as never;
   const publishersRepo = {
     find: jest.fn().mockResolvedValue(publishers),
   } as never;
+  const auditRepo = { find: jest.fn().mockResolvedValue(journal) } as never;
   const service = new AnnualReportService(
     reportsRepo,
     publishersRepo,
+    auditRepo,
     clockStub(),
   );
   return Object.assign(service, {
@@ -273,14 +279,67 @@ describe('AnnualReportService — service year 2026/27', () => {
     expect(out.active[0].name).toBe('Тp1 Иван');
   });
 
-  it('leaves out publishers who are no longer in the congregation', async () => {
+  it('leaves out publishers who left before the year ended', async () => {
     const svc = build(reportsFor('p1', ['2027-05']), [
       pub('p1', { removedAt: new Date('2027-06-01') }),
+      pub('p2', { removedAt: '2027-08-31' }),
     ]);
 
     const out = await svc.figures(TENANT, 2026);
 
     expect(out.active).toHaveLength(0);
+  });
+
+  it('keeps those who left after the year ended — their year is finished', async () => {
+    // Two brothers served all of 2025/26 and moved on 1 September 2026; the
+    // departure, entered on the 27th, took them out of a figure that had
+    // already gone to the branch. Leaving after the year does not change it.
+    const svc = build(reportsFor('p1', ['2027-05']), [
+      pub('p1', {
+        removedAt: new Date('2027-09-01'),
+        deletedAt: new Date('2027-09-27T10:00:00Z'),
+      }),
+    ]);
+
+    const out = await svc.figures(TENANT, 2026);
+
+    expect(out.active.map((x) => x.id)).toEqual(['p1']);
+  });
+
+  it('asks for departed cards too, so the year can decide who belonged', async () => {
+    const svc = build([], []);
+
+    await svc.figures(TENANT, 2026);
+
+    expect(svc.__publishersRepo.find.mock.calls[0][0].withDeleted).toBe(true);
+  });
+
+  it('leaves out somebody who joined after the year — no reports is not a lapse', async () => {
+    const svc = build(
+      [],
+      [
+        pub('newcomer', {
+          baptismDate: '2010-05-01',
+          createdAt: new Date('2027-09-10T09:00:00Z'),
+        }),
+      ],
+    );
+
+    const out = await svc.figures(TENANT, 2026);
+
+    expect(out.becameInactive).toHaveLength(0);
+    expect(out.inactiveNow).toHaveLength(0);
+    expect(out.lapseUnknown).toHaveLength(0);
+  });
+
+  it('keeps a card typed in late for somebody who reported in the year', async () => {
+    const svc = build(reportsFor('late-card', ['2027-04']), [
+      pub('late-card', { createdAt: new Date('2027-09-10T09:00:00Z') }),
+    ]);
+
+    const out = await svc.figures(TENANT, 2026);
+
+    expect(out.active.map((x) => x.id)).toEqual(['late-card']);
   });
 
   it('carries the circumstances the form asks about', async () => {
@@ -344,19 +403,16 @@ describe('AnnualReportService — service year 2026/27', () => {
     })();
   });
 
-  it('does not ask the roster for participants at all', () => {
+  it('does not count participants at all', async () => {
     // They are not publishers and file nothing, so counting them made every
     // «участник» six closed months of silence: the present-tense list read six
     // where the congregation has two.
-    const svc = build([], [pub('p1')]);
+    const svc = build([], [pub('p1', { appointment: 'student' })]);
 
-    return (async () => {
-      await svc.figures(TENANT, 2026);
-      const where = svc.__publishersRepo.find.mock.calls[0][0].where as {
-        appointment?: unknown;
-      };
-      expect(where.appointment).toBeDefined();
-    })();
+    const out = await svc.figures(TENANT, 2026);
+
+    expect(out.inactiveNow).toHaveLength(0);
+    expect(out.lapseUnknown).toHaveLength(0);
   });
 
   it('names those whose break began before the records do', () => {

@@ -1,4 +1,10 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { AnnualReportService } from './annual-report.service';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
@@ -31,5 +37,27 @@ export class AnnualReportController {
       congregationId,
       startYear ? Number(startYear) : fallback,
     );
+  }
+
+  /**
+   * The year as the data stood at the end of a past day — what had been filed
+   * by then, as it read then — worked out by today's rules, with everything
+   * entered since listed beside it. For telling what a figure already sent to
+   * the branch rested on.
+   */
+  @Get('as-of')
+  asOf(
+    @TenantId() congregationId: string,
+    @Query('startYear') startYear?: string,
+    @Query('day') day?: string,
+  ) {
+    const year = Number(startYear);
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+      throw new BadRequestException('startYear must be a year, e.g. 2025');
+    }
+    if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day) || isNaN(Date.parse(day))) {
+      throw new BadRequestException('day must be a date, YYYY-MM-DD');
+    }
+    return this.service.figuresAsOf(congregationId, year, day);
   }
 }
