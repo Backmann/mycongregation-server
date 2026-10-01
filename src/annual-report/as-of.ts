@@ -182,7 +182,17 @@ export function reportsAsOf(
     }
     reports.push(value);
 
-    if (refiledAt !== null && refiledAt > t) {
+    // A refiling journaled since 1 October 2026 carries a RESTORE at the same
+    // moment and the old figures in an UPDATE beside it, both undone above —
+    // so only an older one, with nothing journaled, leaves the figures unknown.
+    const refileJournaled =
+      refiledAt !== null &&
+      entries.some(
+        (e) =>
+          e.action === 'RESTORE' &&
+          Math.abs(e.at.getTime() - refiledAt) <= REFILE_GRACE_MS,
+      );
+    if (refiledAt !== null && refiledAt > t && !refileJournaled) {
       unsure.push({
         reportId: row.id,
         publisherId: row.publisherId,

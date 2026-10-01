@@ -60,6 +60,12 @@ function setup(
     })),
   };
   const annual = {
+    lastMonthCollection: jest.fn(async () => ({
+      month: '2026-08',
+      expected: 3,
+      received: 3,
+      missing: [],
+    })),
     figures: jest.fn(async () => figures(['a', 'b', 'late'])),
     figuresAsOf: jest.fn(async () => ({
       ...figures(['a', 'b']),

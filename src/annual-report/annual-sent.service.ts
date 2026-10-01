@@ -13,7 +13,11 @@ import { CongregationClock } from '../common/congregation-clock.service';
 import { todayIn } from '../common/congregation-clock';
 import { MeetingAttendanceService } from '../meeting-attendance/meeting-attendance.service';
 import { AnnualReportService } from './annual-report.service';
-import type { AnnualFigures, CountedPublisher } from './annual-figures';
+import type {
+  AnnualFigures,
+  CountedPublisher,
+  LastMonthCollection,
+} from './annual-figures';
 import type { LateFact } from './as-of';
 
 /**
@@ -80,6 +84,8 @@ export interface AnnualSentView {
   };
   /** Only the lines where what was sent and what is now differ. */
   drift: DriftLine[];
+  /** August's collection: who has not reported, and whose «active» it decides. */
+  lastMonth: LastMonthCollection;
 }
 
 /**
@@ -264,12 +270,13 @@ export class AnnualSentService {
   }
 
   async view(tenantId: string, startYear: number): Promise<AnnualSentView> {
-    const [row, current, now] = await Promise.all([
+    const [row, current, now, lastMonth] = await Promise.all([
       this.find(tenantId, startYear),
       this.annual.figures(tenantId, startYear),
       this.numbersNow(tenantId, startYear),
+      this.annual.lastMonthCollection(tenantId, startYear),
     ]);
-    const base = { startYear, freezeOn: freezeDay(startYear), now };
+    const base = { startYear, freezeOn: freezeDay(startYear), now, lastMonth };
     if (!row) return { ...base, sent: null, drift: [] };
 
     const names = await this.namesOf(tenantId, [

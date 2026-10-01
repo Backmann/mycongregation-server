@@ -10,6 +10,8 @@ import { addMonthKey } from '../common/service-status-rule';
 import {
   AnnualFigures,
   computeAnnualFigures,
+  lastMonthCollection,
+  LastMonthCollection,
   monthsOfServiceYear,
 } from './annual-figures';
 import {
@@ -122,6 +124,22 @@ export class AnnualReportService {
         .filter(inYear)
         .sort((a, b) => a.at.localeCompare(b.at)),
     };
+  }
+
+  /**
+   * How August's collection stands for the year — who has not reported yet,
+   * and for whom that one report decides «active». Asked before the form is
+   * sent, so a report still to come is known about rather than discovered.
+   */
+  async lastMonthCollection(
+    tenantId: string,
+    startYear: number,
+  ): Promise<LastMonthCollection> {
+    const [reports, publishers] = await Promise.all([
+      this.reportsOf(tenantId, startYear, false),
+      this.cardsOf(tenantId),
+    ]);
+    return lastMonthCollection({ startYear, reports, publishers });
   }
 
   /** Every report the year's arithmetic looks at, withdrawn ones on request. */

@@ -199,32 +199,7 @@ export function computeAnnualFigures(input: {
   const blind: CountedPublisher[] = [];
   const imprisoned: CountedPublisher[] = [];
 
-  // WHO THIS YEAR IS ABOUT: the congregation as it stood on 31 August.
-  //
-  // It used to be the congregation as it stands TODAY, so the report for a
-  // finished year moved whenever life went on in the next one. Two brothers
-  // who served all of 2025/26 and moved on 1 September 2026 dropped out of
-  // «Активные» for 2025/26 the day their departure was entered — after the
-  // figure had gone to the branch. Leaving after the year does not change
-  // the year.
-  //
-  // And somebody who joined after it is not part of it: a brother who moved
-  // IN in September has no reports here for the year, and the six-month rule
-  // would read that as a lapse. A card typed in late for somebody who was
-  // here all along still counts — his reports for the year say so.
-  const isMember = memberAtServiceYearEnd(startYear);
-  const yearEndDay = `${startYear + 1}-08-31`;
-  const reportedInYear = new Set(
-    reports
-      .filter((r) => yearMonths.includes(r.reportMonth.slice(0, 7)))
-      .map((r) => r.publisherId),
-  );
-  const belongs = (p: AnnualPublisher) =>
-    String(p.appointment) !== String(PublisherAppointment.STUDENT) &&
-    isMember(p) &&
-    (reportedInYear.has(p.id) ||
-      !p.createdAt ||
-      dayOf(p.createdAt) <= yearEndDay);
+  const belongs = belongsToYear(startYear, reports);
 
   for (const p of publishers) {
     if (!belongs(p)) continue;
@@ -323,6 +298,106 @@ export function computeAnnualFigures(input: {
     deaf,
     blind,
     imprisoned,
+  };
+}
+
+/**
+ * Who a finished service year is about. See the note inside: the
+ * congregation as it stood on 31 August, not as it stands today.
+ */
+export function belongsToYear(
+  startYear: number,
+  reports: AnnualReportRow[],
+): (p: AnnualPublisher) => boolean {
+  const yearMonths = monthsOfServiceYear(startYear);
+  // WHO THIS YEAR IS ABOUT: the congregation as it stood on 31 August.
+  //
+  // It used to be the congregation as it stands TODAY, so the report for a
+  // finished year moved whenever life went on in the next one. Two brothers
+  // who served all of 2025/26 and moved on 1 September 2026 dropped out of
+  // «Активные» for 2025/26 the day their departure was entered — after the
+  // figure had gone to the branch. Leaving after the year does not change
+  // the year.
+  //
+  // And somebody who joined after it is not part of it: a brother who moved
+  // IN in September has no reports here for the year, and the six-month rule
+  // would read that as a lapse. A card typed in late for somebody who was
+  // here all along still counts — his reports for the year say so.
+  const isMember = memberAtServiceYearEnd(startYear);
+  const yearEndDay = `${startYear + 1}-08-31`;
+  const reportedInYear = new Set(
+    reports
+      .filter((r) => yearMonths.includes(r.reportMonth.slice(0, 7)))
+      .map((r) => r.publisherId),
+  );
+  const belongs = (p: AnnualPublisher) =>
+    String(p.appointment) !== String(PublisherAppointment.STUDENT) &&
+    isMember(p) &&
+    (reportedInYear.has(p.id) ||
+      !p.createdAt ||
+      dayOf(p.createdAt) <= yearEndDay);
+  return belongs;
+}
+
+/** The last month of the year and how its collection stands. */
+export interface LastMonthCollection {
+  /** YYYY-MM — August of the year. */
+  month: string;
+  /** Reporting publishers who belonged to the year. */
+  expected: number;
+  /** Of them, how many have a report for that month — «нет» included. */
+  received: number;
+  /**
+   * Who has not handed it in yet. `decidesActive`: nothing else between
+   * March and July says he shared, so whether he is ACTIVE on the form
+   * rests on this one report — the case behind 85 sent and 86 counted
+   * for 2025/26, a report for August filed hours after the form went out.
+   */
+  missing: { id: string; name: string; decidesActive: boolean }[];
+}
+
+export function lastMonthCollection(input: {
+  startYear: number;
+  reports: AnnualReportRow[];
+  publishers: (AnnualPublisher & { isActive?: boolean })[];
+}): LastMonthCollection {
+  const { startYear, reports, publishers } = input;
+  const month = `${startYear + 1}-08`;
+  const belongs = belongsToYear(startYear, reports);
+  const marchToJuly = marchToAugust(startYear).filter((m) => m !== month);
+  const filed = new Set(
+    reports
+      .filter((r) => r.reportMonth.slice(0, 7) === month)
+      .map((r) => r.publisherId),
+  );
+  const sharedBefore = new Set(
+    reports
+      .filter(
+        (r) =>
+          marchToJuly.includes(r.reportMonth.slice(0, 7)) &&
+          reportedMinistry(r),
+      )
+      .map((r) => r.publisherId),
+  );
+  // Expected to report: belonged to the year and was on the roll then — a
+  // card switched off in the roster (isActive false) without leaving is not
+  // chased for a report, the same rule the reminders and the home card use.
+  const expected = publishers.filter(
+    (p) => belongs(p) && (p.isActive !== false || !!p.deletedAt),
+  );
+  const missing = expected
+    .filter((p) => !filed.has(p.id))
+    .map((p) => ({
+      id: p.id,
+      name: fullName(p),
+      decidesActive: !sharedBefore.has(p.id),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  return {
+    month,
+    expected: expected.length,
+    received: expected.length - missing.length,
+    missing,
   };
 }
 

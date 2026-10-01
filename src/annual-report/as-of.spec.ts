@@ -213,6 +213,41 @@ describe('reportsAsOf — the reports as they stood on a past day', () => {
     ]);
   });
 
+  it('recovers a refiling once the journal keeps what was written over', () => {
+    const out = reportsAsOf(
+      [
+        row('r1', 'p1', '2026-08', '2026-09-02T19:38:00Z', {
+          servedThisMonth: false,
+          submittedAt: new Date('2026-09-04T09:36:39Z'),
+        }),
+      ],
+      [
+        {
+          entityId: 'r1',
+          action: 'DELETE',
+          at: new Date('2026-09-04T09:35:00Z'),
+          before: null,
+        },
+        {
+          entityId: 'r1',
+          action: 'RESTORE',
+          at: new Date('2026-09-04T09:36:39Z'),
+          before: null,
+        },
+        {
+          entityId: 'r1',
+          action: 'UPDATE',
+          at: new Date('2026-09-04T09:36:39Z'),
+          before: { servedThisMonth: true },
+        },
+      ],
+      at,
+    );
+
+    expect(out.unsure).toEqual([]);
+    expect(out.reports[0].servedThisMonth).toBe(true);
+  });
+
   it('names a report whose later edit was redacted', () => {
     const out = reportsAsOf(
       [row('r1', 'p1', '2026-05', '2026-06-02T08:00:00Z')],

@@ -527,6 +527,17 @@ export class ServiceReportsService {
       });
 
       if (existing?.deletedAt) {
+        // What the withdrawn row said, before this submission writes over it.
+        // Without it the journal kept the withdrawal and nothing of what was
+        // withdrawn, and the figures sent to the branch could no longer be
+        // reconstructed: on 4 September a report taken back and filed again
+        // left August's sheet with one row nobody could account for.
+        const withdrawn = {
+          servedThisMonth: existing.servedThisMonth,
+          hoursReported: existing.hoursReported,
+          bibleStudies: existing.bibleStudies,
+          notes: existing.notes,
+        };
         // A deleted report must not block the month for ever. The publisher is
         // filing it now; restore the row and let this submission stand.
         await this.reportsRepo.restore(existing.id);
@@ -550,6 +561,28 @@ export class ServiceReportsService {
           `report ${existing.id} for ${reportMonth} was deleted and has been ` +
             'restored by a new submission',
         );
+        await this.auditLogService.logEvent({
+          tenantId,
+          entityType: 'service_report',
+          entityId: saved.id,
+          action: 'RESTORE',
+          actorUserId: user.id,
+          detail: { reportMonth },
+        });
+        await this.auditLogService.logUpdate({
+          tenantId,
+          entityType: 'service_report',
+          entityId: saved.id,
+          actorUserId: user.id,
+          before: withdrawn,
+          after: {
+            servedThisMonth: saved.servedThisMonth,
+            hoursReported: saved.hoursReported,
+            bibleStudies: saved.bibleStudies,
+            notes: saved.notes,
+          },
+          fields: ['servedThisMonth', 'hoursReported', 'bibleStudies', 'notes'],
+        });
         await this.publishersService.recomputeStatus(tenantId, publisher.id);
         return saved;
       }

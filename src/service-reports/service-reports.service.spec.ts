@@ -854,6 +854,52 @@ describe('ServiceReportsService', () => {
         expect(saved.deletedAt).toBeNull();
       });
 
+      it('journals what the withdrawn report said before a new one writes over it', async () => {
+        // The withdrawn row is reused for the new submission. Its old figures
+        // are the only trace of what a sheet already sent rested on.
+        const pgErr: any = new Error('duplicate key');
+        pgErr.code = '23505';
+        reportsRepo.save
+          .mockRejectedValueOnce(pgErr)
+          .mockImplementation(async (x: any) => x);
+        reportsRepo.findOne.mockResolvedValue({
+          id: 'old-report',
+          deletedAt: new Date('2026-09-04T09:35:00Z'),
+          servedThisMonth: true,
+          hoursReported: null,
+          bibleStudies: 1,
+          notes: null,
+        } as any);
+        (reportsRepo as any).restore = jest.fn(async () => undefined);
+
+        await service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
+          reportMonth: '2026-04',
+          servedThisMonth: false,
+          bibleStudies: 0,
+        });
+
+        expect(auditLogService.logEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            entityId: 'old-report',
+            action: 'RESTORE',
+          }),
+        );
+        expect(auditLogService.logUpdate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            entityType: 'service_report',
+            entityId: 'old-report',
+            before: expect.objectContaining({
+              servedThisMonth: true,
+              bibleStudies: 1,
+            }),
+            after: expect.objectContaining({
+              servedThisMonth: false,
+              bibleStudies: 0,
+            }),
+          }),
+        );
+      });
+
       it('names the report standing in the way, so the app can open it', async () => {
         const pgErr: any = new Error('duplicate key');
         pgErr.code = '23505';
