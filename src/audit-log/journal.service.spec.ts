@@ -12,6 +12,7 @@ import { User } from '../entities/user.entity';
 import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { JournalService } from './journal.service';
+import { ElderTask } from '../entities/elder-task.entity';
 
 const row = (over: Partial<AuditLog> = {}): AuditLog =>
   ({
@@ -44,6 +45,7 @@ describe('JournalService', () => {
   let serviceGroupsRepo: { find: jest.Mock };
   let externalCongregationsRepo: { find: jest.Mock };
   let visitingSpeakersRepo: { find: jest.Mock };
+  let tasksRepo: { find: jest.Mock };
 
   beforeEach(async () => {
     auditRepo = { find: jest.fn().mockResolvedValue([]) };
@@ -57,6 +59,7 @@ describe('JournalService', () => {
     serviceGroupsRepo = { find: jest.fn().mockResolvedValue([]) };
     externalCongregationsRepo = { find: jest.fn().mockResolvedValue([]) };
     visitingSpeakersRepo = { find: jest.fn().mockResolvedValue([]) };
+    tasksRepo = { find: jest.fn().mockResolvedValue([]) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -87,6 +90,7 @@ describe('JournalService', () => {
           provide: getRepositoryToken(VisitingSpeaker),
           useValue: visitingSpeakersRepo,
         },
+        { provide: getRepositoryToken(ElderTask), useValue: tasksRepo },
       ],
     }).compile();
 
@@ -314,6 +318,29 @@ describe('JournalService', () => {
       kind: 'treasures_talk',
       title: 'Сокровища из Слова Бога',
     });
+  });
+
+  // 30 September: a task says which one it is by its deadline and, when the
+  // app raised it, its kind — and NEVER by its words. The lookup does not
+  // even ask for the title.
+  it('names a task by its deadline and kind, never by its title', async () => {
+    auditRepo.find.mockResolvedValue([
+      row({ entityType: 'elder_task', entityId: 't-1', action: 'UPDATE' }),
+    ]);
+    tasksRepo.find.mockResolvedValue([
+      { id: 't-1', dueDate: '2027-08-31', kind: 'service_overseer_visits' },
+    ]);
+
+    const page = await service.find('cong-1', {});
+
+    expect(page.items[0].context).toEqual({
+      date: '2027-08-31',
+      kind: 'service_overseer_visits',
+    });
+    const asked = tasksRepo.find.mock.calls[0][0];
+    expect(asked.where.congregationId).toBe('cong-1');
+    expect(asked.select).not.toHaveProperty('title');
+    expect(asked.select).not.toHaveProperty('details');
   });
 
   it('scopes the lookup to the congregation like everything else', async () => {

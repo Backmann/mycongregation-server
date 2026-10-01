@@ -182,6 +182,7 @@ export class MeetingSettingsService {
     let row = await this.repo.findOne({
       where: { congregationId: tenantId, effectiveFrom: dto.effectiveFrom },
     });
+    const before = row ? journalShape(row) : null;
     if (!row) {
       row = this.repo.create({
         congregationId: tenantId,
@@ -194,7 +195,54 @@ export class MeetingSettingsService {
     row.weekendTime = dto.weekendTime;
     row.address = dto.address;
     row.microphoneSlots = dto.microphoneSlots ?? 2;
-    return this.repo.save(row);
+    const saved = await this.repo.save(row);
+    await this.note(saved, before);
+    return saved;
+  }
+
+  /**
+   * Every version saved or removed goes into the journal (30 September).
+   *
+   * Past weeks — the attendance sheet, duties, the week rules — are all read
+   * through the version in force then, so a changed or deleted version
+   * changes the past too. Until now only the congregation's name and time
+   * zone were journalled; the schedule itself changed without a trace.
+   */
+  private async note(
+    row: MeetingSettings,
+    before: MeetingSettingsShape | null,
+    deleted = false,
+  ): Promise<void> {
+    const after = journalShape(row);
+    try {
+      if (deleted) {
+        await this.auditLog.logEvent({
+          tenantId: row.congregationId,
+          entityType: 'meeting_settings',
+          entityId: row.id,
+          action: 'DELETE',
+          detail: after,
+        });
+      } else if (!before) {
+        await this.auditLog.logCreate({
+          tenantId: row.congregationId,
+          entityType: 'meeting_settings',
+          entityId: row.id,
+          after,
+        });
+      } else {
+        await this.auditLog.logUpdate({
+          tenantId: row.congregationId,
+          entityType: 'meeting_settings',
+          entityId: row.id,
+          before,
+          after,
+          fields: Object.keys(after) as (keyof MeetingSettingsShape)[],
+        });
+      }
+    } catch {
+      // A journal that fails must never take the work down with it.
+    }
   }
 
   async remove(tenantId: string, id: string): Promise<void> {
@@ -211,12 +259,18 @@ export class MeetingSettingsService {
     // another schedule, and deleting the only one would leave the
     // congregation with no meeting time at all. A mistake in the current
     // version is corrected by saving it again with the same date.
+    // «Started» is asked the way `getEffective` asks it — by the WEEK: a
+    // version dated this Wednesday takes over next Monday, and until then no
+    // week is counted by it. Comparing with today (as until 30 September)
+    // refused to delete a version the screen rightly showed as not yet in
+    // force, trash and all.
     const today = await this.clock.todayFor(tenantId);
-    if (row.effectiveFrom <= today) {
+    if (row.effectiveFrom <= mondayOf(today)) {
       throw new ConflictException(
         'This schedule version is already in force: past weeks are counted by it, so it cannot be deleted. Correct it by saving the schedule with the same start date.',
       );
     }
+    await this.note(row, null, true);
     await this.repo.remove(row);
   }
 
@@ -247,4 +301,27 @@ export class MeetingSettingsService {
       effective,
     };
   }
+}
+
+/** What the journal records of a schedule version. */
+interface MeetingSettingsShape {
+  effectiveFrom: string;
+  midweekDow: number;
+  midweekTime: string;
+  weekendDow: number;
+  weekendTime: string;
+  address: string | null;
+  microphoneSlots: number;
+}
+
+function journalShape(r: MeetingSettings): MeetingSettingsShape {
+  return {
+    effectiveFrom: r.effectiveFrom,
+    midweekDow: r.midweekDow,
+    midweekTime: r.midweekTime,
+    weekendDow: r.weekendDow,
+    weekendTime: r.weekendTime,
+    address: r.address ?? null,
+    microphoneSlots: r.microphoneSlots,
+  };
 }

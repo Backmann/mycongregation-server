@@ -11,6 +11,7 @@ import { PublicTalk } from '../entities/public-talk.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
+import { ElderTask } from '../entities/elder-task.entity';
 import { AuditLogService } from './audit-log.service';
 import { JournalService } from './journal.service';
 import { JournalController } from './journal.controller';
@@ -30,6 +31,7 @@ import { JournalController } from './journal.controller';
       ServiceGroup,
       ExternalCongregation,
       VisitingSpeaker,
+      ElderTask,
     ]),
   ],
   controllers: [JournalController],

@@ -12,6 +12,7 @@ import { PublicTalk } from '../entities/public-talk.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
+import { ElderTask } from '../entities/elder-task.entity';
 import { isRevertable } from '../audit-revert/revertable';
 
 export interface JournalPerson {
@@ -132,6 +133,8 @@ export class JournalService {
     private readonly externalCongregationsRepo: Repository<ExternalCongregation>,
     @InjectRepository(VisitingSpeaker)
     private readonly visitingSpeakersRepo: Repository<VisitingSpeaker>,
+    @InjectRepository(ElderTask)
+    private readonly tasksRepo: Repository<ElderTask>,
   ) {}
 
   async find(tenantId: string, filters: JournalFilters): Promise<JournalPage> {
@@ -240,31 +243,44 @@ export class JournalService {
     const out = new Map<string, JournalContext>();
     const idsOf = (t: string) => [...(byType.get(t) ?? [])];
 
-    const [assignments, duties, cleaning, fieldService] = await Promise.all([
-      idsOf('assignment').length
-        ? this.assignmentsRepo.find({
-            where: { congregationId: tenantId, id: In(idsOf('assignment')) },
-          })
-        : Promise.resolve([]),
-      idsOf('duty').length
-        ? this.dutiesRepo.find({
-            where: { congregationId: tenantId, id: In(idsOf('duty')) },
-          })
-        : Promise.resolve([]),
-      idsOf('cleaning').length
-        ? this.cleaningRepo.find({
-            where: { congregationId: tenantId, id: In(idsOf('cleaning')) },
-          })
-        : Promise.resolve([]),
-      idsOf('field_service_meeting').length
-        ? this.fieldServiceRepo.find({
-            where: {
-              congregationId: tenantId,
-              id: In(idsOf('field_service_meeting')),
-            },
-          })
-        : Promise.resolve([]),
-    ]);
+    const [assignments, duties, cleaning, fieldService, tasks] =
+      await Promise.all([
+        idsOf('assignment').length
+          ? this.assignmentsRepo.find({
+              where: { congregationId: tenantId, id: In(idsOf('assignment')) },
+            })
+          : Promise.resolve([]),
+        idsOf('duty').length
+          ? this.dutiesRepo.find({
+              where: { congregationId: tenantId, id: In(idsOf('duty')) },
+            })
+          : Promise.resolve([]),
+        idsOf('cleaning').length
+          ? this.cleaningRepo.find({
+              where: { congregationId: tenantId, id: In(idsOf('cleaning')) },
+            })
+          : Promise.resolve([]),
+        idsOf('field_service_meeting').length
+          ? this.fieldServiceRepo.find({
+              where: {
+                congregationId: tenantId,
+                id: In(idsOf('field_service_meeting')),
+              },
+            })
+          : Promise.resolve([]),
+        // A task by its deadline and — if the app raised it — by its kind.
+        // Never by its title: the journal is read by every administrator and
+        // the words of a task stay with the body (see TasksService.note).
+        idsOf('elder_task').length
+          ? this.tasksRepo.find({
+              where: {
+                congregationId: tenantId,
+                id: In(idsOf('elder_task')),
+              },
+              select: { id: true, dueDate: true, kind: true },
+            })
+          : Promise.resolve([]),
+      ]);
 
     const perEntity = new Map<string, JournalContext>();
     for (const a of assignments) {
@@ -290,6 +306,13 @@ export class JournalService {
       perEntity.set(m.id, {
         date: m.weekStartDate,
         title: m.address ?? undefined,
+      });
+    }
+
+    for (const t of tasks) {
+      perEntity.set(t.id, {
+        date: t.dueDate ?? undefined,
+        kind: t.kind ?? undefined,
       });
     }
 

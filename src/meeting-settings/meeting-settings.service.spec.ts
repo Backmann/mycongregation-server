@@ -21,6 +21,7 @@ describe('MeetingSettingsService', () => {
   };
   let congRepo: { findOne: jest.Mock; save: jest.Mock };
   let attendanceRepo: { find: jest.Mock };
+  let audit: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     attendanceRepo = { find: jest.fn().mockResolvedValue([]) };
@@ -40,12 +41,12 @@ describe('MeetingSettingsService', () => {
       providers: [
         {
           provide: AuditLogService,
-          useValue: {
+          useValue: (audit = {
             logCreate: jest.fn(),
             logUpdate: jest.fn(),
             logEvent: jest.fn(),
             logFieldsChanged: jest.fn(),
-          },
+          }),
         },
         MeetingSettingsService,
         { provide: CongregationClock, useValue: clockStub() },
@@ -76,6 +77,16 @@ describe('MeetingSettingsService', () => {
     expect(repo.create).toHaveBeenCalled();
     expect(res.microphoneSlots).toBe(2);
     expect(res.midweekDow).toBe(3);
+    // A new version is a journal entry — the schedule of past weeks hangs on it.
+    expect(audit.logCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityType: 'meeting_settings',
+        after: expect.objectContaining({
+          effectiveFrom: '2026-01-01',
+          midweekDow: 3,
+        }),
+      }),
+    );
   });
 
   it('upsert updates the existing version for the same effectiveFrom', async () => {
@@ -93,6 +104,14 @@ describe('MeetingSettingsService', () => {
     expect(res.id).toBe('m1');
     expect(res.midweekDow).toBe(4);
     expect(res.microphoneSlots).toBe(3);
+    // Journalled as a change FROM what was there (read before the save).
+    expect(audit.logUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityType: 'meeting_settings',
+        before: expect.objectContaining({ midweekDow: undefined }),
+        after: expect.objectContaining({ midweekDow: 4, microphoneSlots: 3 }),
+      }),
+    );
   });
 
   it('getEffective returns the latest version on/before the date', async () => {
@@ -142,19 +161,35 @@ describe('MeetingSettingsService', () => {
     });
     afterEach(() => jest.useRealTimers());
 
-    it('deletes a version that starts tomorrow', async () => {
-      const row = {
-        id: 'v2',
-        congregationId: 'cong-1',
-        effectiveFrom: '2026-09-27',
-      };
-      repo.findOne.mockResolvedValue(row);
-      await service.remove('cong-1', 'v2');
-      expect(repo.remove).toHaveBeenCalledWith(row);
-    });
+    // «Started» is counted by the WEEK, as `getEffective` counts it: on
+    // Saturday 26 September the week began on Monday the 21st, so a version
+    // dated any day after that takes over only on Monday the 28th and no week
+    // is counted by it yet. Until 30 September the server compared with
+    // TODAY and refused the Saturday and Tuesday cases below, while the
+    // screen — asking by the week — showed them as not yet in force.
+    it.each([
+      ['starts tomorrow', '2026-09-27'],
+      ['is dated today, and takes over on Monday', '2026-09-26'],
+      ['is dated this Tuesday, and takes over on Monday', '2026-09-22'],
+    ])(
+      'deletes a version that %s — and journals it',
+      async (_l, effectiveFrom) => {
+        const row = { id: 'v2', congregationId: 'cong-1', effectiveFrom };
+        repo.findOne.mockResolvedValue(row);
+        await service.remove('cong-1', 'v2');
+        expect(repo.remove).toHaveBeenCalledWith(row);
+        expect(audit.logEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            entityType: 'meeting_settings',
+            action: 'DELETE',
+            detail: expect.objectContaining({ effectiveFrom }),
+          }),
+        );
+      },
+    );
 
     it.each([
-      ['starts today by the congregation clock', '2026-09-26'],
+      ['started on Monday of this week', '2026-09-21'],
       ['is in force', '2026-01-01'],
     ])('refuses a version that %s', async (_label, effectiveFrom) => {
       repo.findOne.mockResolvedValue({

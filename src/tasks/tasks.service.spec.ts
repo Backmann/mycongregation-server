@@ -72,6 +72,11 @@ function svc(tasks: ElderTask[], meetings: EldersMeeting[]) {
     { find: async () => [] } as never,
     { membersOfKind: async () => [] } as never,
     { announceAssignment: async () => undefined } as never,
+    {
+      logCreate: async () => undefined,
+      logRawUpdate: async () => undefined,
+      logEvent: async () => undefined,
+    } as never,
   );
 }
 

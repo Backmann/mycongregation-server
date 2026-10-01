@@ -6,6 +6,7 @@ import { EldersMeeting } from '../entities/elders-meeting.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { TaskAddresseesService } from './task-addressees.service';
 import { TaskRemindersService } from './task-reminders.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 export interface AgendaResult {
   meeting: EldersMeeting | null;
@@ -86,6 +87,7 @@ export class TasksService {
     private readonly publishers: Repository<Publisher>,
     private readonly addressees: TaskAddresseesService,
     private readonly reminders: TaskRemindersService,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   // ---- Meetings ---------------------------------------------------------
@@ -304,6 +306,7 @@ export class TasksService {
     });
     entity.assignees = await this.resolveNamed(congregationId, dto);
     const saved = await this.tasks.save(entity);
+    await this.note('create', saved, null);
     // Told at once. Otherwise the first a brother hears of a task is the day
     // before it is due, which is not notice but a rush.
     void this.reminders.announceAssignment(saved).catch(() => undefined);
@@ -341,6 +344,7 @@ export class TasksService {
       relations: { assignees: true },
     });
     if (!entity) throw new NotFoundException('Task not found');
+    const before = journalShape(entity);
 
     if (dto.title !== undefined) entity.title = dto.title;
     if (dto.details !== undefined) entity.details = dto.details ?? null;
@@ -377,13 +381,78 @@ export class TasksService {
       entity.doneById = dto.status === 'done' ? userId : null;
     }
 
-    return this.tasks.save(entity);
+    const saved = await this.tasks.save(entity);
+    await this.note('update', saved, before, userId);
+    return saved;
   }
 
   async removeTask(congregationId: string, id: string): Promise<void> {
-    const entity = await this.tasks.findOne({ where: { id, congregationId } });
+    const entity = await this.tasks.findOne({
+      where: { id, congregationId },
+      relations: { assignees: true },
+    });
     if (!entity) throw new NotFoundException('Task not found');
+    await this.note('delete', entity, null);
     await this.tasks.remove(entity);
+  }
+
+  /**
+   * Write it down — WITHOUT the words of the task.
+   *
+   * Until 30 September a task could be changed, closed or deleted and nothing
+   * anywhere said who did it: a deadline moved a year ahead on 24 August was
+   * found only by its timestamp. The journal now carries every change — but,
+   * like the agenda items beside it, never the title or the details. The
+   * journal is read by every administrator and the task list by the body;
+   * the words stay where the rights already decide who may read them, and
+   * both stay encrypted at rest.
+   *
+   * So an entry names the deadline, time, state, area, who it is given to,
+   * and — for a task the app raised itself — which one (`kind`). An edit to
+   * the words alone leaves no entry, exactly as with the agenda.
+   */
+  private async note(
+    action: 'create' | 'update' | 'delete',
+    task: ElderTask,
+    before: TaskJournalShape | null,
+    userId?: string | null,
+  ): Promise<void> {
+    const after = journalShape(task);
+    try {
+      if (action === 'create') {
+        await this.auditLog.logCreate({
+          tenantId: task.congregationId,
+          entityType: 'elder_task',
+          entityId: task.id,
+          after,
+        });
+      } else if (action === 'delete') {
+        await this.auditLog.logEvent({
+          tenantId: task.congregationId,
+          entityType: 'elder_task',
+          entityId: task.id,
+          action: 'DELETE',
+          detail: after,
+        });
+      } else if (before) {
+        // Compared by value: the list of brothers is a fresh array on both
+        // sides, and `!==` would call it changed on every save.
+        const changed = (
+          Object.keys(after) as (keyof TaskJournalShape)[]
+        ).filter((f) => JSON.stringify(before[f]) !== JSON.stringify(after[f]));
+        await this.auditLog.logRawUpdate({
+          tenantId: task.congregationId,
+          entityType: 'elder_task',
+          entityId: task.id,
+          actorUserId: userId ?? null,
+          changedFields: changed,
+          before: Object.fromEntries(changed.map((f) => [f, before[f]])),
+          after: Object.fromEntries(changed.map((f) => [f, after[f]])),
+        });
+      }
+    } catch {
+      // A journal that fails must never take the work down with it.
+    }
   }
 
   // ---- The agenda -------------------------------------------------------
@@ -457,4 +526,36 @@ export class TasksService {
       .orderBy('m.date', 'ASC')
       .getOne();
   }
+}
+
+/** What the journal may know about a task — see `TasksService.note`. */
+interface TaskJournalShape {
+  kind: string | null;
+  area: string;
+  assigneeKind: string;
+  assignees: string[];
+  dueDate: string | null;
+  dueTime: string | null;
+  status: string;
+}
+
+function journalShape(t: ElderTask): TaskJournalShape {
+  const named = (t.assignees ?? []).map((p) => p.id);
+  return {
+    kind: t.kind ?? null,
+    area: t.area,
+    assigneeKind: t.assigneeKind,
+    // The old single field still stands in for a task written before the list.
+    assignees: (named.length
+      ? named
+      : t.assigneePublisherId
+        ? [t.assigneePublisherId]
+        : []
+    ).sort(),
+    dueDate: t.dueDate ?? null,
+    // A time column reads back as «19:30:00» while the form sends «19:30»:
+    // the same time must not look like a change.
+    dueTime: t.dueTime ? t.dueTime.slice(0, 5) : null,
+    status: t.status,
+  };
 }
