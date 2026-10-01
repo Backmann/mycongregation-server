@@ -152,7 +152,7 @@ export class ScheduledJobsService {
 
   /**
    * The annual report's own calendar: from 1 September «save what was sent»
-   * on the secretary's list, and from 21 October the year frozen as the app
+   * on the secretary's list, and from 21 September the year frozen as the app
    * counts it if nobody did. After the calendar tasks, so the list is whole.
    */
   @Cron('35 3 * * *', {

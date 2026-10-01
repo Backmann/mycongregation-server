@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Repository } from 'typeorm';
+import { In, IsNull, Not, Repository } from 'typeorm';
 import { ReportSnapshot } from '../entities/report-snapshot.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Congregation } from '../entities/congregation.entity';
@@ -61,9 +61,9 @@ export interface DriftLine {
 export interface AnnualSentView {
   startYear: number;
   /**
-   * The day the app freezes its own figures if nobody has saved what was
-   * sent: 20 October, when September's reports are due and the old year is no
-   * longer anybody's to file.
+   * The last day to save what was sent: 20 September. The secretary files
+   * the annual report between 1 and 20 September (Lionel, 1 October 2026);
+   * from the next day the app freezes its own figures if nobody has.
    */
   freezeOn: string;
   /** What the reports and the attendance record say today. */
@@ -82,9 +82,15 @@ export interface AnnualSentView {
   drift: DriftLine[];
 }
 
-/** The last day of the month that closes a service year's figures. */
+/**
+ * The last day the year's report is the secretary's to save: 20 September.
+ *
+ * It was 20 October at first, reasoning from September's reports; but the
+ * annual report is filed between 1 and 20 September, every year, and a task
+ * still open a month later only taught people to ignore it.
+ */
 function freezeDay(startYear: number): string {
-  return `${startYear + 1}-10-20`;
+  return `${startYear + 1}-09-20`;
 }
 
 /** The calendar day before `day` (YYYY-MM-DD). */
@@ -148,8 +154,8 @@ export class AnnualSentService {
 
   /**
    * The nightly round, for every congregation: from 1 September put «save
-   * what was sent» on the secretary's list; from 20 October freeze the year
-   * if nobody has. Returns how many things it did.
+   * what was sent» on the secretary's list; from 21 September freeze the
+   * year if nobody has. Returns how many things it did.
    */
   async nightly(): Promise<number> {
     const all = await this.congregations.find({ select: { id: true } });
@@ -168,7 +174,7 @@ export class AnnualSentService {
 
   /**
    * «Сохранить отправленный годовой отчёт» — on the secretary's list from 1
-   * September to 20 October, unless it is saved already.
+   * to 20 September, unless it is saved already.
    *
    * By name, because it is his work and the list should say whose. Deleted on
    * purpose stays deleted for that year — the rule every calendar task obeys.
@@ -178,8 +184,22 @@ export class AnnualSentService {
     startYear: number,
     today: string,
   ): Promise<boolean> {
-    if (today > freezeDay(startYear)) return false;
     const period = String(startYear + 1);
+    // A task the app raised and nobody has closed follows the rule when the
+    // rule changes — it was due 20 October before 1 October 2026. One moved
+    // or closed by a person is left as he left it.
+    await this.tasks.update(
+      {
+        congregationId: tenantId,
+        kind: 'annual_report_sent',
+        kindPeriod: period,
+        status: 'open',
+        createdById: IsNull(),
+        dueDate: Not(freezeDay(startYear)),
+      },
+      { dueDate: freezeDay(startYear) },
+    );
+    if (today > freezeDay(startYear)) return false;
     const offered = await this.taskLog.findOne({
       where: { congregationId: tenantId, kind: 'annual_report_sent', period },
     });
@@ -406,7 +426,7 @@ export class AnnualSentService {
    */
   async freezeIfDue(tenantId: string, startYear: number): Promise<boolean> {
     const today = await this.clock.todayFor(tenantId);
-    // The day after the deadline: 20 October itself is still his to save.
+    // The day after the deadline: 20 September itself is still his to save.
     if (today <= freezeDay(startYear)) return false;
     if (await this.find(tenantId, startYear)) return false;
 

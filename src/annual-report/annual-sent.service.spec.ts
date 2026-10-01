@@ -280,8 +280,8 @@ describe('AnnualSentService', () => {
   });
 
   describe('freezeIfDue', () => {
-    it('does nothing up to and including 20 October', async () => {
-      setNow(Date.UTC(2026, 9, 20, 12));
+    it('does nothing up to and including 20 September', async () => {
+      setNow(Date.UTC(2026, 8, 20, 12));
       const { service, snapshots } = setup();
 
       expect(await service.freezeIfDue(TENANT, 2025)).toBe(false);
@@ -289,7 +289,7 @@ describe('AnnualSentService', () => {
     });
 
     it('keeps the app’s own figures, unconfirmed, the day after', async () => {
-      setNow(Date.UTC(2026, 9, 21, 12));
+      setNow(Date.UTC(2026, 8, 21, 12));
       const { service, stored, audit } = setup();
 
       expect(await service.freezeIfDue(TENANT, 2025)).toBe(true);
@@ -323,7 +323,7 @@ describe('AnnualSentService', () => {
         expect.objectContaining({
           kind: 'annual_report_sent',
           kindPeriod: '2026',
-          dueDate: '2026-10-20',
+          dueDate: '2026-09-20',
           assignees: [expect.objectContaining({ id: 'secretary-card' })],
         }),
       );
@@ -374,6 +374,47 @@ describe('AnnualSentService', () => {
         }),
         expect.objectContaining({ status: 'done', doneById: 'user-1' }),
       );
+    });
+
+    it('is due on 20 September — the annual report is filed by then', async () => {
+      setNow(Date.UTC(2026, 8, 1, 12));
+      const { service, tasks } = setup();
+
+      await service.nightly();
+
+      expect(tasks.save.mock.calls[0][0]).toEqual(
+        expect.objectContaining({ dueDate: '2026-09-20' }),
+      );
+    });
+
+    it('is not raised after 20 September', async () => {
+      setNow(Date.UTC(2026, 8, 21, 12));
+      const { service, tasks } = setup();
+
+      await service.nightly();
+
+      expect(tasks.save).not.toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'annual_report_sent' }),
+      );
+    });
+
+    it('moves its own open task to the rule’s date, never a person’s', async () => {
+      setNow(Date.UTC(2026, 9, 2, 12));
+      const { service, tasks } = setup();
+
+      await service.nightly();
+
+      const [where, change] = tasks.update.mock.calls[0];
+      expect(where).toEqual(
+        expect.objectContaining({
+          kind: 'annual_report_sent',
+          kindPeriod: '2026',
+          status: 'open',
+        }),
+      );
+      // Only what the app raised: createdById IS NULL.
+      expect(where.createdById).toBeDefined();
+      expect(change).toEqual({ dueDate: '2026-09-20' });
     });
   });
 });
