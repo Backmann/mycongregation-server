@@ -11,7 +11,7 @@ jest.mock('expo-server-sdk', () => {
   return { Expo: MockExpo };
 });
 
-import { NotificationsService } from './notifications.service';
+import { NotificationsService, fitKey } from './notifications.service';
 import { clockStub } from '../common/testing/clock-stub';
 
 const TZ = 'Europe/Berlin';
@@ -30,7 +30,12 @@ function makeService(over: Partial<Record<string, any>> = {}) {
             r.dedupeKey === row.dedupeKey,
         )
       ) {
-        throw new Error('duplicate key value violates unique constraint');
+        // What Postgres really says: the code is the only thing notify() may
+        // read as «already said».
+        throw Object.assign(
+          new Error('duplicate key value violates unique constraint'),
+          { code: '23505' },
+        );
       }
       rows.push(row);
     }),
@@ -54,7 +59,11 @@ function makeService(over: Partial<Record<string, any>> = {}) {
     delete: jest.fn(async () => undefined),
   } as any;
   const push = {
-    sendToUsers: jest.fn().mockResolvedValue(undefined),
+    // Everybody asked for is reached on a phone unless a test says otherwise.
+    sendToUsers: jest.fn(
+      async (_t: string, ids: string[]) =>
+        new Map(ids.map((id) => [id, over.reach ?? 'phone'])),
+    ),
     ...(over.push ?? {}),
   } as any;
   const svc = new NotificationsService(
@@ -280,5 +289,137 @@ describe('NotificationsService — the dedupe key travels with the message', () 
     const data = (push.sendToUsers as jest.Mock).mock.calls[0][4];
     expect(data.notificationKey).toBe('meeting-tomorrow:m1');
     jest.useRealTimers();
+  });
+});
+
+/**
+ * The audit of 1 October 2026: the ledger said «sent» for four rows in ten
+ * that had gone nowhere, and one whole kind had never been sent at all.
+ */
+describe('NotificationsService — what really happened to it', () => {
+  const day = () =>
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-15T16:00:00Z'));
+  afterEach(() => jest.useRealTimers());
+
+  it('records the road that carried it', async () => {
+    day();
+    const { svc, rows } = makeService({ reach: 'web' });
+
+    await svc.notify({ ...base, userIds: ['u1'] });
+
+    expect(rows[0].status).toBe('sent');
+    expect(rows[0].channel).toBe('web');
+  });
+
+  it('nowhere to send is not «sent»', async () => {
+    day();
+    const { svc, rows } = makeService({ reach: 'no_device' });
+
+    await svc.notify({ ...base, userIds: ['u1'] });
+
+    expect(rows[0].status).toBe('no_device');
+    expect(rows[0].channel).toBeNull();
+    expect(rows[0].sentAt).toBeNull();
+  });
+
+  it('a device that took nothing is recorded as failed', async () => {
+    day();
+    const { svc, rows } = makeService({ reach: 'failed' });
+
+    await svc.notify({ ...base, userIds: ['u1'] });
+
+    expect(rows[0].status).toBe('failed');
+  });
+
+  // The Memorial's key is two uuids and a word between them: 99–100
+  // characters against a column of 96. The insert failed, the failure was read
+  // as a repeat, and nobody was ever told.
+  it('a key longer than the column is still sent — and still said once', async () => {
+    day();
+    const id = '0f8fad5b-d9cb-469f-a165-70867728950e';
+    const key = `memorial:${id}:memorialPublished:${id}`;
+    expect(key.length).toBeGreaterThan(96);
+    const { svc, rows, push, outboxRepo } = makeService();
+    // The column itself, as the database enforces it.
+    const insert = outboxRepo.insert.getMockImplementation();
+    outboxRepo.insert.mockImplementation(async (row: any) => {
+      if (row.dedupeKey && row.dedupeKey.length > 96) {
+        throw Object.assign(new Error('value too long'), { code: '22001' });
+      }
+      return insert(row);
+    });
+
+    await svc.notify({ ...base, userIds: ['u1'], key });
+    await svc.notify({ ...base, userIds: ['u1'], key });
+
+    expect(push.sendToUsers).toHaveBeenCalledTimes(1);
+    expect(rows[0].dedupeKey.length).toBeLessThanOrEqual(96);
+  });
+
+  it('two long keys that differ only at the end stay different', () => {
+    const head =
+      'memorial:0f8fad5b-d9cb-469f-a165-70867728950e:memorialTomorrow:';
+    const a = fitKey(`${head}11111111-1111-1111-1111-111111111111`);
+    const b = fitKey(`${head}22222222-2222-2222-2222-222222222222`);
+    expect(a).not.toBe(b);
+    expect(a.length).toBeLessThanOrEqual(96);
+    expect(fitKey('short')).toBe('short');
+  });
+
+  // Only a repeat may be passed over in silence. Any other refusal is a
+  // notification that was not sent, and it has to leave a line.
+  it('an insert that fails for another reason is reported, not taken for a repeat', async () => {
+    day();
+    const { svc, push } = makeService({
+      outboxRepo: {
+        insert: jest.fn(async () => {
+          throw Object.assign(new Error('value too long'), { code: '22001' });
+        }),
+      },
+    });
+    const error = jest
+      .spyOn((svc as any).logger, 'error')
+      .mockImplementation(() => undefined);
+
+    await svc.notify({ ...base, userIds: ['u1'], key: 'k' });
+
+    expect(push.sendToUsers).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('NotificationsService.sendTest', () => {
+  afterEach(() => jest.useRealTimers());
+
+  // Somebody pressing «Отправить пробное» at night is awake.
+  it('goes out at once, even at night, and says where it went', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-15T02:30:00Z'));
+    const { svc, rows, push } = makeService({ reach: 'web' });
+
+    const res = await svc.sendTest('cong-1', 'u1', 'ru');
+
+    expect(push.sendToUsers).toHaveBeenCalledTimes(1);
+    expect(res).toEqual({ status: 'sent', channel: 'web' });
+    expect(rows[0].kind).toBe('test');
+    expect(rows[0].notBefore).toBeNull();
+  });
+
+  it('says plainly when there is no device to send to', async () => {
+    const { svc } = makeService({ reach: 'no_device' });
+
+    const res = await svc.sendTest('cong-1', 'u1', 'de');
+
+    expect(res).toEqual({ status: 'no_device', channel: null });
+  });
+
+  // A test is not news: the category switches do not apply to it.
+  it('ignores the category switches', async () => {
+    const { svc, push } = makeService({
+      switchedOff: [{ userId: 'u1' }],
+    });
+
+    await svc.sendTest('cong-1', 'u1', 'ru');
+
+    expect(push.sendToUsers).toHaveBeenCalledTimes(1);
   });
 });

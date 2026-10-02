@@ -64,10 +64,21 @@ export class NotificationOutbox {
   @Column({ type: 'timestamptz', nullable: true })
   notBefore!: Date | null;
 
-  /** pending → sent, or failed when the send itself threw. */
+  /**
+   * pending → what became of it:
+   *   sent      — a device took it (`channel` says which kind);
+   *   no_device — the person has no phone token and no browser subscription,
+   *               so there was nowhere to send. Until October 2026 these rows
+   *               read «sent» too, and four in ten of them had gone nowhere;
+   *   failed    — there was a device and nothing got through.
+   */
   @Index('idx_notification_outbox_status')
   @Column({ type: 'varchar', length: 16, default: 'pending' })
-  status!: 'pending' | 'sent' | 'failed';
+  status!: 'pending' | 'sent' | 'no_device' | 'failed';
+
+  /** Which road carried it: the phone app or a browser. Null unless sent. */
+  @Column({ type: 'varchar', length: 8, nullable: true })
+  channel!: 'phone' | 'web' | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

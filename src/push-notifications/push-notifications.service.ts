@@ -19,6 +19,15 @@ import {
 import { WebPushService } from '../web-push/web-push.service';
 import { WebPushSubscription } from '../entities/web-push-subscription.entity';
 
+/**
+ * Where one person was reached by one send.
+ *
+ * `no_device` is not a failure of ours: the person has neither a phone token
+ * nor a browser subscription, so there was nowhere to send. `failed` means
+ * there WAS a device and nothing got through.
+ */
+export type PushReach = 'phone' | 'web' | 'no_device' | 'failed';
+
 type SendBatchResult = {
   token: string;
   ticketId: string | null;
@@ -65,6 +74,12 @@ export class PushNotificationsService {
     if (!Expo.isExpoPushToken(token)) {
       throw new BadRequestException('Invalid Expo push token.');
     }
+
+    // One phone, one person. The token names the DEVICE, and a row is kept per
+    // (user, token) — so when a second person signed in on the same phone the
+    // first one's row stayed, and everything meant for him kept arriving on a
+    // phone he no longer held. Whoever registers the token now owns it alone.
+    await this.pushTokenRepo.delete({ token, userId: Not(userId) });
 
     const existing = await this.pushTokenRepo.findOne({
       where: { userId, token },
@@ -286,9 +301,14 @@ export class PushNotificationsService {
     title: string,
     body: string,
     data: Record<string, any>,
-  ): Promise<void> {
+  ): Promise<Map<string, PushReach>> {
     const uniq = [...new Set(userIds.filter(Boolean))];
-    if (uniq.length === 0) return;
+    // Everybody starts as «nowhere to send»; a device that takes the message
+    // moves its owner on. What is left at the end is the honest answer.
+    const reach = new Map<string, PushReach>(
+      uniq.map((id) => [id, 'no_device' as PushReach]),
+    );
+    if (uniq.length === 0) return reach;
 
     const tokens = await this.pushTokenRepo.find({
       where: { congregationId: tenantId, userId: In(uniq) },
@@ -300,8 +320,12 @@ export class PushNotificationsService {
     const webSubs = allWebSubs.filter((s) => uniq.includes(s.userId));
     if (tokens.length === 0 && webSubs.length === 0) {
       this.logger.log(`sendToUsers: no recipients in tenant=${tenantId}`);
-      return;
+      return reach;
     }
+    // Somebody who HAS a device and is not reached is a failure, not an
+    // absence — the two call for different remedies.
+    for (const t of tokens) reach.set(t.userId, 'failed');
+    for (const s of webSubs) reach.set(s.userId, 'failed');
 
     // ONE person, ONE channel.
     //
@@ -330,7 +354,10 @@ export class PushNotificationsService {
       const receipts: PendingReceipt[] = [];
       for (const r of results) {
         const userId = userIdByToken.get(r.token);
-        if (userId && !r.errorCode) reachedByPhone.add(userId);
+        if (userId && !r.errorCode) {
+          reachedByPhone.add(userId);
+          reach.set(userId, 'phone');
+        }
         if (!r.ticketId) continue;
         if (!userId) continue;
         receipts.push({
@@ -361,11 +388,16 @@ export class PushNotificationsService {
     if (webNeeded.length > 0) {
       const payload = { title, body, data };
       await Promise.all(
-        webNeeded.map((sub) =>
-          this.webPushService.sendToSubscription(sub, payload),
-        ),
+        webNeeded.map(async (sub) => {
+          const res = await this.webPushService.sendToSubscription(
+            sub,
+            payload,
+          );
+          if (res.ok) reach.set(sub.userId, 'web');
+        }),
       );
     }
+    return reach;
   }
 
   /**

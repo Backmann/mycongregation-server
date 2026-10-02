@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, LessThanOrEqual, Or, Repository } from 'typeorm';
 import { NotificationOutbox } from '../entities/notification-outbox.entity';
@@ -46,6 +47,52 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
   if (kind === 'special_event') return 'events';
   return 'other';
 }
+
+/** The outbox column that holds the key. */
+const KEY_MAX = 96;
+
+/**
+ * A key that fits the column, whatever the caller built.
+ *
+ * Callers compose keys out of ids, and two uuids with a few words between
+ * them are already past 96 characters. The insert then failed on length, the
+ * failure was read as «already said» — and the Memorial's notices, whose key
+ * is 99–100 characters, were never sent at all. A caller should not have to
+ * count: a long key keeps its readable head and ends in a digest of the whole,
+ * which is as unique as the key was and always fits.
+ */
+export function fitKey(key: string): string {
+  if (key.length <= KEY_MAX) return key;
+  const digest = createHash('sha1').update(key).digest('hex');
+  return `${key.slice(0, KEY_MAX - digest.length - 1)}:${digest}`;
+}
+
+/** Postgres: unique_violation — the one refusal that means «already said». */
+function isDuplicate(err: unknown): boolean {
+  const e = err as { code?: string; driverError?: { code?: string } } | null;
+  return e?.code === '23505' || e?.driverError?.code === '23505';
+}
+
+/** What became of one notification for one person. */
+export interface DeliveryOutcome {
+  status: 'sent' | 'no_device' | 'failed';
+  channel: 'phone' | 'web' | null;
+}
+
+const TEST_STRINGS: Record<string, { title: string; body: string }> = {
+  ru: {
+    title: 'Пробное уведомление',
+    body: 'Это устройство получает уведомления.',
+  },
+  en: {
+    title: 'Test notification',
+    body: 'This device receives notifications.',
+  },
+  de: {
+    title: 'Testbenachrichtigung',
+    body: 'Dieses Gerät erhält Benachrichtigungen.',
+  },
+};
 
 export interface NotifyInput {
   tenantId: string;
@@ -185,15 +232,25 @@ export class NotificationsService {
           body: input.body,
           data: input.data,
           kind: input.kind,
-          dedupeKey: input.key ?? null,
+          dedupeKey: input.key ? fitKey(input.key) : null,
           notBefore,
           status: 'pending',
+          channel: null,
           sentAt: null,
         });
         try {
           await this.outboxRepo.insert(row);
-        } catch {
+        } catch (err: any) {
           // Unique violation on the dedupe key: already said. Not an error.
+          if (isDuplicate(err)) continue;
+          // Anything else is a notification that was NOT sent and must not
+          // pass for one that was said before. Every insert failure used to
+          // land in the branch above, which is how a whole kind stayed silent
+          // for months without one line in the log.
+          this.logger.error(
+            `outbox insert failed for tenant=${input.tenantId} ` +
+              `kind=${input.kind}: ${err?.message ?? err}`,
+          );
           continue;
         }
         if (!notBefore) await this.deliver(row);
@@ -208,7 +265,7 @@ export class NotificationsService {
   }
 
   /** Send one row and record what happened. */
-  private async deliver(row: NotificationOutbox): Promise<void> {
+  private async deliver(row: NotificationOutbox): Promise<DeliveryOutcome> {
     try {
       // The dedupe key travels WITH the message.
       //
@@ -222,7 +279,7 @@ export class NotificationsService {
       // right name for it: the same announcement replaces itself, different
       // ones sit side by side. It was already computed and stored here; it
       // simply never left the database.
-      await this.push.sendToUsers(
+      const reach = await this.push.sendToUsers(
         row.congregationId,
         [row.userId],
         row.title,
@@ -231,16 +288,67 @@ export class NotificationsService {
           ? { ...row.data, notificationKey: row.dedupeKey }
           : row.data,
       );
+      // The row says what happened to THIS person, not that a send was
+      // attempted. «sent» for somebody with no device made the ledger useless
+      // for the one question it exists to answer.
+      const where = reach?.get(row.userId) ?? 'no_device';
+      const outcome: DeliveryOutcome =
+        where === 'phone' || where === 'web'
+          ? { status: 'sent', channel: where }
+          : { status: where, channel: null };
       await this.outboxRepo.update(
         { id: row.id },
-        { status: 'sent', sentAt: new Date() },
+        {
+          status: outcome.status,
+          channel: outcome.channel,
+          sentAt: outcome.status === 'sent' ? new Date() : null,
+        },
       );
+      return outcome;
     } catch (err: any) {
       await this.outboxRepo.update({ id: row.id }, { status: 'failed' });
       this.logger.warn(
         `delivery failed for outbox=${row.id}: ${err?.message ?? err}`,
       );
+      return { status: 'failed', channel: null };
     }
+  }
+
+  /**
+   * «Отправить пробное» — the person asks whether THIS works, now.
+   *
+   * It skips the two things every other notification respects: the waking
+   * hours (somebody pressing a button is awake) and the category switches (a
+   * test is not news he can have opted out of). It is written to the ledger
+   * like everything else, so an administrator can see when a person last
+   * tried and what came of it.
+   */
+  async sendTest(
+    tenantId: string,
+    userId: string,
+    language: string | null | undefined,
+  ): Promise<DeliveryOutcome> {
+    const text = TEST_STRINGS[language ?? ''] ?? TEST_STRINGS.ru;
+    const row = this.outboxRepo.create({
+      congregationId: tenantId,
+      userId,
+      title: text.title,
+      body: text.body,
+      data: { type: 'test' },
+      kind: 'test',
+      dedupeKey: null,
+      notBefore: null,
+      status: 'pending',
+      channel: null,
+      sentAt: null,
+    });
+    try {
+      await this.outboxRepo.insert(row);
+    } catch (err: any) {
+      this.logger.error(`test insert failed: ${err?.message ?? err}`);
+      return { status: 'failed', channel: null };
+    }
+    return this.deliver(row);
   }
 
   /**
@@ -269,7 +377,7 @@ export class NotificationsService {
     const res = await this.outboxRepo
       .createQueryBuilder()
       .delete()
-      .where('status IN (:...done)', { done: ['sent', 'failed'] })
+      .where('status IN (:...done)', { done: ['sent', 'no_device', 'failed'] })
       .andWhere('created_at < :cutoff', { cutoff })
       .execute();
     return res.affected ?? 0;

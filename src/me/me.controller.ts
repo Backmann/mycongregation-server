@@ -6,6 +6,8 @@ import { EraseAccountDto } from './dto/erase-account.dto';
 import { UpdateMyContactsDto } from './dto/update-my-contacts.dto';
 import { UpdateNotificationPreferenceDto } from './dto/update-notification-preference.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationReachService } from '../notifications/notification-reach.service';
+import { ReportPushStateDto } from './dto/report-push-state.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -21,6 +23,7 @@ export class MeController {
   constructor(
     private readonly service: MeService,
     private readonly notifications: NotificationsService,
+    private readonly reach: NotificationReachService,
     private readonly dataRights: DataRightsService,
     private readonly tasks: TasksService,
     private readonly pendingService: MePendingService,
@@ -118,6 +121,29 @@ export class MeController {
     @Body() dto: UpdateNotificationPreferenceDto,
   ) {
     return this.notifications.setPreference(user.id, dto.category, dto.enabled);
+  }
+
+  /**
+   * «Отправить пробное» — one notification to the caller's own devices, now.
+   * The answer says where it went, or that there was nowhere to send it.
+   */
+  @Post('notifications/test')
+  @HttpCode(200)
+  testNotification(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.notifications.sendTest(tenantId, user.id, user.uiLanguage);
+  }
+
+  /** The device's own account of where it stands with notifications. */
+  @Post('push-state')
+  @HttpCode(204)
+  async reportPushState(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ReportPushStateDto,
+  ): Promise<void> {
+    await this.reach.reportState(user.id, dto.state);
   }
 
   @Get('export')

@@ -160,4 +160,19 @@ export class User {
 
   @Column({ type: 'timestamptz', nullable: true })
   clientSeenAt!: Date | null;
+
+  /**
+   * What the person's device last said about notifications, in its own words:
+   * `ok`, `denied`, `off`, `not_installed` (an iPhone that opened the site in
+   * Safari instead of from the Home Screen), `unsupported`, `no_token`.
+   *
+   * The server can see THAT somebody has no device registered; only the
+   * device knows WHY. Without it «не приходят» could be answered only by
+   * asking the person to read their screen aloud.
+   */
+  @Column({ type: 'varchar', length: 24, nullable: true })
+  pushState!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  pushStateAt!: Date | null;
 }
