@@ -6,6 +6,9 @@ import { NotificationOutbox } from '../entities/notification-outbox.entity';
 import { NotificationPreference } from '../entities/notification-preference.entity';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { User } from '../entities/user.entity';
+import { Publisher } from '../entities/publisher.entity';
+import { MailService } from '../mail/mail.service';
 
 /**
  * The congregation's waking hours. Nothing automatic goes out before or after;
@@ -37,13 +40,19 @@ export const NOTIFICATION_CATEGORIES = [
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
 export function categoryOfKind(kind: string): NotificationCategory | 'other' {
-  if (kind === 'schedule' || kind === 'memorial') return 'assignments';
+  if (
+    kind === 'schedule' ||
+    kind === 'memorial' ||
+    kind === 'assignment_reminder'
+  ) {
+    return 'assignments';
+  }
   if (kind === 'field_service_meeting' || kind.startsWith('cart')) {
     return 'ministry';
   }
   if (kind.startsWith('cleaning')) return 'cleaning';
   if (kind === 'report_reminder') return 'reports';
-  if (kind === 'status_change') return 'admin';
+  if (kind === 'status_change' || kind === 'meeting_gaps') return 'admin';
   if (kind === 'special_event') return 'events';
   return 'other';
 }
@@ -76,7 +85,7 @@ function isDuplicate(err: unknown): boolean {
 /** What became of one notification for one person. */
 export interface DeliveryOutcome {
   status: 'sent' | 'no_device' | 'failed';
-  channel: 'phone' | 'web' | null;
+  channel: 'phone' | 'web' | 'email' | null;
 }
 
 const TEST_STRINGS: Record<string, { title: string; body: string }> = {
@@ -114,6 +123,12 @@ export interface NotifyInput {
    * meaning by morning; nothing uses it yet, and that is the point.
    */
   urgent?: boolean;
+  /**
+   * When the person has no device at all, send it as a letter instead. For
+   * what somebody must not miss — their own assignments — and nothing else:
+   * a mailbox filling up with cleaning reminders would be its own complaint.
+   */
+  emailFallback?: boolean;
 }
 
 /**
@@ -141,6 +156,11 @@ export class NotificationsService {
     private readonly preferencesRepo: Repository<NotificationPreference>,
     private readonly push: PushNotificationsService,
     private readonly clock: CongregationClock,
+    @InjectRepository(User)
+    private readonly usersRepo: Repository<User>,
+    @InjectRepository(Publisher)
+    private readonly publishersRepo: Repository<Publisher>,
+    private readonly mailService: MailService,
   ) {}
 
   /** Wall-clock hour and minute for an instant in an IANA timezone. */
@@ -236,6 +256,7 @@ export class NotificationsService {
           notBefore,
           status: 'pending',
           channel: null,
+          emailFallback: input.emailFallback === true,
           sentAt: null,
         });
         try {
@@ -292,10 +313,15 @@ export class NotificationsService {
       // attempted. «sent» for somebody with no device made the ledger useless
       // for the one question it exists to answer.
       const where = reach?.get(row.userId) ?? 'no_device';
-      const outcome: DeliveryOutcome =
+      let outcome: DeliveryOutcome =
         where === 'phone' || where === 'web'
           ? { status: 'sent', channel: where }
           : { status: where, channel: null };
+      if (outcome.status === 'no_device' && row.emailFallback) {
+        if (await this.mailUndelivered(row)) {
+          outcome = { status: 'sent', channel: 'email' };
+        }
+      }
       await this.outboxRepo.update(
         { id: row.id },
         {
@@ -311,6 +337,38 @@ export class NotificationsService {
         `delivery failed for outbox=${row.id}: ${err?.message ?? err}`,
       );
       return { status: 'failed', channel: null };
+    }
+  }
+
+  /**
+   * The same words by post, for somebody no notification can reach.
+   *
+   * Addressed by name: one mailbox may serve two logins, and a digest of
+   * somebody's assignments arriving unsigned in a shared inbox is a puzzle.
+   * False when there is no address or the letter did not leave — the row then
+   * stays «некуда отправить», which is the truth.
+   */
+  private async mailUndelivered(row: NotificationOutbox): Promise<boolean> {
+    try {
+      const user = await this.usersRepo.findOne({
+        where: { id: row.userId },
+        select: { id: true, email: true, uiLanguage: true, isActive: true },
+      });
+      if (!user?.email || !user.isActive) return false;
+      const card = await this.publishersRepo.findOne({
+        where: { userId: row.userId, congregationId: row.congregationId },
+        select: { id: true, firstName: true },
+      });
+      return await this.mailService.sendNotice(user.email, user.uiLanguage, {
+        title: row.title,
+        body: row.body,
+        recipientName: card?.firstName ?? null,
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `letter for outbox=${row.id} not sent: ${err?.message ?? err}`,
+      );
+      return false;
     }
   }
 
@@ -340,6 +398,7 @@ export class NotificationsService {
       notBefore: null,
       status: 'pending',
       channel: null,
+      emailFallback: false,
       sentAt: null,
     });
     try {

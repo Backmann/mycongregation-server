@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { MemorialService } from '../memorial/memorial.service';
 import { PublishersService } from '../publishers/publishers.service';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
+import { AssignmentRemindersService } from '../assignment-reminders/assignment-reminders.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CleaningRemindersService } from '../cleaning/cleaning-reminders.service';
@@ -30,7 +31,25 @@ export class ScheduledJobsService {
     private readonly eventNotifications: EventNotificationsService,
     private readonly annualSent: AnnualSentService,
     private readonly monthlySent: MonthlySentService,
+    private readonly assignmentReminders: AssignmentRemindersService,
   ) {}
+
+  /**
+   * The evening digest of a person's own assignments — every 15 minutes, said
+   * between 18:00 and 21:00 in the congregation's own time. The digest's key
+   * carries the day, so a repeated tick says nothing new.
+   */
+  @Cron('*/15 * * * *', {
+    name: 'assignment-reminders',
+    timeZone: 'UTC',
+  })
+  async handleAssignmentReminders(): Promise<void> {
+    try {
+      await this.assignmentReminders.tick();
+    } catch (err) {
+      this.logger.error('[AssignmentReminders] tick failed', err as Error);
+    }
+  }
 
   /**
    * «Tomorrow — …» for the congregation's events — every 15 minutes, sent

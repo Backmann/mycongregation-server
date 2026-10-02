@@ -175,4 +175,12 @@ export class User {
 
   @Column({ type: 'timestamptz', nullable: true })
   pushStateAt!: Date | null;
+
+  /**
+   * How often to recall the person's own assignments: null or `full` — every
+   * step of the ladder; `short` — a week before and the evening before.
+   * Nothing here switches the evening before off.
+   */
+  @Column({ type: 'varchar', length: 8, nullable: true })
+  reminderLadder!: string | null;
 }

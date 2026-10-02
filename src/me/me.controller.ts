@@ -8,6 +8,7 @@ import { UpdateNotificationPreferenceDto } from './dto/update-notification-prefe
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationReachService } from '../notifications/notification-reach.service';
 import { ReportPushStateDto } from './dto/report-push-state.dto';
+import { SetReminderLadderDto } from './dto/set-reminder-ladder.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -134,6 +135,20 @@ export class MeController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.notifications.sendTest(tenantId, user.id, user.uiLanguage);
+  }
+
+  /** How often my own assignments are recalled. */
+  @Get('reminder-ladder')
+  reminderLadder(@CurrentUser() user: AuthenticatedUser) {
+    return this.reach.ladderOf(user.id);
+  }
+
+  @Patch('reminder-ladder')
+  setReminderLadder(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: SetReminderLadderDto,
+  ) {
+    return this.reach.setLadder(user.id, dto.ladder);
   }
 
   /** The device's own account of where it stands with notifications. */

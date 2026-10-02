@@ -76,9 +76,17 @@ export class NotificationOutbox {
   @Column({ type: 'varchar', length: 16, default: 'pending' })
   status!: 'pending' | 'sent' | 'no_device' | 'failed';
 
-  /** Which road carried it: the phone app or a browser. Null unless sent. */
+  /**
+   * Which road carried it: the phone app, a browser — or a letter, for a
+   * notification marked `emailFallback` whose owner has no device at all.
+   * Null unless sent.
+   */
   @Column({ type: 'varchar', length: 8, nullable: true })
-  channel!: 'phone' | 'web' | null;
+  channel!: 'phone' | 'web' | 'email' | null;
+
+  /** With nowhere to send it, this one goes by e-mail instead. */
+  @Column({ type: 'boolean', default: false })
+  emailFallback!: boolean;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

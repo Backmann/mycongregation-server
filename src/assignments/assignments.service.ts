@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -32,6 +33,7 @@ import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 import { EventType } from '../common/enums/event-type.enum';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AssignmentRemindersService } from '../assignment-reminders/assignment-reminders.service';
 import { User } from '../entities/user.entity';
 import {
   formatWeekRange,
@@ -127,6 +129,13 @@ export class AssignmentsService {
     private readonly clock: CongregationClock,
     /** The circuit-visit template, offered to a week made by hand. Last, as above. */
     private readonly coVisitTemplate: CoVisitTemplateService,
+    /**
+     * What each person has been told, and the word when a part is taken away.
+     * Last and optional, for the reason above: a spec that builds this service
+     * without it simply announces nothing more than before.
+     */
+    @Optional()
+    private readonly reminders?: AssignmentRemindersService,
   ) {}
 
   /**
@@ -883,6 +892,23 @@ export class AssignmentsService {
   }
 
   /**
+   * What the window after an edit shows: who would hear of it, what they would
+   * hear, and — if nothing is sent now — on which evening the ladder would say
+   * it by itself.
+   */
+  async pendingNotice(
+    congregationId: string,
+    weekStartDate: string,
+    eventType: EventType,
+  ) {
+    const kind = String(eventType);
+    if (!this.reminders || (kind !== 'midweek' && kind !== 'weekend')) {
+      return { meetingDate: null, rows: [], canWait: true, nextWord: null };
+    }
+    return this.reminders.pendingNotice(congregationId, weekStartDate, kind);
+  }
+
+  /**
    * Notify the congregation that an already-published meeting was edited.
    * Sends one push naming the changed part titles (when present), then clears
    * the per-assignment "changed since publish" flags for that meeting.
@@ -928,6 +954,14 @@ export class AssignmentsService {
         weekStartDate,
         changedRows,
         'changed',
+      );
+      // And whoever was told of a part and no longer has it hears that too.
+      // Until now only the NEW assignee was told; the one replaced could
+      // arrive prepared for a part given to somebody else.
+      void this.reminders?.announceRemovals(
+        congregationId,
+        weekStartDate,
+        kind,
       );
     }
     return { notified: changedRows.length };
@@ -1024,6 +1058,8 @@ export class AssignmentsService {
           title: strings.title,
           body,
           kind: 'schedule',
+          // Their own assignment: with no device to take it, it goes by post.
+          emailFallback: true,
           key: `${key}:${publisher.userId}`,
           data: {
             type:
@@ -1033,6 +1069,14 @@ export class AssignmentsService {
           },
         });
       }
+      // What was just said is remembered, so the evening ladder RECALLS these
+      // parts instead of announcing them a second time.
+      await this.reminders?.markTold(
+        congregationId,
+        weekStartDate,
+        eventType,
+        rows,
+      );
     } catch (err: any) {
       this.logger.warn(
         `notifyAssignees failed for tenant=${congregationId}: ${

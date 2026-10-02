@@ -30,6 +30,9 @@ describe('who is allowed to send a letter', () => {
     'noticeMailboxNowShared',
     // «Забыли пароль», asked for by the person themselves.
     'forgotPassword',
+    // A notification for somebody with no device, sent as a letter instead —
+    // only for kinds marked emailFallback (the person's own assignments).
+    'mailUndelivered',
   ]);
 
   const walk = (dir: string): string[] =>

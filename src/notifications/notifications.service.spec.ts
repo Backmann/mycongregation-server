@@ -66,13 +66,34 @@ function makeService(over: Partial<Record<string, any>> = {}) {
     ),
     ...(over.push ?? {}),
   } as any;
+  const usersRepo = {
+    findOne: jest.fn(async () =>
+      'user' in over
+        ? over.user
+        : {
+            id: 'u1',
+            email: 'u1@example.invalid',
+            uiLanguage: 'ru',
+            isActive: true,
+          },
+    ),
+  } as any;
+  const publishersRepo = {
+    findOne: jest.fn(async () => ({ id: 'p1', firstName: 'Вера' })),
+  } as any;
+  const mail = {
+    sendNotice: jest.fn(async () => over.mailLeaves ?? true),
+  } as any;
   const svc = new NotificationsService(
     outboxRepo,
     preferencesRepo,
     push,
     clockStub(over.timezone ?? 'Europe/Berlin'),
+    usersRepo,
+    publishersRepo,
+    mail,
   );
-  return { svc, rows, push, outboxRepo, preferencesRepo };
+  return { svc, rows, push, outboxRepo, preferencesRepo, mail };
 }
 
 const base = {
@@ -421,5 +442,92 @@ describe('NotificationsService.sendTest', () => {
     await svc.sendTest('cong-1', 'u1', 'ru');
 
     expect(push.sendToUsers).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * A third of the people using the app had no device a notification could
+ * reach. For their own assignments — and only for those — the same words go
+ * by post.
+ */
+describe('NotificationsService — a letter when there is no device', () => {
+  const day = () =>
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-15T16:00:00Z'));
+  afterEach(() => jest.useRealTimers());
+  const digest = { ...base, kind: 'assignment_reminder', emailFallback: true };
+
+  it('goes by post, named, and is recorded as sent by e-mail', async () => {
+    day();
+    const { svc, rows, mail } = makeService({ reach: 'no_device' });
+
+    await svc.notify({ ...digest, userIds: ['u1'] });
+
+    expect(mail.sendNotice).toHaveBeenCalledTimes(1);
+    const [to, lang, notice] = mail.sendNotice.mock.calls[0];
+    expect(to).toBe('u1@example.invalid');
+    expect(lang).toBe('ru');
+    expect(notice.recipientName).toBe('Вера');
+    expect(notice.body).toBe(base.body);
+    expect(rows[0].status).toBe('sent');
+    expect(rows[0].channel).toBe('email');
+  });
+
+  it('is not written to somebody a device already reached', async () => {
+    day();
+    const { svc, mail } = makeService({ reach: 'phone' });
+
+    await svc.notify({ ...digest, userIds: ['u1'] });
+
+    expect(mail.sendNotice).not.toHaveBeenCalled();
+  });
+
+  // Cleaning, reports, events: a mailbox filling with those would be its own
+  // complaint. Only what is marked goes by post.
+  it('is not written for a kind that did not ask for it', async () => {
+    day();
+    const { svc, rows, mail } = makeService({ reach: 'no_device' });
+
+    await svc.notify({ ...base, userIds: ['u1'] });
+
+    expect(mail.sendNotice).not.toHaveBeenCalled();
+    expect(rows[0].status).toBe('no_device');
+  });
+
+  it('stays «некуда отправить» when there is no address either', async () => {
+    day();
+    const { svc, rows, mail } = makeService({
+      reach: 'no_device',
+      user: { id: 'u1', email: null, uiLanguage: 'ru', isActive: true },
+    });
+
+    await svc.notify({ ...digest, userIds: ['u1'] });
+
+    expect(mail.sendNotice).not.toHaveBeenCalled();
+    expect(rows[0].status).toBe('no_device');
+  });
+
+  it('stays «некуда отправить» when the letter did not leave', async () => {
+    day();
+    const { svc, rows } = makeService({
+      reach: 'no_device',
+      mailLeaves: false,
+    });
+
+    await svc.notify({ ...digest, userIds: ['u1'] });
+
+    expect(rows[0].status).toBe('no_device');
+  });
+
+  // Held overnight, delivered by the tick — the mark must survive the wait.
+  it('still goes by post when it was held until the morning', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-15T02:30:00Z'));
+    const { svc, rows, mail } = makeService({ reach: 'no_device' });
+
+    await svc.notify({ ...digest, userIds: ['u1'] });
+    expect(mail.sendNotice).not.toHaveBeenCalled();
+    await svc.deliverDue(new Date('2026-07-15T07:00:00Z'));
+
+    expect(mail.sendNotice).toHaveBeenCalledTimes(1);
+    expect(rows[0].channel).toBe('email');
   });
 });

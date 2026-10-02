@@ -71,6 +71,8 @@ describe('ScheduledJobsService', () => {
       // The annual report's calendar: the September task and the freeze.
       annualSent as never,
       monthlySent as never,
+      // The evening digest of a person's own assignments.
+      { tick: jest.fn(async () => undefined) } as never,
     );
   });
 

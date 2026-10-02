@@ -5,6 +5,7 @@ import { ScheduledJobsService } from './scheduled-jobs.service';
 import { AdminController } from './admin.controller';
 import { PublishersModule } from '../publishers/publishers.module';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
+import { AssignmentRemindersModule } from '../assignment-reminders/assignment-reminders.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { CleaningModule } from '../cleaning/cleaning.module';
@@ -20,6 +21,7 @@ import { FieldServiceMeetingsModule } from '../field-service-meetings/field-serv
     PublishersModule,
     PushNotificationsModule,
     NotificationsModule,
+    AssignmentRemindersModule,
     AuditLogModule,
     CleaningModule,
     MemorialModule,

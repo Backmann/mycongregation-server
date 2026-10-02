@@ -81,6 +81,25 @@ export class AssignmentsController {
     );
   }
 
+  /**
+   * Who an edit to a published meeting concerns, before anything is sent.
+   * Behind the same guard as the edit itself: it names people. A POST only
+   * because that guard reads the section from the body; it changes nothing.
+   */
+  @Post('pending-notice')
+  @HttpCode(200)
+  @UseGuards(AssignmentSectionGuard)
+  pendingNotice(
+    @TenantId() congregationId: string,
+    @Body() dto: PublishAssignmentsDto,
+  ) {
+    return this.service.pendingNotice(
+      congregationId,
+      dto.weekStartDate,
+      dto.eventType,
+    );
+  }
+
   @Post('notify-changes')
   @UseGuards(AssignmentSectionGuard)
   notifyChanges(

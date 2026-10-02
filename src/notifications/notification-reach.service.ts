@@ -113,6 +113,28 @@ export class NotificationReachService {
     );
   }
 
+  /** `full` unless the person chose the short ladder. */
+  async ladderOf(userId: string): Promise<{ ladder: 'full' | 'short' }> {
+    const u = await this.users.findOne({
+      where: { id: userId },
+      select: { id: true, reminderLadder: true },
+    });
+    return { ladder: u?.reminderLadder === 'short' ? 'short' : 'full' };
+  }
+
+  /** Stored only when it differs from the default — absence means «все». */
+  async setLadder(
+    userId: string,
+    ladder: string,
+  ): Promise<{ ladder: 'full' | 'short' }> {
+    const short = ladder === 'short';
+    await this.users.update(
+      { id: userId },
+      { reminderLadder: short ? 'short' : null },
+    );
+    return { ladder: short ? 'short' : 'full' };
+  }
+
   static reasonFor(input: {
     hasLogin: boolean;
     devices: number;

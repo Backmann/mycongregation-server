@@ -108,6 +108,13 @@ interface Strings {
   askWhoInvited: string;
 }
 
+/** Why a notification came as a letter, and how to make the letters stop. */
+const NOTICE_WHY: Record<Lang, string> = {
+  ru: 'Письмо пришло потому, что ни на одном вашем устройстве не включены уведомления приложения. Включите их на главном экране приложения, и письма прекратятся.',
+  en: 'This came as a letter because notifications are not turned on for any of your devices. Turn them on from the home screen of the app and the letters will stop.',
+  de: 'Diese Nachricht kam als E-Mail, weil auf keinem deiner Geräte Benachrichtigungen der App eingeschaltet sind. Schalte sie auf der Startseite der App ein, dann hören die E-Mails auf.',
+};
+
 const STRINGS: Record<Lang, Strings> = {
   ru: {
     brand: 'MyCongregation.org',
@@ -688,6 +695,66 @@ ${
       this.logger.warn(
         `shared-mailbox notice failed for ${to}: ${(err as Error).message}`,
       );
+    }
+  }
+
+  /**
+   * A notification, by post — for somebody whose devices receive none.
+   *
+   * On 1 October 2026 a third of the people using the app had no device a
+   * notification could reach, and nine of them held a part in the coming
+   * weeks. Until they switch notifications on, a letter is the only way to
+   * tell them. It names its reader first, because one mailbox may serve a
+   * husband and a wife; it carries NO link that signs anybody in, for the
+   * same reason; and it says why it came and how to make the letters stop.
+   */
+  async sendNotice(
+    to: string,
+    lang: string,
+    notice: { title: string; body: string; recipientName?: string | null },
+  ): Promise<boolean> {
+    const s = STRINGS[lang as Lang] ?? STRINGS.ru;
+    const why = NOTICE_WHY[lang as Lang] ?? NOTICE_WHY.ru;
+    const hello = notice.recipientName
+      ? s.greetingNamed.replace('{{name}}', notice.recipientName)
+      : s.greeting;
+    const esc = (x: string) =>
+      x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const font =
+      'font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;';
+    const lines = notice.body.split('\n').filter((l) => l.trim().length > 0);
+    const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f6;margin:0;padding:24px 12px;">
+<tr><td align="center">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
+<tr><td align="center" style="padding:30px 24px 22px;border-bottom:1px solid #eef2f6;">
+<img src="cid:logo" width="64" height="64" alt="MyCongregation.org" style="display:block;border:0;border-radius:16px;" />
+<div style="font-size:15px;font-weight:600;color:#0f172a;margin-top:12px;${font}">${s.brand}</div>
+</td></tr>
+<tr><td style="padding:26px 32px 10px;">
+<h1 style="font-size:20px;margin:0 0 14px;color:#0f172a;${font}">${esc(notice.title)}</h1>
+<p style="font-size:15px;line-height:1.6;color:#334155;margin:0 0 14px;${font}">${esc(hello)}</p>
+${lines
+  .map(
+    (l) =>
+      `<p style="font-size:15px;line-height:1.6;color:#0f172a;margin:0 0 8px;${font}">${esc(l)}</p>`,
+  )
+  .join('\n')}
+</td></tr>
+<tr><td style="padding:18px 32px 26px;background:#f8fafc;border-top:1px solid #eef2f6;">
+<p style="font-size:12px;color:#94a3b8;margin:0 0 6px;${font}">${why}</p>
+<p style="font-size:12px;color:#94a3b8;margin:0;${font}">${s.footerAuto}</p>
+</td></tr>
+</table>
+</td></tr>
+</table>`;
+    const text = [hello, '', ...lines, '', why, s.footerAuto].join('\n');
+    try {
+      return await this.deliver(to, notice.title, html, text);
+    } catch (err) {
+      this.logger.error(
+        `Mail send failed for ${to}: ${(err as Error).message}`,
+      );
+      return false;
     }
   }
 

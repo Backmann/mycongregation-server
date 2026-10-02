@@ -8,6 +8,7 @@ import { Congregation } from '../entities/congregation.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { AssignmentRemindersModule } from '../assignment-reminders/assignment-reminders.module';
 import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
 import { LocalNeedsModule } from '../local-needs/local-needs.module';
 import { DutiesModule } from '../duties/duties.module';
@@ -28,6 +29,7 @@ import { AssignmentsController } from './assignments.controller';
     ]),
     PushNotificationsModule,
     NotificationsModule,
+    AssignmentRemindersModule,
     TalkExchangeModule,
     LocalNeedsModule,
     DutiesModule,
