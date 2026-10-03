@@ -183,4 +183,75 @@ describe('PushNotificationsService.sendToUsers — one person, one channel', () 
     expect(where.userId).toBeDefined();
     expect(where.userId).not.toBe('u2');
   });
+
+  // A test is a question about ONE device. The person below has a phone AND a
+  // browser; asked from the browser, the answer must come to the browser.
+  describe('to the device that asked', () => {
+    function device(over: { webOk?: boolean } = {}) {
+      send.mockReset();
+      send.mockResolvedValue([{ status: 'ok', id: 'ticket-1' }]);
+      const sendToSubscription = jest
+        .fn()
+        .mockResolvedValue(
+          over.webOk === false
+            ? { ok: false, errorCode: 'SendError' }
+            : { ok: true, errorCode: null },
+        );
+      const svc = new PushNotificationsService(
+        {
+          findOne: jest.fn(async (q: any) =>
+            q.where.token === 'ExponentPushToken[a]'
+              ? { token: 'ExponentPushToken[a]', userId: 'u1' }
+              : null,
+          ),
+        } as any,
+        {} as any,
+        { save: jest.fn() } as any,
+        {
+          getSubscriptionsByUser: jest.fn(async () => [
+            { userId: 'u1', endpoint: 'https://push/ipad' },
+          ]),
+          sendToSubscription,
+        } as any,
+      );
+      return { svc, sendToSubscription };
+    }
+    const ask = (svc: PushNotificationsService, d: any) =>
+      svc.sendToDevice('cong-1', 'u1', d, 'Заголовок', 'Текст', {
+        type: 'test',
+      });
+
+    it('a browser gets it even though the person has a phone', async () => {
+      const { svc, sendToSubscription } = device();
+
+      expect(await ask(svc, { endpoint: 'https://push/ipad' })).toBe('web');
+      expect(sendToSubscription).toHaveBeenCalledTimes(1);
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('the phone gets it when the phone asked', async () => {
+      const { svc, sendToSubscription } = device();
+
+      expect(await ask(svc, { token: 'ExponentPushToken[a]' })).toBe('phone');
+      expect(sendToSubscription).not.toHaveBeenCalled();
+    });
+
+    it('a device the server does not know is «not registered», not «sent»', async () => {
+      const { svc } = device();
+
+      expect(await ask(svc, { endpoint: 'https://push/other' })).toBe(
+        'no_device',
+      );
+      expect(await ask(svc, { token: 'ExponentPushToken[zzz]' })).toBe(
+        'no_device',
+      );
+      expect(await ask(svc, {})).toBe('no_device');
+    });
+
+    it('a subscription that refuses the message is a failure', async () => {
+      const { svc } = device({ webOk: false });
+
+      expect(await ask(svc, { endpoint: 'https://push/ipad' })).toBe('failed');
+    });
+  });
 });

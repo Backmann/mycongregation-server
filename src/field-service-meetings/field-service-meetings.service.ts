@@ -117,6 +117,8 @@ export class FieldServiceMeetingsService {
         title: texts.title,
         body,
         kind: 'field_service_meeting',
+        // His own assignment: with no device to take it, it goes by post.
+        emailFallback: true,
         data: {
           type: 'field_service_meeting',
           meetingId: meeting.id,

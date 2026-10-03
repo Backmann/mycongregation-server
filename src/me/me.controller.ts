@@ -9,6 +9,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationReachService } from '../notifications/notification-reach.service';
 import { ReportPushStateDto } from './dto/report-push-state.dto';
 import { SetReminderLadderDto } from './dto/set-reminder-ladder.dto';
+import { TestNotificationDto } from './dto/test-notification.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -133,8 +134,9 @@ export class MeController {
   testNotification(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: TestNotificationDto,
   ) {
-    return this.notifications.sendTest(tenantId, user.id, user.uiLanguage);
+    return this.notifications.sendTest(tenantId, user.id, user.uiLanguage, dto);
   }
 
   /** How often my own assignments are recalled. */

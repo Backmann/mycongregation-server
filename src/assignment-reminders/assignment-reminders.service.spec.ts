@@ -18,6 +18,7 @@ function build(over: {
   now?: string;
   tokens?: any[];
   email?: string | null;
+  service?: any[];
 }) {
   const marks: any[] = [...(over.marks ?? [])];
   const parts = over.parts ?? [
@@ -113,6 +114,7 @@ function build(over: {
     } as any,
     { forRange: jest.fn(async () => []) } as any,
     { notify: jest.fn(async (n: any) => void sent.push(n)) } as any,
+    { find: jest.fn(async () => over.service ?? []) } as any,
   );
   return { svc, marks, sent, noticeRepo };
 }
@@ -216,6 +218,55 @@ describe('the evening digest', () => {
 
     expect(sent).toEqual([]);
     expect(marks).toEqual([]);
+  });
+});
+
+describe('conducting a meeting for field service', () => {
+  const meeting = (over: any = {}) => ({
+    id: 'fs1',
+    weekStartDate: MON,
+    dayOfWeek: 6, // Saturday the 24th
+    startTime: '09:30:00',
+    address: 'Bunsenstr. 46',
+    conductorPublisherId: 'p1',
+    serviceOverseerVisit: false,
+    serviceOverseerAssistantId: null,
+    ...over,
+  });
+
+  // He was told the moment he was put down; here it is only recalled.
+  it('is recalled the evening before, with the hour and the place', async () => {
+    const { svc, sent, marks } = build({ parts: [], service: [meeting()] });
+
+    await svc.sendDigests('cong-1', '2026-10-23');
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].title).toBe('Завтра у вас');
+    expect(sent[0].body).toBe(
+      'Сб 24 октября, 09:30: встреча для проповеди — ведёте вы, Bunsenstr. 46',
+    );
+    // Never marked: there is nothing to announce or take back here.
+    expect(marks).toEqual([]);
+  });
+
+  it('is not recalled on any other evening', async () => {
+    const { svc, sent } = build({ parts: [], service: [meeting()] });
+
+    await svc.sendDigests('cong-1', '2026-10-17'); // a week before
+
+    expect(sent).toEqual([]);
+  });
+
+  it('sits in the same message as a part on the same evening', async () => {
+    const { svc, sent } = build({
+      marks: [mark({ meetingDate: '2026-10-24' })],
+      service: [meeting()],
+    });
+    // The part is moved to the 24th for this test by its mark; the item
+    // itself stays on the 22nd, so only the meeting is due on the 23rd.
+    await svc.sendDigests('cong-1', '2026-10-23');
+
+    expect(sent).toHaveLength(1);
   });
 });
 

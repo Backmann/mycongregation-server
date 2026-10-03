@@ -385,6 +385,11 @@ export class NotificationsService {
     tenantId: string,
     userId: string,
     language: string | null | undefined,
+    /**
+     * The device that asked. When given, the test goes THERE and nowhere
+     * else — not to whichever device «one person, one channel» prefers.
+     */
+    device?: { token?: string | null; endpoint?: string | null },
   ): Promise<DeliveryOutcome> {
     const text = TEST_STRINGS[language ?? ''] ?? TEST_STRINGS.ru;
     const row = this.outboxRepo.create({
@@ -407,7 +412,35 @@ export class NotificationsService {
       this.logger.error(`test insert failed: ${err?.message ?? err}`);
       return { status: 'failed', channel: null };
     }
-    return this.deliver(row);
+    if (!device?.token && !device?.endpoint) return this.deliver(row);
+
+    let outcome: DeliveryOutcome;
+    try {
+      const where = await this.push.sendToDevice(
+        tenantId,
+        userId,
+        device,
+        row.title,
+        row.body,
+        row.data,
+      );
+      outcome =
+        where === 'phone' || where === 'web'
+          ? { status: 'sent', channel: where }
+          : { status: where, channel: null };
+    } catch (err: any) {
+      this.logger.warn(`test to a device failed: ${err?.message ?? err}`);
+      outcome = { status: 'failed', channel: null };
+    }
+    await this.outboxRepo.update(
+      { id: row.id },
+      {
+        status: outcome.status,
+        channel: outcome.channel,
+        sentAt: outcome.status === 'sent' ? new Date() : null,
+      },
+    );
+    return outcome;
   }
 
   /**

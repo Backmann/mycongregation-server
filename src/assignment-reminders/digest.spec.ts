@@ -287,4 +287,18 @@ describe('the digest as it is read', () => {
   it('says nothing when there is nothing to say', () => {
     expect(writeDigest([], 'ru')).toBeNull();
   });
+
+  // A duty is announced when it is given, on whatever day that is — so the
+  // distance is any number, not only a step of the ladder.
+  it('counts days in Russian for any distance, and says «сегодня»', () => {
+    const at = (d: number) =>
+      writeDigest([line('new', d, { type: 'duty', labelKey: 'av' })], 'ru')!
+        .body;
+    expect(at(0)).toContain('(сегодня)');
+    expect(at(2)).toContain('(через 2 дня)');
+    expect(at(5)).toContain('(через 5 дней)');
+    expect(at(12)).toContain('(через 12 дней)');
+    expect(at(22)).toContain('(через 22 дня)');
+    expect(at(31)).toContain('(через 31 день)');
+  });
 });

@@ -1,11 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, In, IsNull, LessThan, Not, Repository } from 'typeorm';
+import {
+  Between,
+  In,
+  IsNull,
+  LessThan,
+  MoreThanOrEqual,
+  Not,
+  Repository,
+} from 'typeorm';
 import { Absence } from '../entities/absence.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { AssignmentNotice } from '../entities/assignment-notice.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { Duty } from '../entities/duty.entity';
+import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { PushToken } from '../entities/push-token.entity';
 import { Responsibility } from '../entities/responsibility.entity';
@@ -52,6 +61,12 @@ const HORIZON_DAYS = 21;
 
 /** A mark may sit on a meeting far ahead; a year of weeks is the ceiling. */
 const MAX_WEEKS = 53;
+
+/** How long a coordinator must have stopped editing before duties are said. */
+const DUTY_SETTLE_MS = 5 * 60 * 1000;
+
+/** Only duties changed this recently are announced on their own. */
+const DUTY_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 
 /** When the body responsible for a meeting hears what it still lacks. */
 const GAP_STEPS = [7, 3];
@@ -159,6 +174,8 @@ export class AssignmentRemindersService {
     private readonly weekRules: WeekRulesService,
     private readonly readiness: ReadinessService,
     private readonly notifications: NotificationsService,
+    @InjectRepository(FieldServiceMeeting)
+    private readonly serviceMeetings: Repository<FieldServiceMeeting>,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -224,7 +241,7 @@ export class AssignmentRemindersService {
   ): Promise<Map<string, ReminderItem[]>> {
     const fromWeek = mondayOf(today);
     const lastWeek = addDaysISO(fromWeek, (Math.min(weeks, MAX_WEEKS) - 1) * 7);
-    const [days, parts, duties] = await Promise.all([
+    const [days, parts, duties, service] = await Promise.all([
       this.meetingDays(congregationId, fromWeek, weeks),
       this.assignments.find({
         where: {
@@ -239,6 +256,14 @@ export class AssignmentRemindersService {
           congregationId,
           publisherId: Not(IsNull()),
           weekStartDate: Between(fromWeek, lastWeek),
+        },
+      }),
+      // Only the next two weeks: a field-service meeting is recalled the
+      // evening before and at no other time.
+      this.serviceMeetings.find({
+        where: {
+          congregationId,
+          weekStartDate: Between(fromWeek, addDaysISO(fromWeek, 7)),
         },
       }),
     ]);
@@ -265,6 +290,30 @@ export class AssignmentRemindersService {
       };
       add(a.publisherId, { ...base, assistant: false });
       add(a.assistantPublisherId, { ...base, assistant: true });
+    }
+
+    for (const m of service) {
+      const item: ReminderItem = {
+        type: 'service',
+        id: m.id,
+        date: addDaysISO(m.weekStartDate, m.dayOfWeek - 1),
+        kind: 'service',
+        labelKey: 'service',
+        labelTitle: null,
+        assistant: false,
+        slot: null,
+        time: m.startTime,
+        place: m.address,
+      };
+      add(m.conductorPublisherId, item);
+      // The service overseer's assistant goes to that group like the man
+      // conducting, and is told of it the same way.
+      if (
+        m.serviceOverseerVisit &&
+        m.serviceOverseerAssistantId !== m.conductorPublisherId
+      ) {
+        add(m.serviceOverseerAssistantId, item);
+      }
     }
 
     // How many microphones a meeting has decides whether one is numbered.
@@ -313,15 +362,17 @@ export class AssignmentRemindersService {
     userId: string,
     items: ReminderItem[],
   ): Promise<void> {
-    if (items.length === 0) return;
+    // Conducting a field-service meeting is never marked: see ItemType.
+    const marked = items.filter((i) => i.type !== 'service');
+    if (marked.length === 0) return;
     await this.notices.upsert(
-      items.map((i) => ({
+      marked.map((i) => ({
         congregationId,
         userId,
-        itemType: i.type,
+        itemType: i.type as 'part' | 'duty',
         itemId: i.id,
         meetingDate: i.date,
-        meetingKind: i.kind,
+        meetingKind: i.kind as 'midweek' | 'weekend',
         labelKey: i.labelKey,
         labelTitle: i.labelTitle,
         assistant: i.assistant,
@@ -333,6 +384,7 @@ export class AssignmentRemindersService {
 
   private async dropMarks(userId: string, marks: ReminderMark[]) {
     for (const m of marks) {
+      if (m.type === 'service') continue;
       await this.notices.delete({ userId, itemType: m.type, itemId: m.id });
     }
   }
@@ -412,6 +464,229 @@ export class AssignmentRemindersService {
   }
 
   // -------------------------------------------------------------------------
+  // Duties: said soon after they are given
+  // -------------------------------------------------------------------------
+
+  /**
+   * A duty has no «опубликовать» and no «сообщить»: it is simply written in.
+   * Until 3 October 2026 nothing told the person at all — and after the
+   * ladder was built, only a week before and the evening before.
+   *
+   * So a duty is announced by itself, a few minutes after the coordinator has
+   * stopped editing. The pause is the point: somebody filling in a month of
+   * microphones saves forty times, and each brother should get ONE message
+   * with all of his, not one per save. The same pass tells whoever was told
+   * of a duty and no longer has it.
+   *
+   * Only what changed in the last day is announced this way. Everything older
+   * that nobody was told about is left to the evening ladder — otherwise the
+   * first run would announce every duty of the coming months to everybody.
+   */
+  async announceDuties(now = new Date()): Promise<number> {
+    const settled = new Date(now.getTime() - DUTY_SETTLE_MS);
+    const since = new Date(now.getTime() - DUTY_LOOKBACK_MS);
+    const recent = await this.duties.find({
+      where: { updatedAt: MoreThanOrEqual(since) },
+    });
+    const byCongregation = new Map<string, Duty[]>();
+    for (const d of recent) {
+      byCongregation.set(d.congregationId, [
+        ...(byCongregation.get(d.congregationId) ?? []),
+        d,
+      ]);
+    }
+    // A removal leaves a mark behind and may leave no row at all, so every
+    // congregation holding duty marks is looked at too.
+    const marked = await this.notices.find({ where: { itemType: 'duty' } });
+    for (const m of marked) {
+      if (!byCongregation.has(m.congregationId)) {
+        byCongregation.set(m.congregationId, []);
+      }
+    }
+
+    let sent = 0;
+    for (const [congregationId, rows] of byCongregation) {
+      try {
+        // Somebody is still editing: wait, and say it all at once.
+        if (rows.some((d) => d.updatedAt > settled)) continue;
+        sent += await this.announceDutiesOf(
+          congregationId,
+          rows,
+          marked.filter((m) => m.congregationId === congregationId),
+          now,
+        );
+      } catch (err: any) {
+        this.logger.error(
+          `duty notices failed for tenant=${congregationId}`,
+          err?.stack ?? err?.message ?? String(err),
+        );
+      }
+    }
+    return sent;
+  }
+
+  private async announceDutiesOf(
+    congregationId: string,
+    recent: Duty[],
+    marks: AssignmentNotice[],
+    now: Date,
+  ): Promise<number> {
+    const c = await this.congregations.findOne({
+      where: { id: congregationId },
+      select: { id: true, timezone: true },
+    });
+    const today = todayIn(now, c?.timezone || DEFAULT_CONGREGATION_TIMEZONE);
+
+    // The duties the marks point at, as they are now.
+    const markedRows = marks.length
+      ? await this.duties.find({
+          where: { congregationId, id: In(marks.map((m) => m.itemId)) },
+        })
+      : [];
+    const rowById = new Map(
+      [...markedRows, ...recent].map((d) => [d.id, d] as const),
+    );
+
+    const people = [
+      ...new Set(
+        [...rowById.values()]
+          .map((d) => d.publisherId)
+          .filter((x): x is string => !!x),
+      ),
+    ];
+    // Nothing to ask about — and an empty OR would match every card there is.
+    if (people.length === 0 && marks.length === 0) return 0;
+    const cards = await this.publishers.find({
+      where: [
+        ...(people.length ? [{ congregationId, id: In(people) }] : []),
+        ...(marks.length
+          ? [{ congregationId, userId: In(marks.map((m) => m.userId)) }]
+          : []),
+      ],
+      select: { id: true, userId: true },
+    });
+    const userOfCard = new Map(cards.map((p) => [p.id, p.userId]));
+    const cardOfUser = new Map(cards.map((p) => [p.userId, p.id]));
+    const told = new Set(marks.map((m) => `${m.userId}|${m.itemId}`));
+
+    // Newly given: changed lately, held by somebody with a login who has not
+    // been told, at a meeting that is still ahead.
+    const fresh = recent.filter((d) => {
+      const userId = d.publisherId ? userOfCard.get(d.publisherId) : null;
+      return !!userId && !told.has(`${userId}|${d.id}`);
+    });
+    const weeks = [...new Set(fresh.map((d) => d.weekStartDate))].sort();
+    const days = new Map<string, string>();
+    if (weeks.length > 0) {
+      const rules = await this.weekRules.forWeeks(congregationId, weeks);
+      for (const w of weeks) {
+        for (const m of rules.get(w)?.meetings ?? []) {
+          days.set(`${w}|${m.kind}`, m.date);
+        }
+      }
+    }
+    // Whether a microphone is numbered depends on how many the meeting has.
+    const micWeeks = fresh.filter((d) => String(d.dutyType) === 'microphone');
+    const mics = new Map<string, number>();
+    if (micWeeks.length > 0) {
+      const all = await this.duties.find({
+        where: {
+          congregationId,
+          weekStartDate: In([...new Set(micWeeks.map((d) => d.weekStartDate))]),
+        },
+      });
+      for (const d of all) {
+        if (String(d.dutyType) !== 'microphone') continue;
+        const k = `${d.weekStartDate}|${d.eventType}`;
+        mics.set(k, (mics.get(k) ?? 0) + 1);
+      }
+    }
+
+    const newByUser = new Map<string, ReminderItem[]>();
+    for (const d of fresh) {
+      const kind = String(d.eventType);
+      if (kind !== 'midweek' && kind !== 'weekend') continue;
+      const date = days.get(`${d.weekStartDate}|${kind}`);
+      if (!date || date < today) continue;
+      const userId = userOfCard.get(d.publisherId!)!;
+      const type = String(d.dutyType);
+      newByUser.set(userId, [
+        ...(newByUser.get(userId) ?? []),
+        {
+          type: 'duty',
+          id: d.id,
+          date,
+          kind: kind as MeetingKindOf,
+          labelKey: type,
+          labelTitle: d.customLabel,
+          assistant: false,
+          slot:
+            type === 'microphone' &&
+            (mics.get(`${d.weekStartDate}|${d.eventType}`) ?? 0) > 1
+              ? d.slotIndex + 1
+              : null,
+        },
+      ]);
+    }
+
+    // Taken away: told of it, and the duty is gone or is somebody else's now.
+    const goneByUser = new Map<string, AssignmentNotice[]>();
+    for (const m of marks) {
+      const row = rowById.get(m.itemId);
+      const card = cardOfUser.get(m.userId);
+      if (row && card && row.publisherId === card) continue;
+      goneByUser.set(m.userId, [...(goneByUser.get(m.userId) ?? []), m]);
+    }
+
+    const userIds = [...new Set([...newByUser.keys(), ...goneByUser.keys()])];
+    if (userIds.length === 0) return 0;
+    const users = await this.users.find({
+      where: { id: In(userIds), isActive: true },
+      select: { id: true, uiLanguage: true },
+    });
+    // A press of nothing: the stamp only keeps two overlapping passes from
+    // saying the same thing twice. The marks are what prevents a repeat.
+    const stamp = Math.floor(now.getTime() / 10_000).toString(36);
+
+    let sent = 0;
+    for (const u of users) {
+      const given = newByUser.get(u.id) ?? [];
+      const gone = (goneByUser.get(u.id) ?? []).map(toMark);
+      const lines = [
+        ...given.map((item) => ({
+          tone: 'new' as const,
+          item,
+          daysLeft: daysBetween(today, item.date),
+        })),
+        ...gone
+          .filter((m) => m.date >= today)
+          .map((item) => ({
+            tone: 'cancelled' as const,
+            item,
+            daysLeft: daysBetween(today, item.date),
+          })),
+      ].sort((a, b) => a.item.date.localeCompare(b.item.date));
+      const text = writeDigest(lines, coerceLanguage(u.uiLanguage));
+      if (text) {
+        await this.notifications.notify({
+          tenantId: congregationId,
+          userIds: [u.id],
+          title: text.title,
+          body: text.body,
+          kind: 'assignment_reminder',
+          key: `duties:${stamp}:${u.id}`,
+          data: { type: 'assignment_reminder' },
+          emailFallback: true,
+        });
+        sent += 1;
+      }
+      await this.saveMarks(congregationId, u.id, given);
+      await this.dropMarks(u.id, gone);
+    }
+    return sent;
+  }
+
+  // -------------------------------------------------------------------------
   // Said at once: a meeting published or changed with «сообщить сейчас»
   // -------------------------------------------------------------------------
 
@@ -475,6 +750,28 @@ export class AssignmentRemindersService {
     } catch (err: any) {
       this.logger.warn(`markTold failed: ${err?.message ?? err}`);
     }
+  }
+
+  /**
+   * Which of these parts each of these people has already been told of —
+   * as `userId|assignmentId`.
+   */
+  async toldParts(
+    congregationId: string,
+    userIds: string[],
+    assignmentIds: string[],
+  ): Promise<Set<string>> {
+    if (userIds.length === 0 || assignmentIds.length === 0) return new Set();
+    const marks = await this.notices.find({
+      where: {
+        congregationId,
+        itemType: 'part',
+        userId: In(userIds),
+        itemId: In(assignmentIds),
+      },
+      select: { userId: true, itemId: true },
+    });
+    return new Set(marks.map((m) => `${m.userId}|${m.itemId}`));
   }
 
   /** Marks on this meeting whose item is no longer that person's. */
@@ -557,7 +854,11 @@ export class AssignmentRemindersService {
             title: text.title,
             body: text.body,
             kind: 'schedule',
-            key: `schedule:${weekStartDate}:${kind}:removed:${today}:${userId}`,
+            // A press, not a day: taken away twice on one day is said
+            // twice. The marks are dropped below, so it cannot repeat itself.
+            key: `schedule:${weekStartDate}:${kind}:removed:${Math.floor(
+              Date.now() / 10_000,
+            ).toString(36)}:${userId}`,
             data: { type: 'schedule_changed', eventType: kind, weekStartDate },
             emailFallback: true,
           });

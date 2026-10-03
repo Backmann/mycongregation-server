@@ -30,16 +30,23 @@ import { SupportedLanguage } from '../common/i18n/supported-languages';
  */
 
 export type Ladder = 'full' | 'short';
-export type ItemType = 'part' | 'duty';
-export type MeetingKindOf = 'midweek' | 'weekend';
+/**
+ * `service` is conducting a meeting for field service. The conductor is told
+ * the moment he is put down (that path is older than this file), so here it
+ * is only ever RECALLED, the evening before — never announced, never marked.
+ */
+export type ItemType = 'part' | 'duty' | 'service';
+export type MeetingKindOf = 'midweek' | 'weekend' | 'service';
 
 export const PART_STEPS: Record<Ladder, readonly number[]> = {
   full: [21, 14, 7, 3, 1],
   short: [7, 1],
 };
 export const DUTY_STEPS: readonly number[] = [7, 1];
+export const SERVICE_STEPS: readonly number[] = [1];
 
 export function stepsFor(type: ItemType, ladder: Ladder): readonly number[] {
+  if (type === 'service') return SERVICE_STEPS;
   return type === 'duty' ? DUTY_STEPS : PART_STEPS[ladder];
 }
 
@@ -58,6 +65,9 @@ export interface ReminderItem {
   assistant: boolean;
   /** Microphone number and the like, 1-based; null when there is one. */
   slot: number | null;
+  /** For a field-service meeting: when it starts and where. */
+  time?: string | null;
+  place?: string | null;
 }
 
 /** What the person has already been told about. */
@@ -125,6 +135,10 @@ export function planDigest(input: {
     if (told && told.date !== item.date) mark.push(item);
     if (daysLeft < 1) continue;
     if (!stepsFor(item.type, ladder).includes(daysLeft)) continue;
+    if (item.type === 'service') {
+      lines.push({ tone: 'reminder', item, daysLeft });
+      continue;
+    }
     lines.push({ tone: told ? 'reminder' : 'new', item, daysLeft });
     if (!told) mark.push(item);
   }
@@ -222,7 +236,19 @@ interface Words {
   cancelledTail: string;
   assistant: string;
   part: string;
+  /** «встреча для проповеди — ведёте вы» */
+  conducting: string;
   when: (days: number) => string;
+}
+
+/** «2 дня», «5 дней», «21 день», «22 дня» — any number, not only the steps. */
+function ruDays(n: number): string {
+  const tens = n % 100;
+  const ones = n % 10;
+  if (tens >= 11 && tens <= 14) return 'дней';
+  if (ones === 1) return 'день';
+  if (ones >= 2 && ones <= 4) return 'дня';
+  return 'дней';
 }
 
 const WORDS: Record<SupportedLanguage, Words> = {
@@ -236,16 +262,19 @@ const WORDS: Record<SupportedLanguage, Words> = {
     cancelledTail: 'готовиться не нужно',
     assistant: 'помощник',
     part: 'часть программы',
+    conducting: 'встреча для проповеди — ведёте вы',
     when: (d) =>
-      d === 1
-        ? 'завтра'
-        : d === 7
-          ? 'через неделю'
-          : d === 14
-            ? 'через 2 недели'
-            : d === 21
-              ? 'через 3 недели'
-              : `через ${d} ${d >= 2 && d <= 4 ? 'дня' : 'дней'}`,
+      d <= 0
+        ? 'сегодня'
+        : d === 1
+          ? 'завтра'
+          : d === 7
+            ? 'через неделю'
+            : d === 14
+              ? 'через 2 недели'
+              : d === 21
+                ? 'через 3 недели'
+                : `через ${d} ${ruDays(d)}`,
   },
   en: {
     assigned: 'You have been assigned',
@@ -257,16 +286,19 @@ const WORDS: Record<SupportedLanguage, Words> = {
     cancelledTail: 'no need to prepare',
     assistant: 'assistant',
     part: 'a part',
+    conducting: 'field service meeting — you conduct',
     when: (d) =>
-      d === 1
-        ? 'tomorrow'
-        : d === 7
-          ? 'in a week'
-          : d === 14
-            ? 'in 2 weeks'
-            : d === 21
-              ? 'in 3 weeks'
-              : `in ${d} days`,
+      d <= 0
+        ? 'today'
+        : d === 1
+          ? 'tomorrow'
+          : d === 7
+            ? 'in a week'
+            : d === 14
+              ? 'in 2 weeks'
+              : d === 21
+                ? 'in 3 weeks'
+                : `in ${d} days`,
   },
   de: {
     assigned: 'Dir wurde zugeteilt',
@@ -278,16 +310,19 @@ const WORDS: Record<SupportedLanguage, Words> = {
     cancelledTail: 'keine Vorbereitung nötig',
     assistant: 'Partner',
     part: 'ein Programmpunkt',
+    conducting: 'Zusammenkunft für den Predigtdienst — du leitest',
     when: (d) =>
-      d === 1
-        ? 'morgen'
-        : d === 7
-          ? 'in einer Woche'
-          : d === 14
-            ? 'in 2 Wochen'
-            : d === 21
-              ? 'in 3 Wochen'
-              : `in ${d} Tagen`,
+      d <= 0
+        ? 'heute'
+        : d === 1
+          ? 'morgen'
+          : d === 7
+            ? 'in einer Woche'
+            : d === 14
+              ? 'in 2 Wochen'
+              : d === 21
+                ? 'in 3 Wochen'
+                : `in ${d} Tagen`,
   },
 };
 
@@ -379,12 +414,18 @@ export function writeDigest(
         const lead = allCancelled ? '' : w.cancelledPrefix;
         return `${lead}${day}: ${name} — ${w.cancelledTail}`;
       }
+      // «Завтра у вас» has said when; any other heading has not.
+      const when = title === w.tomorrow ? '' : ` (${w.when(l.daysLeft)})`;
+      if (l.item.kind === 'service') {
+        const it = l.item as ReminderItem;
+        const at = it.time ? `, ${it.time.slice(0, 5)}` : '';
+        const where = it.place?.trim() ? `, ${it.place.trim()}` : '';
+        return `${day}${at}: ${w.conducting}${where}${when}`;
+      }
       const meeting = MEETING_NAMES[l.item.kind][lang];
       // In a mixed digest the first word about an item is marked as such; in
       // one that is all news the heading already says it.
       const lead = l.tone === 'new' && !allNew ? w.newPrefix : '';
-      // «Завтра у вас» has said when; any other heading has not.
-      const when = title === w.tomorrow ? '' : ` (${w.when(l.daysLeft)})`;
       return `${lead}${day}, ${meeting}: ${name}${when}`;
     })
     .join('\n');

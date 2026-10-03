@@ -850,6 +850,35 @@ export class AssignmentsService {
     eventType: EventType,
     notify = true,
   ): Promise<{ published: number }> {
+    const kind = String(eventType);
+    const isMeeting = kind === 'midweek' || kind === 'weekend';
+    // What this press makes known, read BEFORE anything is flipped: the drafts
+    // it publishes and the edits it covers. Those people — and nobody else —
+    // are the ones to tell. Until 3 October 2026 every assignee of the meeting
+    // was re-announced on each publish and a per-person key swallowed the
+    // repeat, so adding one part to a published week told either everybody or
+    // nobody, depending on who had been told before.
+    const toAnnounce =
+      notify && isMeeting
+        ? await this.repo.find({
+            where: [
+              {
+                congregationId,
+                weekStartDate,
+                eventType,
+                status: AssignmentStatus.DRAFT,
+              },
+              {
+                congregationId,
+                weekStartDate,
+                eventType,
+                changedSincePublish: true,
+              },
+            ],
+            order: { partOrder: 'ASC' },
+          })
+        : [];
+
     const result = await this.repo
       .createQueryBuilder()
       .update(Assignment)
@@ -861,8 +890,8 @@ export class AssignmentsService {
       .andWhere('deletedAt IS NULL')
       .execute();
     const published = result.affected ?? 0;
-    // Publishing re-broadcasts the programme, so any pending "changed since
-    // publish" flags on this meeting are now covered — clear them.
+    // Publishing covers any pending "changed since publish" flags on this
+    // meeting — they are announced below, or deliberately not («не сейчас»).
     await this.repo
       .createQueryBuilder()
       .update(Assignment)
@@ -873,20 +902,10 @@ export class AssignmentsService {
       .andWhere('changedSincePublish = true')
       .andWhere('deletedAt IS NULL')
       .execute();
-    const kind = String(eventType);
-    if (notify && published > 0 && (kind === 'midweek' || kind === 'weekend')) {
-      // Fire-and-forget: each assignee learns what they were given.
-      const assigned = await this.repo.find({
-        where: { congregationId, weekStartDate, eventType },
-        order: { partOrder: 'ASC' },
-      });
-      void this.notifyAssignees(
-        congregationId,
-        kind,
-        weekStartDate,
-        assigned,
-        'published',
-      );
+    if (notify && isMeeting) {
+      // Fire-and-forget: each person learns what they were given, and whoever
+      // lost a part they had been told of learns that.
+      void this.announce(congregationId, kind, weekStartDate, toAnnounce);
     }
     return { published };
   }
@@ -948,24 +967,29 @@ export class AssignmentsService {
 
     const kind = String(eventType);
     if (kind === 'midweek' || kind === 'weekend') {
-      void this.notifyAssignees(
-        congregationId,
-        kind,
-        weekStartDate,
-        changedRows,
-        'changed',
-      );
-      // And whoever was told of a part and no longer has it hears that too.
-      // Until now only the NEW assignee was told; the one replaced could
-      // arrive prepared for a part given to somebody else.
-      void this.reminders?.announceRemovals(
-        congregationId,
-        weekStartDate,
-        kind,
-      );
+      // Whoever was given a part hears it, and whoever was told of a part and
+      // no longer has it hears that too. Until October 2026 only the NEW
+      // assignee was told; the one replaced could arrive prepared for a part
+      // given to somebody else.
+      void this.announce(congregationId, kind, weekStartDate, changedRows);
     }
     return { notified: changedRows.length };
   }
+  /**
+   * One press of «сообщить»: the assignments first, then the removals — one
+   * after the other, so that what the first remembers is there for the second
+   * to read.
+   */
+  private async announce(
+    congregationId: string,
+    kind: 'midweek' | 'weekend',
+    weekStartDate: string,
+    rows: Assignment[],
+  ): Promise<void> {
+    await this.notifyAssignees(congregationId, kind, weekStartDate, rows);
+    await this.reminders?.announceRemovals(congregationId, weekStartDate, kind);
+  }
+
   /**
    * Tell each person what THEY were given.
    *
@@ -984,18 +1008,15 @@ export class AssignmentsService {
     eventType: 'midweek' | 'weekend',
     weekStartDate: string,
     rows: Assignment[],
-    mode: 'published' | 'changed',
   ): Promise<void> {
     try {
-      const partsByPublisher = new Map<
-        string,
-        { partKey: string; partTitle: string | null }[]
-      >();
+      const partsByPublisher = new Map<string, Assignment[]>();
       const add = (publisherId: string | null, row: Assignment) => {
         if (!publisherId) return;
-        const list = partsByPublisher.get(publisherId) ?? [];
-        list.push({ partKey: row.partKey, partTitle: row.partTitle });
-        partsByPublisher.set(publisherId, list);
+        partsByPublisher.set(publisherId, [
+          ...(partsByPublisher.get(publisherId) ?? []),
+          row,
+        ]);
       };
       for (const row of rows) {
         add(row.publisherId, row);
@@ -1022,26 +1043,37 @@ export class AssignmentsService {
       const langByUserId = new Map(
         users.map((u) => [u.id, coerceLanguage(u.uiLanguage)]),
       );
+      // Who has already been told of which part. A part heard of for the first
+      // time is an ASSIGNMENT; one already known and touched again (a new
+      // partner, say) is a CHANGE.
+      const told =
+        (await this.reminders?.toldParts(
+          congregationId,
+          userIds,
+          rows.map((r) => r.id).filter(Boolean),
+        )) ?? new Set<string>();
 
-      // One notice per person per publication; a later change is separate news
-      // and carries the day, so a week that keeps changing is at most one
-      // message a day rather than one per edit.
-      const key =
-        mode === 'published'
-          ? `schedule:${weekStartDate}:${eventType}:published`
-          : `schedule:${weekStartDate}:${eventType}:changed:${new Date()
-              .toISOString()
-              .slice(0, 10)}`;
+      // ONE PRESS, ONE MESSAGE — and the next press is news again.
+      //
+      // The key used to carry the DAY («changed:2026-10-03»), so a second
+      // «сообщить» on the same day for the same person and meeting was read as
+      // a repeat and dropped without a trace: assign, take away, assign again —
+      // the third never arrived. A press cannot repeat itself anyway: it clears
+      // the flags it announced, so the next one finds nothing unless something
+      // really changed. The stamp only absorbs a double tap (ten seconds).
+      const stamp = Math.floor(Date.now() / 10_000).toString(36);
 
       for (const publisher of publishers) {
         if (!publisher.userId) continue;
         const mine = partsByPublisher.get(publisher.id) ?? [];
         if (mine.length === 0) continue;
         const lang = langByUserId.get(publisher.userId) ?? DEFAULT_LANGUAGE;
-        const strings =
-          mode === 'published'
-            ? PUSH_STRINGS[lang].myAssignment
-            : PUSH_STRINGS[lang].myAssignmentChanged;
+        const fresh = mine.every(
+          (m) => !told.has(`${publisher.userId}|${m.id}`),
+        );
+        const strings = fresh
+          ? PUSH_STRINGS[lang].myAssignment
+          : PUSH_STRINGS[lang].myAssignmentChanged;
         const meeting = MEETING_NAMES[eventType][lang];
         const range = formatWeekRange(weekStartDate, lang);
         const names = mine
@@ -1060,10 +1092,9 @@ export class AssignmentsService {
           kind: 'schedule',
           // Their own assignment: with no device to take it, it goes by post.
           emailFallback: true,
-          key: `${key}:${publisher.userId}`,
+          key: `schedule:${weekStartDate}:${eventType}:${stamp}:${publisher.userId}`,
           data: {
-            type:
-              mode === 'published' ? 'schedule_published' : 'schedule_changed',
+            type: fresh ? 'schedule_published' : 'schedule_changed',
             eventType,
             weekStartDate,
           },

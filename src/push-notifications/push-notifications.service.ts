@@ -401,6 +401,62 @@ export class PushNotificationsService {
   }
 
   /**
+   * To ONE device of one person — the device that asked.
+   *
+   * «Отправить пробное» is a question about the screen in the person's hand.
+   * Sent the ordinary way it obeys «one person, one channel», so somebody
+   * pressing it on an iPad while an Android phone is registered got the test
+   * on the phone, read «отправлено» on the iPad, and concluded the iPad was
+   * broken (3 October 2026). A test goes where it was asked from, or says
+   * that this device is not registered at all.
+   */
+  async sendToDevice(
+    tenantId: string,
+    userId: string,
+    device: { token?: string | null; endpoint?: string | null },
+    title: string,
+    body: string,
+    data: Record<string, any>,
+  ): Promise<PushReach> {
+    if (device.endpoint) {
+      const subs = await this.webPushService.getSubscriptionsByUser(
+        tenantId,
+        userId,
+      );
+      const sub = subs.find((s) => s.endpoint === device.endpoint);
+      if (!sub) return 'no_device';
+      const res = await this.webPushService.sendToSubscription(sub, {
+        title,
+        body,
+        data,
+      });
+      return res.ok ? 'web' : 'failed';
+    }
+    if (device.token) {
+      const row = await this.pushTokenRepo.findOne({
+        where: { congregationId: tenantId, userId, token: device.token },
+      });
+      if (!row) return 'no_device';
+      const [result] = await this.sendBatch([row.token], title, body, data);
+      if (result?.ticketId) {
+        await this.pushReceiptRepo.save([
+          {
+            ticketId: result.ticketId,
+            token: row.token,
+            userId,
+            congregationId: tenantId,
+            status: 'pending' as const,
+            errorCode: null,
+            sentAt: new Date(),
+          },
+        ]);
+      }
+      return result && !result.errorCode ? 'phone' : 'failed';
+    }
+    return 'no_device';
+  }
+
+  /**
    * Low-level batch send. Returns one result per input token (same order),
    * so the caller can persist tickets (status='pending') for later receipt
    * checking and log immediate errors.

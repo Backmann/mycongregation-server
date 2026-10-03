@@ -64,6 +64,7 @@ function makeService(over: Partial<Record<string, any>> = {}) {
       async (_t: string, ids: string[]) =>
         new Map(ids.map((id) => [id, over.reach ?? 'phone'])),
     ),
+    sendToDevice: jest.fn(async () => over.deviceReach ?? 'web'),
     ...(over.push ?? {}),
   } as any;
   const usersRepo = {
@@ -529,5 +530,49 @@ describe('NotificationsService — a letter when there is no device', () => {
 
     expect(mail.sendNotice).toHaveBeenCalledTimes(1);
     expect(rows[0].channel).toBe('email');
+  });
+});
+
+/**
+ * «Отправить пробное» asks about the device in the person's hand. Sent the
+ * ordinary way it went to the phone the person's account prefers — pressed on
+ * an iPad, it arrived on an Android phone, and the iPad looked broken.
+ */
+describe('NotificationsService.sendTest — to the device that asked', () => {
+  it('goes to that device only, not through «one person, one channel»', async () => {
+    const { svc, push, rows } = makeService({ deviceReach: 'web' });
+
+    const res = await svc.sendTest('cong-1', 'u1', 'ru', {
+      endpoint: 'https://web.push.apple.com/abc',
+    });
+
+    expect(push.sendToUsers).not.toHaveBeenCalled();
+    expect(push.sendToDevice).toHaveBeenCalledTimes(1);
+    expect(push.sendToDevice.mock.calls[0][2]).toEqual({
+      endpoint: 'https://web.push.apple.com/abc',
+    });
+    expect(res).toEqual({ status: 'sent', channel: 'web' });
+    expect(rows[0].status).toBe('sent');
+    expect(rows[0].channel).toBe('web');
+  });
+
+  it('says so when this device is not registered, whatever else the person has', async () => {
+    const { svc, rows } = makeService({ deviceReach: 'no_device' });
+
+    const res = await svc.sendTest('cong-1', 'u1', 'ru', {
+      endpoint: 'https://web.push.apple.com/unknown',
+    });
+
+    expect(res).toEqual({ status: 'no_device', channel: null });
+    expect(rows[0].status).toBe('no_device');
+  });
+
+  it('an older app, which names no device, is answered as before', async () => {
+    const { svc, push } = makeService({ reach: 'phone' });
+
+    const res = await svc.sendTest('cong-1', 'u1', 'ru', {});
+
+    expect(push.sendToDevice).not.toHaveBeenCalled();
+    expect(res).toEqual({ status: 'sent', channel: 'phone' });
   });
 });

@@ -35,6 +35,22 @@ export class ScheduledJobsService {
   ) {}
 
   /**
+   * Duties given or taken away — every 5 minutes, once the coordinator has
+   * stopped editing. Marks of what was said make a repeated pass silent.
+   */
+  @Cron('*/5 * * * *', {
+    name: 'duty-notices',
+    timeZone: 'UTC',
+  })
+  async handleDutyNotices(): Promise<void> {
+    try {
+      await this.assignmentReminders.announceDuties();
+    } catch (err) {
+      this.logger.error('[DutyNotices] pass failed', err as Error);
+    }
+  }
+
+  /**
    * The evening digest of a person's own assignments — every 15 minutes, said
    * between 18:00 and 21:00 in the congregation's own time. The digest's key
    * carries the day, so a repeated tick says nothing new.

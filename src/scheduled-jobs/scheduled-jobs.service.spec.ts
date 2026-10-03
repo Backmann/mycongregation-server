@@ -72,7 +72,10 @@ describe('ScheduledJobsService', () => {
       annualSent as never,
       monthlySent as never,
       // The evening digest of a person's own assignments.
-      { tick: jest.fn(async () => undefined) } as never,
+      {
+        tick: jest.fn(async () => undefined),
+        announceDuties: jest.fn(async () => 0),
+      } as never,
     );
   });
 
