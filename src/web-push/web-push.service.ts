@@ -69,6 +69,8 @@ export class WebPushService {
       existing.p256dh = dto.keys.p256dh;
       existing.auth = dto.keys.auth;
       existing.userAgent = dto.userAgent ?? null;
+      // An older copy of the app does not say; what a newer one said stands.
+      if (dto.deviceKind) existing.deviceKind = dto.deviceKind;
       existing.lastFailedAt = null;
       return this.subRepo.save(existing);
     }
@@ -81,6 +83,7 @@ export class WebPushService {
       p256dh: dto.keys.p256dh,
       auth: dto.keys.auth,
       userAgent: dto.userAgent ?? null,
+      deviceKind: dto.deviceKind ?? null,
     });
     return this.subRepo.save(sub);
   }

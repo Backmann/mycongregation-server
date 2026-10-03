@@ -287,6 +287,7 @@ export class AssignmentRemindersService {
         labelKey: a.partKey,
         labelTitle: a.partTitle,
         slot: null,
+        order: a.partOrder,
       };
       add(a.publisherId, { ...base, assistant: false });
       add(a.assistantPublisherId, { ...base, assistant: true });

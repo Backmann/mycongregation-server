@@ -44,6 +44,10 @@ export class WebPushSubscription {
   @Column({ type: 'varchar', length: 512, nullable: true })
   userAgent!: string | null;
 
+  /** What the device said it is: see web-push/device-kind.ts. */
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  deviceKind!: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 

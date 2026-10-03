@@ -17,6 +17,10 @@ import { SupportedLanguage } from '../common/i18n/supported-languages';
  *     evening before cannot be switched off here.
  *   - ONE message an evening, whatever falls due: three parts and a duty are
  *     one digest, not four notifications.
+ *   - ONE LINE A MEETING. Somebody who chairs and prays on the same Sunday
+ *     reads the day once and both things after it (Lionel, 3 October 2026,
+ *     on the first real digest: the day was printed twice over four lines of
+ *     a locked screen).
  *   - A step already passed is not caught up. Somebody assigned ten days
  *     ahead hears at seven.
  *   - THE FIRST WORD ABOUT AN ITEM SAYS «ВАМ НАЗНАЧЕНО». «Применить тихо»
@@ -68,6 +72,11 @@ export interface ReminderItem {
   /** For a field-service meeting: when it starts and where. */
   time?: string | null;
   place?: string | null;
+  /**
+   * Where it stands in the programme. Only decides the order in which the
+   * things of one meeting are named; a duty comes after the parts.
+   */
+  order?: number;
 }
 
 /** What the person has already been told about. */
@@ -406,27 +415,60 @@ export function writeDigest(
         ? w.tomorrow
         : w.upcoming;
 
-  const body = lines
-    .map((l) => {
-      const day = shortDay(l.item.date, lang);
-      const name = labelOf(l.item, lang);
-      if (l.tone === 'cancelled') {
-        const lead = allCancelled ? '' : w.cancelledPrefix;
-        return `${lead}${day}: ${name} — ${w.cancelledTail}`;
-      }
-      // «Завтра у вас» has said when; any other heading has not.
-      const when = title === w.tomorrow ? '' : ` (${w.when(l.daysLeft)})`;
-      if (l.item.kind === 'service') {
-        const it = l.item as ReminderItem;
-        const at = it.time ? `, ${it.time.slice(0, 5)}` : '';
-        const where = it.place?.trim() ? `, ${it.place.trim()}` : '';
-        return `${day}${at}: ${w.conducting}${where}${when}`;
-      }
+  // «Завтра у вас» has said when; any other heading has not. It stands by
+  // the day it explains, not after a list of things where it would read as
+  // belonging to the last of them.
+  const whenOf = (l: DigestLine) =>
+    title === w.tomorrow ? '' : ` (${w.when(l.daysLeft)})`;
+
+  // One line a meeting: lines that would open with the same words are one
+  // line that names everything after them.
+  const groups: { head: string; tail: string; lines: DigestLine[] }[] = [];
+  const byHead = new Map<string, (typeof groups)[number]>();
+  for (const l of lines) {
+    const day = shortDay(l.item.date, lang);
+    let head: string;
+    let tail = '';
+    if (l.tone === 'cancelled') {
+      const lead = allCancelled ? '' : w.cancelledPrefix;
+      head = `${lead}${day}: `;
+      tail = ` — ${w.cancelledTail}`;
+    } else if (l.item.kind === 'service') {
+      // A field-service meeting is a line of its own: its hour and its place
+      // are its own, and two of them on one day are two meetings.
+      const it = l.item as ReminderItem;
+      const at = it.time ? `, ${it.time.slice(0, 5)}` : '';
+      const where = it.place?.trim() ? `, ${it.place.trim()}` : '';
+      groups.push({
+        head: `${day}${whenOf(l)}${at}: ${w.conducting}${where}`,
+        tail: '',
+        lines: [],
+      });
+      continue;
+    } else {
       const meeting = MEETING_NAMES[l.item.kind][lang];
       // In a mixed digest the first word about an item is marked as such; in
       // one that is all news the heading already says it.
       const lead = l.tone === 'new' && !allNew ? w.newPrefix : '';
-      return `${lead}${day}, ${meeting}: ${name}${when}`;
+      head = `${lead}${day}${whenOf(l)}, ${meeting}: `;
+    }
+    let g = byHead.get(head);
+    if (!g) {
+      g = { head, tail, lines: [] };
+      byHead.set(head, g);
+      groups.push(g);
+    }
+    g.lines.push(l);
+  }
+
+  const orderOf = (l: DigestLine) =>
+    (l.item as ReminderItem).order ?? Number.MAX_SAFE_INTEGER;
+  const body = groups
+    .map((g) => {
+      const names = [...g.lines]
+        .sort((a, b) => orderOf(a) - orderOf(b))
+        .map((l) => labelOf(l.item, lang));
+      return `${g.head}${names.join(', ')}${g.tail}`;
     })
     .join('\n');
 

@@ -19,16 +19,25 @@ import { PushNotificationsService } from './push-notifications.service';
 const send = (Expo as unknown as { __send: jest.Mock }).__send;
 
 /**
- * Someone with the app AND browser notifications used to be told everything
- * twice. That reads as carelessness, and carelessness is a good reason to
- * switch notifications off altogether.
+ * Someone with the app AND a browser subscription on the same phone used to
+ * be told everything twice. That reads as carelessness, and carelessness is a
+ * good reason to switch notifications off altogether. A browser with no word
+ * about its device is treated as a computer — these are the old rules, and
+ * they still hold for it.
  */
-describe('PushNotificationsService.sendToUsers — one person, one channel', () => {
+describe('PushNotificationsService.sendToUsers — a phone and a computer', () => {
   const TENANT = 'cong-1';
 
   function build(over: {
     tokens?: { token: string; userId: string }[];
-    subs?: { userId: string; endpoint: string }[];
+    subs?: {
+      userId: string;
+      endpoint: string;
+      userAgent?: string | null;
+      deviceKind?: string | null;
+    }[];
+    /** Endpoints whose push service refuses the message. */
+    webFails?: string[];
     ticketStatus?: 'ok' | 'error';
     webOk?: boolean;
   }) {
@@ -42,13 +51,12 @@ describe('PushNotificationsService.sendToUsers — one person, one channel', () 
           : { status: 'ok', id: 'ticket-1' },
       ),
     );
-    const sendToSubscription = jest
-      .fn()
-      .mockResolvedValue(
-        over.webOk === false
+    const sendToSubscription = jest.fn(
+      async (sub: { endpoint: string; userId: string }) =>
+        over.webOk === false || over.webFails?.includes(sub.endpoint)
           ? { ok: false, errorCode: 'SendError' }
           : { ok: true, errorCode: null },
-      );
+    );
     // Constructor order: push tokens, users, receipts, web push.
     const svc = new PushNotificationsService(
       { find: jest.fn(async () => tokens), delete: jest.fn() } as any,
@@ -155,6 +163,161 @@ describe('PushNotificationsService.sendToUsers — one person, one channel', () 
 
   // A token names the device. A second person signing in on the same phone
   // left the first one's row behind, and his notifications kept arriving there.
+  /**
+   * ONE NOTIFICATION A PHYSICAL DEVICE (3 October 2026).
+   *
+   * «The phone wins» silenced the iPhone of anybody who also had an Android
+   * phone registered — including one lying in a drawer.
+   */
+  describe('one notification a physical device', () => {
+    const PHONE = { token: 'ExponentPushToken[a]', userId: 'u1' };
+    const IPHONE_UA =
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15';
+    const ANDROID_UA =
+      'Mozilla/5.0 (Linux; Android 15; SM-S921B) AppleWebKit/537.36 Chrome/140 Mobile';
+    const MAC_UA =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15';
+    const sentTo = (m: jest.Mock) =>
+      m.mock.calls.map((c) => (c[0] as { endpoint: string }).endpoint).sort();
+
+    it('an iPhone gets it although the person has a phone with the app', async () => {
+      const { svc, sendToSubscription } = build({
+        tokens: [PHONE],
+        subs: [{ userId: 'u1', endpoint: 'iphone', userAgent: IPHONE_UA }],
+      });
+
+      const reach = await say(svc, ['u1']);
+
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(sentTo(sendToSubscription)).toEqual(['iphone']);
+      // Both took it; the report names the phone.
+      expect(reach.get('u1')).toBe('phone');
+    });
+
+    it('the browser on the same Android phone stays silent', async () => {
+      const { svc, sendToSubscription } = build({
+        tokens: [PHONE],
+        subs: [{ userId: 'u1', endpoint: 'chrome', userAgent: ANDROID_UA }],
+      });
+
+      await say(svc, ['u1']);
+
+      expect(sendToSubscription).not.toHaveBeenCalled();
+    });
+
+    it('a computer stays silent while a phone or an iPhone took it', async () => {
+      const withPhone = build({
+        tokens: [PHONE],
+        subs: [{ userId: 'u1', endpoint: 'pc', userAgent: MAC_UA }],
+      });
+      await say(withPhone.svc, ['u1']);
+      expect(withPhone.sendToSubscription).not.toHaveBeenCalled();
+
+      const withIphone = build({
+        subs: [
+          { userId: 'u1', endpoint: 'iphone', userAgent: IPHONE_UA },
+          { userId: 'u1', endpoint: 'pc', userAgent: MAC_UA },
+        ],
+      });
+      const reach = await say(withIphone.svc, ['u1']);
+      expect(sentTo(withIphone.sendToSubscription)).toEqual(['iphone']);
+      expect(reach.get('u1')).toBe('web');
+    });
+
+    it('a computer takes over when nothing in the hand took it', async () => {
+      const { svc, sendToSubscription } = build({
+        subs: [
+          { userId: 'u1', endpoint: 'iphone', userAgent: IPHONE_UA },
+          { userId: 'u1', endpoint: 'pc', userAgent: MAC_UA },
+        ],
+        webFails: ['iphone'],
+      });
+
+      const reach = await say(svc, ['u1']);
+
+      expect(sentTo(sendToSubscription)).toEqual(['iphone', 'pc']);
+      expect(reach.get('u1')).toBe('web');
+    });
+
+    it('with no app, the Android browser is the phone', async () => {
+      const { svc, sendToSubscription } = build({
+        subs: [
+          { userId: 'u1', endpoint: 'chrome', userAgent: ANDROID_UA },
+          { userId: 'u1', endpoint: 'pc', userAgent: MAC_UA },
+        ],
+      });
+
+      await say(svc, ['u1']);
+
+      expect(sentTo(sendToSubscription)).toEqual(['chrome']);
+    });
+
+    it('the Android browser takes over when the app could not be reached', async () => {
+      const { svc, sendToSubscription } = build({
+        tokens: [PHONE],
+        subs: [{ userId: 'u1', endpoint: 'chrome', userAgent: ANDROID_UA }],
+        ticketStatus: 'error',
+      });
+
+      const reach = await say(svc, ['u1']);
+
+      expect(sentTo(sendToSubscription)).toEqual(['chrome']);
+      expect(reach.get('u1')).toBe('web');
+    });
+
+    // iPadOS calls itself a Mac. Only the device can say what it is.
+    it('an iPad is believed when it says so, whatever its user agent', async () => {
+      const silent = build({
+        tokens: [PHONE],
+        subs: [{ userId: 'u1', endpoint: 'ipad', userAgent: MAC_UA }],
+      });
+      await say(silent.svc, ['u1']);
+      expect(silent.sendToSubscription).not.toHaveBeenCalled();
+
+      const said = build({
+        tokens: [PHONE],
+        subs: [
+          {
+            userId: 'u1',
+            endpoint: 'ipad',
+            userAgent: MAC_UA,
+            deviceKind: 'ios',
+          },
+        ],
+      });
+      await say(said.svc, ['u1']);
+      expect(sentTo(said.sendToSubscription)).toEqual(['ipad']);
+    });
+
+    it('every iPhone and iPad of a person gets it, once each', async () => {
+      const { svc, sendToSubscription } = build({
+        tokens: [PHONE],
+        subs: [
+          { userId: 'u1', endpoint: 'iphone', userAgent: IPHONE_UA },
+          { userId: 'u1', endpoint: 'ipad', deviceKind: 'ios' },
+          { userId: 'u1', endpoint: 'pc', userAgent: MAC_UA },
+          { userId: 'u1', endpoint: 'chrome', userAgent: ANDROID_UA },
+        ],
+      });
+
+      await say(svc, ['u1']);
+
+      expect(sentTo(sendToSubscription)).toEqual(['ipad', 'iphone']);
+    });
+
+    it("one person's phone does not silence another person's computer", async () => {
+      const { svc, sendToSubscription } = build({
+        tokens: [PHONE],
+        subs: [{ userId: 'u2', endpoint: 'pc', userAgent: MAC_UA }],
+      });
+
+      const reach = await say(svc, ['u1', 'u2']);
+
+      expect(sentTo(sendToSubscription)).toEqual(['pc']);
+      expect(reach.get('u2')).toBe('web');
+    });
+  });
+
   it('a phone belongs to whoever registered it last', async () => {
     const del = jest.fn();
     const svc = new PushNotificationsService(

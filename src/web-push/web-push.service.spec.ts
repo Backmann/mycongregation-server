@@ -127,6 +127,43 @@ describe('WebPushService', () => {
         }),
       );
     });
+
+    // What the device is decides whether it is sent to at all (see
+    // device-kind.ts), so the word must be kept as it was said.
+    it('keeps what the device said it is', async () => {
+      subRepo.findOne.mockResolvedValue(null);
+      subRepo.create.mockImplementation((x: any) => x);
+      subRepo.save.mockImplementation(async (x: any) => x);
+
+      await service.registerSubscription('u', 'c', UserRole.PUBLISHER, {
+        endpoint: 'https://web.push.apple.com/x',
+        keys: { p256dh: 'p', auth: 'a' },
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+        deviceKind: 'ios',
+      });
+
+      expect(subRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ deviceKind: 'ios' }),
+      );
+    });
+
+    it('an older app that says nothing does not erase it', async () => {
+      subRepo.findOne.mockResolvedValue({
+        id: 'sub-1',
+        endpoint: 'https://web.push.apple.com/x',
+        deviceKind: 'ios',
+      } as any);
+      subRepo.save.mockImplementation(async (x: any) => x);
+
+      await service.registerSubscription('u', 'c', UserRole.PUBLISHER, {
+        endpoint: 'https://web.push.apple.com/x',
+        keys: { p256dh: 'p', auth: 'a' },
+      });
+
+      expect(subRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ deviceKind: 'ios' }),
+      );
+    });
   });
 
   describe('removeSubscription', () => {

@@ -387,7 +387,7 @@ export class NotificationsService {
     language: string | null | undefined,
     /**
      * The device that asked. When given, the test goes THERE and nowhere
-     * else — not to whichever device «one person, one channel» prefers.
+     * else — not to the devices an ordinary send would pick.
      */
     device?: { token?: string | null; endpoint?: string | null },
   ): Promise<DeliveryOutcome> {

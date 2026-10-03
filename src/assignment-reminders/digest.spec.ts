@@ -176,7 +176,7 @@ describe('the digest as it is read', () => {
     const t = writeDigest([line('new', 21)], 'ru')!;
     expect(t.title).toBe('Вам назначено');
     expect(t.body).toBe(
-      'Чт 22 октября, встреча среди недели: Чтение Библии (через 3 недели)',
+      'Чт 22 октября (через 3 недели), встреча среди недели: Чтение Библии',
     );
   });
 
@@ -194,10 +194,117 @@ describe('the digest as it is read', () => {
       'ru',
     )!;
     expect(t.title).toBe('Завтра у вас');
-    expect(t.body.split('\n')).toEqual([
-      'Чт 22 октября, встреча среди недели: Чтение Библии',
-      'Чт 22 октября, встреча среди недели: Микрофон 1',
-    ]);
+    expect(t.body).toBe(
+      'Чт 22 октября, встреча среди недели: Чтение Библии, Микрофон 1',
+    );
+  });
+
+  // The first real digest (3 October 2026) printed the Sunday twice, on four
+  // lines of a locked screen, for a brother who chairs and prays.
+  describe('one line a meeting', () => {
+    const sunday = (over: Partial<ReminderItem>) =>
+      line('new', 1, { date: '2026-10-04', kind: 'weekend', ...over });
+
+    it('the day is said once and everything at that meeting after it', () => {
+      const t = writeDigest(
+        [
+          sunday({ id: 'a1', labelKey: 'weekend_opening_prayer', order: 2 }),
+          sunday({ id: 'a2', labelKey: 'weekend_chairman', order: 1 }),
+        ],
+        'ru',
+      )!;
+      expect(t.title).toBe('Вам назначено');
+      // In the order of the programme, whatever order they were read in.
+      expect(t.body).toBe(
+        'Вс 4 октября (завтра), встреча в выходные: ' +
+          'Председатель встречи, Вступительная молитва',
+      );
+    });
+
+    it('a duty is named after the parts of the same meeting', () => {
+      const t = writeDigest(
+        [
+          sunday({ type: 'duty', id: 'd1', labelKey: 'stage' }),
+          sunday({ id: 'a2', labelKey: 'weekend_chairman', order: 1 }),
+        ],
+        'ru',
+      )!;
+      expect(t.body).toBe(
+        'Вс 4 октября (завтра), встреча в выходные: Председатель встречи, Сцена',
+      );
+    });
+
+    it('two meetings are two lines', () => {
+      const t = writeDigest(
+        [
+          sunday({ id: 'a1', labelKey: 'weekend_chairman' }),
+          line('new', 4, { id: 'a2', date: '2026-10-07' }),
+          line('new', 4, {
+            id: 'd1',
+            type: 'duty',
+            labelKey: 'av',
+            date: '2026-10-07',
+          }),
+        ],
+        'ru',
+      )!;
+      expect(t.body.split('\n')).toEqual([
+        'Вс 4 октября (завтра), встреча в выходные: Председатель встречи',
+        'Ср 7 октября (через 4 дня), встреча среди недели: Чтение Библии, Аудио/Видео',
+      ]);
+    });
+
+    // What is news and what is a reminder must stay apart, or «Новое» would
+    // be said of something the person has known for three weeks.
+    it('news and a reminder at one meeting stay two lines', () => {
+      const t = writeDigest(
+        [
+          line('reminder', 7, { id: 'a1' }),
+          line('new', 7, { id: 'a2', labelKey: 'midweek_closing_prayer' }),
+        ],
+        'ru',
+      )!;
+      expect(t.body.split('\n')).toEqual([
+        'Чт 22 октября (через неделю), встреча среди недели: Чтение Библии',
+        'Новое: Чт 22 октября (через неделю), встреча среди недели: Заключительная молитва',
+      ]);
+    });
+
+    it('things taken away on one day are one line too', () => {
+      const t = writeDigest(
+        [
+          line('cancelled', 5, { id: 'a1' }),
+          line('cancelled', 5, { id: 'd1', type: 'duty', labelKey: 'av' }),
+        ],
+        'ru',
+      )!;
+      expect(t.body).toBe(
+        'Чт 22 октября: Чтение Библии, Аудио/Видео — готовиться не нужно',
+      );
+    });
+
+    it('two field-service meetings on one day stay two lines', () => {
+      const service = (id: string, time: string, place: string) =>
+        line('reminder', 1, {
+          type: 'service',
+          kind: 'service',
+          id,
+          labelKey: 'service',
+          time,
+          place,
+        });
+      const t = writeDigest(
+        [
+          service('s1', '10:00:00', 'Hauptstr. 1'),
+          service('s2', '15:00:00', 'Parkweg 2'),
+        ],
+        'ru',
+      )!;
+      expect(t.body.split('\n')).toEqual([
+        'Чт 22 октября, 10:00: встреча для проповеди — ведёте вы, Hauptstr. 1',
+        'Чт 22 октября, 15:00: встреча для проповеди — ведёте вы, Parkweg 2',
+      ]);
+    });
   });
 
   it('several things on one evening are one message', () => {
@@ -242,7 +349,9 @@ describe('the digest as it is read', () => {
       ],
       'ru',
     )!;
-    expect(t.body).toContain(': Начинайте разговор (через неделю)');
+    expect(t.body).toBe(
+      'Чт 22 октября (через неделю), встреча среди недели: Начинайте разговор',
+    );
     expect(t.body).not.toContain('ПО ДОМАМ');
   });
 

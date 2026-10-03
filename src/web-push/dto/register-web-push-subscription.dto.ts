@@ -1,4 +1,5 @@
 import {
+  IsIn,
   IsObject,
   IsOptional,
   IsString,
@@ -6,6 +7,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { WEB_DEVICE_KINDS } from '../device-kind';
 
 class WebPushSubscriptionKeysDto {
   @IsString()
@@ -31,6 +33,11 @@ export class RegisterWebPushSubscriptionDto {
   @IsString()
   @MaxLength(512)
   userAgent?: string;
+
+  /** What the device is, said by the device: a user agent cannot tell an iPad from a Mac. */
+  @IsOptional()
+  @IsIn(WEB_DEVICE_KINDS)
+  deviceKind?: (typeof WEB_DEVICE_KINDS)[number];
 }
 
 export class UnregisterWebPushSubscriptionDto {

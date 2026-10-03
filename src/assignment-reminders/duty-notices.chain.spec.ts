@@ -126,7 +126,7 @@ describe('a duty given', () => {
     expect(w.to('u-a')).toHaveLength(1);
     expect(w.to('u-a')[0].title).toBe('Вам назначено');
     expect(w.to('u-a')[0].body).toBe(
-      'Ср 7 октября, встреча среди недели: Аудио/Видео (через 4 дня)',
+      'Ср 7 октября (через 4 дня), встреча среди недели: Аудио/Видео',
     );
   });
 
@@ -150,7 +150,10 @@ describe('a duty given', () => {
     await w.reminders.announceDuties(NOW);
 
     expect(w.to('u-a')).toHaveLength(1);
-    expect(w.to('u-a')[0].body.split('\n')).toHaveLength(2);
+    // …and one line: both are at the same meeting.
+    expect(w.to('u-a')[0].body).toBe(
+      'Ср 7 октября (через 4 дня), встреча среди недели: Аудио/Видео, Сцена',
+    );
     expect(w.to('u-b')).toHaveLength(1);
   });
 

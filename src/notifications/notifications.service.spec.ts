@@ -539,7 +539,7 @@ describe('NotificationsService — a letter when there is no device', () => {
  * an iPad, it arrived on an Android phone, and the iPad looked broken.
  */
 describe('NotificationsService.sendTest — to the device that asked', () => {
-  it('goes to that device only, not through «one person, one channel»', async () => {
+  it('goes to that device only, not through the ordinary choice of devices', async () => {
     const { svc, push, rows } = makeService({ deviceReach: 'web' });
 
     const res = await svc.sendTest('cong-1', 'u1', 'ru', {

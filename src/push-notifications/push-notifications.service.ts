@@ -18,6 +18,7 @@ import {
 } from '../common/i18n/push-strings';
 import { WebPushService } from '../web-push/web-push.service';
 import { WebPushSubscription } from '../entities/web-push-subscription.entity';
+import { webDeviceKind } from '../web-push/device-kind';
 
 /**
  * Where one person was reached by one send.
@@ -327,19 +328,25 @@ export class PushNotificationsService {
     for (const t of tokens) reach.set(t.userId, 'failed');
     for (const s of webSubs) reach.set(s.userId, 'failed');
 
-    // ONE person, ONE channel.
+    // ONE NOTIFICATION A PHYSICAL DEVICE.
     //
-    // Someone with the app installed AND notifications allowed in a browser
-    // used to get every message twice, which reads as carelessness and is a
-    // good reason to switch the whole thing off. The phone wins because it is
-    // the device carried to the hall; the browser is usually a desktop at
-    // home, and a message seen on the phone has already done its work.
+    // It used to be «one person, one channel»: with a phone registered, every
+    // browser of that person stayed silent. That was written against one real
+    // nuisance — the app and a browser subscription on the SAME Android phone
+    // saying everything twice — but it silenced far more than that. An iPhone
+    // or an iPad is never that phone, and it got nothing; worst, somebody who
+    // moved from Android to an iPhone and left the old phone in a drawer was
+    // «reached» every time and saw nothing at all (3 October 2026).
     //
-    // The browser is not abandoned, though: it takes over for anyone with no
-    // phone registered, and it also catches the case where every phone token
-    // failed outright — a message that reached nobody is worse than one that
-    // arrived twice.
-    const phoneUserIds = new Set(tokens.map((t) => t.userId));
+    //   - a phone with the app: always;
+    //   - an iPhone or iPad: always — it is a device of its own;
+    //   - a browser on Android: only when no phone took the message, because
+    //     it is most likely the very phone that runs the app;
+    //   - a computer: only when no handheld device took it. It is often
+    //     shared, and a message read on the phone has done its work.
+    //
+    // Nobody is left with nothing while a device of theirs could take it: each
+    // step down happens exactly when the step above reached nobody.
     const reachedByPhone = new Set<string>();
 
     if (tokens.length > 0) {
@@ -382,21 +389,37 @@ export class PushNotificationsService {
       }
     }
 
-    const webNeeded = webSubs.filter(
-      (s) => !phoneUserIds.has(s.userId) || !reachedByPhone.has(s.userId),
-    );
-    if (webNeeded.length > 0) {
-      const payload = { title, body, data };
+    const payload = { title, body, data };
+    const reachedInHand = new Set(reachedByPhone);
+    const sendWeb = async (subs: WebPushSubscription[]) => {
+      const taken = new Set<string>();
       await Promise.all(
-        webNeeded.map(async (sub) => {
+        subs.map(async (sub) => {
           const res = await this.webPushService.sendToSubscription(
             sub,
             payload,
           );
-          if (res.ok) reach.set(sub.userId, 'web');
+          if (!res.ok) return;
+          taken.add(sub.userId);
+          // The phone stays the answer when both took it: it is the device
+          // the report names first.
+          if (!reachedByPhone.has(sub.userId)) reach.set(sub.userId, 'web');
         }),
       );
-    }
+      return taken;
+    };
+
+    const handheld = webSubs.filter((s) => {
+      const kind = webDeviceKind(s);
+      if (kind === 'ios') return true;
+      return kind === 'android' && !reachedByPhone.has(s.userId);
+    });
+    for (const id of await sendWeb(handheld)) reachedInHand.add(id);
+
+    const computers = webSubs.filter(
+      (s) => webDeviceKind(s) === 'desktop' && !reachedInHand.has(s.userId),
+    );
+    await sendWeb(computers);
     return reach;
   }
 
@@ -404,11 +427,12 @@ export class PushNotificationsService {
    * To ONE device of one person — the device that asked.
    *
    * «Отправить пробное» is a question about the screen in the person's hand.
-   * Sent the ordinary way it obeys «one person, one channel», so somebody
-   * pressing it on an iPad while an Android phone is registered got the test
-   * on the phone, read «отправлено» on the iPad, and concluded the iPad was
-   * broken (3 October 2026). A test goes where it was asked from, or says
-   * that this device is not registered at all.
+   * Sent the ordinary way it goes to the devices the rules above pick, which
+   * need not include this one: somebody pressing it in a browser while a
+   * phone is registered got the test on the phone, read «отправлено» in the
+   * browser, and concluded the browser was broken (3 October 2026). A test
+   * goes where it was asked from, or says that this device is not registered
+   * at all.
    */
   async sendToDevice(
     tenantId: string,
