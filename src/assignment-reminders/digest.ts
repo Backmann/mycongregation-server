@@ -34,13 +34,28 @@ import { SupportedLanguage } from '../common/i18n/supported-languages';
  */
 
 export type Ladder = 'full' | 'short';
+export type ItemType = 'part' | 'duty' | 'service' | 'cleaning' | 'talk';
+export type MeetingKindOf = 'midweek' | 'weekend' | 'service' | 'away';
+
 /**
- * `service` is conducting a meeting for field service. The conductor is told
- * the moment he is put down (that path is older than this file), so here it
- * is only ever RECALLED, the evening before — never announced, never marked.
+ * Things that are only ever RECALLED here — never announced, never marked.
+ *
+ *   - `service`: conducting a meeting for field service. The conductor is
+ *     told the moment he is put down.
+ *   - `talk`: a talk one of ours gives in ANOTHER congregation. He is told
+ *     when it is arranged (OutgoingTalkNotificationsService); here it comes
+ *     back a week before and the evening before, like a duty.
+ *   - `cleaning`: the hall after a meeting, which a whole service group does.
+ *     Nobody is «assigned» it — the group's week simply comes round — so it
+ *     is a line in tomorrow's digest and nothing more (3 October 2026: it
+ *     was the one thing a person did at a meeting that the digest left out).
  */
-export type ItemType = 'part' | 'duty' | 'service';
-export type MeetingKindOf = 'midweek' | 'weekend' | 'service';
+const RECALL_ONLY: ReadonlySet<ItemType> = new Set<ItemType>([
+  'service',
+  'cleaning',
+  'talk',
+]);
+export const isRecallOnly = (type: ItemType): boolean => RECALL_ONLY.has(type);
 
 export const PART_STEPS: Record<Ladder, readonly number[]> = {
   full: [21, 14, 7, 3, 1],
@@ -48,9 +63,13 @@ export const PART_STEPS: Record<Ladder, readonly number[]> = {
 };
 export const DUTY_STEPS: readonly number[] = [7, 1];
 export const SERVICE_STEPS: readonly number[] = [1];
+export const CLEANING_STEPS: readonly number[] = [1];
+export const TALK_STEPS: readonly number[] = [7, 1];
 
 export function stepsFor(type: ItemType, ladder: Ladder): readonly number[] {
   if (type === 'service') return SERVICE_STEPS;
+  if (type === 'cleaning') return CLEANING_STEPS;
+  if (type === 'talk') return TALK_STEPS;
   return type === 'duty' ? DUTY_STEPS : PART_STEPS[ladder];
 }
 
@@ -144,7 +163,7 @@ export function planDigest(input: {
     if (told && told.date !== item.date) mark.push(item);
     if (daysLeft < 1) continue;
     if (!stepsFor(item.type, ladder).includes(daysLeft)) continue;
-    if (item.type === 'service') {
+    if (isRecallOnly(item.type)) {
       lines.push({ tone: 'reminder', item, daysLeft });
       continue;
     }
@@ -247,6 +266,11 @@ interface Words {
   part: string;
   /** «встреча для проповеди — ведёте вы» */
   conducting: string;
+  /** «уборка после встречи (ваша группа)» */
+  cleaning: string;
+  /** «речь в собрании Dortmund» / «речь в другом собрании» */
+  talkAt: (congregation: string) => string;
+  talkAway: string;
   when: (days: number) => string;
 }
 
@@ -272,6 +296,9 @@ const WORDS: Record<SupportedLanguage, Words> = {
     assistant: 'помощник',
     part: 'часть программы',
     conducting: 'встреча для проповеди — ведёте вы',
+    cleaning: 'уборка после встречи (ваша группа)',
+    talkAt: (c) => `ваша речь в собрании ${c}`,
+    talkAway: 'ваша речь в другом собрании',
     when: (d) =>
       d <= 0
         ? 'сегодня'
@@ -296,6 +323,9 @@ const WORDS: Record<SupportedLanguage, Words> = {
     assistant: 'assistant',
     part: 'a part',
     conducting: 'field service meeting — you conduct',
+    cleaning: 'cleaning after the meeting (your group)',
+    talkAt: (c) => `your talk in ${c}`,
+    talkAway: 'your talk in another congregation',
     when: (d) =>
       d <= 0
         ? 'today'
@@ -320,6 +350,9 @@ const WORDS: Record<SupportedLanguage, Words> = {
     assistant: 'Partner',
     part: 'ein Programmpunkt',
     conducting: 'Zusammenkunft für den Predigtdienst — du leitest',
+    cleaning: 'Reinigung nach der Zusammenkunft (eure Gruppe)',
+    talkAt: (c) => `dein Vortrag in ${c}`,
+    talkAway: 'dein Vortrag in einer anderen Versammlung',
     when: (d) =>
       d <= 0
         ? 'heute'
@@ -339,13 +372,16 @@ const WORDS: Record<SupportedLanguage, Words> = {
 export function shortDay(dateISO: string, lang: SupportedLanguage): string {
   try {
     const d = new Date(`${dateISO}T12:00:00Z`);
-    const weekday = new Intl.DateTimeFormat(lang, {
+    // «7 October», not «October 7»: plain `en` is the American order, and
+    // the month names elsewhere (the report reminders) are British already.
+    const locale = lang === 'en' ? 'en-GB' : lang;
+    const weekday = new Intl.DateTimeFormat(locale, {
       weekday: 'short',
       timeZone: 'UTC',
     })
       .format(d)
       .replace(/\.$/, '');
-    const day = new Intl.DateTimeFormat(lang, {
+    const day = new Intl.DateTimeFormat(locale, {
       day: 'numeric',
       month: 'long',
       timeZone: 'UTC',
@@ -367,6 +403,7 @@ export function labelOf(
   const w = WORDS[lang];
   const title = x.labelTitle?.trim();
   let name: string;
+  if (x.type === 'cleaning') return w.cleaning;
   if (x.type === 'duty') {
     name = title || DUTY_NAMES[lang][x.labelKey] || DUTY_NAMES[lang].custom;
     if (x.slot) name = `${name} ${x.slot}`;
@@ -401,7 +438,11 @@ export function writeDigest(
   if (lines.length === 0) return null;
   const w = WORDS[lang];
   const live = lines.filter((l) => l.tone !== 'cancelled');
-  const allNew = live.length > 0 && lines.every((l) => l.tone === 'new');
+  // The hall's cleaning is never «news» — nobody is assigned it — so it does
+  // not decide the heading: a part heard of for the first time, with the
+  // group's cleaning beside it, is still «Вам назначено».
+  const said = lines.filter((l) => l.item.type !== 'cleaning');
+  const allNew = said.length > 0 && said.every((l) => l.tone === 'new');
   const allCancelled = live.length === 0;
   const allTomorrow =
     live.length > 0 &&
@@ -425,7 +466,22 @@ export function writeDigest(
   // line that names everything after them.
   const groups: { head: string; tail: string; lines: DigestLine[] }[] = [];
   const byHead = new Map<string, (typeof groups)[number]>();
+  // The cleaning after a meeting belongs on that meeting's line, whatever
+  // that line is — news or a reminder. Left to open a line of its own it
+  // printed the same day and meeting twice (seen on the stand, 3 October).
+  const meetingOf = (l: DigestLine) => `${l.item.date}|${l.item.kind}`;
+  const hasOwnLine = new Set(
+    lines
+      .filter((l) => l.tone !== 'cancelled' && l.item.type !== 'cleaning')
+      .map(meetingOf),
+  );
+  const byMeeting = new Map<string, (typeof groups)[number]>();
+  const cleaningToAttach: DigestLine[] = [];
   for (const l of lines) {
+    if (l.item.type === 'cleaning' && hasOwnLine.has(meetingOf(l))) {
+      cleaningToAttach.push(l);
+      continue;
+    }
     const day = shortDay(l.item.date, lang);
     let head: string;
     let tail = '';
@@ -445,6 +501,18 @@ export function writeDigest(
         lines: [],
       });
       continue;
+    } else if (l.item.kind === 'away') {
+      // A talk in another congregation: its own line too — it is not a
+      // meeting of ours, and the hour is the host's.
+      const it = l.item as ReminderItem;
+      const at = it.time ? `, ${it.time.slice(0, 5)}` : '';
+      const what = it.place?.trim() ? w.talkAt(it.place.trim()) : w.talkAway;
+      groups.push({
+        head: `${day}${whenOf(l)}${at}: ${what}`,
+        tail: '',
+        lines: [],
+      });
+      continue;
     } else {
       const meeting = MEETING_NAMES[l.item.kind][lang];
       // In a mixed digest the first word about an item is marked as such; in
@@ -459,7 +527,11 @@ export function writeDigest(
       groups.push(g);
     }
     g.lines.push(l);
+    if (l.tone !== 'cancelled' && !byMeeting.has(meetingOf(l))) {
+      byMeeting.set(meetingOf(l), g);
+    }
   }
+  for (const l of cleaningToAttach) byMeeting.get(meetingOf(l))?.lines.push(l);
 
   const orderOf = (l: DigestLine) =>
     (l.item as ReminderItem).order ?? Number.MAX_SAFE_INTEGER;

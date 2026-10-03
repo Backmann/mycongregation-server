@@ -11,10 +11,7 @@ import { ReminderLog } from '../entities/reminder-log.entity';
 import { CleaningSlotType } from '../common/enums/cleaning-slot-type.enum';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import {
-  coerceLanguage,
-  SupportedLanguage,
-} from '../common/i18n/supported-languages';
+import { SupportedLanguage } from '../common/i18n/supported-languages';
 import { DEFAULT_CONGREGATION_TIMEZONE } from '../common/congregation-clock';
 import { MeetingAttendanceService } from '../meeting-attendance/meeting-attendance.service';
 
@@ -229,8 +226,8 @@ export class CleaningRemindersService {
 
   private async forCongregation(cong: Congregation, now: Date): Promise<void> {
     const tz = cong.timezone || DEFAULT_CONGREGATION_TIMEZONE;
-    const lang = coerceLanguage(cong.language);
-    const s = STR[lang];
+    // The words are made for each reader in his own language by the gateway;
+    // the congregation's language decided them for everybody before.
     const p = CleaningRemindersService.localParts(now, tz);
     if (this.isQuiet(p)) return;
 
@@ -310,8 +307,10 @@ export class CleaningRemindersService {
             await this.notifications.notify({
               tenantId: cong.id,
               userIds: users,
-              title: s.afterTitle,
-              body: s.afterBody,
+              text: (l) => ({
+                title: STR[l].afterTitle,
+                body: STR[l].afterBody,
+              }),
               kind: 'cleaning_after_meeting',
               data: {
                 type: 'cleaning_after_meeting',
@@ -335,15 +334,16 @@ export class CleaningRemindersService {
             thoroughSlot.serviceGroupId,
           );
           const windows = thoroughSlot.windows ?? [];
-          const body =
-            windows.length > 0
-              ? s.weeklyBody(windows.join(', '))
-              : s.weeklyBodyNoWindows;
           await this.notifications.notify({
             tenantId: cong.id,
             userIds: users,
-            title: s.weeklyTitle,
-            body: body,
+            text: (l) => ({
+              title: STR[l].weeklyTitle,
+              body:
+                windows.length > 0
+                  ? STR[l].weeklyBody(windows.join(', '))
+                  : STR[l].weeklyBodyNoWindows,
+            }),
             kind: 'cleaning_weekly_monday',
             data: {
               type: 'cleaning_weekly_monday',
@@ -373,8 +373,10 @@ export class CleaningRemindersService {
             await this.notifications.notify({
               tenantId: cong.id,
               userIds: users,
-              title: s.plannedTitle,
-              body: s.plannedBody,
+              text: (l) => ({
+                title: STR[l].plannedTitle,
+                body: STR[l].plannedBody,
+              }),
               kind: 'cleaning_weekly_planned',
               data: { type: 'cleaning_weekly_planned', weekStart },
             });
@@ -404,8 +406,10 @@ export class CleaningRemindersService {
             await this.notifications.notify({
               tenantId: cong.id,
               userIds: users,
-              title: s.generalTitle,
-              body: s.generalBody,
+              text: (l) => ({
+                title: STR[l].generalTitle,
+                body: STR[l].generalBody,
+              }),
               kind: 'cleaning_general_planned',
               data: { type: 'cleaning_general_planned', weekStart },
             });

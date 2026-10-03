@@ -29,6 +29,10 @@ import { UpdateTalkExchangeDto } from './dto/update-talk-exchange.dto';
 import { ReplaceSpeakerDto } from './dto/replace-speaker.dto';
 import { mondayOf } from '../common/week';
 import { SpecialTalkNotificationsService } from './special-talk-notifications.service';
+import {
+  OutgoingTalkNotificationsService,
+  outgoingFacts,
+} from './outgoing-talk-notifications.service';
 
 const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
 
@@ -149,6 +153,7 @@ export class TalkExchangeService {
     private readonly meetingSettingsRepo: Repository<MeetingSettings>,
     private readonly auditLog: AuditLogService,
     private readonly specialTalkNotifications: SpecialTalkNotificationsService,
+    private readonly outgoingTalkNotifications: OutgoingTalkNotificationsService,
   ) {}
 
   private static readonly MANAGER_RESPONSIBILITIES = [
@@ -247,6 +252,12 @@ export class TalkExchangeService {
     settleSpecialTheme(row, fields);
     const saved = await this.repo.save(row);
     await this.specialTalkNotifications.announceIfNew(saved, null);
+    await this.outgoingTalkNotifications?.announce(
+      tenantId,
+      saved.id,
+      outgoingFacts(saved),
+      null,
+    );
     await this.auditLog.logCreate({
       tenantId,
       entityType: 'talk_exchange',
@@ -271,10 +282,18 @@ export class TalkExchangeService {
     // Snapshot BEFORE Object.assign — the row is mutated in place.
     const before = snapshot(row);
     const was = { specialTheme: row.specialTheme, date: row.date };
+    // What the travelling brother knew, read BEFORE the row is mutated.
+    const wasOutgoing = outgoingFacts(row);
     Object.assign(row, fields);
     settleSpecialTheme(row, fields);
     const saved = await this.repo.save(row);
     await this.specialTalkNotifications.announceIfNew(saved, was);
+    await this.outgoingTalkNotifications?.announce(
+      tenantId,
+      saved.id,
+      outgoingFacts(saved),
+      wasOutgoing,
+    );
     await this.auditLog.logUpdate({
       tenantId,
       entityType: 'talk_exchange',
@@ -312,6 +331,13 @@ export class TalkExchangeService {
       await this.clearProgramSlot(tenantId, row);
     }
     await this.repo.softDelete(row.id);
+    // The brother who was going is told not to prepare.
+    await this.outgoingTalkNotifications?.announce(
+      tenantId,
+      row.id,
+      null,
+      outgoingFacts(row),
+    );
   }
 
   /** Clear the weekend public-talk slot if it still reflects an invited speaker. */

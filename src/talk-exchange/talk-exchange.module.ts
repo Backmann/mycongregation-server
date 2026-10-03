@@ -12,6 +12,8 @@ import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { TalkExchangeService } from './talk-exchange.service';
 import { TalkExchangeController } from './talk-exchange.controller';
 import { SpecialTalkNotificationsService } from './special-talk-notifications.service';
+import { OutgoingTalkNotificationsService } from './outgoing-talk-notifications.service';
+import { Publisher } from '../entities/publisher.entity';
 import { User } from '../entities/user.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { CongregationClockModule } from '../common/congregation-clock.module';
@@ -27,6 +29,7 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
       PublicTalk,
       Responsibility,
       MeetingSettings,
+      Publisher,
       User,
     ]),
     AuditLogModule,
@@ -34,7 +37,11 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
     CongregationClockModule,
   ],
   controllers: [TalkExchangeController],
-  providers: [TalkExchangeService, SpecialTalkNotificationsService],
+  providers: [
+    TalkExchangeService,
+    SpecialTalkNotificationsService,
+    OutgoingTalkNotificationsService,
+  ],
   exports: [TalkExchangeService],
 })
 export class TalkExchangeModule {}

@@ -160,6 +160,9 @@ function world(
     { forRange: async () => [] } as any,
     notifications,
     memRepo<any>([]) as any, // field-service meetings
+    memRepo<any>([]) as any, // cleaning weeks
+    memRepo<any>([]) as any, // talk exchange
+    memRepo<any>([]) as any, // host congregations
   );
   const service = new AssignmentsService(
     assignments as any,

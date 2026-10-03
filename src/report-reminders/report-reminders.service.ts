@@ -19,10 +19,7 @@ import {
   minutesOfDayIn,
   todayIn,
 } from '../common/congregation-clock';
-import {
-  coerceLanguage,
-  SupportedLanguage,
-} from '../common/i18n/supported-languages';
+import { SupportedLanguage } from '../common/i18n/supported-languages';
 import { collectedReportMonth, monthKey } from '../common/report-month-window';
 
 /**
@@ -142,7 +139,6 @@ const STR: Record<
 interface ReminderContext {
   tenantId: string;
   timezone: string;
-  lang: SupportedLanguage;
   reportMonth: string;
   day: number;
 }
@@ -188,9 +184,16 @@ export class ReportRemindersService {
   ) {}
 
   private monthLabel(reportMonth: string, lang: SupportedLanguage): string {
-    return new Date(`${reportMonth}T00:00:00Z`).toLocaleDateString(
-      MONTH_LOCALE[lang],
-      { month: 'long', year: 'numeric', timeZone: 'UTC' },
+    return (
+      new Date(`${reportMonth}T00:00:00Z`)
+        .toLocaleDateString(MONTH_LOCALE[lang], {
+          month: 'long',
+          year: 'numeric',
+          timeZone: 'UTC',
+        })
+        // Russian adds «г.» to a year, and the sentences here end in a full
+        // stop of their own: every reminder read «за сентябрь 2026 г..».
+        .replace(/\s*г\.$/, '')
     );
   }
 
@@ -239,7 +242,7 @@ export class ReportRemindersService {
   async tick(): Promise<void> {
     const now = new Date();
     const congregations = await this.congregationRepo.find({
-      select: ['id', 'timezone', 'language'],
+      select: ['id', 'timezone'],
     });
     for (const c of congregations) {
       const timezone = c.timezone || DEFAULT_CONGREGATION_TIMEZONE;
@@ -247,7 +250,6 @@ export class ReportRemindersService {
       const ctx: ReminderContext = {
         tenantId: c.id,
         timezone,
-        lang: coerceLanguage(c.language),
         reportMonth: monthKey(collectedReportMonth(now, timezone)),
         day: localDateParts(now, timezone).day,
       };
@@ -275,10 +277,8 @@ export class ReportRemindersService {
 
   /** One evening of reminders to the publishers of one congregation. */
   async remindPublishers(ctx: ReminderContext): Promise<void> {
-    const { tenantId, timezone, lang, reportMonth } = ctx;
-    const t = STR[lang];
+    const { tenantId, timezone, reportMonth } = ctx;
     const missing = await this.collectMissing(tenantId, reportMonth);
-    const label = this.monthLabel(reportMonth, lang);
     let reached = 0;
     for (const p of missing) {
       if (!p.userId) continue;
@@ -287,10 +287,18 @@ export class ReportRemindersService {
       await this.notifications.notify({
         tenantId,
         userIds: [p.userId],
-        title: t.publisherTitle,
-        body: opening
-          ? t.publisherOpening(this.capitalize(label))
-          : t.publisherReminder(label),
+        // In the reader's own language, month name included: «September»
+        // inside a Russian sentence is the congregation's language leaking
+        // into his.
+        text: (l) => {
+          const label = this.monthLabel(reportMonth, l);
+          return {
+            title: STR[l].publisherTitle,
+            body: opening
+              ? STR[l].publisherOpening(this.capitalize(label))
+              : STR[l].publisherReminder(label),
+          };
+        },
         kind: 'report_reminder',
         key: `report:${reportMonth}:publisher:${this.today(timezone)}`,
         data: { type: 'report_reminder', scope: 'publisher', reportMonth },
@@ -307,11 +315,9 @@ export class ReportRemindersService {
 
   /** One evening of per-group summaries to the group overseers. */
   async remindOverseers(ctx: ReminderContext): Promise<void> {
-    const { tenantId, timezone, lang, reportMonth } = ctx;
-    const t = STR[lang];
+    const { tenantId, timezone, reportMonth } = ctx;
     const missing = await this.collectMissing(tenantId, reportMonth);
     if (missing.length === 0) return;
-    const label = this.monthLabel(reportMonth, lang);
     const groups = await this.groupRepo.find({
       where: { congregationId: tenantId, overseerPublisherId: Not(IsNull()) },
     });
@@ -335,8 +341,14 @@ export class ReportRemindersService {
       await this.notifications.notify({
         tenantId,
         userIds: [overseerUserId],
-        title: t.overseerTitle,
-        body: t.overseerBody(g.name, label, names.join(', ')),
+        text: (l) => ({
+          title: STR[l].overseerTitle,
+          body: STR[l].overseerBody(
+            g.name,
+            this.monthLabel(reportMonth, l),
+            names.join(', '),
+          ),
+        }),
         kind: 'report_reminder',
         key: `report:${reportMonth}:overseer:${g.id}:${this.today(timezone)}`,
         data: {
@@ -354,11 +366,9 @@ export class ReportRemindersService {
 
   /** One evening of the congregation-wide summary to the secretary. */
   async remindSecretary(ctx: ReminderContext): Promise<void> {
-    const { tenantId, timezone, lang, reportMonth } = ctx;
-    const t = STR[lang];
+    const { tenantId, timezone, reportMonth } = ctx;
     const missing = await this.collectMissing(tenantId, reportMonth);
     if (missing.length === 0) return;
-    const label = this.monthLabel(reportMonth, lang);
     const groups = await this.groupRepo.find({
       where: { congregationId: tenantId },
     });
@@ -375,13 +385,16 @@ export class ReportRemindersService {
         ungrouped.push(m.displayName);
       }
     }
-    const lines: string[] = [];
-    for (const [gid, names] of byGroup) {
-      lines.push(`${groupName.get(gid)}: ${names.join(', ')}`);
-    }
-    if (ungrouped.length > 0) {
-      lines.push(`${t.ungrouped}: ${ungrouped.join(', ')}`);
-    }
+    const linesIn = (l: SupportedLanguage): string => {
+      const lines: string[] = [];
+      for (const [gid, names] of byGroup) {
+        lines.push(`${groupName.get(gid)}: ${names.join(', ')}`);
+      }
+      if (ungrouped.length > 0) {
+        lines.push(`${STR[l].ungrouped}: ${ungrouped.join(', ')}`);
+      }
+      return lines.join('\n');
+    };
 
     const secretaries = await this.responsibilityRepo.find({
       where: { congregationId: tenantId, type: ResponsibilityType.SECRETARY },
@@ -401,8 +414,14 @@ export class ReportRemindersService {
     await this.notifications.notify({
       tenantId,
       userIds: recipientIds,
-      title: t.secretaryTitle,
-      body: t.secretaryBody(label, missing.length, lines.join('\n')),
+      text: (l) => ({
+        title: STR[l].secretaryTitle,
+        body: STR[l].secretaryBody(
+          this.monthLabel(reportMonth, l),
+          missing.length,
+          linesIn(l),
+        ),
+      }),
       kind: 'report_reminder',
       key: `report:${reportMonth}:secretary:${this.today(timezone)}`,
       data: { type: 'report_reminder', scope: 'secretary', reportMonth },

@@ -11,6 +11,14 @@ import {
 } from 'typeorm';
 import { Absence } from '../entities/absence.entity';
 import { Assignment } from '../entities/assignment.entity';
+import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
+import { ExternalCongregation } from '../entities/external-congregation.entity';
+import { TalkExchange } from '../entities/talk-exchange.entity';
+import { CleaningSlotType } from '../common/enums/cleaning-slot-type.enum';
+import {
+  TalkExchangeDirection,
+  TalkExchangeStatus,
+} from '../common/enums/talk-exchange.enum';
 import { AssignmentNotice } from '../entities/assignment-notice.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { Duty } from '../entities/duty.entity';
@@ -41,6 +49,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { ReadinessService } from '../readiness/readiness.service';
 import {
   daysBetween,
+  isRecallOnly,
   labelOf,
   Ladder,
   MeetingKindOf,
@@ -176,6 +185,12 @@ export class AssignmentRemindersService {
     private readonly notifications: NotificationsService,
     @InjectRepository(FieldServiceMeeting)
     private readonly serviceMeetings: Repository<FieldServiceMeeting>,
+    @InjectRepository(CleaningAssignment)
+    private readonly cleaning: Repository<CleaningAssignment>,
+    @InjectRepository(TalkExchange)
+    private readonly talks: Repository<TalkExchange>,
+    @InjectRepository(ExternalCongregation)
+    private readonly hosts: Repository<ExternalCongregation>,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -241,7 +256,7 @@ export class AssignmentRemindersService {
   ): Promise<Map<string, ReminderItem[]>> {
     const fromWeek = mondayOf(today);
     const lastWeek = addDaysISO(fromWeek, (Math.min(weeks, MAX_WEEKS) - 1) * 7);
-    const [days, parts, duties, service] = await Promise.all([
+    const [days, parts, duties, service, cleaning, talks] = await Promise.all([
       this.meetingDays(congregationId, fromWeek, weeks),
       this.assignments.find({
         where: {
@@ -264,6 +279,26 @@ export class AssignmentRemindersService {
         where: {
           congregationId,
           weekStartDate: Between(fromWeek, addDaysISO(fromWeek, 7)),
+        },
+      }),
+      // The hall after a meeting — recalled the evening before, so the next
+      // two weeks are all that can matter.
+      this.cleaning.find({
+        where: {
+          congregationId,
+          slotType: CleaningSlotType.AFTER_MEETING,
+          serviceGroupId: Not(IsNull()),
+          weekStartDate: Between(fromWeek, addDaysISO(fromWeek, 7)),
+        },
+      }),
+      // Talks our own brothers give elsewhere: a week before and the evening
+      // before.
+      this.talks.find({
+        where: {
+          congregationId,
+          direction: TalkExchangeDirection.OUTGOING,
+          publisherId: Not(IsNull()),
+          date: Between(today, addDaysISO(today, 8)),
         },
       }),
     ]);
@@ -317,6 +352,73 @@ export class AssignmentRemindersService {
       }
     }
 
+    const going = talks.filter(
+      (t) => t.status !== TalkExchangeStatus.DID_NOT_HAPPEN,
+    );
+    if (going.length > 0) {
+      const hostIds = [
+        ...new Set(
+          going
+            .map((t) => t.hostCongregationId)
+            .filter((x): x is string => !!x),
+        ),
+      ];
+      const hosts = hostIds.length
+        ? await this.hosts.find({ where: { congregationId, id: In(hostIds) } })
+        : [];
+      const hostById = new Map(hosts.map((h) => [h.id, h]));
+      for (const t of going) {
+        const host = t.hostCongregationId
+          ? hostById.get(t.hostCongregationId)
+          : undefined;
+        add(t.publisherId, {
+          type: 'talk',
+          id: t.id,
+          date: String(t.date).slice(0, 10),
+          kind: 'away',
+          labelKey: 'talk',
+          labelTitle: null,
+          assistant: false,
+          slot: null,
+          time: host?.meetingTime ?? null,
+          place: host?.name ?? null,
+        });
+      }
+    }
+
+    if (cleaning.length > 0) {
+      const groupIds = [
+        ...new Set(
+          cleaning.map((c) => c.serviceGroupId).filter((x): x is string => !!x),
+        ),
+      ];
+      const members = await this.publishers.find({
+        where: { congregationId, serviceGroupId: In(groupIds) },
+        select: { id: true, serviceGroupId: true },
+      });
+      for (const c of cleaning) {
+        for (const kind of ['midweek', 'weekend'] as const) {
+          // Only after a meeting that is HELD that week: a convention week
+          // has none to clean up after.
+          const date = days.get(`${c.weekStartDate}|${kind}`);
+          if (!date) continue;
+          for (const m of members) {
+            if (m.serviceGroupId !== c.serviceGroupId) continue;
+            add(m.id, {
+              type: 'cleaning',
+              id: `${c.id}:${kind}`,
+              date,
+              kind,
+              labelKey: 'cleaning',
+              labelTitle: null,
+              assistant: false,
+              slot: null,
+            });
+          }
+        }
+      }
+    }
+
     // How many microphones a meeting has decides whether one is numbered.
     const mics = new Map<string, number>();
     for (const d of duties) {
@@ -363,8 +465,8 @@ export class AssignmentRemindersService {
     userId: string,
     items: ReminderItem[],
   ): Promise<void> {
-    // Conducting a field-service meeting is never marked: see ItemType.
-    const marked = items.filter((i) => i.type !== 'service');
+    // What is only recalled is never marked: see RECALL_ONLY in digest.ts.
+    const marked = items.filter((i) => !isRecallOnly(i.type));
     if (marked.length === 0) return;
     await this.notices.upsert(
       marked.map((i) => ({
@@ -385,8 +487,12 @@ export class AssignmentRemindersService {
 
   private async dropMarks(userId: string, marks: ReminderMark[]) {
     for (const m of marks) {
-      if (m.type === 'service') continue;
-      await this.notices.delete({ userId, itemType: m.type, itemId: m.id });
+      if (isRecallOnly(m.type)) continue;
+      await this.notices.delete({
+        userId,
+        itemType: m.type as 'part' | 'duty',
+        itemId: m.id,
+      });
     }
   }
 
@@ -434,15 +540,29 @@ export class AssignmentRemindersService {
       select: { id: true, uiLanguage: true, reminderLadder: true },
     });
 
+    // The digest is ONE message of several kinds. Whoever switched cleaning
+    // off does not get it back through the digest's door.
+    const noCleaning = await this.notifications.switchedOff(
+      users.map((u) => u.id),
+      'cleaning',
+    );
+
     let sent = 0;
     for (const user of users) {
+      const mine = itemsByUser.get(user.id) ?? [];
       const plan = planDigest({
         today,
         ladder: ladderOf(user),
-        items: itemsByUser.get(user.id) ?? [],
+        items: noCleaning.has(user.id)
+          ? mine.filter((i) => i.type !== 'cleaning')
+          : mine,
         marks: marksByUser.get(user.id) ?? [],
       });
       const text = writeDigest(plan.lines, coerceLanguage(user.uiLanguage));
+      // A letter is for what must not be missed. «Your group cleans tomorrow»
+      // alone is not that: a mailbox filling with cleaning reminders would be
+      // a complaint of its own.
+      const worthALetter = plan.lines.some((l) => l.item.type !== 'cleaning');
       if (text) {
         await this.notifications.notify({
           tenantId: congregationId,
@@ -454,7 +574,7 @@ export class AssignmentRemindersService {
           // many ticks pass.
           key: `digest:${today}:${user.id}`,
           data: { type: 'assignment_reminder' },
-          emailFallback: true,
+          emailFallback: worthALetter,
         });
         sent += 1;
       }

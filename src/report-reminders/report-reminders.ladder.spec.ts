@@ -65,7 +65,8 @@ describe('ReportRemindersService — how often, and in what tone', () => {
 
     await svc.tick();
 
-    const body = notifications.notify.mock.calls[0][0].body as string;
+    const body = notifications.notify.mock.calls[0][0].text('ru')
+      .body as string;
     expect(body).toContain('закончился');
     expect(body).not.toContain('ещё не подали');
   });
@@ -76,7 +77,7 @@ describe('ReportRemindersService — how often, and in what tone', () => {
 
     await svc.tick();
 
-    expect(notifications.notify.mock.calls[0][0].body).toContain(
+    expect(notifications.notify.mock.calls[0][0].text('ru').body).toContain(
       'ещё не подали',
     );
   });
@@ -92,7 +93,7 @@ describe('ReportRemindersService — how often, and in what tone', () => {
 
     await svc.tick();
 
-    expect(notifications.notify.mock.calls[0][0].body).toContain(
+    expect(notifications.notify.mock.calls[0][0].text('ru').body).toContain(
       'ещё не подали',
     );
   });
@@ -176,19 +177,25 @@ describe('ReportRemindersService — how often, and in what tone', () => {
     expect(keys[0]).toBe(keys[1]);
   });
 
-  it('speaks the congregation\u2019s language', async () => {
+  // It used to speak the CONGREGATION's language to everybody: a brother who
+  // reads the app in German got his reminder in Russian. The words are now
+  // made for each reader, whatever the congregation's language is.
+  it('speaks the reader\u2019s language, not the congregation\u2019s', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-08-05T16:00:00Z'));
     const { svc, notifications } = makeService({
       publishers: missing,
-      language: 'de',
+      language: 'ru',
     });
 
     await svc.tick();
 
     const call = notifications.notify.mock.calls[0][0];
-    expect(call.title).toBe('Predigtdienstbericht');
-    expect(call.body).toContain('Juli');
-    expect(call.body).not.toMatch(/[\u0410-\u044f]/);
+    const de = call.text('de');
+    expect(de.title).toBe('Predigtdienstbericht');
+    expect(de.body).toContain('Juli');
+    expect(de.body).not.toMatch(/[\u0410-\u044f]/);
+    expect(call.text('en').body).toContain('July');
+    expect(call.text('ru').body).toContain('июль');
   });
 
   it('says nothing at all on a day that is not in the ladder', async () => {

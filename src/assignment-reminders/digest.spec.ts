@@ -283,6 +283,40 @@ describe('the digest as it is read', () => {
       );
     });
 
+    // Seen on the stand: «Новое: Ср 7 октября, …: Председатель» and, under
+    // it, the same day and meeting again for the group's cleaning.
+    it('the cleaning joins the line of its meeting, news or not', () => {
+      const cleaning = {
+        type: 'cleaning' as const,
+        id: 'cl1:midweek',
+        labelKey: 'cleaning',
+      };
+      const withNews = writeDigest(
+        [line('new', 1), line('reminder', 1, cleaning)],
+        'ru',
+      )!;
+      // Still «Вам назначено»: cleaning is nobody's news.
+      expect(withNews.title).toBe('Вам назначено');
+      expect(withNews.body).toBe(
+        'Чт 22 октября (завтра), встреча среди недели: Чтение Библии, уборка после встречи (ваша группа)',
+      );
+
+      const withReminder = writeDigest(
+        [line('reminder', 1), line('reminder', 1, cleaning)],
+        'ru',
+      )!;
+      expect(withReminder.title).toBe('Завтра у вас');
+      expect(withReminder.body).toBe(
+        'Чт 22 октября, встреча среди недели: Чтение Библии, уборка после встречи (ваша группа)',
+      );
+
+      const alone = writeDigest([line('reminder', 1, cleaning)], 'de')!;
+      expect(alone.title).toBe('Morgen hast du');
+      expect(alone.body).toBe(
+        'Do 22. Oktober, Zusammenkunft unter der Woche: Reinigung nach der Zusammenkunft (eure Gruppe)',
+      );
+    });
+
     it('two field-service meetings on one day stay two lines', () => {
       const service = (id: string, time: string, place: string) =>
         line('reminder', 1, {

@@ -2,6 +2,9 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Absence } from '../entities/absence.entity';
 import { Assignment } from '../entities/assignment.entity';
+import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
+import { ExternalCongregation } from '../entities/external-congregation.entity';
+import { TalkExchange } from '../entities/talk-exchange.entity';
 import { AssignmentNotice } from '../entities/assignment-notice.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { Duty } from '../entities/duty.entity';
@@ -22,7 +25,10 @@ import { AssignmentRemindersService } from './assignment-reminders.service';
       Absence,
       Assignment,
       AssignmentNotice,
+      CleaningAssignment,
       Congregation,
+      ExternalCongregation,
+      TalkExchange,
       Duty,
       FieldServiceMeeting,
       Publisher,

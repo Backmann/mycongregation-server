@@ -6,6 +6,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { TalkExchangeService } from './talk-exchange.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { SpecialTalkNotificationsService } from './special-talk-notifications.service';
+import { OutgoingTalkNotificationsService } from './outgoing-talk-notifications.service';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Absence } from '../entities/absence.entity';
@@ -119,6 +120,10 @@ describe('TalkExchangeService', () => {
         {
           provide: SpecialTalkNotificationsService,
           useValue: specialTalkNotifications,
+        },
+        {
+          provide: OutgoingTalkNotificationsService,
+          useValue: { announce: jest.fn() },
         },
       ],
     }).compile();

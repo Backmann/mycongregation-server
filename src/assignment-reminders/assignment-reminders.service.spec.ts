@@ -19,6 +19,10 @@ function build(over: {
   tokens?: any[];
   email?: string | null;
   service?: any[];
+  cleaning?: any[];
+  cleaningOff?: boolean;
+  talks?: any[];
+  hosts?: any[];
 }) {
   const marks: any[] = [...(over.marks ?? [])];
   const parts = over.parts ?? [
@@ -71,7 +75,12 @@ function build(over: {
     { find: jest.fn(async () => over.duties ?? []) } as any,
     {
       find: jest.fn(async () => [
-        { id: 'p1', userId: 'u1', displayName: 'Бойко Виктор' },
+        {
+          id: 'p1',
+          userId: 'u1',
+          displayName: 'Бойко Виктор',
+          serviceGroupId: 'g1',
+        },
       ]),
     } as any,
     {
@@ -113,8 +122,16 @@ function build(over: {
       })),
     } as any,
     { forRange: jest.fn(async () => []) } as any,
-    { notify: jest.fn(async (n: any) => void sent.push(n)) } as any,
+    {
+      notify: jest.fn(async (n: any) => void sent.push(n)),
+      switchedOff: jest.fn(
+        async () => new Set<string>(over.cleaningOff ? ['u1'] : []),
+      ),
+    } as any,
     { find: jest.fn(async () => over.service ?? []) } as any,
+    { find: jest.fn(async () => over.cleaning ?? []) } as any,
+    { find: jest.fn(async () => over.talks ?? []) } as any,
+    { find: jest.fn(async () => over.hosts ?? []) } as any,
   );
   return { svc, marks, sent, noticeRepo };
 }
@@ -267,6 +284,138 @@ describe('conducting a meeting for field service', () => {
     await svc.sendDigests('cong-1', '2026-10-23');
 
     expect(sent).toHaveLength(1);
+  });
+});
+
+// The one thing a person does at a meeting that the digest used to leave out.
+describe('the hall after a meeting', () => {
+  const week = (over: any = {}) => ({
+    id: 'cl1',
+    weekStartDate: MON,
+    slotType: 'after_meeting',
+    serviceGroupId: 'g1',
+    ...over,
+  });
+
+  it("is in tomorrow's digest for everyone in the group", async () => {
+    const { svc, sent, marks } = build({ parts: [], cleaning: [week()] });
+
+    await svc.sendDigests('cong-1', '2026-10-21');
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].title).toBe('Завтра у вас');
+    expect(sent[0].body).toBe(
+      'Чт 22 октября, встреча среди недели: уборка после встречи (ваша группа)',
+    );
+    // Nobody is «assigned» it, so there is nothing to mark or take back.
+    expect(marks).toEqual([]);
+  });
+
+  it('stands on the same line as a part at that meeting, after it', async () => {
+    const { svc, sent } = build({
+      marks: [mark()],
+      cleaning: [week()],
+    });
+
+    await svc.sendDigests('cong-1', '2026-10-21');
+
+    expect(sent[0].body).toBe(
+      'Чт 22 октября, встреча среди недели: Чтение Библии, уборка после встречи (ваша группа)',
+    );
+  });
+
+  it('is said only the evening before', async () => {
+    const { svc, sent } = build({ parts: [], cleaning: [week()] });
+
+    await svc.sendDigests('cong-1', '2026-10-15'); // a week before
+
+    expect(sent).toEqual([]);
+  });
+
+  it("another group's week says nothing", async () => {
+    const { svc, sent } = build({
+      parts: [],
+      cleaning: [week({ serviceGroupId: 'g2' })],
+    });
+
+    await svc.sendDigests('cong-1', '2026-10-21');
+
+    expect(sent).toEqual([]);
+  });
+
+  // The digest is one message of several kinds; the switch for cleaning must
+  // still mean something inside it.
+  it('is left out for whoever switched cleaning off', async () => {
+    const { svc, sent } = build({
+      parts: [],
+      cleaning: [week()],
+      cleaningOff: true,
+    });
+
+    await svc.sendDigests('cong-1', '2026-10-21');
+
+    expect(sent).toEqual([]);
+  });
+
+  // A letter is for what must not be missed.
+  it('alone, it is never worth a letter; with a part it is', async () => {
+    const alone = build({ parts: [], cleaning: [week()] });
+    await alone.svc.sendDigests('cong-1', '2026-10-21');
+    expect(alone.sent[0].emailFallback).toBe(false);
+
+    const withPart = build({ marks: [mark()], cleaning: [week()] });
+    await withPart.svc.sendDigests('cong-1', '2026-10-21');
+    expect(withPart.sent[0].emailFallback).toBe(true);
+  });
+});
+
+// Until 3 October 2026 a brother sent to give a talk elsewhere heard nothing.
+describe('a talk in another congregation', () => {
+  const talk = (over: any = {}) => ({
+    id: 'tx1',
+    direction: 'outgoing',
+    status: 'confirmed',
+    date: '2026-10-25',
+    publisherId: 'p1',
+    hostCongregationId: 'h1',
+    ...over,
+  });
+  const hosts = [{ id: 'h1', name: 'Dortmund-Russisch', meetingTime: '10:00' }];
+
+  it('is recalled a week before and the evening before', async () => {
+    const evenings: string[] = [];
+    for (let d = 14; d <= 25; d++) {
+      const { svc, sent } = build({ parts: [], talks: [talk()], hosts });
+      await svc.sendDigests('cong-1', `2026-10-${d}`);
+      if (sent.length) evenings.push(`${d}: ${sent[0].body}`);
+    }
+    expect(evenings).toEqual([
+      '18: Вс 25 октября (через неделю), 10:00: ваша речь в собрании Dortmund-Russisch',
+      '24: Вс 25 октября, 10:00: ваша речь в собрании Dortmund-Russisch',
+    ]);
+  });
+
+  it('one that did not happen is not recalled', async () => {
+    const { svc, sent } = build({
+      parts: [],
+      talks: [talk({ status: 'did_not_happen' })],
+      hosts,
+    });
+
+    await svc.sendDigests('cong-1', '2026-10-24');
+
+    expect(sent).toEqual([]);
+  });
+
+  it('without a known host it still says what it is', async () => {
+    const { svc, sent } = build({
+      parts: [],
+      talks: [talk({ hostCongregationId: null })],
+    });
+
+    await svc.sendDigests('cong-1', '2026-10-24');
+
+    expect(sent[0].body).toBe('Вс 25 октября: ваша речь в другом собрании');
   });
 });
 

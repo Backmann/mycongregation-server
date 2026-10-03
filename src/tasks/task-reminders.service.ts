@@ -6,10 +6,8 @@ import { Publisher } from '../entities/publisher.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { TaskAddresseesService } from './task-addressees.service';
 import { Congregation } from '../entities/congregation.entity';
-import {
-  coerceLanguage,
-  SupportedLanguage,
-} from '../common/i18n/supported-languages';
+import { SupportedLanguage } from '../common/i18n/supported-languages';
+import { shortDay } from '../assignment-reminders/digest';
 import { EldersMeeting } from '../entities/elders-meeting.entity';
 import {
   DEFAULT_CONGREGATION_TIMEZONE,
@@ -30,7 +28,8 @@ import {
  *   to find the paper.
  *   AGAIN WHEN IT IS LATE. He asked for this in as many words. Once a day, not
  *   every pass: a reminder that arrives hourly stops being read by the second
- *   day, and then nothing is reminded of anything.
+ *   day, and then nothing is reminded of anything. And daily only for three
+ *   days, weekly after that — see overdueDay.
  *
  * NO TASK TEXT TRAVELS. Decided in July and unchanged: a push shows on a
  * locked screen the family can see, and «care for publishers in special
@@ -150,23 +149,14 @@ export class TaskRemindersService {
     return cong?.timezone || DEFAULT_CONGREGATION_TIMEZONE;
   }
 
-  /** The congregation's own language — a push is written with nobody looking. */
-  private async languageOf(congregationId: string): Promise<SupportedLanguage> {
-    const cong = await this.congregations.findOne({
-      where: { id: congregationId },
-      select: { id: true, language: true },
-    });
-    return coerceLanguage(cong?.language);
-  }
-
   /** «Объявления · 13 августа» — the category and the day, and nothing more. */
   private line(task: ElderTask, lang: SupportedLanguage): string {
     const area = AREAS[lang][task.area] ?? AREAS[lang].other;
-    const when = task.dueDate
-      ? task.dueTime
-        ? `${task.dueDate} · ${task.dueTime}`
-        : task.dueDate
-      : '';
+    // The day as a person says it — «Вт 13 октября» — not as the database
+    // keeps it. The comment above promised that from the start; the code
+    // printed «2026-10-13».
+    const day = task.dueDate ? shortDay(task.dueDate, lang) : '';
+    const when = day && task.dueTime ? `${day} · ${task.dueTime}` : day;
     return STR[lang].withArea(area, when);
   }
 
@@ -196,12 +186,13 @@ export class TaskRemindersService {
     const userIds = this.userIdsOf(elders);
     if (userIds.length === 0) return;
 
-    const lang = await this.languageOf(meeting.congregationId);
     await this.notifications.notify({
       tenantId: meeting.congregationId,
       userIds,
-      title: STR[lang].agendaReady,
-      body: this.meetingLine(meeting),
+      text: (l) => ({
+        title: STR[l].agendaReady,
+        body: this.meetingLine(meeting, l),
+      }),
       data: { type: 'agenda_approved', meetingId: meeting.id },
       kind: 'elders_meeting',
       key: `agenda-approved:${meeting.id}`,
@@ -209,12 +200,15 @@ export class TaskRemindersService {
   }
 
   /** «12 августа · 19:00 · Bunsenstr. 46» — the three facts of a meeting. */
-  private meetingLine(meeting: {
-    date: string;
-    startTime: string | null;
-    placeText: string | null;
-  }): string {
-    return [meeting.date, meeting.startTime, meeting.placeText]
+  private meetingLine(
+    meeting: {
+      date: string;
+      startTime: string | null;
+      placeText: string | null;
+    },
+    lang: SupportedLanguage,
+  ): string {
+    return [shortDay(meeting.date, lang), meeting.startTime, meeting.placeText]
       .filter(Boolean)
       .join(' · ');
   }
@@ -225,12 +219,10 @@ export class TaskRemindersService {
     const userIds = this.userIdsOf(members);
     if (userIds.length === 0) return;
 
-    const lang = await this.languageOf(task.congregationId);
     await this.notifications.notify({
       tenantId: task.congregationId,
       userIds,
-      title: STR[lang].assigned,
-      body: this.line(task, lang),
+      text: (l) => ({ title: STR[l].assigned, body: this.line(task, l) }),
       data: { type: 'task_assigned', taskId: task.id },
       kind: 'task',
       // Once per task per person, however often it is saved afterwards.
@@ -285,7 +277,9 @@ export class TaskRemindersService {
       const tomorrow = todayIn(new Date(now.getTime() + 86400000), timezone);
 
       const due = task.dueDate === tomorrow;
-      const late = task.dueDate < today;
+      const late =
+        task.dueDate < today &&
+        TaskRemindersService.overdueDay(task.dueDate, today);
       const soon =
         task.dueDate === today &&
         !!task.dueTime &&
@@ -300,12 +294,10 @@ export class TaskRemindersService {
       if (userIds.length === 0) continue;
 
       const stage = late ? 'overdue' : soon ? 'soon' : 'tomorrow';
-      const lang = await this.languageOf(task.congregationId);
       await this.notifications.notify({
         tenantId: task.congregationId,
         userIds,
-        title: STR[lang][stage],
-        body: this.line(task, lang),
+        text: (l) => ({ title: STR[l][stage], body: this.line(task, l) }),
         data: { type: `task_${stage}`, taskId: task.id },
         kind: 'task',
         // The date in the overdue key is what makes it once a day: a reminder
@@ -322,6 +314,26 @@ export class TaskRemindersService {
 
     if (sent > 0) this.logger.log(`task reminders: ${sent}`);
     return sent;
+  }
+
+  /**
+   * Is today a day to say that a task is late.
+   *
+   * Every day for the first three, then once a week on the weekday it fell
+   * due. It used to be every day without end: a task forgotten in August was
+   * still announced each morning in October, to three or five brothers, and a
+   * reminder that never stops is read exactly as often as one that never
+   * comes (3 October 2026). Three days is the stretch in which «late» is
+   * news; after that it is a standing matter, and a standing matter is
+   * recalled weekly — the agenda shows it meanwhile.
+   */
+  static overdueDay(dueDate: string, today: string): boolean {
+    const days = Math.round(
+      (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${dueDate}T00:00:00Z`)) /
+        86400000,
+    );
+    if (days < 1) return false;
+    return days <= 3 || days % 7 === 0;
   }
 
   /**
@@ -358,12 +370,13 @@ export class TaskRemindersService {
       const userIds = this.userIdsOf(elders);
       if (userIds.length === 0) continue;
 
-      const lang = await this.languageOf(meeting.congregationId);
       await this.notifications.notify({
         tenantId: meeting.congregationId,
         userIds,
-        title: STR[lang].meetingTomorrow,
-        body: this.meetingLine(meeting),
+        text: (l) => ({
+          title: STR[l].meetingTomorrow,
+          body: this.meetingLine(meeting, l),
+        }),
         data: { type: 'elders_meeting_tomorrow', meetingId: meeting.id },
         kind: 'elders_meeting',
         key: `meeting-tomorrow:${meeting.id}`,

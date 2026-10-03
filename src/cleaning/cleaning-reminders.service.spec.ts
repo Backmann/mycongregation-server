@@ -47,14 +47,12 @@ function makeSvc(over: Partial<Record<string, any>> = {}) {
     notify: jest.fn(
       async (input: {
         userIds: string[];
-        title: string;
-        body: string;
+        text: (lang: string) => { title: string; body: string };
         data: any;
       }) => {
         sends.push({
           users: input.userIds,
-          title: input.title,
-          body: input.body,
+          text: input.text,
           data: input.data,
         });
       },
@@ -336,7 +334,10 @@ describe('CleaningRemindersService.forCongregation', () => {
     await svc['forCongregation'](cong, new Date('2026-05-18T07:00:00Z'));
     expect(sends).toHaveLength(1);
     expect(sends[0].data.type).toBe('cleaning_weekly_monday');
-    expect(sends[0].body).toContain('4, 5');
+    // The words are made per reader; every language names the windows.
+    expect(sends[0].text('ru').body).toContain('Окна: 4, 5');
+    expect(sends[0].text('de').body).toContain('Fenster: 4, 5');
+    expect(sends[0].text('en').title).toBe('Weekly cleaning');
   });
 
   it('sends the optional planned-day reminder 2h before', async () => {

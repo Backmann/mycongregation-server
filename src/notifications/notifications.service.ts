@@ -9,6 +9,11 @@ import { CongregationClock } from '../common/congregation-clock.service';
 import { User } from '../entities/user.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { MailService } from '../mail/mail.service';
+import { isKnownNotificationType } from './notification-types';
+import {
+  coerceLanguage,
+  SupportedLanguage,
+} from '../common/i18n/supported-languages';
 
 /**
  * The congregation's waking hours. Nothing automatic goes out before or after;
@@ -43,7 +48,10 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
   if (
     kind === 'schedule' ||
     kind === 'memorial' ||
-    kind === 'assignment_reminder'
+    kind === 'assignment_reminder' ||
+    // A talk one of ours gives in another congregation is his assignment as
+    // much as a part at home is.
+    kind === 'outgoing_talk'
   ) {
     return 'assignments';
   }
@@ -106,8 +114,23 @@ const TEST_STRINGS: Record<string, { title: string; body: string }> = {
 export interface NotifyInput {
   tenantId: string;
   userIds: string[];
-  title: string;
-  body: string;
+  /**
+   * The words, when they are the same for everybody. A caller that already
+   * wrote them in each person's language (the digest does) passes them here.
+   */
+  title?: string;
+  body?: string;
+  /**
+   * The words IN THE READER'S OWN LANGUAGE, written by the gateway for each
+   * person from the language they chose in the app.
+   *
+   * Half the senders used the CONGREGATION's language for everybody, and the
+   * cart's wrote plain Russian: a brother who reads the app in German got his
+   * report reminder in Russian (3 October 2026). Who reads what is the same
+   * question for every sender, so it is answered here once, not in each of
+   * them. Takes precedence over `title` and `body`.
+   */
+  text?: (lang: SupportedLanguage) => { title: string; body: string };
   /** Payload the app uses to open the right screen. */
   data: Record<string, any>;
   /** What this is — `report_reminder`, `cleaning`, `cart`, … */
@@ -215,6 +238,16 @@ export class NotificationsService {
     const recipients = [...new Set(input.userIds.filter(Boolean))];
     if (recipients.length === 0) return;
 
+    // A type the app has no destination for is a notification whose tap leads
+    // nowhere. It is still sent — the words are worth having — but it is said
+    // out loud, here and in every test that runs the real gateway.
+    if (!isKnownNotificationType(input.data?.type)) {
+      this.logger.error(
+        `notification type «${String(input.data?.type)}» (kind=${input.kind}) ` +
+          'is not in NOTIFICATION_TYPES: its tap leads nowhere',
+      );
+    }
+
     try {
       const tz = await this.clock.timezoneOf(input.tenantId);
       const notBefore = NotificationsService.computeNotBefore(
@@ -240,16 +273,34 @@ export class NotificationsService {
               ).map((p) => p.userId),
             );
 
+      // Each person's own language, read once for the whole call.
+      const langOf = new Map<string, SupportedLanguage>();
+      if (input.text) {
+        const users = await this.usersRepo.find({
+          where: { id: In(recipients) },
+          select: { id: true, uiLanguage: true },
+        });
+        for (const u of users) langOf.set(u.id, coerceLanguage(u.uiLanguage));
+      } else if (input.title === undefined || input.body === undefined) {
+        this.logger.error(
+          `notify without words for tenant=${input.tenantId} kind=${input.kind}`,
+        );
+        return;
+      }
+
       for (const userId of recipients) {
         // Asked not to hear about this. Nothing is written: an outbox row for
         // something deliberately not sent would make the ledger lie about
         // what the congregation actually receives.
         if (switchedOff.has(userId)) continue;
+        const said = input.text
+          ? input.text(langOf.get(userId) ?? coerceLanguage(null))
+          : { title: input.title as string, body: input.body as string };
         const row = this.outboxRepo.create({
           congregationId: input.tenantId,
           userId,
-          title: input.title,
-          body: input.body,
+          title: said.title,
+          body: said.body,
           data: input.data,
           kind: input.kind,
           dedupeKey: input.key ? fitKey(input.key) : null,
@@ -283,6 +334,27 @@ export class NotificationsService {
         }`,
       );
     }
+  }
+
+  /**
+   * Who of these people asked not to hear about a category.
+   *
+   * For a sender that puts several kinds into ONE message (the evening digest
+   * carries parts, duties and the hall's cleaning): the switch for the message
+   * as a whole is checked above, and this lets the sender leave out the part
+   * a person switched off rather than the whole message.
+   */
+  async switchedOff(
+    userIds: string[],
+    category: NotificationCategory,
+  ): Promise<Set<string>> {
+    const ids = [...new Set(userIds.filter(Boolean))];
+    if (ids.length === 0) return new Set();
+    const rows = await this.preferencesRepo.find({
+      where: { userId: In(ids), category, enabled: false },
+      select: { userId: true },
+    });
+    return new Set(rows.map((p) => p.userId));
   }
 
   /** Send one row and record what happened. */

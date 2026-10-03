@@ -14,6 +14,11 @@ const at = (iso: string) => new Date(iso);
  * Four moments, each guarded by a key — so a pass every fifteen minutes sends
  * nothing twice, and the overdue one repeats daily rather than hourly.
  */
+/** What a call to the gateway says to a reader of a given language. */
+type Said = {
+  text: (lang: 'ru' | 'en' | 'de') => { title: string; body: string };
+};
+
 describe('TaskRemindersService.runDue', () => {
   const build = (tasks: unknown[]) => {
     // Typed loosely on purpose: the point of each test is the KEY that was
@@ -117,7 +122,7 @@ describe('TaskRemindersService.runDue', () => {
 
   it('reminds about a late task once a DAY, not once a pass', async () => {
     const { service, notify } = build([
-      { id: 't4', congregationId: 'c1', dueDate: '2026-08-01', dueTime: null },
+      { id: 't4', congregationId: 'c1', dueDate: '2026-08-11', dueTime: null },
     ]);
 
     await service.runDue(at('2026-08-12T09:00:00Z'));
@@ -126,6 +131,27 @@ describe('TaskRemindersService.runDue', () => {
     expect(notify.mock.calls[0][0]).toMatchObject({
       key: 'task-overdue:t4:2026-08-12',
     });
+  });
+
+  // It was every day without end: a task forgotten in August was still
+  // announced each morning in October. Three days it is news; after that it
+  // is a standing matter, recalled weekly.
+  it('a late task is recalled for three days, then once a week', async () => {
+    const days: number[] = [];
+    for (let late = 1; late <= 30; late++) {
+      const { service, notify } = build([
+        {
+          id: 't4',
+          congregationId: 'c1',
+          dueDate: '2026-08-01',
+          dueTime: null,
+        },
+      ]);
+      const day = new Date(Date.UTC(2026, 7, 1 + late, 9));
+      await service.runDue(day);
+      if (notify.mock.calls.length) days.push(late);
+    }
+    expect(days).toEqual([1, 2, 3, 7, 14, 21, 28]);
   });
 
   it('carries no task text, only that one is due', async () => {
@@ -144,7 +170,15 @@ describe('TaskRemindersService.runDue', () => {
 
     await service.runDue(at('2026-08-12T09:00:00Z'));
 
-    const sent = JSON.stringify(notify.mock.calls[0][0]);
+    // In every language it can be written in — the words are made per reader
+    // now, so the call itself no longer holds them.
+    const call = notify.mock.calls[0][0] as unknown as Said;
+    const sent = JSON.stringify([
+      call,
+      call.text('ru'),
+      call.text('en'),
+      call.text('de'),
+    ]);
     expect(sent).not.toContain('Забота');
     expect(sent).not.toContain('подробности');
   });
@@ -165,11 +199,18 @@ describe('TaskRemindersService.runDue', () => {
 
     await service.runDue(at('2026-08-12T09:00:00Z'));
 
-    const sent = notify.mock.calls[0][0] as { title: string; body: string };
+    const call = notify.mock.calls[0][0] as unknown as Said;
+    const sent = call.text('ru');
     expect(sent.title).toBe('Задача на завтра');
     // The category travels — «a task is due» alone tells nobody what to do —
-    // but the case itself does not.
-    expect(sent.body).toContain('Объявления');
+    // but the case itself does not. And the day reads as a person says it.
+    expect(sent.body).toBe('Объявления · Чт 13 августа');
+    // Each reader in his own language, whatever the congregation's is.
+    expect(call.text('de')).toEqual({
+      title: 'Eine Aufgabe ist morgen fällig',
+      body: 'Bekanntmachungen · Do 13. August',
+    });
+    expect(call.text('en').title).toBe('A task is due tomorrow');
   });
 
   it('reminds the body the evening before its own meeting', async () => {
@@ -206,9 +247,12 @@ describe('TaskRemindersService.runDue', () => {
 
     await service.runDue(at('2026-08-12T09:00:00Z'));
 
-    const sent = notify.mock.calls[0][0] as { title: string; key: string };
-    expect(sent.title).toBe('Завтра встреча совета старейшин');
-    expect(sent.key).toBe('meeting-tomorrow:m1');
+    const call = notify.mock.calls[0][0] as unknown as Said & { key: string };
+    expect(call.text('ru')).toEqual({
+      title: 'Завтра встреча совета старейшин',
+      body: 'Чт 13 августа · 19:00 · Bunsenstr. 46',
+    });
+    expect(call.key).toBe('meeting-tomorrow:m1');
   });
 
   it('says nothing when nobody it reaches has a login', async () => {

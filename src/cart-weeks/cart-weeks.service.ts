@@ -24,6 +24,70 @@ import { CreateCartRequestDto } from './dto/create-cart-request.dto';
 import { CreateCartAssignmentDto } from './dto/create-cart-assignment.dto';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { SupportedLanguage } from '../common/i18n/supported-languages';
+import { shortDay } from '../assignment-reminders/digest';
+
+/**
+ * What the cart's notifications say.
+ *
+ * They were three Russian sentences written straight into the code, with the
+ * day as the database keeps it («2026-10-07 10:00:00») — while every other
+ * sender has spoken three languages for months (3 October 2026). «Отменил»
+ * was also said of every sister.
+ */
+const CART_STR: Record<
+  SupportedLanguage,
+  {
+    publishedTitle: string;
+    publishedBody: string;
+    requestTitle: string;
+    requestBody: (where: string, when: string, who: string) => string;
+    cancelTitle: string;
+    cancelBody: (where: string, when: string, who: string) => string;
+  }
+> = {
+  ru: {
+    publishedTitle: 'Служение с тележками',
+    publishedBody: 'Расписание на неделю опубликовано.',
+    requestTitle: 'Тележки: новая заявка',
+    requestBody: (where, when, who) =>
+      `Заявка на свободное место — ${where}, ${when} (${who}).`,
+    cancelTitle: 'Тележки: отмена участия',
+    cancelBody: (where, when, who) =>
+      `${who}: участие отменено — ${where}, ${when}. Место снова свободно.`,
+  },
+  en: {
+    publishedTitle: 'Cart witnessing',
+    publishedBody: 'The schedule for the week is published.',
+    requestTitle: 'Cart: new request',
+    requestBody: (where, when, who) =>
+      `A request for a free place — ${where}, ${when} (${who}).`,
+    cancelTitle: 'Cart: participation cancelled',
+    cancelBody: (where, when, who) =>
+      `${who} cancelled — ${where}, ${when}. The place is free again.`,
+  },
+  de: {
+    publishedTitle: 'Zeugnisgeben mit Wagen',
+    publishedBody: 'Der Plan für die Woche ist veröffentlicht.',
+    requestTitle: 'Wagen: neue Anfrage',
+    requestBody: (where, when, who) =>
+      `Anfrage für einen freien Platz — ${where}, ${when} (${who}).`,
+    cancelTitle: 'Wagen: Teilnahme abgesagt',
+    cancelBody: (where, when, who) =>
+      `${who} hat abgesagt — ${where}, ${when}. Der Platz ist wieder frei.`,
+  },
+};
+
+/** «Ср 7 октября, 10:00» — a slot's day and hour as a person says them. */
+function slotWhen(
+  slot: { date: string; startTime: string } | null | undefined,
+  lang: SupportedLanguage,
+): string {
+  if (!slot) return '';
+  return `${shortDay(String(slot.date).slice(0, 10), lang)}, ${String(
+    slot.startTime,
+  ).slice(0, 5)}`;
+}
 
 function toMin(hhmm: string): number {
   const [h, m] = hhmm.split(':').map(Number);
@@ -549,9 +613,13 @@ export class CartWeeksService {
     await this.notify(
       congregationId,
       userIds,
-      'Служение',
-      'Расписание служения на неделю опубликовано.',
+      (l) => ({
+        title: CART_STR[l].publishedTitle,
+        body: CART_STR[l].publishedBody,
+      }),
       { type: 'cart_published', weekId: id },
+      // A week is published once; a second press says nothing new.
+      `cart-published:${id}`,
     );
     return saved;
   }
@@ -652,13 +720,15 @@ export class CartWeeksService {
     if (slot.week.status === 'published') {
       const who = `${me.lastName} ${me.firstName}`.trim();
       const where = slot.location?.name ?? '';
-      const when = `${slot.date} ${slot.startTime}`;
       await this.notify(
         congregationId,
         await this.managerUserIds(congregationId),
-        'Служение: новая заявка',
-        `Новая заявка (добор) — ${where}, ${when} (${who}).`,
+        (l) => ({
+          title: CART_STR[l].requestTitle,
+          body: CART_STR[l].requestBody(where, slotWhen(slot, l), who),
+        }),
         { type: 'cart_dobor_request', slotId },
+        `cart-request:${created.id}`,
       );
     }
     return created;
@@ -696,12 +766,13 @@ export class CartWeeksService {
     });
     const who = `${me.lastName} ${me.firstName}`.trim();
     const where = slot?.location?.name ?? '';
-    const when = slot ? `${slot.date} ${slot.startTime}` : '';
     await this.notify(
       congregationId,
       await this.managerUserIds(congregationId),
-      'Служение: отмена',
-      `${who} отменил участие — ${where}, ${when}. Слот снова открыт.`,
+      (l) => ({
+        title: CART_STR[l].cancelTitle,
+        body: CART_STR[l].cancelBody(where, slotWhen(slot, l), who),
+      }),
       { type: 'cart_cancel', slotId },
     );
   }
@@ -723,19 +794,19 @@ export class CartWeeksService {
   private async notify(
     congregationId: string,
     userIds: string[],
-    title: string,
-    body: string,
+    text: (lang: SupportedLanguage) => { title: string; body: string },
     data: Record<string, unknown>,
+    key?: string,
   ): Promise<void> {
     if (userIds.length === 0) return;
     try {
       await this.notifications.notify({
         tenantId: congregationId,
         userIds,
-        title,
-        body,
+        text,
         kind: String((data as Record<string, unknown>).type ?? 'cart'),
         data: data as Record<string, unknown>,
+        key,
       });
     } catch (e) {
       this.logger.warn(`cart push failed: ${String(e)}`);
