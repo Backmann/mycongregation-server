@@ -2077,14 +2077,34 @@ describe('ServiceReportsService', () => {
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
-    it('forbids an elder (view-only, not a summary recipient)', async () => {
+    // It used to refuse him: the summary was the secretary's and the
+    // administrators' alone. Lionel, 30 September 2026: the inactive «должны
+    // быть видны всем старейшинам» — and they are a line of this summary.
+    it('an elder reads it, inactive line included', async () => {
+      responsibilitiesRepo.count.mockResolvedValue(0);
+      publishersRepo.findOne.mockResolvedValue(null);
+      publishersRepo.find.mockResolvedValue([]);
+      pioneerSpellsRepo.find.mockResolvedValue([]);
+      reportsRepo.find.mockResolvedValue([]);
+      publishersRepo.count.mockResolvedValue(0);
+
+      const result = await service.getSummary(
+        'cong-1',
+        makeUser({ id: 'elder-id', role: UserRole.ELDER }),
+        '2026-04',
+      );
+
+      expect(result).toHaveProperty('totalInactivePublishers', 0);
+    });
+
+    it('a ministerial servant with no part in the reports does not', async () => {
       responsibilitiesRepo.count.mockResolvedValue(0);
       publishersRepo.findOne.mockResolvedValue(null);
 
       await expect(
         service.getSummary(
           'cong-1',
-          makeUser({ id: 'elder-id', role: UserRole.ELDER }),
+          makeUser({ id: 'ms-id', role: UserRole.MINISTERIAL_SERVANT }),
           '2026-04',
         ),
       ).rejects.toBeInstanceOf(ForbiddenException);

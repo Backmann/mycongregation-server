@@ -1939,10 +1939,13 @@ export class ServiceReportsService {
     const reportMonth = this.normalizeReportMonth(reportMonthInput);
     const ctx = await this.buildPermissionContext(tenantId, user);
 
-    // alwaysEdit is exactly "admin or secretary" — the summary's audience.
-    if (!ctx.alwaysEdit) {
+    // Every elder READS the summary (Lionel, 30 September 2026: the inactive
+    // «должны быть видны всем старейшинам»). alwaysView is exactly that
+    // audience — admin, elder, secretary. Compiling it — closing the month,
+    // keeping what was sent — stays with the secretary and has its own gates.
+    if (!ctx.alwaysView) {
       throw new ForbiddenException(
-        'Only administrators and the secretary may view the service summary.',
+        'Only elders, the secretary and administrators may view the service summary.',
       );
     }
 

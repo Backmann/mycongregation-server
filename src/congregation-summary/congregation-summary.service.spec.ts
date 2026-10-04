@@ -15,6 +15,8 @@ const user = (role: UserRole, id = 'u1'): AuthenticatedUser =>
 
 function build(opts: {
   responsibilities?: number;
+  /** What the reader holds; the count then answers the question asked. */
+  holds?: string[];
   privileged?: boolean;
   readsAll?: boolean;
 }) {
@@ -54,7 +56,13 @@ function build(opts: {
       resolvePrivateAccess: jest.fn().mockResolvedValue(!!opts.privileged),
     } as never,
     repo({
-      count: jest.fn().mockResolvedValue(opts.responsibilities ?? 0),
+      count: opts.holds
+        ? jest.fn((q: { where: { type: { value: string[] } } }) =>
+            Promise.resolve(
+              opts.holds!.filter((h) => q.where.type.value.includes(h)).length,
+            ),
+          )
+        : jest.fn().mockResolvedValue(opts.responsibilities ?? 0),
     }) as never,
     publishers as never,
     repo() as never,
@@ -102,6 +110,22 @@ describe('CongregationSummaryService — who is told what', () => {
       loadedUntil: null,
     });
     expect(s.tasks).toBeUndefined();
+  });
+
+  it('the duties coordinator is not told how far the programme is', async () => {
+    const { service } = build({ holds: ['duties_coordinator'] });
+    const s = await service.forUser(TENANT, user(UserRole.ELDER));
+    expect(s.programme).toBeUndefined();
+    // His own line is the one everybody gets.
+    expect(s.duties).toEqual({ next: null });
+  });
+
+  it('the body coordinator and the Life and Ministry overseer are', async () => {
+    for (const holds of [['body_coordinator'], ['life_ministry_overseer']]) {
+      const { service } = build({ holds });
+      const s = await service.forUser(TENANT, user(UserRole.ELDER));
+      expect(s.programme).toBeDefined();
+    }
   });
 
   it('the programme line looks four weeks ahead: this week and the next three', async () => {

@@ -3,7 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, MoreThanOrEqual, Not, Repository } from 'typeorm';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { UserRole } from '../common/enums/user-role.enum';
-import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import {
   TalkExchangeDirection,
@@ -18,6 +17,7 @@ import { ElderTask } from '../entities/elder-task.entity';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
 import { ReadinessService } from '../readiness/readiness.service';
+import { PROGRAMME_READINESS_READERS } from '../readiness/programme-readers';
 import { AbsencesService } from '../absences/absences.service';
 import { MeetingSettingsService } from '../meeting-settings/meeting-settings.service';
 import { PublishersService } from '../publishers/publishers.service';
@@ -99,18 +99,18 @@ export class CongregationSummaryService {
     private readonly cleaning: Repository<CleaningAssignment>,
   ) {}
 
-  /** The readiness endpoint's own rule. */
+  /**
+   * The readiness endpoint's own rule for the programme: those who assemble
+   * it. The duties coordinator is not among them — his line is `duties.next`,
+   * which everybody gets.
+   */
   private async mayReadReadiness(user: AuthenticatedUser): Promise<boolean> {
     if (user.role === UserRole.ADMIN) return true;
     const held = await this.responsibilities.count({
       where: {
         congregationId: user.congregationId,
         userId: user.id,
-        type: In([
-          ResponsibilityType.LIFE_MINISTRY_OVERSEER,
-          ResponsibilityType.BODY_COORDINATOR,
-          ResponsibilityType.DUTIES_COORDINATOR,
-        ]),
+        type: In([...PROGRAMME_READINESS_READERS]),
       },
     });
     return held > 0;

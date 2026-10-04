@@ -167,6 +167,46 @@ describe('PublicTalksService.catalogueHistory', () => {
     expect(out[1]).toMatchObject({ count: 1, numbers: [92], reason: 'Письмо' });
   });
 
+  // «Загружен каталог: 0» — said of a catalogue of 194 talks loaded a second
+  // time: only the talks CREATED were counted, and all of them existed.
+  it('an import says how many talks the catalogue held, new or not', async () => {
+    const service = build([
+      {
+        action: 'RESTORE',
+        createdAt: '2026-09-20T10:00:00Z',
+        actorName: null,
+        after: { parsed: 194, created: 0, updated: 3, unchanged: 191 },
+      },
+      {
+        action: 'RESTORE',
+        createdAt: '2026-08-21T10:00:00Z',
+        actorName: null,
+        after: { parsed: 190, created: 190, updated: 0 },
+      },
+    ]);
+
+    const out = await service.catalogueHistory('c1');
+
+    expect(out[0]).toMatchObject({ count: 194, created: 0, updated: 3 });
+    expect(out[1]).toMatchObject({ count: 190, created: 190, updated: 0 });
+  });
+
+  it('a retirement carries no import figures', async () => {
+    const service = build([
+      {
+        action: 'DELETE',
+        createdAt: '2026-08-23T10:00:00Z',
+        actorName: null,
+        after: { retiredNumbers: [84], retired: 1 },
+      },
+    ]);
+
+    const [event] = await service.catalogueHistory('c1');
+
+    expect(event.count).toBe(1);
+    expect(event).not.toHaveProperty('created');
+  });
+
   it('answers with an empty list when nothing has ever been done', async () => {
     await expect(build([]).catalogueHistory('c1')).resolves.toEqual([]);
   });

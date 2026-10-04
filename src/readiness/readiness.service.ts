@@ -76,6 +76,11 @@ export interface ProgrammeReadiness {
   total: number;
   /** Part keys still without a person. The caller names them. */
   missing: string[];
+  /**
+   * Set when the reader is not told about the programme at all (see
+   * programme-readers.ts); the other four fields are then empty on purpose.
+   */
+  withheld?: true;
 }
 
 export interface DutiesCount {

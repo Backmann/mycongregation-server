@@ -130,4 +130,80 @@ describe('service year and meeting dates', () => {
     expect(meetingDate('2026-03-02', 3)).toBe('2026-03-04'); // Wednesday
     expect(meetingDate('2026-03-02', 7)).toBe('2026-03-08'); // Sunday
   });
+
+  // «История посещений по годам должна оставаться видна, чтобы видеть
+  // тенденцию» (30 September 2026). For a year that has ended, «last» and
+  // «next» speak of today; the year's own visits are what is left to read.
+  describe('a year that has ended', () => {
+    const GROUPS = [
+      { id: 'g1', name: 'Группа 1' },
+      { id: 'g2', name: 'Группа 2' },
+    ];
+    const VISITS = [
+      {
+        serviceGroupId: 'g1',
+        weekStartDate: '2024-11-04',
+        dayOfWeek: 6,
+        serviceOverseerPublisherId: 'p1',
+      },
+      {
+        serviceGroupId: 'g1',
+        weekStartDate: '2025-10-06',
+        dayOfWeek: 3,
+        serviceOverseerPublisherId: 'p2',
+      },
+      {
+        serviceGroupId: 'g1',
+        weekStartDate: '2026-03-02',
+        dayOfWeek: 3,
+        serviceOverseerPublisherId: 'p1',
+      },
+      {
+        serviceGroupId: 'g2',
+        weekStartDate: '2026-09-07',
+        dayOfWeek: 6,
+        serviceOverseerPublisherId: 'p1',
+      },
+    ];
+
+    it('lists its own visits, oldest first, with who made each', async () => {
+      const svc = make(GROUPS, VISITS);
+
+      const { groups } = await svc.groupVisits('c1', 2026, '2026-10-04');
+      const g1 = groups.find((g) => g.serviceGroupId === 'g1')!;
+
+      expect(g1.visitsInYear).toEqual([
+        { date: '2025-10-08', by: 'p2' },
+        { date: '2026-03-04', by: 'p1' },
+      ]);
+      // Nothing of another year leaks in.
+      expect(
+        groups.find((g) => g.serviceGroupId === 'g2')!.visitsInYear,
+      ).toEqual([]);
+    });
+
+    it('says how far back the records go, so the switch can stop there', async () => {
+      const svc = make(GROUPS, VISITS);
+
+      // November 2024 is service year 2025.
+      expect(
+        (await svc.groupVisits('c1', 2027, '2026-10-04')).earliestYear,
+      ).toBe(2025);
+      // With no visits at all there is nothing behind the year asked about.
+      expect(
+        (await make(GROUPS, []).groupVisits('c1', 2027, '2026-10-04'))
+          .earliestYear,
+      ).toBe(2027);
+    });
+
+    it('a planned visit of the year in progress is listed as well', async () => {
+      const svc = make(GROUPS, VISITS);
+
+      const { groups } = await svc.groupVisits('c1', 2027, '2026-08-30');
+      const g2 = groups.find((g) => g.serviceGroupId === 'g2')!;
+
+      expect(g2.visitsInYear).toEqual([{ date: '2026-09-12', by: 'p1' }]);
+      expect(g2.madeThisYear).toBe(0);
+    });
+  });
 });

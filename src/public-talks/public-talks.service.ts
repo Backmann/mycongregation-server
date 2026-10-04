@@ -125,7 +125,14 @@ export interface CatalogueEvent {
   actorName: string | null;
   kind: 'import' | 'retire' | 'lift';
   numbers: number[];
+  /**
+   * How many talks the decision concerned. For an import: how many the
+   * uploaded catalogue HELD — not how many were new.
+   */
   count: number;
+  /** An import only: of those, how many were new and how many changed. */
+  created?: number;
+  updated?: number;
   from: string | null;
   until: string | null;
   reason: string | null;
@@ -387,7 +394,19 @@ export class PublicTalksService {
             : ('import' as const),
         numbers: ((isLift ? d.liftedNumbers : d.retiredNumbers) ??
           []) as number[],
-        count: Number((isLift ? d.lifted : (d.retired ?? d.created)) ?? 0),
+        // An import counted only the talks it CREATED, so the catalogue
+        // loaded a second time read «Загружен каталог: 0» — every talk was
+        // already there (found 28 September 2026). What was loaded is what
+        // the file held; how much of it was new is said beside it.
+        count: Number(
+          (isLift ? d.lifted : (d.retired ?? d.parsed ?? d.created)) ?? 0,
+        ),
+        ...(!isLift && r.action !== 'DELETE'
+          ? {
+              created: Number(d.created ?? 0),
+              updated: Number(d.updated ?? 0),
+            }
+          : {}),
         from: (d.from as string) ?? null,
         until: (d.until as string) ?? null,
         reason: (d.reason as string) ?? null,

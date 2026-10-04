@@ -20,6 +20,14 @@ export interface GroupVisitRow {
   lastVisitBy: string | null;
   /** The next visit already planned, if there is one. */
   nextVisitDate: string | null;
+  /**
+   * Every visit of the year asked about, oldest first — made and planned
+   * alike. For the year in progress the page says «last» and «next»; for a
+   * year that has ended those two speak of today, not of that year, and the
+   * year's own visits are what is left to read (the history by years Lionel
+   * asked to keep in view, 30 September 2026).
+   */
+  visitsInYear: { date: string; by: string | null }[];
 }
 
 /**
@@ -95,7 +103,12 @@ export class ServiceOverseerService {
     congregationId: string,
     serviceYear: number,
     today: string,
-  ): Promise<{ serviceYear: number; groups: GroupVisitRow[] }> {
+  ): Promise<{
+    serviceYear: number;
+    /** The year of the oldest visit on record: the switch stops there. */
+    earliestYear: number;
+    groups: GroupVisitRow[];
+  }> {
     const [groups, visits] = await Promise.all([
       this.groups.find({
         where: { congregationId },
@@ -117,8 +130,10 @@ export class ServiceOverseerService {
         lastVisitDate: null,
         lastVisitBy: null,
         nextVisitDate: null,
+        visitsInYear: [],
       });
     }
+    let earliestYear = serviceYear;
 
     for (const m of visits) {
       if (!m.serviceGroupId) continue;
@@ -128,9 +143,11 @@ export class ServiceOverseerService {
       if (!row) continue;
 
       const date = meetingDate(m.weekStartDate, m.dayOfWeek);
+      earliestYear = Math.min(earliestYear, serviceYearOf(date));
       if (date >= bounds.first && date <= bounds.last) {
         row.visitsThisYear += 1;
         if (date <= today) row.madeThisYear += 1;
+        row.visitsInYear.push({ date, by: m.serviceOverseerPublisherId });
       }
       if (date <= today) {
         if (!row.lastVisitDate || date > row.lastVisitDate) {
@@ -159,8 +176,17 @@ export class ServiceOverseerService {
       return a.lastVisitDate.localeCompare(b.lastVisitDate);
     });
 
-    return { serviceYear, groups: rows };
+    for (const row of rows) {
+      row.visitsInYear.sort((a, b) => a.date.localeCompare(b.date));
+    }
+    return { serviceYear, earliestYear, groups: rows };
   }
+}
+
+/** The service year a day belongs to, named for the August it ends in. */
+export function serviceYearOf(dateISO: string): number {
+  const year = Number(dateISO.slice(0, 4));
+  return Number(dateISO.slice(5, 7)) >= 9 ? year + 1 : year;
 }
 
 /** September through August, the year the app already counts by. */
