@@ -153,6 +153,12 @@ export class MeController {
     return this.reach.setLadder(user.id, dto.ladder);
   }
 
+  /** Whether the phone app is already registered for me. */
+  @Get('devices')
+  devices(@CurrentUser() user: AuthenticatedUser) {
+    return this.reach.devicesOf(user.id);
+  }
+
   /** The device's own account of where it stands with notifications. */
   @Post('push-state')
   @HttpCode(204)

@@ -149,3 +149,43 @@ describe('NotificationReachService.report', () => {
     expect(update.mock.calls[0][1].pushState).toBe('denied');
   });
 });
+
+describe('NotificationReachService.devicesOf', () => {
+  function build(tokensOf: Record<string, number>) {
+    const count = jest.fn(
+      async (q: { where: { userId: string } }) => tokensOf[q.where.userId] ?? 0,
+    );
+    const svc = new NotificationReachService(
+      {} as any,
+      {} as any,
+      { count } as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      clockStub('Europe/Berlin'),
+    );
+    return { svc, count };
+  }
+
+  it('says the app is there once it has registered a token', async () => {
+    const { svc } = build({ 'u-phone': 1 });
+    expect(await svc.devicesOf('u-phone')).toEqual({ app: true });
+  });
+
+  it('a second phone changes nothing: still one word', async () => {
+    const { svc } = build({ 'u-phone': 2 });
+    expect(await svc.devicesOf('u-phone')).toEqual({ app: true });
+  });
+
+  it('says it is not for somebody who only ever used the site', async () => {
+    const { svc } = build({ 'u-phone': 1 });
+    expect(await svc.devicesOf('u-web')).toEqual({ app: false });
+  });
+
+  // Somebody else's phone is never an answer about me.
+  it('asks about the caller alone', async () => {
+    const { svc, count } = build({ 'u-phone': 1 });
+    await svc.devicesOf('u-web');
+    expect(count).toHaveBeenCalledWith({ where: { userId: 'u-web' } });
+  });
+});

@@ -113,6 +113,25 @@ export class NotificationReachService {
     );
   }
 
+  /**
+   * Whether the person already runs the phone app — for the site in a
+   * browser on Android, which offers «Установить приложение».
+   *
+   * A page cannot see what is installed on the phone it is shown on, so it
+   * made the offer to everybody, and somebody who had the app downloaded it a
+   * second time (5 October 2026). The server does know: the app registers
+   * its token at sign-in. With a token on record the phone takes every
+   * notification — a browser on Android is skipped whenever it does — and
+   * there is nothing left for the site to ask of this person.
+   *
+   * One word and no more: which phone, since when and what it is called are
+   * the administrator's list, not something a page needs.
+   */
+  async devicesOf(userId: string): Promise<{ app: boolean }> {
+    const n = await this.tokens.count({ where: { userId } });
+    return { app: n > 0 };
+  }
+
   /** `full` unless the person chose the short ladder. */
   async ladderOf(userId: string): Promise<{ ladder: 'full' | 'short' }> {
     const u = await this.users.findOne({
