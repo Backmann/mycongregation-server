@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { ElderTask } from '../entities/elder-task.entity';
 import { EldersMeeting } from '../entities/elders-meeting.entity';
+import { EldersMeetingItem } from '../entities/elders-meeting-item.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { TaskAddresseesService } from './task-addressees.service';
 import { TaskRemindersService } from './task-reminders.service';
@@ -88,6 +89,8 @@ export class TasksService {
     private readonly addressees: TaskAddresseesService,
     private readonly reminders: TaskRemindersService,
     private readonly auditLog: AuditLogService,
+    @InjectRepository(EldersMeetingItem)
+    private readonly meetingItems: Repository<EldersMeetingItem>,
   ) {}
 
   // ---- Meetings ---------------------------------------------------------
@@ -188,14 +191,56 @@ export class TasksService {
     return this.meetings.save(entity);
   }
 
-  async removeMeeting(congregationId: string, id: string): Promise<void> {
+  /**
+   * Removes a meeting — and says what went with it.
+   *
+   * Tasks pointing at it are not deleted: the link is cleared by the
+   * database, and cancelling an evening must not destroy the work. The
+   * AGENDA ITEMS are deleted with it (the database cascades), and for a
+   * meeting already held those items are its record: what was considered,
+   * what was carried over, the note beside each decision.
+   *
+   * That happened without a trace — no journal entry, and a confirmation
+   * that spoke of the tasks alone (5 October 2026). The removal is journalled
+   * now: the meeting's date, how many items it had and how many of them
+   * carried an outcome, and who removed it. Never the words of an item — the
+   * journal is read by every administrator and the agenda by the body, as
+   * with the items themselves (AgendaItemsService.note).
+   *
+   * The counts go back to the caller, so the screen can say what was done.
+   */
+  async removeMeeting(
+    congregationId: string,
+    id: string,
+    userId?: string | null,
+  ): Promise<{ date: string; agendaItems: number; agendaOutcomes: number }> {
     const entity = await this.meetings.findOne({
       where: { id, congregationId },
     });
     if (!entity) throw new NotFoundException('Meeting not found');
-    // Tasks pointing at it are not deleted — the link is cleared by the
-    // database. Cancelling an evening must not destroy the work.
+    const items = await this.meetingItems.find({
+      where: { congregationId, meetingId: id },
+      select: { id: true, outcome: true },
+    });
+    const facts = {
+      date: entity.date,
+      agendaItems: items.length,
+      agendaOutcomes: items.filter((i) => !!i.outcome).length,
+    };
     await this.meetings.remove(entity);
+    try {
+      await this.auditLog.logEvent({
+        tenantId: congregationId,
+        entityType: 'elders_meeting',
+        entityId: id,
+        action: 'DELETE',
+        actorUserId: userId ?? null,
+        detail: facts,
+      });
+    } catch {
+      // A journal that fails must never take the work down with it.
+    }
+    return facts;
   }
 
   // ---- Tasks ------------------------------------------------------------

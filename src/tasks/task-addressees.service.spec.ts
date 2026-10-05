@@ -188,6 +188,7 @@ describe('TasksService.myTasks', () => {
       { membersOfKind: async () => [{ id: 'p-me' }] } as never,
       { announceAssignment: async () => undefined } as never,
       {} as never,
+      {} as never,
     );
 
     const mine = await service.myTasks('c1', 'p-me');

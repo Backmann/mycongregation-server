@@ -204,7 +204,7 @@ export class TasksController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     await this.mustBuild(user);
-    return this.service.removeMeeting(tenantId, id);
+    return this.service.removeMeeting(tenantId, id, user.id);
   }
 
   private async mustBuild(user: AuthenticatedUser): Promise<void> {

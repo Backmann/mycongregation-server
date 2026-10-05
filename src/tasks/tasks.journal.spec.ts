@@ -76,6 +76,7 @@ function harness(stored: Partial<ElderTask>) {
       logEvent: async (opts: Record<string, any>) =>
         void calls.push({ method: 'logEvent', opts }),
     } as never,
+    {} as never,
   );
   const words = (c: Call) => JSON.stringify(c.opts);
   return { service, calls, words };
@@ -153,5 +154,133 @@ describe('TasksService — the journal', () => {
     await service.updateTask('c1', 't1', { status: 'done' }, 'u1');
     await service.removeTask('c1', 't1');
     expect(calls[1].opts.detail.kind).toBe('service_overseer_visits');
+  });
+});
+
+/**
+ * A MEETING REMOVED LEAVES A LINE.
+ *
+ * The agenda items go with the meeting — the database cascades — and for a
+ * meeting already held they are its record. That used to happen with no
+ * entry at all (5 October 2026).
+ */
+describe('TasksService.removeMeeting — the journal', () => {
+  function build(opts: {
+    meeting?: { id: string; date: string } | null;
+    items?: { id: string; outcome: string | null }[];
+    journalFails?: boolean;
+  }) {
+    const calls: Call[] = [];
+    const removed: string[] = [];
+    const order: string[] = [];
+    const meeting =
+      opts.meeting === undefined
+        ? { id: 'm1', date: '2026-09-05', congregationId: 'c1' }
+        : opts.meeting;
+    const service = new TasksService(
+      {} as never,
+      {
+        findOne: async () => meeting,
+        remove: async (e: { id: string }) => {
+          order.push('remove');
+          removed.push(e.id);
+        },
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {
+        logEvent: async (o: Record<string, any>) => {
+          order.push('journal');
+          if (opts.journalFails) throw new Error('journal down');
+          calls.push({ method: 'logEvent', opts: o });
+        },
+      } as never,
+      {
+        find: async (q: { where: { meetingId: string } }) => {
+          order.push('count');
+          return q.where.meetingId === 'm1' ? (opts.items ?? []) : [];
+        },
+      } as never,
+    );
+    return { service, calls, removed, order };
+  }
+
+  const ITEMS = [
+    { id: 'i1', outcome: 'reviewed' },
+    { id: 'i2', outcome: null },
+    { id: 'i3', outcome: 'carried' },
+  ];
+
+  it('names the date, the items and how many carried an outcome', async () => {
+    const { service, calls } = build({ items: ITEMS });
+
+    const out = await service.removeMeeting('c1', 'm1', 'u-coord');
+
+    expect(out).toEqual({
+      date: '2026-09-05',
+      agendaItems: 3,
+      agendaOutcomes: 2,
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].opts).toMatchObject({
+      tenantId: 'c1',
+      entityType: 'elders_meeting',
+      entityId: 'm1',
+      action: 'DELETE',
+      actorUserId: 'u-coord',
+      detail: { date: '2026-09-05', agendaItems: 3, agendaOutcomes: 2 },
+    });
+  });
+
+  // Counted before the cascade takes them, or the entry would always say 0.
+  it('counts the items BEFORE the meeting goes', async () => {
+    const { service, order } = build({ items: ITEMS });
+    await service.removeMeeting('c1', 'm1', 'u1');
+    expect(order).toEqual(['count', 'remove', 'journal']);
+  });
+
+  it('an empty evening is still journalled', async () => {
+    const { service, calls } = build({ items: [] });
+    const out = await service.removeMeeting('c1', 'm1', 'u1');
+    expect(out).toEqual({
+      date: '2026-09-05',
+      agendaItems: 0,
+      agendaOutcomes: 0,
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  // The journal is read by every administrator; the agenda by the body.
+  it('carries no word of any item', async () => {
+    const { service, calls } = build({
+      items: [{ id: 'i1', outcome: 'reviewed', title: 'тайное' } as never],
+    });
+    await service.removeMeeting('c1', 'm1', 'u1');
+    expect(JSON.stringify(calls)).not.toContain('тайное');
+    expect(Object.keys(calls[0].opts.detail).sort()).toEqual([
+      'agendaItems',
+      'agendaOutcomes',
+      'date',
+    ]);
+  });
+
+  it('a journal that fails does not bring the removal back', async () => {
+    const { service, removed } = build({ items: ITEMS, journalFails: true });
+    await expect(service.removeMeeting('c1', 'm1', 'u1')).resolves.toEqual({
+      date: '2026-09-05',
+      agendaItems: 3,
+      agendaOutcomes: 2,
+    });
+    expect(removed).toEqual(['m1']);
+  });
+
+  it('a meeting that is not there is refused and nothing is written', async () => {
+    const { service, calls, removed } = build({ meeting: null });
+    await expect(service.removeMeeting('c1', 'm1', 'u1')).rejects.toThrow(
+      'Meeting not found',
+    );
+    expect(calls).toHaveLength(0);
+    expect(removed).toHaveLength(0);
   });
 });

@@ -77,6 +77,7 @@ function svc(tasks: ElderTask[], meetings: EldersMeeting[]) {
       logRawUpdate: async () => undefined,
       logEvent: async () => undefined,
     } as never,
+    { find: async () => [] } as never,
   );
 }
 
