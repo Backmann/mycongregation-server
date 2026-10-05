@@ -144,6 +144,7 @@ export class MwbImportService {
       weeks: [],
       errors: parsed.errors.slice(),
       warnings: [],
+      notices: [],
     };
 
     if (parsed.weeks.length === 0) {
@@ -163,7 +164,7 @@ export class MwbImportService {
         result,
       );
       result.weeks.push(summary);
-      result.weeksImported++;
+      if (!summary.notHeld) result.weeksImported++;
     }
 
     this.logger.log(
@@ -196,6 +197,7 @@ export class MwbImportService {
       weeks: [],
       errors: [],
       warnings: [],
+      notices: [],
     };
 
     for (const week of dto.weeks) {
@@ -220,7 +222,7 @@ export class MwbImportService {
         result,
       );
       result.weeks.push(summary);
-      result.weeksImported++;
+      if (!summary.notHeld) result.weeksImported++;
     }
 
     this.logger.log(
@@ -276,10 +278,21 @@ export class MwbImportService {
       weekStartDate,
     );
     if (!held.some((m) => m.eventType === weekEventType)) {
+      // Counted in the total as well as in the week. Only the week used to
+      // get the number, so the screen said «Пропущено: 0» right above the
+      // sentence saying thirteen parts had been left out (5 October).
       summary.skipped = parts.length;
+      summary.notHeld = true;
+      overall.partsSkipped += parts.length;
       overall.warnings.push(
         `Week ${weekStartDate}: the congregation holds no ${weekEventType} meeting that week (an event takes its place), so ${parts.length} part(s) were not imported.`,
       );
+      overall.notices.push({
+        code: 'meeting_not_held',
+        weekStartDate,
+        meeting: weekEventType === EventType.WEEKEND ? 'weekend' : 'midweek',
+        parts: parts.length,
+      });
       return summary;
     }
     // Load existing assignments for this week (active + soft-deleted)
@@ -301,6 +314,11 @@ export class MwbImportService {
         overall.warnings.push(
           `Week ${weekStartDate}: unclassified part "${part.rawTitle}" (section=${part.rawSection})`,
         );
+        overall.notices.push({
+          code: 'unclassified_part',
+          weekStartDate,
+          title: part.rawTitle,
+        });
         continue;
       }
 

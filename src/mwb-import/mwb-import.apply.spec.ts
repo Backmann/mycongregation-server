@@ -189,7 +189,10 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
      * a midweek programme for that week — the publication's habit, not a rule of
      * ours to lean on.
      */
-    async function run(held: { date: string; eventType: string }[]) {
+    async function run(
+      held: { date: string; eventType: string }[],
+      dto: ApplyParsedDto = weekDto(),
+    ) {
       const saved: unknown[] = [];
       const repo = {
         find: jest.fn(async () => []),
@@ -215,7 +218,7 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
         ],
       }).compile();
       const svc = moduleRef.get(MwbImportService);
-      const out = await svc.applyParsed('cong-1', weekDto());
+      const out = await svc.applyParsed('cong-1', dto);
       return { out, saved };
     }
 
@@ -231,6 +234,90 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
       const { out } = await run([{ date: '2026-05-10', eventType: 'weekend' }]);
       expect(out.warnings.join(' ')).toContain('2026-05-04');
       expect(out.warnings.join(' ')).toContain('midweek');
+    });
+
+    /**
+     * 5 October, on the live screen: «Пропущено: 0» straight above a sentence
+     * saying thirteen parts were not imported — and the sentence in English,
+     * in a Russian congregation. The count reached the week and never the
+     * total; the sentence could only be printed as it came.
+     */
+    it('counts the parts it left out in the total, not only in the week', async () => {
+      const { out } = await run([{ date: '2026-05-10', eventType: 'weekend' }]);
+      expect(out.weeks[0].skipped).toBe(3);
+      expect(out.partsSkipped).toBe(3);
+    });
+
+    it('does not call a week it left alone imported', async () => {
+      const { out } = await run([{ date: '2026-05-10', eventType: 'weekend' }]);
+      expect(out.weeksImported).toBe(0);
+      // Still listed, and marked — the screen has to be able to show it.
+      expect(out.weeks).toHaveLength(1);
+      expect(out.weeks[0].notHeld).toBe(true);
+    });
+
+    it('says it as data the screen can put into its own language', async () => {
+      const { out } = await run([{ date: '2026-05-10', eventType: 'weekend' }]);
+      expect(out.notices).toEqual([
+        {
+          code: 'meeting_not_held',
+          weekStartDate: '2026-05-04',
+          meeting: 'midweek',
+          parts: 3,
+        },
+      ]);
+    });
+
+    it('names the weekend meeting when it is the Watchtower that has no evening', async () => {
+      const dto: ApplyParsedDto = {
+        epubFile: 'w_U_202603.epub',
+        year: 2026,
+        weeks: [
+          {
+            weekStartDate: '2026-05-04',
+            weekEndDate: '2026-05-10',
+            biblePassage: '',
+            parts: [
+              {
+                partKey: 'watchtower_conductor',
+                partOrder: 3,
+                partTitle: 'Изучение «Сторожевой башни»',
+                partDurationMin: 60,
+              },
+            ],
+          },
+        ],
+      };
+      const { out, saved } = await run(
+        [{ date: '2026-05-07', eventType: 'midweek' }],
+        dto,
+      );
+      expect(saved).toHaveLength(0);
+      expect(out.partsSkipped).toBe(1);
+      expect(out.notices).toEqual([
+        {
+          code: 'meeting_not_held',
+          weekStartDate: '2026-05-04',
+          meeting: 'weekend',
+          parts: 1,
+        },
+      ]);
+    });
+
+    it('keeps the old sentence for an app that has not updated', async () => {
+      const { out } = await run([{ date: '2026-05-10', eventType: 'weekend' }]);
+      expect(out.warnings).toHaveLength(1);
+    });
+
+    it('has nothing to say about an ordinary week', async () => {
+      const { out } = await run([
+        { date: '2026-05-07', eventType: 'midweek' },
+        { date: '2026-05-10', eventType: 'weekend' },
+      ]);
+      expect(out.notices).toEqual([]);
+      expect(out.weeksImported).toBe(1);
+      expect(out.partsSkipped).toBe(0);
+      expect(out.weeks[0].notHeld).toBeUndefined();
     });
 
     it('imports as before on an ordinary week', async () => {

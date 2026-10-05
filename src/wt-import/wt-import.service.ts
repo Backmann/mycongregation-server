@@ -64,6 +64,7 @@ export class WtImportService {
       weeks: [],
       errors: parsed.errors.slice(),
       warnings: [],
+      notices: [],
     };
 
     if (parsed.weeks.length === 0) {
