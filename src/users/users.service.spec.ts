@@ -454,7 +454,7 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
 
       await service.createUserByAdmin(
         {
-          email: 'Backmannleo@Gmail.com',
+          email: 'Ivanpetrov@Example.org',
           password: 'verysecret',
           role: UserRole.PUBLISHER,
         },
@@ -463,7 +463,7 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
       );
 
       const created = (repo.create as jest.Mock).mock.calls[0][0];
-      expect(created.loginName).toBe('backmannleo');
+      expect(created.loginName).toBe('ivanpetrov');
     });
 
     it('respects explicit uiLanguage when provided', async () => {

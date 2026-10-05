@@ -3393,7 +3393,7 @@ describe('ServiceReportsService.findGroupReports — a taken-back report', () =>
         findActorsFor: jest
           .fn()
           .mockResolvedValue([
-            { entityId: 'r-gone', actorName: 'Шейфер Сергей' },
+            { entityId: 'r-gone', actorName: 'Крамер Сергей' },
           ]),
         logEvent: jest.fn(),
       },
@@ -3432,7 +3432,7 @@ describe('ServiceReportsService.findGroupReports — a taken-back report', () =>
     expect(gone.removedReport).toEqual({
       id: 'r-gone',
       removedAt: removedAt.toISOString(),
-      removedByName: 'Шейфер Сергей',
+      removedByName: 'Крамер Сергей',
     });
   });
 });

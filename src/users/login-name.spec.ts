@@ -30,7 +30,7 @@ describe('a name to sign in with', () => {
   });
 
   it('falls back to the address when there is no card behind the account', () => {
-    expect(loginNameFromEmail('backmannleo@gmail.com')).toBe('backmannleo');
+    expect(loginNameFromEmail('ivanpetrov@example.org')).toBe('ivanpetrov');
   });
 
   it('adds a digit when the name is taken, and keeps trying', async () => {

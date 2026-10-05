@@ -327,7 +327,7 @@ describe('TalkExchangeService', () => {
     /**
      * Обычный поиск не видит удалённых, и прежде это значило: не нашли —
      * создали следующее. Брат убирал, приложение возвращало другое, и спор шёл
-     * по кругу — так 8 сентября вернулись два отсутствия Шейфера. Теперь
+     * по кругу — так 8 сентября вернулись два отсутствия одного брата. Теперь
      * возвращается та же запись, со своей историей и своим номером.
      */
     responsibilityRepo.count.mockResolvedValue(1);
@@ -587,7 +587,7 @@ describe('TalkExchangeService', () => {
 
       await service.replaceSpeaker(TENANT, user(), {
         weekStartDate: week,
-        speakerName: 'Sergej Eskow',
+        speakerName: 'Sergej Konkow',
         speakerCongregation: 'Münster',
       });
 

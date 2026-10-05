@@ -252,13 +252,13 @@ describe('ResponsibilitiesService', () => {
       (
         service as unknown as { publishersRepo: { find: jest.Mock } }
       ).publishersRepo.find.mockResolvedValue([
-        { userId: 'u1', firstName: 'Рудольф', lastName: 'Кипко' },
+        { userId: 'u1', firstName: 'Виктор', lastName: 'Нойман' },
         { userId: 'u2', firstName: 'Лионель', lastName: 'Бакманн' },
       ]);
 
       const [row] = await service.findAll('t1');
 
-      expect(row.holderName).toBe('Кипко Рудольф');
+      expect(row.holderName).toBe('Нойман Виктор');
       expect(row.assignedByName).toBe('Бакманн Лионель');
     });
 

@@ -12,8 +12,8 @@ import { ArgumentMetadata, Injectable, ValidationPipe } from '@nestjs/common';
  * The database survived that, because TypeORM leaves `undefined` out of the
  * UPDATE. Two other things did not:
  *
- *  - the JOURNAL recorded every untouched field as cleared, which is how «Лепп
- *    Шамиль изменил · Особые события» came to claim that the title, the kind,
+ *  - the JOURNAL recorded every untouched field as cleared, which is how «…
+ *    изменил · Особые события» came to claim that the title, the kind,
  *    the date and the end date had all been emptied. Nothing of the sort had
  *    happened; the record was simply false, and a record that lies about what
  *    people did is worse than no record;

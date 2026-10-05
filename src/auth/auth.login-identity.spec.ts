@@ -57,9 +57,9 @@ describe('AuthService.login — name or address', () => {
     // the wire without accepting the old one would sign everybody out at once.
     const { service, findForLogin } = build({ user: alive, shared: false });
 
-    await service.login(dto({ email: 'backmannleo@gmail.com' }));
+    await service.login(dto({ email: 'ivanpetrov@example.org' }));
 
-    expect(findForLogin).toHaveBeenCalledWith('backmannleo@gmail.com');
+    expect(findForLogin).toHaveBeenCalledWith('ivanpetrov@example.org');
   });
 
   it('tells a couple sharing a mailbox to use their name', async () => {

@@ -49,7 +49,7 @@ describe('UsersService.findForLogin', () => {
     getMany.mockResolvedValue([{ id: 'u1' }]);
 
     const { user, shared } = await service.findForLogin(
-      ' Backmannleo@Gmail.com ',
+      ' Ivanpetrov@Example.org ',
     );
 
     expect(asked().sql).toContain('LOWER(user.email)');
