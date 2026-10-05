@@ -21,7 +21,7 @@ describe('UsersService.changeEmailByAdmin', () => {
   const baseUser = {
     id: 'u1',
     congregationId: 'cong-1',
-    email: 'kvachekd@gmaul.com',
+    email: 'reader@exampel.org',
   };
 
   beforeEach(async () => {
@@ -81,15 +81,15 @@ describe('UsersService.changeEmailByAdmin', () => {
     repo.findOne
       .mockResolvedValueOnce({ ...baseUser }) // findByIdInCongregation
       .mockResolvedValueOnce(null); // uniqueness check
-    await service.changeEmailByAdmin('u1', '  KVACHEKD@GMAIL.COM ', 'cong-1');
+    await service.changeEmailByAdmin('u1', '  READER@EXAMPLE.ORG ', 'cong-1');
     expect(repo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ email: 'kvachekd@gmail.com' }),
+      expect.objectContaining({ email: 'reader@example.org' }),
     );
   });
 
   it('is a no-op when the email is unchanged', async () => {
     repo.findOne.mockResolvedValueOnce({ ...baseUser });
-    await service.changeEmailByAdmin('u1', 'kvachekd@gmaul.com', 'cong-1');
+    await service.changeEmailByAdmin('u1', 'reader@exampel.org', 'cong-1');
     expect(repo.save).not.toHaveBeenCalled();
   });
 
@@ -100,12 +100,12 @@ describe('UsersService.changeEmailByAdmin', () => {
     // married couple without a login of her own.
     repo.findOne
       .mockResolvedValueOnce({ ...baseUser })
-      .mockResolvedValueOnce({ id: 'u2', email: 'kvachekd@gmail.com' });
+      .mockResolvedValueOnce({ id: 'u2', email: 'reader@example.org' });
 
-    await service.changeEmailByAdmin('u1', 'kvachekd@gmail.com', 'cong-1');
+    await service.changeEmailByAdmin('u1', 'reader@example.org', 'cong-1');
 
     expect(repo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ email: 'kvachekd@gmail.com' }),
+      expect.objectContaining({ email: 'reader@example.org' }),
     );
   });
 

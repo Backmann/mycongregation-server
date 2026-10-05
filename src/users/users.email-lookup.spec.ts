@@ -36,26 +36,26 @@ describe('UsersService — finding a person by e-mail', () => {
   });
 
   it('ignores the case of what was typed', async () => {
-    await service.findByEmailWithPassword('Maximka3830@Gmail.com');
+    await service.findByEmailWithPassword('Reader3830@Example.org');
 
     const { sql, email } = asked();
     // The column is lowered too: the first administrator of a congregation
     // used to be stored exactly as typed, so mixed-case rows exist.
     expect(sql).toContain('LOWER(user.email)');
-    expect(email).toBe('maximka3830@gmail.com');
+    expect(email).toBe('reader3830@example.org');
   });
 
   it('ignores a space picked up by copy-paste', async () => {
-    await service.findByEmailWithPassword('  maximka3830@gmail.com ');
+    await service.findByEmailWithPassword('  reader3830@example.org ');
 
-    expect(asked().email).toBe('maximka3830@gmail.com');
+    expect(asked().email).toBe('reader3830@example.org');
   });
 
   it('does the same when looking someone up to reset a password', async () => {
-    await service.findByEmail(' Maximka3830@GMAIL.com ');
+    await service.findByEmail(' Reader3830@EXAMPLE.org ');
 
     const { sql, email } = asked();
     expect(sql).toContain('LOWER(user.email)');
-    expect(email).toBe('maximka3830@gmail.com');
+    expect(email).toBe('reader3830@example.org');
   });
 });
