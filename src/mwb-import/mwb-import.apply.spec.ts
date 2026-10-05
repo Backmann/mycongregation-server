@@ -8,6 +8,19 @@ import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 import { ApplyParsedDto } from './dto/apply-parsed.dto';
 import { MeetingAttendanceService } from '../meeting-attendance/meeting-attendance.service';
 import { HeldByVisit, nothingHeld } from '../special-events/co-visit-held';
+import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
+
+// The import now reaches the talk journal, and the journal reaches the push
+// service, whose SDK is an ES module jest cannot load. Nothing here sends.
+jest.mock('../push-notifications/push-notifications.service', () => ({
+  PushNotificationsService: class PushNotificationsServiceMock {},
+}));
+
+/** The journal behind the weekend; the cases look at what it was asked. */
+const journal = {
+  fillEmptySlot: jest.fn(async () => undefined),
+  syncProgramToJournal: jest.fn(async () => undefined),
+};
 
 /** What a circuit visit holds in the week; nothing, unless a case says so. */
 let heldNow: HeldByVisit = nothingHeld();
@@ -23,6 +36,8 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
 
   beforeEach(async () => {
     heldNow = nothingHeld();
+    journal.fillEmptySlot.mockClear();
+    journal.syncProgramToJournal.mockClear();
     repo = {
       find: jest.fn().mockResolvedValue([]),
       create: jest.fn((x) => x),
@@ -41,6 +56,7 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
             heldForWeek: jest.fn(async () => held()),
           },
         },
+        { provide: TalkExchangeService, useValue: journal },
         {
           // The import now asks which meetings the week actually holds — a
           // Memorial or a convention takes one away and its parts must not be
@@ -223,6 +239,7 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
               heldForWeek: jest.fn(async () => held()),
             },
           },
+          { provide: TalkExchangeService, useValue: journal },
           {
             provide: MeetingAttendanceService,
             useValue: { pendingForWeek: jest.fn(async () => meetings) },
@@ -541,6 +558,99 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
       expect(rows.find((r) => r.id === 'prayer')?.partTitle).toBe(
         'Заключительные слова | Песня 35 и молитва',
       );
+    });
+  });
+
+  describe('the Watchtower comes in this way too', () => {
+    /**
+     * Since 12 June the app parses both publications itself and sends them
+     * here. On 27 September two corrections for the weekend were written into
+     * WtImportService — which nothing called any more — so they never ran:
+     * loading the Watchtower again wiped the theme of a week whose speaker
+     * came from elsewhere, and a talk arranged in the journal before the week
+     * existed did not reach the new slot. Both reproduced on the stand on
+     * 5 October, with the real November 2026 issue.
+     */
+    function weekendDto(): ApplyParsedDto {
+      return {
+        epubFile: 'w_U_202611.epub',
+        year: 2027,
+        weeks: [
+          {
+            weekStartDate: '2027-01-11',
+            weekEndDate: '2027-01-17',
+            biblePassage: '',
+            parts: [
+              {
+                partKey: 'public_talk_speaker',
+                partOrder: 4,
+                partTitle: null,
+                partDurationMin: 30,
+              },
+              {
+                partKey: 'watchtower_conductor',
+                partOrder: 6,
+                partTitle: 'Статья для изучения',
+                partDurationMin: 60,
+              },
+            ],
+          },
+        ],
+      };
+    }
+    const talk = (over: Partial<Assignment>): Assignment =>
+      ({
+        id: 'talk',
+        congregationId: 'cong-1',
+        weekStartDate: '2027-01-11',
+        eventType: EventType.WEEKEND,
+        partKey: 'public_talk_speaker',
+        partOrder: 4,
+        partTitle: '№12. Тема речи',
+        partDurationMin: 30,
+        publisherId: null,
+        assistantPublisherId: null,
+        status: AssignmentStatus.DRAFT,
+        ...over,
+      }) as Assignment;
+
+    it.each([
+      ['a speaker named by hand', { speakerName: 'Иван Тестов' }],
+      ['a visiting speaker from the directory', { visitingSpeakerId: 'vs-1' }],
+      ['a talk from the catalogue', { publicTalkId: 'pt-1' }],
+      ['a special talk', { specialTalk: true }],
+    ])('keeps the theme of a public talk filled by %s', async (_, filled) => {
+      const row = talk(filled);
+      repo.find.mockResolvedValue([row]);
+      const result = await service.applyParsed('cong-1', weekendDto());
+      expect(row.partTitle).toBe('№12. Тема речи');
+      expect(result.partsSkipped).toBe(1);
+    });
+
+    it('still refreshes a public talk nobody is on', async () => {
+      const row = talk({ partTitle: 'старое' });
+      repo.find.mockResolvedValue([row]);
+      await service.applyParsed('cong-1', weekendDto());
+      expect(row.partTitle).toBeNull();
+    });
+
+    it('offers the new week to the journal', async () => {
+      await service.applyParsed('cong-1', weekendDto());
+      expect(journal.fillEmptySlot).toHaveBeenCalledWith(
+        'cong-1',
+        '2027-01-11',
+      );
+    });
+
+    it('does not have the journal mirror the week — see the service for why', async () => {
+      await service.applyParsed('cong-1', weekendDto());
+      expect(journal.syncProgramToJournal).not.toHaveBeenCalled();
+    });
+
+    it('leaves the journal out of a midweek programme', async () => {
+      await service.applyParsed('cong-1', weekDto());
+      expect(journal.fillEmptySlot).not.toHaveBeenCalled();
+      expect(journal.syncProgramToJournal).not.toHaveBeenCalled();
     });
   });
 });

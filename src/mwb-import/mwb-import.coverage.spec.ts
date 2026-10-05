@@ -1,5 +1,11 @@
 import { MwbImportService } from './mwb-import.service';
 
+// The import now reaches the talk journal, and the journal reaches the push
+// service, whose SDK is an ES module jest cannot load. Nothing here sends.
+jest.mock('../push-notifications/push-notifications.service', () => ({
+  PushNotificationsService: class PushNotificationsServiceMock {},
+}));
+
 /**
  * What the congregation already has, month by month.
  *

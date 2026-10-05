@@ -30,13 +30,32 @@ import {
   WATCHTOWER_VISIT_DURATION_MIN,
 } from '../special-events/co-visit-template.service';
 import { mendPlan } from '../special-events/co-visit-held';
+import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
 
 /**
- * Returns true if an existing assignment is empty (no publisher and no
- * meaningful title) — and therefore safe to overwrite during EPUB import.
+ * A part nobody has filled — the import may rewrite its title.
+ *
+ * «Filled» is not only one of ours on it. The public talk is filled by a
+ * visiting speaker, by a talk from the catalogue or by a special theme just
+ * as well, and a part may carry a name typed by hand (the circuit overseer on
+ * a prayer). Only a publisher used to count, so loading the Watchtower again
+ * wiped the theme of every week whose speaker came from elsewhere.
+ *
+ * That was put right on 27 September — in WtImportService, which the app had
+ * stopped calling on 12 June: since then both publications come in through
+ * `applyParsed` here. The correction never ran. Found on 5 October, before
+ * that service was removed as dead code; the rule now lives where the import
+ * does.
  */
 function isEmptyTemplate(a: Assignment): boolean {
-  return !a.publisherId && !a.assistantPublisherId;
+  return (
+    !a.publisherId &&
+    !a.assistantPublisherId &&
+    !a.speakerName?.trim() &&
+    !a.visitingSpeakerId &&
+    !a.publicTalkId &&
+    !a.specialTalk
+  );
 }
 
 @Injectable()
@@ -48,6 +67,7 @@ export class MwbImportService {
     private readonly assignmentsRepo: Repository<Assignment>,
     private readonly meetingAttendance: MeetingAttendanceService,
     private readonly coVisitTemplate: CoVisitTemplateService,
+    private readonly talkExchange: TalkExchangeService,
   ) {}
 
   /**
@@ -435,6 +455,22 @@ export class MwbImportService {
     // A circuit visit saved before this workbook came in: its week gets the
     // visit's programme now (service talk in place of the study).
     await this.coVisitTemplate.applyForWeek(congregationId, weekStartDate);
+
+    // The weekend has a journal behind it. A talk arranged there before the
+    // week existed goes into the new, empty slot — otherwise the speaker has
+    // to be entered a second time. Like the rule above, this was written on
+    // 27 September into the service the app no longer called.
+    //
+    // That service also had the journal mirror the week afterwards. Not taken
+    // over: in the week of a circuit visit the mirror reads the overseer's
+    // name in the slot and files him as a visiting speaker — a journal entry
+    // and a card in the directory that saving the visit itself never makes
+    // (seen on the stand, 5 October). Nothing an import should start doing
+    // unasked; the slot filled here already agrees with the journal entry it
+    // was filled from.
+    if (weekEventType === EventType.WEEKEND) {
+      await this.talkExchange.fillEmptySlot(congregationId, weekStartDate);
+    }
 
     return summary;
   }
