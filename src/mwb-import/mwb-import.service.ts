@@ -16,12 +16,7 @@ function isWeekendPartKey(partKey: string): boolean {
     partKey.startsWith('public_talk')
   );
 }
-import {
-  extractPartTitle,
-  extractYearFromFilename,
-  parseMwbBuffer,
-  ParsedPart,
-} from './mwb-parser';
+import { extractPartTitle, ParsedPart } from './part-title';
 import { ImportResultDto, WeekImportSummary } from './dto/import-result.dto';
 import { ApplyParsedDto } from './dto/apply-parsed.dto';
 import { MeetingAttendanceService } from '../meeting-attendance/meeting-attendance.service';
@@ -149,62 +144,12 @@ export class MwbImportService {
     }));
   }
 
-  async import(
-    congregationId: string,
-    fileBuffer: Buffer,
-    fileName: string,
-  ): Promise<ImportResultDto> {
-    const year = extractYearFromFilename(fileName);
-    const parsed = parseMwbBuffer(fileBuffer, year, fileName);
-
-    const result: ImportResultDto = {
-      epubFile: parsed.epubFile,
-      year: parsed.year,
-      weeksImported: 0,
-      partsCreated: 0,
-      partsUpdated: 0,
-      partsSkipped: 0,
-      unclassifiedParts: 0,
-      weeks: [],
-      errors: parsed.errors.slice(),
-      warnings: [],
-      notices: [],
-    };
-
-    if (parsed.weeks.length === 0) {
-      result.warnings.push(
-        'No weekly schedules found in this EPUB. Is it a Meeting Workbook?',
-      );
-      return result;
-    }
-
-    for (const week of parsed.weeks) {
-      const summary = await this.importWeek(
-        congregationId,
-        week.weekStartDate,
-        week.weekEndDate,
-        week.biblePassage,
-        week.parts,
-        result,
-      );
-      result.weeks.push(summary);
-      if (!summary.notHeld) result.weeksImported++;
-    }
-
-    this.logger.log(
-      `Imported ${parsed.epubFile}: ${result.weeksImported} weeks, ` +
-        `${result.partsCreated} created, ${result.partsUpdated} updated, ` +
-        `${result.partsSkipped} skipped, ${result.unclassifiedParts} unclassified`,
-    );
-
-    return result;
-  }
-
   /**
-   * Applies a workbook that was parsed on the CLIENT (browser). The EPUB
-   * file itself never reaches the server — the payload contains only
-   * derived schedule metadata. Reuses the same idempotent per-week
-   * upsert as the upload flow.
+   * Applies a workbook or a Watchtower issue that was parsed on the CLIENT
+   * (browser). The EPUB file itself never reaches the server — the payload
+   * contains only derived schedule metadata. This is the only way a
+   * programme is imported: the upload flow it once shared the per-week
+   * upsert with was removed on 5 October 2026 (see part-title.ts).
    */
   async applyParsed(
     congregationId: string,

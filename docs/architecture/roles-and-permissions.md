@@ -222,8 +222,7 @@ Endpoints under `@Roles(ADMIN)` (in addition to the global `JwtAuthGuard`):
 
 | Pre-existing | Method | Path | Notes |
 |:---:|---|---|---|
-| ✓ | POST | `/mwb-import/upload` | `@Roles(ADMIN, ELDER)` |
-| ✓ | POST | `/schedule-import/upload` | `@Roles(ADMIN, ELDER)` |
+| ✓ | POST | `/mwb-import/apply` | `@Roles(ADMIN, ELDER)` — the only import route since 5 October 2026; `/mwb-import/upload` and `/schedule-import/upload` were removed (unused since 12 June) |
 | ✓ | POST | `/admin/recompute-statuses` | `@Roles(ADMIN)` |
 
 New admin endpoints in `UsersController` (all `@Roles(ADMIN)`):

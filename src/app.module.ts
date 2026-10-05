@@ -19,8 +19,6 @@ import { PublishersModule } from './publishers/publishers.module';
 import { ServiceGroupsModule } from './service-groups/service-groups.module';
 import { AssignmentsModule } from './assignments/assignments.module';
 import { MwbImportModule } from './mwb-import/mwb-import.module';
-import { WtImportModule } from './wt-import/wt-import.module';
-import { ScheduleImportModule } from './schedule-import/schedule-import.module';
 import { PublicTalksModule } from './public-talks/public-talks.module';
 import { SongsModule } from './songs/songs.module';
 import { ServiceReportsModule } from './service-reports/service-reports.module';
@@ -109,8 +107,6 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     ServiceGroupsModule,
     AssignmentsModule,
     MwbImportModule,
-    WtImportModule,
-    ScheduleImportModule,
     PublicTalksModule,
     SongsModule,
     ServiceReportsModule,

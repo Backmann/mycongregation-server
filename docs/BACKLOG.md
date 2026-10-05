@@ -222,7 +222,8 @@ notifications/reminders).
 
 ## Parser — EN/DE workbook support (RU-only today)
 
-The MWB EPUB parser (`src/mwb-import/mwb-parser.ts`) recognises sections **only
+The MWB EPUB parser (in the app since June 2026: `app/lib/mwb-parser.ts`; the
+server copy was removed on 5 October 2026) recognises sections **only
 by Russian headings** (`detectSection` matches `ОТТАЧИВАЕМ`/`НАВЫКИ`,
 `ХРИСТИАНСКАЯ`). Importing an EN/DE workbook silently fails to detect sections
 → parts misclassify and `mid_song` is not captured. Confirmed 2026-05-21 (an
