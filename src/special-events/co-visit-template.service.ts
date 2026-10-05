@@ -8,6 +8,7 @@ import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { mondayOf } from '../common/week';
 import { addDaysISO } from '../common/week-rules';
+import { HeldByVisit, heldFromOps, nothingHeld } from './co-visit-held';
 
 /** The special-event `type` that drives the circuit-overseer program template. */
 export const CIRCUIT_OVERSEER_VISIT_TYPE = 'circuit_overseer_visit';
@@ -18,7 +19,8 @@ export const CO_CONCLUDING_TALK_KEY = 'co_concluding_talk';
 
 const SERVICE_TALK_DURATION_MIN = 30;
 const CONCLUDING_TALK_DURATION_MIN = 30;
-const WATCHTOWER_VISIT_DURATION_MIN = 30;
+/** The length the visit gives the Watchtower study. */
+export const WATCHTOWER_VISIT_DURATION_MIN = 30;
 
 // Midweek: the Congregation Bible Study is replaced by the service talk —
 // the study + its reader are hidden (soft-deleted), not shown cancelled.
@@ -128,6 +130,30 @@ export class CoVisitTemplateService {
         );
       }
     }
+  }
+
+  /**
+   * What the visits of this week hold in its programme — the rows they added
+   * and the fields they changed. An import asks before it writes; see
+   * co-visit-held.ts for what happened while it did not.
+   */
+  async heldForWeek(
+    congregationId: string,
+    week: string,
+  ): Promise<HeldByVisit> {
+    const held = nothingHeld();
+    const visits = await this.eventRepo.find({
+      where: {
+        congregationId,
+        type: CIRCUIT_OVERSEER_VISIT_TYPE,
+        deletedAt: IsNull(),
+      },
+    });
+    for (const v of visits) {
+      if (mondayOf(v.date) !== week) continue;
+      heldFromOps(v.coRevertData, held);
+    }
+    return held;
   }
 
   /**

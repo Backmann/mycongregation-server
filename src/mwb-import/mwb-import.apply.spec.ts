@@ -7,6 +7,11 @@ import { EventType } from '../common/enums/event-type.enum';
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 import { ApplyParsedDto } from './dto/apply-parsed.dto';
 import { MeetingAttendanceService } from '../meeting-attendance/meeting-attendance.service';
+import { HeldByVisit, nothingHeld } from '../special-events/co-visit-held';
+
+/** What a circuit visit holds in the week; nothing, unless a case says so. */
+let heldNow: HeldByVisit = nothingHeld();
+const held = () => heldNow;
 
 describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
   let service: MwbImportService;
@@ -17,6 +22,7 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
   };
 
   beforeEach(async () => {
+    heldNow = nothingHeld();
     repo = {
       find: jest.fn().mockResolvedValue([]),
       create: jest.fn((x) => x),
@@ -30,7 +36,10 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
         {
           // Offers the circuit-visit template to the week; nothing to offer here.
           provide: CoVisitTemplateService,
-          useValue: { applyForWeek: jest.fn(async () => undefined) },
+          useValue: {
+            applyForWeek: jest.fn(async () => undefined),
+            heldForWeek: jest.fn(async () => held()),
+          },
         },
         {
           // The import now asks which meetings the week actually holds — a
@@ -190,7 +199,7 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
      * ours to lean on.
      */
     async function run(
-      held: { date: string; eventType: string }[],
+      meetings: { date: string; eventType: string }[],
       dto: ApplyParsedDto = weekDto(),
     ) {
       const saved: unknown[] = [];
@@ -209,11 +218,14 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
           {
             // Offers the circuit-visit template to the week; nothing to offer here.
             provide: CoVisitTemplateService,
-            useValue: { applyForWeek: jest.fn(async () => undefined) },
+            useValue: {
+              applyForWeek: jest.fn(async () => undefined),
+              heldForWeek: jest.fn(async () => held()),
+            },
           },
           {
             provide: MeetingAttendanceService,
-            useValue: { pendingForWeek: jest.fn(async () => held) },
+            useValue: { pendingForWeek: jest.fn(async () => meetings) },
           },
         ],
       }).compile();
@@ -327,6 +339,208 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
       ]);
       expect(saved.length).toBeGreaterThan(0);
       expect(out.partsCreated).toBeGreaterThan(0);
+    });
+  });
+
+  describe('a week a circuit visit has rewritten', () => {
+    /**
+     * 5 October: the January 2027 workbook loaded a second time into the week
+     * of a visit. The visit's closing-song row has the key of the workbook's
+     * middle song and nobody assigned, so the import took it for an empty
+     * template and wrote «Песня 64» over it; the closing prayer got back the
+     * song the visit had taken off it. Reproduced on the stand row for row.
+     */
+    function visitWeekDto(): ApplyParsedDto {
+      return {
+        epubFile: 'mwb_U_202701.epub',
+        year: 2027,
+        weeks: [
+          {
+            weekStartDate: '2027-02-22',
+            weekEndDate: '2027-02-28',
+            biblePassage: '',
+            parts: [
+              {
+                partKey: 'mid_song',
+                partOrder: 9,
+                partTitle: 'Песня 64',
+                partDurationMin: null,
+              },
+              {
+                partKey: 'midweek_closing_prayer',
+                partOrder: 15,
+                partTitle: 'Заключительные слова | Песня 35 и молитва',
+                partDurationMin: 3,
+              },
+            ],
+          },
+        ],
+      };
+    }
+    const row = (over: Partial<Assignment>): Assignment =>
+      ({
+        congregationId: 'cong-1',
+        weekStartDate: '2027-02-22',
+        eventType: EventType.MIDWEEK,
+        publisherId: null,
+        assistantPublisherId: null,
+        partDurationMin: null,
+        status: AssignmentStatus.DRAFT,
+        ...over,
+      }) as Assignment;
+
+    /** The week as the visit left it: its own song row, the prayer bare. */
+    function asTheVisitLeftIt() {
+      heldNow = {
+        added: new Set(['song-of-visit']),
+        fields: new Map([['prayer', new Set(['partTitle'] as const)]]),
+        hidden: new Set(),
+      };
+      return [
+        row({
+          id: 'song-mid',
+          partKey: 'mid_song',
+          partOrder: 9,
+          partTitle: 'Песня 64',
+        }),
+        row({
+          id: 'song-of-visit',
+          partKey: 'mid_song',
+          partOrder: 14,
+          partTitle: null,
+        }),
+        row({
+          id: 'prayer',
+          partKey: 'midweek_closing_prayer',
+          partOrder: 15,
+          partTitle: null,
+          partDurationMin: 3,
+        }),
+      ];
+    }
+
+    it("leaves the overseer's song row alone", async () => {
+      const rows = asTheVisitLeftIt();
+      repo.find.mockResolvedValue(rows);
+      await service.applyParsed('cong-1', visitWeekDto());
+      const song = rows.find((r) => r.id === 'song-of-visit');
+      expect(song?.partTitle).toBeNull();
+      expect(song?.partOrder).toBe(14);
+    });
+
+    it('does not give the closing prayer its song back', async () => {
+      const rows = asTheVisitLeftIt();
+      repo.find.mockResolvedValue(rows);
+      await service.applyParsed('cong-1', visitWeekDto());
+      expect(rows.find((r) => r.id === 'prayer')?.partTitle).toBeNull();
+    });
+
+    it('keeps a song the overseer has already been given', async () => {
+      const rows = asTheVisitLeftIt();
+      rows[1].partTitle = 'Песня 151';
+      repo.find.mockResolvedValue(rows);
+      await service.applyParsed('cong-1', visitWeekDto());
+      const song = rows.find((r) => r.id === 'song-of-visit');
+      expect(song?.partTitle).toBe('Песня 151');
+      expect(song?.partOrder).toBe(14);
+    });
+
+    it('creates no second song and still refreshes the workbook one', async () => {
+      const rows = asTheVisitLeftIt();
+      rows[0].partTitle = 'Песня 1';
+      repo.find.mockResolvedValue(rows);
+      const result = await service.applyParsed('cong-1', visitWeekDto());
+      expect(result.partsCreated).toBe(0);
+      expect(rows[0].partTitle).toBe('Песня 64');
+    });
+
+    it('puts right a week an earlier import spoiled', async () => {
+      const rows = asTheVisitLeftIt();
+      // What the second import of 5 October left behind.
+      rows[1].partTitle = 'Песня 64';
+      rows[1].partOrder = 9;
+      rows[2].partTitle = 'Заключительные слова | Песня 35 и молитва';
+      repo.find.mockResolvedValue(rows);
+      await service.applyParsed('cong-1', visitWeekDto());
+      expect(rows[1].partTitle).toBeNull();
+      expect(rows[1].partOrder).toBe(14);
+      expect(rows[2].partTitle).toBeNull();
+      // The workbook's own song stays where the workbook puts it.
+      expect(rows[0].partTitle).toBe('Песня 64');
+      expect(rows[0].partOrder).toBe(9);
+    });
+
+    /**
+     * The study the visit hid is still the week's row. The workbook's study
+     * used to be created beside it and folded away straight after — «+2
+     * создано» on the screen, in a week where nothing new could be seen.
+     */
+    describe('the study the visit hid', () => {
+      const studyDto = (): ApplyParsedDto => {
+        const dto = visitWeekDto();
+        dto.weeks[0].parts = [
+          {
+            partKey: 'cbs_conductor',
+            partOrder: 13,
+            partTitle: 'Изучение Библии в собрании: гл. 27',
+            partDurationMin: 30,
+          },
+        ];
+        return dto;
+      };
+      const hiddenStudy = (over: Partial<Assignment> = {}) =>
+        row({
+          id: 'study',
+          partKey: 'cbs_conductor',
+          partOrder: 13,
+          partTitle: 'Изучение Библии в собрании: гл. 26',
+          partDurationMin: 30,
+          deletedAt: new Date('2026-10-05T10:00:00Z'),
+          ...over,
+        });
+      const arrange = (study: Assignment) => {
+        heldNow = { ...nothingHeld(), hidden: new Set(['study']) };
+        repo.find.mockResolvedValueOnce([]).mockResolvedValueOnce([study]);
+      };
+
+      it('takes the new title and no second study is created', async () => {
+        const study = hiddenStudy();
+        arrange(study);
+        const result = await service.applyParsed('cong-1', studyDto());
+        expect(result.partsCreated).toBe(0);
+        expect(result.partsUpdated).toBe(1);
+        expect(repo.create).not.toHaveBeenCalled();
+        expect(study.partTitle).toBe('Изучение Библии в собрании: гл. 27');
+        // Still hidden: the visit stands.
+        expect(study.deletedAt).toBeInstanceOf(Date);
+      });
+
+      it('is left as it is when a brother was already assigned to it', async () => {
+        const study = hiddenStudy({ publisherId: 'p-1' });
+        arrange(study);
+        const result = await service.applyParsed('cong-1', studyDto());
+        expect(result.partsCreated).toBe(0);
+        expect(result.partsSkipped).toBe(1);
+        expect(study.partTitle).toBe('Изучение Библии в собрании: гл. 26');
+      });
+
+      it('of another week or another meeting is not this one', async () => {
+        const study = hiddenStudy({ weekStartDate: '2027-03-01' });
+        arrange(study);
+        const result = await service.applyParsed('cong-1', studyDto());
+        expect(result.partsCreated).toBe(1);
+      });
+    });
+
+    it('is an ordinary import where no visit holds anything', async () => {
+      const rows = asTheVisitLeftIt();
+      heldNow = nothingHeld();
+      rows.splice(1, 1);
+      repo.find.mockResolvedValue(rows);
+      await service.applyParsed('cong-1', visitWeekDto());
+      expect(rows.find((r) => r.id === 'prayer')?.partTitle).toBe(
+        'Заключительные слова | Песня 35 и молитва',
+      );
     });
   });
 });

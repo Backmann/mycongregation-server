@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Assignment } from '../entities/assignment.entity';
 import { EventType } from '../common/enums/event-type.enum';
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
@@ -25,7 +25,11 @@ import {
 import { ImportResultDto, WeekImportSummary } from './dto/import-result.dto';
 import { ApplyParsedDto } from './dto/apply-parsed.dto';
 import { MeetingAttendanceService } from '../meeting-attendance/meeting-attendance.service';
-import { CoVisitTemplateService } from '../special-events/co-visit-template.service';
+import {
+  CoVisitTemplateService,
+  WATCHTOWER_VISIT_DURATION_MIN,
+} from '../special-events/co-visit-template.service';
+import { mendPlan } from '../special-events/co-visit-held';
 
 /**
  * Returns true if an existing assignment is empty (no publisher and no
@@ -304,8 +308,60 @@ export class MwbImportService {
       },
       withDeleted: false,
     });
+    // A circuit visit holds part of this week: rows it added, fields it
+    // changed. The import leaves those alone — and first puts right what an
+    // earlier import, which did not know to, has already done to them.
+    const ofVisit = await this.coVisitTemplate.heldForWeek(
+      congregationId,
+      weekStartDate,
+    );
+    const mends = mendPlan(
+      existing,
+      ofVisit,
+      parts.map((p) => ({
+        partKey: p.partKey,
+        partTitle: extractPartTitle(p),
+        partOrder: p.partOrder,
+        durationMin: p.durationMin ?? null,
+      })),
+      WATCHTOWER_VISIT_DURATION_MIN,
+    );
+    for (const mend of mends) {
+      const row = existing.find((a) => a.id === mend.id);
+      if (!row) continue;
+      if (mend.partTitle === null) row.partTitle = null;
+      if (mend.partOrder !== undefined) row.partOrder = mend.partOrder;
+      if (mend.partDurationMin !== undefined) {
+        row.partDurationMin = mend.partDurationMin;
+      }
+      await this.assignmentsRepo.save(row);
+    }
+
     const byPartKey = new Map<string, Assignment>();
-    for (const a of existing) byPartKey.set(a.partKey, a);
+    for (const a of existing) {
+      // The visit's own row is never the one a workbook part lands on: its
+      // closing-song row shares a key with the workbook's middle song.
+      if (ofVisit.added.has(a.id)) continue;
+      byPartKey.set(a.partKey, a);
+    }
+
+    // The parts the visit hid are still there, out of sight. The workbook's
+    // study goes onto the hidden one — it used to be created anew beside it
+    // and folded away a moment later, which the screen reported as «+2
+    // создано» in a week where nothing new could be seen.
+    const hiddenByKey = new Map<string, Assignment>();
+    if (ofVisit.hidden.size > 0) {
+      const hidden = await this.assignmentsRepo.find({
+        where: { id: In([...ofVisit.hidden]), congregationId },
+        withDeleted: true,
+      });
+      for (const a of hidden) {
+        if (!a.deletedAt) continue;
+        if (a.weekStartDate !== weekStartDate) continue;
+        if (a.eventType !== weekEventType) continue;
+        hiddenByKey.set(a.partKey, a);
+      }
+    }
 
     for (const part of parts) {
       // Skip unclassified parts (don't pollute DB with "unknown" partKey)
@@ -325,6 +381,24 @@ export class MwbImportService {
       const partTitle = extractPartTitle(part);
       const existingForPart = byPartKey.get(part.partKey);
 
+      const hiddenForPart = existingForPart
+        ? undefined
+        : hiddenByKey.get(part.partKey);
+      if (hiddenForPart) {
+        if (isEmptyTemplate(hiddenForPart)) {
+          hiddenForPart.partOrder = part.partOrder;
+          hiddenForPart.partTitle = partTitle;
+          hiddenForPart.partDurationMin = part.durationMin ?? null;
+          await this.assignmentsRepo.save(hiddenForPart);
+          summary.updated++;
+          overall.partsUpdated++;
+        } else {
+          summary.skipped++;
+          overall.partsSkipped++;
+        }
+        continue;
+      }
+
       if (!existingForPart) {
         // Create new
         const newAssignment = this.assignmentsRepo.create({
@@ -342,9 +416,12 @@ export class MwbImportService {
         overall.partsCreated++;
       } else if (isEmptyTemplate(existingForPart)) {
         // Replace empty template — keep id, fill data from EPUB
+        const kept = ofVisit.fields.get(existingForPart.id);
         existingForPart.partOrder = part.partOrder;
-        existingForPart.partTitle = partTitle;
-        existingForPart.partDurationMin = part.durationMin ?? null;
+        if (!kept?.has('partTitle')) existingForPart.partTitle = partTitle;
+        if (!kept?.has('partDurationMin')) {
+          existingForPart.partDurationMin = part.durationMin ?? null;
+        }
         await this.assignmentsRepo.save(existingForPart);
         summary.updated++;
         overall.partsUpdated++;
