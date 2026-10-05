@@ -13,6 +13,23 @@ import { Congregation } from './congregation.entity';
 import { ExternalCongregation } from './external-congregation.entity';
 import { encryptedTransformer } from '../crypto/encrypted.transformer';
 
+/** What a merge moved from the merged card to the one that stayed. */
+export interface SpeakerMergeRecord {
+  /** When, ISO. */
+  at: string;
+  byUserId: string | null;
+  /** Journal entries («К нам») that pointed at the merged card. */
+  exchangeIds: string[];
+  /** Programme slots that pointed at the merged card. */
+  assignmentIds: string[];
+  /** Talk numbers the remaining card did not have before. */
+  addedTalkNumbers: number[];
+  /** Empty fields of the remaining card that were filled from this one. */
+  filled: Array<'phone' | 'note' | 'externalCongregationId'>;
+  /** The remaining card was «заведена приложением» and stopped being so. */
+  keepWasAutoCreated: boolean;
+}
+
 /**
  * Directory of visiting (incoming) public speakers, maintained by the public
  * talk coordinator. Each speaker belongs to an external congregation and
@@ -86,6 +103,20 @@ export class VisitingSpeaker {
   @Column({ type: 'uuid', nullable: true })
   @Index()
   mergedIntoId!: string | null;
+
+  /**
+   * Что именно переехало при объединении — стоит на ОБЪЕДИНЁННОЙ карточке.
+   *
+   * Ссылки `mergedIntoId` одной мало (5 октября 2026): после объединения визиты
+   * двух братьев лежат у одной карточки и неотличимы, так что «разобрать» было
+   * нечего — окно обещало то, чего сервер сделать не мог. Здесь записано, какие
+   * записи журнала и слоты программы пришли с этой карточки и что из её
+   * сведений досталось оставшейся; разъединение возвращает ровно это.
+   *
+   * Пусто у карточек, объединённых до этой записи: их разобрать нельзя.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  mergeRecord!: SpeakerMergeRecord | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

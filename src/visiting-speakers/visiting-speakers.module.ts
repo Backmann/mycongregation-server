@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { Assignment } from '../entities/assignment.entity';
+import { VisitingSpeakerDistinctPair } from '../entities/visiting-speaker-distinct-pair.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { VisitingSpeakersService } from './visiting-speakers.service';
 import { VisitingSpeakersController } from './visiting-speakers.controller';
@@ -15,6 +16,7 @@ import { VisitingSpeakersController } from './visiting-speakers.controller';
       Responsibility,
       TalkExchange,
       Assignment,
+      VisitingSpeakerDistinctPair,
     ]),
     AuditLogModule,
   ],

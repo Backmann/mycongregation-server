@@ -15,6 +15,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { CreateVisitingSpeakerDto } from './dto/create-visiting-speaker.dto';
 import { UpdateVisitingSpeakerDto } from './dto/update-visiting-speaker.dto';
+import { MarkDistinctDto } from './dto/mark-distinct.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 
 /**
@@ -29,6 +30,25 @@ export class VisitingSpeakersController {
   @Get()
   list(@TenantId() tenantId: string) {
     return this.service.findAll(tenantId);
+  }
+
+  /**
+   * Пары «это разные братья». Объявлено ДО `:id`, иначе путь приняли бы за
+   * номер карточки.
+   */
+  @Get('distinct-pairs')
+  listDistinct(@TenantId() tenantId: string) {
+    return this.service.listDistinct(tenantId);
+  }
+
+  @Post('distinct-pairs')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  markDistinct(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: MarkDistinctDto,
+  ) {
+    return this.service.markDistinct(tenantId, user, dto.firstId, dto.secondId);
   }
 
   @Get(':id')
@@ -70,6 +90,26 @@ export class VisitingSpeakersController {
     @Param('mergeId', ParseUUIDPipe) mergeId: string,
   ) {
     return this.service.merge(tenantId, user, keepId, mergeId);
+  }
+
+  /** Карточки, объединённые с этой. */
+  @Get(':id/merged')
+  listMerged(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.listMerged(tenantId, id);
+  }
+
+  /** Это были разные братья: вернуть объединённой карточке её историю. */
+  @Post(':keepId/unmerge/:mergedId')
+  unmerge(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('keepId', ParseUUIDPipe) keepId: string,
+    @Param('mergedId', ParseUUIDPipe) mergedId: string,
+  ) {
+    return this.service.unmerge(tenantId, user, keepId, mergedId);
   }
 
   @Delete(':id')
