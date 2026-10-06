@@ -273,6 +273,10 @@ export class VisitingSpeakersService {
       // в неё влилась заведённая человеком.
       const keepWasAutoCreated = keep.autoCreated && !merge.autoCreated;
       if (!merge.autoCreated) keep.autoCreated = false;
+      // Один брат — одна карточка: если объединяемая была карточкой
+      // районного, районным становится и оставшаяся.
+      const keepBecameOverseer = merge.circuitOverseer && !keep.circuitOverseer;
+      if (keepBecameOverseer) keep.circuitOverseer = true;
       await speakers.save(keep);
 
       // 4. След. Карточка остаётся, указывает, куда её объединили, и помнит,
@@ -285,6 +289,7 @@ export class VisitingSpeakersService {
         addedTalkNumbers,
         filled,
         keepWasAutoCreated,
+        ...(keepBecameOverseer ? { keepBecameOverseer: true } : {}),
       };
       merge.mergedIntoId = keep.id;
       merge.mergeRecord = rec;
@@ -440,6 +445,7 @@ export class VisitingSpeakersService {
         keep.externalCongregationId = null;
       }
       if (rec.keepWasAutoCreated) keep.autoCreated = true;
+      if (rec.keepBecameOverseer) keep.circuitOverseer = false;
       await speakers.save(keep);
 
       merged.mergedIntoId = null;

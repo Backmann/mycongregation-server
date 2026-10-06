@@ -15,6 +15,7 @@ import { SpecialTalkNotificationsService } from './special-talk-notifications.se
 import { OutgoingTalkNotificationsService } from './outgoing-talk-notifications.service';
 import { Publisher } from '../entities/publisher.entity';
 import { User } from '../entities/user.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { CongregationClockModule } from '../common/congregation-clock.module';
 
@@ -31,6 +32,7 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
       MeetingSettings,
       Publisher,
       User,
+      SpecialEvent,
     ]),
     AuditLogModule,
     NotificationsModule,

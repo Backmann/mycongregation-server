@@ -16,6 +16,7 @@ import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
@@ -35,6 +36,12 @@ import {
 } from './outgoing-talk-notifications.service';
 
 const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
+const CIRCUIT_OVERSEER_VISIT_TYPE = 'circuit_overseer_visit';
+
+/** A name as it is compared: case and stray spaces do not make two brothers. */
+function normalName(name: string): string {
+  return name.trim().replace(/\s+/g, ' ').toLowerCase();
+}
 
 /** dateStr + n days, as YYYY-MM-DD (UTC). */
 function addDaysISO(dateStr: string, n: number): string {
@@ -154,6 +161,9 @@ export class TalkExchangeService {
     private readonly auditLog: AuditLogService,
     private readonly specialTalkNotifications: SpecialTalkNotificationsService,
     private readonly outgoingTalkNotifications: OutgoingTalkNotificationsService,
+    /** For the circuit visits: whose name in the slot is the overseer's. */
+    @InjectRepository(SpecialEvent)
+    private readonly eventRepo: Repository<SpecialEvent>,
   ) {}
 
   private static readonly MANAGER_RESPONSIBILITIES = [
@@ -416,6 +426,237 @@ export class TalkExchangeService {
       }),
     );
     return created.id;
+  }
+
+  // ───────────────────────── The circuit overseer ─────────────────────────
+  //
+  // A circuit visit is a speaker coming too: the overseer gives the public
+  // talk, and that talk belongs in the journal and in his history. It used to
+  // get there by accident — only once somebody touched the talk slot of the
+  // week — and then on an ordinary visiting speaker's card with no
+  // congregation, which the directory offered among the brothers to invite.
+  // And taking the visit away left the journal saying he was coming (seen on
+  // the stand, 5 October).
+  //
+  // Now the journal follows the visit: the entry appears when the visit has a
+  // weekend programme, moves when the visit moves, goes when the visit goes
+  // and comes back with it. His card is marked, so that the lists by which
+  // somebody is invited pass it over.
+
+  /** The name the visit puts into the talk slot of that week, or null. */
+  private async overseerOfWeek(
+    tenantId: string,
+    weekStartDate: string,
+  ): Promise<string | null> {
+    const visits = await this.eventRepo.find({
+      where: {
+        congregationId: tenantId,
+        type: CIRCUIT_OVERSEER_VISIT_TYPE,
+        deletedAt: IsNull(),
+      },
+    });
+    const visit = visits.find((v) => mondayOf(v.date) === weekStartDate);
+    if (!visit) return null;
+    return (
+      [visit.coFirstName, visit.coLastName]
+        .filter((p) => p && p.trim())
+        .join(' ')
+        .trim() || null
+    );
+  }
+
+  /**
+   * The overseer's own card — found, or made.
+   *
+   * A card already marked as an overseer's and carrying this name is his,
+   * whatever else it says. Otherwise the ordinary strict match applies — the
+   * same name AND no congregation — and that card becomes marked: it is the
+   * one the application made for him before the mark existed. A namesake who
+   * has a congregation is another brother and is left alone; if he IS the
+   * overseer, the mark is set on his card by hand.
+   */
+  private async overseerCard(
+    tenantId: string,
+    fullName: string,
+  ): Promise<string | null> {
+    const name = normalName(fullName);
+    if (name === '') return null;
+    const candidates = (
+      await this.speakerRepo.find({ where: { congregationId: tenantId } })
+    ).filter((c) => !c.mergedIntoId && normalName(speakerFullName(c)) === name);
+    const marked = candidates.find((c) => c.circuitOverseer);
+    if (marked) return marked.id;
+    const plain = candidates.find((c) => !c.externalCongregationId);
+    if (plain) {
+      plain.circuitOverseer = true;
+      await this.speakerRepo.save(plain);
+      return plain.id;
+    }
+    const shown = fullName.trim().replace(/\s+/g, ' ');
+    const space = shown.indexOf(' ');
+    const created = await this.speakerRepo.save(
+      this.speakerRepo.create({
+        congregationId: tenantId,
+        firstName: space === -1 ? shown : shown.slice(0, space),
+        lastName: space === -1 ? null : shown.slice(space + 1),
+        externalCongregationId: null,
+        autoCreated: true,
+        circuitOverseer: true,
+      }),
+    );
+    return created.id;
+  }
+
+  /** The journal entries of a week that are this overseer's visit. */
+  private async overseerEntries(
+    tenantId: string,
+    weekStartDate: string,
+    fullName: string,
+    withDeleted = false,
+  ): Promise<TalkExchange[]> {
+    const name = normalName(fullName);
+    if (name === '') return [];
+    const rows = await this.repo.find({
+      where: {
+        congregationId: tenantId,
+        direction: TalkExchangeDirection.INCOMING,
+        date: Between(weekStartDate, addDaysISO(weekStartDate, 6)),
+        status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
+      },
+      withDeleted,
+    });
+    return rows.filter(
+      (r) => !r.publisherId && normalName(r.speakerName ?? '') === name,
+    );
+  }
+
+  /**
+   * A visit stands in this week and its programme may have just appeared or
+   * changed: the journal is brought in step. Does nothing in a week without a
+   * visit, so anything that touches a weekend may call it.
+   */
+  async circuitVisitApplied(
+    tenantId: string,
+    weekStartDate: string,
+  ): Promise<void> {
+    const name = await this.overseerOfWeek(tenantId, weekStartDate);
+    if (!name) return;
+    // A visit taken away and put back: its entry comes back with whatever
+    // the coordinator had added to it, rather than a bare new one. The week
+    // may meanwhile hold the entry of one of ours — he was assigned beneath
+    // the visit and became the speaker when it left. That entry is the
+    // mirror's own and gives way, unless somebody has written into it.
+    const live = await this.repo.find({
+      where: {
+        congregationId: tenantId,
+        direction: TalkExchangeDirection.INCOMING,
+        date: Between(weekStartDate, addDaysISO(weekStartDate, 6)),
+        status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
+      },
+    });
+    const mirrorsOwn =
+      live.length === 1 &&
+      !!live[0].publisherId &&
+      !live[0].note &&
+      !live[0].hospitalityPublisherId;
+    if (live.length === 0 || mirrorsOwn) {
+      const gone = (
+        await this.overseerEntries(tenantId, weekStartDate, name, true)
+      )
+        .filter((r) => !!r.deletedAt)
+        .sort((a, b) => +b.deletedAt! - +a.deletedAt!)[0];
+      if (gone) {
+        if (mirrorsOwn) await this.repo.softDelete(live[0].id);
+        await this.repo.restore(gone.id);
+      }
+    }
+    await this.syncProgramToJournal(tenantId, weekStartDate);
+  }
+
+  /**
+   * The talk slot of a week the visit has left no longer points at his card.
+   *
+   * Giving the week back restores the name the slot had before — the link to
+   * the overseer's card was put there by the mirror and nothing else takes
+   * it off. Left behind, it makes an empty slot count as filled.
+   */
+  private async releaseSlot(
+    tenantId: string,
+    weekStartDate: string,
+  ): Promise<void> {
+    const slot = await this.assignmentRepo.findOne({
+      where: {
+        congregationId: tenantId,
+        weekStartDate,
+        partKey: PUBLIC_TALK_PART_KEY,
+      },
+    });
+    if (!slot || !slot.visitingSpeakerId) return;
+    // A name still in the slot is somebody's — a guest entered since. One of
+    // ours beneath the visit carries no card: the link was the overseer's.
+    if (slot.speakerName?.trim()) return;
+    slot.visitingSpeakerId = null;
+    await this.assignmentRepo.save(slot);
+  }
+
+  /**
+   * The visit was taken out of this week: its entry goes with it — also when
+   * the coordinator had added a note or a host family to it. There is no
+   * visit; an entry saying the overseer is coming would be the application
+   * telling the congregation something untrue.
+   */
+  async circuitVisitRemoved(
+    tenantId: string,
+    weekStartDate: string,
+    fullName: string | null,
+  ): Promise<void> {
+    await this.releaseSlot(tenantId, weekStartDate);
+    for (const e of fullName
+      ? await this.overseerEntries(tenantId, weekStartDate, fullName)
+      : []) {
+      await this.repo.softDelete(e.id);
+    }
+    // The week is itself again: if one of ours was assigned under the visit,
+    // he is the speaker now and the journal says so.
+    await this.syncProgramToJournal(tenantId, weekStartDate);
+  }
+
+  /**
+   * The visit moved to another week: its entry moves too, keeping what was
+   * added to it. Where the new week already has an entry of its own, the old
+   * one simply goes — the mirror will write the overseer into the new week.
+   */
+  async circuitVisitMoved(
+    tenantId: string,
+    fromWeek: string,
+    toWeek: string,
+    fullName: string | null,
+  ): Promise<void> {
+    if (fromWeek === toWeek) return;
+    await this.releaseSlot(tenantId, fromWeek);
+    const mine = fullName
+      ? await this.overseerEntries(tenantId, fromWeek, fullName)
+      : [];
+    if (mine.length > 0) {
+      const taken = await this.repo.count({
+        where: {
+          congregationId: tenantId,
+          direction: TalkExchangeDirection.INCOMING,
+          date: Between(toWeek, addDaysISO(toWeek, 6)),
+          status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
+        },
+      });
+      const [first, ...rest] = mine;
+      for (const e of rest) await this.repo.softDelete(e.id);
+      if (taken > 0) {
+        await this.repo.softDelete(first.id);
+      } else {
+        first.date = await this.weekendDateFor(tenantId, toWeek);
+        await this.repo.save(first);
+      }
+    }
+    // The week left behind is itself again — see circuitVisitRemoved.
+    await this.syncProgramToJournal(tenantId, fromWeek);
   }
 
   private async clearProgramSlot(
@@ -1175,10 +1416,25 @@ export class TalkExchangeService {
     // A cancelled week (congress, memorial, ...) counts as "no speaker":
     // its journal entry must not survive the cancellation.
     const active = slot && slot.status !== AssignmentStatus.CANCELLED;
-    const hasLocal = !!(active && slot.publisherId);
+    /**
+     * Районный в слоте — приезжий, даже если под ним остался наш брат.
+     *
+     * Визит ставит в слот имя районного и не снимает брата, назначенного
+     * раньше: уберут визит — брат вернётся. Пока визит стоит, речь произносит
+     * районный, это и показывает программа; журнал читал такой слот как
+     * «выступает наш брат» и записывал визит на него.
+     */
+    const overseer = active
+      ? await this.overseerOfWeek(tenantId, weekStartDate)
+      : null;
+    const isOverseer =
+      !!active &&
+      !!overseer &&
+      normalName(overseer) === normalName(slot.speakerName ?? '');
+    const hasLocal = !!(active && slot.publisherId && !isOverseer);
     const hasInvited = !!(
       active &&
-      !slot.publisherId &&
+      (!slot.publisherId || isOverseer) &&
       slot.speakerName?.trim()
     );
 
@@ -1259,14 +1515,29 @@ export class TalkExchangeService {
      * руками, и карточку надо найти или завести. Раньше здесь просто ставился
      * null, и ровно в этой строке визит переставал принадлежать человеку.
      */
-    const visitingSpeakerId =
-      slot!.visitingSpeakerId ??
-      (await this.speakerCardFor(tenantId, speakerName, speakerCongregation));
+    //
+    // Районный в неделю своего визита — особый случай: имя в слот ставит сам
+    // визит, и карточка у него своя, помеченная. Она ищется по имени каждый
+    // раз заново: поменяли районного в визите — слот несёт уже другое имя, и
+    // старая связь указывала бы на прежнего брата.
+    const visitingSpeakerId = isOverseer
+      ? await this.overseerCard(tenantId, speakerName)
+      : (slot.visitingSpeakerId ??
+        (await this.speakerCardFor(
+          tenantId,
+          speakerName,
+          speakerCongregation,
+        )));
 
     // Слот, в котором имя было напечатано руками, дальше несёт найденную
     // карточку — иначе на каждое сохранение недели заводилась бы новая.
-    if (visitingSpeakerId && !slot!.visitingSpeakerId) {
-      slot!.visitingSpeakerId = visitingSpeakerId;
+    if (
+      visitingSpeakerId &&
+      (isOverseer
+        ? slot.visitingSpeakerId !== visitingSpeakerId
+        : !slot.visitingSpeakerId)
+    ) {
+      slot.visitingSpeakerId = visitingSpeakerId;
       await this.assignmentRepo.save(slot!);
     }
 

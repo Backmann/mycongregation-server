@@ -38,6 +38,7 @@ describe('SpecialEventsService.findAll — which day is "today"', () => {
       clockStub('Pacific/Auckland'),
       { count: jest.fn().mockResolvedValue(0) } as never,
       { announce: jest.fn() } as never,
+      {} as never,
     );
     return { svc, qb };
   }

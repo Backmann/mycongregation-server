@@ -106,6 +106,8 @@ function build(opts: {
       logEvent: jest.fn(),
     },
     specialTalkNotifications: { announceIfNew: announce },
+    // No circuit visit in these weeks; the mirror asks.
+    eventRepo: { find: jest.fn(async () => []) },
   });
   return { service, state, announce };
 }

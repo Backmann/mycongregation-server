@@ -406,15 +406,18 @@ export class MwbImportService {
     // to be entered a second time. Like the rule above, this was written on
     // 27 September into the service the app no longer called.
     //
-    // That service also had the journal mirror the week afterwards. Not taken
-    // over: in the week of a circuit visit the mirror reads the overseer's
-    // name in the slot and files him as a visiting speaker — a journal entry
-    // and a card in the directory that saving the visit itself never makes
-    // (seen on the stand, 5 October). Nothing an import should start doing
-    // unasked; the slot filled here already agrees with the journal entry it
-    // was filled from.
+    // That service also had the journal mirror every weekend afterwards. Not
+    // taken over as it was: for an ordinary week the slot filled here already
+    // agrees with the entry it was filled from. One week does need the
+    // mirror — the week of a circuit visit, where the visit has just put the
+    // overseer's name into the slot of a programme that did not exist when
+    // the visit was saved. `circuitVisitApplied` does nothing elsewhere.
     if (weekEventType === EventType.WEEKEND) {
       await this.talkExchange.fillEmptySlot(congregationId, weekStartDate);
+      await this.talkExchange.circuitVisitApplied(
+        congregationId,
+        weekStartDate,
+      );
     }
 
     return summary;

@@ -20,6 +20,7 @@ jest.mock('../push-notifications/push-notifications.service', () => ({
 const journal = {
   fillEmptySlot: jest.fn(async () => undefined),
   syncProgramToJournal: jest.fn(async () => undefined),
+  circuitVisitApplied: jest.fn(async () => undefined),
 };
 
 /** What a circuit visit holds in the week; nothing, unless a case says so. */
@@ -38,6 +39,7 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
     heldNow = nothingHeld();
     journal.fillEmptySlot.mockClear();
     journal.syncProgramToJournal.mockClear();
+    journal.circuitVisitApplied.mockClear();
     repo = {
       find: jest.fn().mockResolvedValue([]),
       create: jest.fn((x) => x),
@@ -642,7 +644,18 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
       );
     });
 
-    it('does not have the journal mirror the week — see the service for why', async () => {
+    it('lets a circuit visit of that week reach the journal — after the slot is filled', async () => {
+      await service.applyParsed('cong-1', weekendDto());
+      expect(journal.circuitVisitApplied).toHaveBeenCalledWith(
+        'cong-1',
+        '2027-01-11',
+      );
+      expect(journal.fillEmptySlot.mock.invocationCallOrder[0]).toBeLessThan(
+        journal.circuitVisitApplied.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('does not have the journal mirror every weekend itself', async () => {
       await service.applyParsed('cong-1', weekendDto());
       expect(journal.syncProgramToJournal).not.toHaveBeenCalled();
     });
@@ -651,6 +664,7 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
       await service.applyParsed('cong-1', weekDto());
       expect(journal.fillEmptySlot).not.toHaveBeenCalled();
       expect(journal.syncProgramToJournal).not.toHaveBeenCalled();
+      expect(journal.circuitVisitApplied).not.toHaveBeenCalled();
     });
   });
 });

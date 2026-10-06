@@ -96,6 +96,11 @@ function build(opts: {
     count: jest.fn().mockResolvedValue(opts.responsibilities ?? 0),
   };
   const notices = { announce: jest.fn() };
+  const journal = {
+    circuitVisitApplied: jest.fn(),
+    circuitVisitRemoved: jest.fn(),
+    circuitVisitMoved: jest.fn(),
+  };
   const svc = new SpecialEventsService(
     repo as never,
     template as never,
@@ -103,8 +108,9 @@ function build(opts: {
     clock as never,
     responsibilities as never,
     notices as never,
+    journal as never,
   );
-  return { svc, repo, qb, template, event, notices };
+  return { svc, repo, qb, template, event, notices, journal };
 }
 
 describe('a circuit visit that moves', () => {
@@ -153,6 +159,139 @@ describe('a circuit visit that moves', () => {
     await expect(
       svc.update(TENANT, 'e1', { date: '2026-10-20', endDate: '2026-10-25' }),
     ).rejects.toMatchObject({ response: { code: 'CO_VISIT_WEEK_TAKEN' } });
+  });
+});
+
+/**
+ * The talk journal follows a circuit visit (5 October).
+ *
+ * The overseer gives the public talk, so his visit is a speaker coming. The
+ * journal used to learn of it only when somebody touched the talk slot, and
+ * kept saying he was coming after the visit was taken away.
+ */
+describe('the talk journal follows a circuit visit', () => {
+  it('a new visit is written into the journal', async () => {
+    const { svc, journal } = build({});
+    await svc.create(TENANT, {
+      title: 'Посещение районного',
+      type: 'circuit_overseer_visit',
+      date: '2026-10-13',
+      endDate: '2026-10-18',
+    });
+    expect(journal.circuitVisitApplied).toHaveBeenCalledWith(
+      TENANT,
+      '2026-10-12',
+    );
+  });
+
+  it('an event that is not a visit leaves the journal alone', async () => {
+    const { svc, journal } = build({});
+    await svc.create(TENANT, {
+      title: 'Собрание со старейшинами',
+      type: 'other',
+      date: '2026-10-13',
+    });
+    expect(journal.circuitVisitApplied).not.toHaveBeenCalled();
+  });
+
+  it('a visit that moves takes its entry along, then the new week is mirrored', async () => {
+    const { svc, journal } = build({});
+    await svc.update(TENANT, 'e1', {
+      date: '2026-10-20',
+      endDate: '2026-10-25',
+    });
+    expect(journal.circuitVisitMoved).toHaveBeenCalledWith(
+      TENANT,
+      '2026-10-12',
+      '2026-10-19',
+      'Иван Тестов',
+    );
+    expect(journal.circuitVisitApplied).toHaveBeenCalledWith(
+      TENANT,
+      '2026-10-19',
+    );
+    // Moved first: mirrored first, the new week would get a bare entry and
+    // the one carrying the coordinator's notes would have nowhere to go.
+    expect(journal.circuitVisitMoved.mock.invocationCallOrder[0]).toBeLessThan(
+      journal.circuitVisitApplied.mock.invocationCallOrder[0],
+    );
+    expect(journal.circuitVisitRemoved).not.toHaveBeenCalled();
+  });
+
+  it('an event that stops being a visit takes its entry out', async () => {
+    const { svc, journal } = build({});
+    await svc.update(TENANT, 'e1', { type: 'other' });
+    expect(journal.circuitVisitRemoved).toHaveBeenCalledWith(
+      TENANT,
+      '2026-10-12',
+      'Иван Тестов',
+    );
+    expect(journal.circuitVisitApplied).not.toHaveBeenCalled();
+  });
+
+  it('an event that becomes a visit is written in', async () => {
+    const { svc, journal } = build({
+      event: row({ type: 'other', coRevertData: null }),
+    });
+    await svc.update(TENANT, 'e1', { type: 'circuit_overseer_visit' });
+    expect(journal.circuitVisitApplied).toHaveBeenCalledWith(
+      TENANT,
+      '2026-10-12',
+    );
+    expect(journal.circuitVisitMoved).not.toHaveBeenCalled();
+    expect(journal.circuitVisitRemoved).not.toHaveBeenCalled();
+  });
+
+  it('another name on the same visit reaches the journal', async () => {
+    const { svc, journal, template } = build({});
+    await svc.update(TENANT, 'e1', { coFirstName: 'Пётр' });
+    expect(journal.circuitVisitApplied).toHaveBeenCalledWith(
+      TENANT,
+      '2026-10-12',
+    );
+    // After the slot has been given the new name, not before.
+    expect(template.syncSpeaker.mock.invocationCallOrder[0]).toBeLessThan(
+      journal.circuitVisitApplied.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('a coming visit, removed, takes its entry with it', async () => {
+    const { svc, journal, template } = build({ responsibilities: 1 });
+    await svc.remove(TENANT, 'e1', user(UserRole.ELDER));
+    expect(journal.circuitVisitRemoved).toHaveBeenCalledWith(
+      TENANT,
+      '2026-10-12',
+      'Иван Тестов',
+    );
+    expect(template.revert.mock.invocationCallOrder[0]).toBeLessThan(
+      journal.circuitVisitRemoved.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('a visit that is over keeps its entry: it is history', async () => {
+    const { svc, journal } = build({
+      event: row({ date: '2026-09-08', endDate: '2026-09-13' }),
+    });
+    await svc.remove(TENANT, 'e1', user(UserRole.ADMIN));
+    expect(journal.circuitVisitRemoved).not.toHaveBeenCalled();
+  });
+
+  it('a visit brought back from the bin is written in again', async () => {
+    const { svc, journal } = build({ event: row({ deletedAt: new Date() }) });
+    await svc.restore(TENANT, 'e1');
+    expect(journal.circuitVisitApplied).toHaveBeenCalledWith(
+      TENANT,
+      '2026-10-12',
+    );
+  });
+
+  it('removing something that is not a visit leaves the journal alone', async () => {
+    const { svc, journal } = build({
+      event: row({ type: 'other', coRevertData: null }),
+      responsibilities: 1,
+    });
+    await svc.remove(TENANT, 'e1', user(UserRole.ELDER));
+    expect(journal.circuitVisitRemoved).not.toHaveBeenCalled();
   });
 });
 

@@ -28,6 +28,8 @@ export interface SpeakerMergeRecord {
   filled: Array<'phone' | 'note' | 'externalCongregationId'>;
   /** The remaining card was «заведена приложением» and stopped being so. */
   keepWasAutoCreated: boolean;
+  /** Оставшаяся стала карточкой районного только от этого объединения. */
+  keepBecameOverseer?: boolean;
 }
 
 /**
@@ -100,6 +102,16 @@ export class VisitingSpeaker {
    * разъединять будет по чему. Пока ссылка стоит, карточка не показывается в
    * списках и не участвует в подсчётах — её визиты уже переехали.
    */
+  /**
+   * Районный старейшина, а не брат, которого приглашают.
+   *
+   * История у такой карточки та же, что у любой другой; списки, по которым
+   * решают, кого позвать, её пропускают. Ставится самим визитом — или руками,
+   * если районный уже был заведён как обычный докладчик.
+   */
+  @Column({ type: 'boolean', default: false })
+  circuitOverseer!: boolean;
+
   @Column({ type: 'uuid', nullable: true })
   @Index()
   mergedIntoId!: string | null;

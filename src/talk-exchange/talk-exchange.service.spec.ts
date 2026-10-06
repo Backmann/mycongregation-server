@@ -15,6 +15,7 @@ import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { TalkExchangeDirection } from '../common/enums/talk-exchange.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -45,8 +46,11 @@ describe('TalkExchangeService', () => {
   // должна быть доступна тестам, а не спрятана в объявлении модуля.
   let auditLog: any;
   let specialTalkNotifications: any;
+  // Визиты районного: пусто, пока случай не скажет иначе.
+  let eventRepo: any;
 
   beforeEach(async () => {
+    eventRepo = { find: jest.fn().mockResolvedValue([]) };
     repo = {
       create: jest.fn((x) => x),
       save: jest.fn((x) => Promise.resolve({ id: x.id ?? 'tx-1', ...x })),
@@ -117,6 +121,7 @@ describe('TalkExchangeService', () => {
           provide: AuditLogService,
           useValue: auditLog,
         },
+        { provide: getRepositoryToken(SpecialEvent), useValue: eventRepo },
         {
           provide: SpecialTalkNotificationsService,
           useValue: specialTalkNotifications,
@@ -994,5 +999,380 @@ describe('TalkExchangeService', () => {
     await service.syncProgramToJournal(TENANT, '2026-06-15');
 
     expect(repo.softDelete).toHaveBeenCalledWith('tx-9');
+  });
+
+  /**
+   * Районный в журнале «К нам» (5 октября).
+   *
+   * Его публичная речь — тоже приезд докладчика. Раньше запись появлялась
+   * случайно, карточка была обычной, а после удаления визита журнал продолжал
+   * говорить, что он приедет.
+   */
+  describe('районный старейшина', () => {
+    const WEEK = '2026-10-12';
+    const visit = (over: Record<string, unknown> = {}) => ({
+      id: 'visit-1',
+      type: 'circuit_overseer_visit',
+      date: '2026-10-13',
+      coFirstName: 'Иван',
+      coLastName: 'Тестов',
+      deletedAt: null,
+      ...over,
+    });
+    const slot = (over: Record<string, unknown> = {}) => ({
+      id: 'asg',
+      publisherId: null,
+      speakerName: 'Иван Тестов',
+      speakerCongregation: null,
+      publicTalkId: null,
+      visitingSpeakerId: null,
+      ...over,
+    });
+    beforeEach(() => {
+      repo.count = jest.fn().mockResolvedValue(0);
+      repo.restore = jest.fn().mockResolvedValue({});
+      eventRepo.find.mockResolvedValue([visit()]);
+      assignmentRepo.findOne.mockResolvedValue(slot());
+      repo.findOne.mockResolvedValue(null);
+    });
+
+    it('получает запись «К нам» и помеченную карточку', async () => {
+      await service.circuitVisitApplied(TENANT, WEEK);
+      expect(speakerRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          firstName: 'Иван',
+          lastName: 'Тестов',
+          circuitOverseer: true,
+          autoCreated: true,
+          externalCongregationId: null,
+        }),
+      );
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          direction: 'incoming',
+          speakerName: 'Иван Тестов',
+          visitingSpeakerId: 'speaker-new',
+        }),
+      );
+    });
+
+    it('в неделю без визита ничего не делает', async () => {
+      eventRepo.find.mockResolvedValue([visit({ date: '2026-11-03' })]);
+      await service.circuitVisitApplied(TENANT, WEEK);
+      expect(assignmentRepo.findOne).not.toHaveBeenCalled();
+      expect(repo.save).not.toHaveBeenCalled();
+      expect(speakerRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('берёт уже помеченную карточку, а не заводит вторую', async () => {
+      speakerRepo.find.mockResolvedValue([
+        {
+          id: 'co-card',
+          firstName: 'иван',
+          lastName: 'ТЕСТОВ',
+          externalCongregationId: null,
+          circuitOverseer: true,
+        },
+      ]);
+      await service.circuitVisitApplied(TENANT, WEEK);
+      expect(speakerRepo.save).not.toHaveBeenCalled();
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ visitingSpeakerId: 'co-card' }),
+      );
+    });
+
+    it('помечает карточку без собрания, заведённую до появления пометки', async () => {
+      const old = {
+        id: 'old-card',
+        firstName: 'Иван',
+        lastName: 'Тестов',
+        externalCongregationId: null,
+        circuitOverseer: false,
+      };
+      speakerRepo.find.mockResolvedValue([old]);
+      await service.circuitVisitApplied(TENANT, WEEK);
+      expect(old.circuitOverseer).toBe(true);
+      expect(speakerRepo.save).toHaveBeenCalledWith(old);
+      expect(speakerRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('тёзку из собрания районным не делает — заводит свою карточку', async () => {
+      const namesake = {
+        id: 'namesake',
+        firstName: 'Иван',
+        lastName: 'Тестов',
+        externalCongregationId: 'ext-1',
+        circuitOverseer: false,
+      };
+      speakerRepo.find.mockResolvedValue([namesake]);
+      await service.circuitVisitApplied(TENANT, WEEK);
+      expect(namesake.circuitOverseer).toBe(false);
+      expect(speakerRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ circuitOverseer: true, autoCreated: true }),
+      );
+    });
+
+    it('объединённую карточку не берёт', async () => {
+      speakerRepo.find.mockResolvedValue([
+        {
+          id: 'merged-away',
+          firstName: 'Иван',
+          lastName: 'Тестов',
+          externalCongregationId: null,
+          circuitOverseer: true,
+          mergedIntoId: 'somebody',
+        },
+      ]);
+      await service.circuitVisitApplied(TENANT, WEEK);
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ visitingSpeakerId: 'speaker-new' }),
+      );
+    });
+
+    it('сменили районного в визите — слот и запись получают другую карточку', async () => {
+      // Слот ещё несёт связь с прежним братом; имя в нём уже новое.
+      const s = slot({ visitingSpeakerId: 'previous-co' });
+      assignmentRepo.findOne.mockResolvedValue(s);
+      await service.circuitVisitApplied(TENANT, WEEK);
+      expect(s.visitingSpeakerId).toBe('speaker-new');
+      expect(assignmentRepo.save).toHaveBeenCalledWith(s);
+    });
+
+    it('под районным остался наш брат — запись всё равно о районном', async () => {
+      // Визит ставит имя районного в слот и не снимает брата, назначенного
+      // раньше. Журнал читал такой слот как «выступает наш брат».
+      assignmentRepo.findOne.mockResolvedValue(
+        slot({ publisherId: 'our-brother' }),
+      );
+      await service.circuitVisitApplied(TENANT, WEEK);
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          speakerName: 'Иван Тестов',
+          visitingSpeakerId: 'speaker-new',
+        }),
+      );
+      const saved = repo.save.mock.calls.map((c: any[]) => c[0]);
+      expect(saved.every((e: any) => !e.publisherId)).toBe(true);
+    });
+
+    it('запись брата, сделанную до визита, переписывает на районного', async () => {
+      assignmentRepo.findOne.mockResolvedValue(
+        slot({ publisherId: 'our-brother' }),
+      );
+      const brothers = {
+        id: 'e-brother',
+        publisherId: 'our-brother',
+        visitingSpeakerId: null,
+        speakerName: null,
+      };
+      repo.findOne.mockResolvedValue(brothers);
+      repo.count.mockResolvedValue(1);
+      await service.circuitVisitApplied(TENANT, WEEK);
+      expect(brothers.publisherId).toBeNull();
+      expect(brothers.speakerName).toBe('Иван Тестов');
+    });
+
+    it('обычного приезжего в неделю визита районным не считает', async () => {
+      assignmentRepo.findOne.mockResolvedValue(
+        slot({ speakerName: 'Пётр Гостев', speakerCongregation: null }),
+      );
+      await service.circuitVisitApplied(TENANT, WEEK);
+      const saved = speakerRepo.save.mock.calls.map((c: any[]) => c[0]);
+      expect(saved).toHaveLength(1);
+      expect(saved[0].circuitOverseer).toBeUndefined();
+    });
+
+    it('возвращает убранную запись вместе с тем, что к ней добавили', async () => {
+      repo.find.mockResolvedValueOnce([]).mockResolvedValueOnce([
+        {
+          id: 'gone',
+          speakerName: 'Иван Тестов',
+          publisherId: null,
+          note: 'обед у семьи',
+          deletedAt: new Date('2026-10-01T10:00:00Z'),
+        },
+      ]);
+      await service.circuitVisitApplied(TENANT, WEEK);
+      expect(repo.restore).toHaveBeenCalledWith('gone');
+    });
+
+    const gone = {
+      id: 'gone',
+      speakerName: 'Иван Тестов',
+      publisherId: null,
+      note: 'обед у семьи',
+      deletedAt: new Date('2026-10-01T10:00:00Z'),
+    };
+    /** The first read is of the live entries, the second includes removed. */
+    const weekHolds = (live: object[]) =>
+      repo.find
+        .mockResolvedValueOnce(live)
+        .mockResolvedValueOnce([...live, gone]);
+
+    it('ничего не возвращает, когда в неделе уже есть запись другого гостя', async () => {
+      weekHolds([
+        { id: 'guest', speakerName: 'Пётр Гостев', publisherId: null },
+      ]);
+      await service.circuitVisitApplied(TENANT, WEEK);
+      expect(repo.restore).not.toHaveBeenCalled();
+      expect(repo.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('запись брата, стоявшего под визитом, уступает вернувшейся записи районного', async () => {
+      weekHolds([{ id: 'brother', speakerName: null, publisherId: 'our' }]);
+      await service.circuitVisitApplied(TENANT, WEEK);
+      expect(repo.softDelete).toHaveBeenCalledWith('brother');
+      expect(repo.restore).toHaveBeenCalledWith('gone');
+    });
+
+    it('запись брата с заметкой координатора не трогается', async () => {
+      weekHolds([
+        { id: 'brother', speakerName: null, publisherId: 'our', note: 'важно' },
+      ]);
+      await service.circuitVisitApplied(TENANT, WEEK);
+      expect(repo.softDelete).not.toHaveBeenCalled();
+      expect(repo.restore).not.toHaveBeenCalled();
+    });
+
+    describe('визит убран', () => {
+      it('запись уходит — даже с заметкой и гостеприимством', async () => {
+        repo.find.mockResolvedValue([
+          {
+            id: 'e-1',
+            speakerName: ' иван  тестов ',
+            publisherId: null,
+            note: 'обед у семьи',
+            hospitalityPublisherId: 'p-1',
+            visitingSpeakerId: 'co-card',
+          },
+        ]);
+        await service.circuitVisitRemoved(TENANT, WEEK, 'Иван Тестов');
+        expect(repo.softDelete).toHaveBeenCalledWith('e-1');
+      });
+
+      it('запись другого докладчика той же недели остаётся', async () => {
+        repo.find.mockResolvedValue([
+          { id: 'e-2', speakerName: 'Пётр Гостев', publisherId: null },
+          { id: 'e-3', speakerName: null, publisherId: 'our-brother' },
+        ]);
+        await service.circuitVisitRemoved(TENANT, WEEK, 'Иван Тестов');
+        expect(repo.softDelete).not.toHaveBeenCalled();
+      });
+
+      it('без имени районного записей не трогает', async () => {
+        await service.circuitVisitRemoved(TENANT, WEEK, null);
+        expect(repo.find).not.toHaveBeenCalled();
+        expect(repo.softDelete).not.toHaveBeenCalled();
+      });
+
+      it('брат, стоявший под районным, снова докладчик недели — и в журнале тоже', async () => {
+        // Неделя уже отдана: имя районного снято, брат остался.
+        assignmentRepo.findOne.mockResolvedValue(
+          slot({ speakerName: null, publisherId: 'our-brother' }),
+        );
+        repo.find.mockResolvedValue([
+          { id: 'e-1', speakerName: 'Иван Тестов', publisherId: null },
+        ]);
+        await service.circuitVisitRemoved(TENANT, WEEK, 'Иван Тестов');
+        expect(repo.softDelete).toHaveBeenCalledWith('e-1');
+        expect(repo.save).toHaveBeenCalledWith(
+          expect.objectContaining({
+            direction: 'incoming',
+            publisherId: 'our-brother',
+          }),
+        );
+      });
+
+      it('слот недели перестаёт указывать на его карточку', async () => {
+        // Визит вернул слоту прежнее имя — пустое; связь с карточкой ставило
+        // зеркало, и без этого пустой слот считался бы занятым.
+        const s = slot({ speakerName: null, visitingSpeakerId: 'co-card' });
+        assignmentRepo.findOne.mockResolvedValue(s);
+        await service.circuitVisitRemoved(TENANT, WEEK, 'Иван Тестов');
+        expect(s.visitingSpeakerId).toBeNull();
+        expect(assignmentRepo.save).toHaveBeenCalledWith(s);
+      });
+
+      it('слот, в который уже вписан другой докладчик, не трогается', async () => {
+        const s = slot({
+          speakerName: 'Пётр Гостев',
+          visitingSpeakerId: 'guest-card',
+        });
+        assignmentRepo.findOne.mockResolvedValue(s);
+        await service.circuitVisitRemoved(TENANT, WEEK, 'Иван Тестов');
+        expect(s.visitingSpeakerId).toBe('guest-card');
+        expect(assignmentRepo.save).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('визит перенесён', () => {
+      beforeEach(() => {
+        // Прежняя неделя уже отдана: имя из слота снято, связь осталась.
+        assignmentRepo.findOne.mockResolvedValue(
+          slot({ speakerName: null, visitingSpeakerId: 'co-card' }),
+        );
+      });
+
+      it('слот прежней недели перестаёт указывать на его карточку', async () => {
+        repo.find.mockResolvedValue([]);
+        await service.circuitVisitMoved(
+          TENANT,
+          WEEK,
+          '2026-10-19',
+          'Иван Тестов',
+        );
+        expect(assignmentRepo.save).toHaveBeenCalledWith(
+          expect.objectContaining({ visitingSpeakerId: null }),
+        );
+      });
+
+      const entry = () => ({
+        id: 'e-1',
+        speakerName: 'Иван Тестов',
+        publisherId: null,
+        note: 'обед у семьи',
+        date: '2026-10-18',
+      });
+
+      it('запись переезжает на выходные новой недели и сохраняет заметку', async () => {
+        const e = entry();
+        repo.find.mockResolvedValue([e]);
+        await service.circuitVisitMoved(
+          TENANT,
+          WEEK,
+          '2026-10-19',
+          'Иван Тестов',
+        );
+        expect(e.date).toBe('2026-10-25');
+        expect(e.note).toBe('обед у семьи');
+        expect(repo.save).toHaveBeenCalledWith(e);
+        expect(repo.softDelete).not.toHaveBeenCalled();
+      });
+
+      it('в новой неделе уже есть запись — прежняя просто уходит', async () => {
+        repo.find.mockResolvedValue([entry()]);
+        repo.count.mockResolvedValue(1);
+        await service.circuitVisitMoved(
+          TENANT,
+          WEEK,
+          '2026-10-19',
+          'Иван Тестов',
+        );
+        expect(repo.softDelete).toHaveBeenCalledWith('e-1');
+        expect(repo.save).not.toHaveBeenCalled();
+      });
+
+      it('нечего переносить — ничего не делает', async () => {
+        repo.find.mockResolvedValue([]);
+        await service.circuitVisitMoved(
+          TENANT,
+          WEEK,
+          '2026-10-19',
+          'Иван Тестов',
+        );
+        expect(repo.save).not.toHaveBeenCalled();
+        expect(repo.softDelete).not.toHaveBeenCalled();
+      });
+    });
   });
 });

@@ -24,6 +24,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { EventNotificationsService } from './event-notifications.service';
+import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
 import { signatureOf } from './event-messages';
 import { settleMeeting } from './meeting-mode';
 import { assertEventShape, serviceYearOf } from './event-shape';
@@ -68,7 +69,17 @@ export class SpecialEventsService {
     private readonly responsibilities: Repository<Responsibility>,
     /** Tells the congregation. Last, for the same reason. */
     private readonly eventNotifications: EventNotificationsService,
+    /** The talk journal follows a circuit visit; see TalkExchangeService. */
+    private readonly talkExchange: TalkExchangeService,
   ) {}
+
+  /** Whether the journal should follow this event: a visit still ahead. */
+  private async journalFollows(event: SpecialEvent): Promise<boolean> {
+    return (
+      event.type === CIRCUIT_OVERSEER_VISIT_TYPE &&
+      !(await this.coVisitTemplate.weekIsOver(event))
+    );
+  }
 
   private async holds(
     user: AuthenticatedUser,
@@ -308,6 +319,12 @@ export class SpecialEventsService {
     // nothing: the template never touches a week that is over. Nor is it
     // announced: the announcement, too, is only for what is ahead.
     const applied = await this.coVisitTemplate.apply(saved);
+    if (await this.journalFollows(applied)) {
+      await this.talkExchange.circuitVisitApplied(
+        tenantId,
+        mondayOf(applied.date),
+      );
+    }
     await this.eventNotifications.announce(applied, 'created');
     return this.present(applied, true);
   }
@@ -399,7 +416,13 @@ export class SpecialEventsService {
     const before = journalView(event);
     const signatureBefore = signatureOf(event);
 
-    if (templateMoves && !(await this.coVisitTemplate.weekIsOver(event))) {
+    // Where the visit stood, for the journal: the entry of the old week
+    // moves with the visit, or goes when the event stops being one.
+    const wasVisit = event.type === CIRCUIT_OVERSEER_VISIT_TYPE;
+    const oldWeek = mondayOf(event.date);
+    const oldWeekGivenBack =
+      templateMoves && !(await this.coVisitTemplate.weekIsOver(event));
+    if (oldWeekGivenBack) {
       // Gives the old week back — sets coRevertData to null on `event`.
       await this.coVisitTemplate.revert(event);
     }
@@ -422,11 +445,41 @@ export class SpecialEventsService {
 
     if (templateMoves) {
       const applied = await this.coVisitTemplate.apply(saved);
+      if (wasVisit && oldWeekGivenBack) {
+        if (applied.type === CIRCUIT_OVERSEER_VISIT_TYPE) {
+          await this.talkExchange.circuitVisitMoved(
+            tenantId,
+            oldWeek,
+            mondayOf(applied.date),
+            prevName,
+          );
+        } else {
+          await this.talkExchange.circuitVisitRemoved(
+            tenantId,
+            oldWeek,
+            prevName,
+          );
+        }
+      }
+      if (await this.journalFollows(applied)) {
+        await this.talkExchange.circuitVisitApplied(
+          tenantId,
+          mondayOf(applied.date),
+        );
+      }
       if (told) await this.eventNotifications.announce(applied, 'changed');
       return this.present(applied, true);
     }
     if (!(await this.coVisitTemplate.weekIsOver(saved))) {
       await this.coVisitTemplate.syncSpeaker(saved, prevName);
+    }
+    // Another overseer's name on the same visit: the slot now carries it,
+    // and the journal entry and the card follow.
+    if (await this.journalFollows(saved)) {
+      await this.talkExchange.circuitVisitApplied(
+        tenantId,
+        mondayOf(saved.date),
+      );
     }
     if (told) await this.eventNotifications.announce(saved, 'changed');
     return this.present(saved, true);
@@ -481,6 +534,13 @@ export class SpecialEventsService {
     }
     if (!over && !(await this.coVisitTemplate.weekIsOver(event))) {
       await this.coVisitTemplate.revert(event);
+      if (event.type === CIRCUIT_OVERSEER_VISIT_TYPE) {
+        await this.talkExchange.circuitVisitRemoved(
+          tenantId,
+          mondayOf(event.date),
+          this.coVisitTemplate.displayName(event),
+        );
+      }
     }
     await this.auditLog.logEvent({
       tenantId,
@@ -501,6 +561,12 @@ export class SpecialEventsService {
     await this.specialEventsRepo.restore({ id, congregationId: tenantId });
     const event = await this.findOne(tenantId, id);
     const applied = await this.coVisitTemplate.apply(event);
+    if (await this.journalFollows(applied)) {
+      await this.talkExchange.circuitVisitApplied(
+        tenantId,
+        mondayOf(applied.date),
+      );
+    }
     if (found.deletedAt) {
       await this.eventNotifications.announce(applied, 'restored');
     }

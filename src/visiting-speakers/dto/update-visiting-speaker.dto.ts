@@ -1,6 +1,7 @@
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsInt,
   IsOptional,
   IsString,
@@ -44,4 +45,9 @@ export class UpdateVisitingSpeakerDto {
   @Min(1, { each: true })
   @Max(300, { each: true })
   talkNumbers?: number[];
+
+  /** Районный старейшина — списки для приглашения такую карточку пропускают. */
+  @IsOptional()
+  @IsBoolean()
+  circuitOverseer?: boolean;
 }
