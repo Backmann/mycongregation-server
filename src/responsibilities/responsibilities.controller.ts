@@ -11,7 +11,14 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { ResponsibilitiesService } from './responsibilities.service';
+import {
+  publicResponsibility,
+  ResponsibilitiesService,
+} from './responsibilities.service';
+import type {
+  PublicResponsibility,
+  ResponsibilityView,
+} from './responsibilities.service';
 import { AssignResponsibilityDto } from './dto/assign-responsibility.dto';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
@@ -28,9 +35,18 @@ export class ResponsibilitiesController {
     private readonly responsibilitiesService: ResponsibilitiesService,
   ) {}
 
+  /**
+   * Who carries which duty — for everybody; with «who appointed him and
+   * when» for the administrator, who keeps that record (see
+   * PublicResponsibility).
+   */
   @Get()
-  findAll(@TenantId() tenantId: string) {
-    return this.responsibilitiesService.findAll(tenantId);
+  async findAll(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ResponsibilityView[] | PublicResponsibility[]> {
+    const all = await this.responsibilitiesService.findAll(tenantId);
+    return user.role === UserRole.ADMIN ? all : all.map(publicResponsibility);
   }
 
   @Roles(UserRole.ADMIN)

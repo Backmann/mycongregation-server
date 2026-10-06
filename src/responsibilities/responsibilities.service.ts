@@ -19,6 +19,36 @@ export interface ResponsibilityView extends Responsibility {
 }
 
 /**
+ * A responsibility as EVERYBODY is told it: which duty, and who carries it.
+ *
+ * Who carries what is the congregation's knowledge — a publisher should be
+ * able to see whom to turn to (Lionel, 6 October 2026, all seventeen duties,
+ * assistants included). Who appointed him and when is the administrator's
+ * record, and until that day it rode along to every signed-in person: the
+ * app of every publisher downloads this list to learn its own rights.
+ *
+ * `userId` stays. The app finds «my own duties» by it, and so do the screens
+ * that look up who the service overseer is; it is a random id that names
+ * nobody. The record's own id, the congregation's, `assignedBy`,
+ * `assignedAt` and the appointer's name do not leave.
+ */
+export interface PublicResponsibility {
+  type: ResponsibilityType;
+  userId: string;
+  holderName: string | null;
+}
+
+export function publicResponsibility(
+  view: ResponsibilityView,
+): PublicResponsibility {
+  return {
+    type: view.type,
+    userId: view.userId,
+    holderName: view.holderName,
+  };
+}
+
+/**
  * Responsibilities held by ONE brother at a time — that is, all but one.
  *
  * There is one secretary, one service overseer, one brother who keeps the
