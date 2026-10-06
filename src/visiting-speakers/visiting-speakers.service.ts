@@ -1,4 +1,8 @@
 import {
+  readsDirectoryContacts,
+  speakerWithoutContacts,
+} from '../common/directory-privacy';
+import {
   BadRequestException,
   ForbiddenException,
   Injectable,
@@ -148,6 +152,30 @@ export class VisitingSpeakersService {
       }
     }
     return rows;
+  }
+
+  /**
+   * The list and the card as THIS person may read them: whole for those who
+   * keep the directory, without contacts and notes for anybody else. See
+   * common/directory-privacy.ts. The controller answers with these; findAll
+   * and findOne stay whole for the server's own use.
+   */
+  async listFor(
+    user: AuthenticatedUser,
+  ): Promise<Array<VisitingSpeaker & { circuitRole?: CircuitRole }>> {
+    const rows = await this.findAll(user.congregationId);
+    if (await readsDirectoryContacts(user, this.responsibilitiesRepo)) {
+      return rows;
+    }
+    return rows.map(speakerWithoutContacts);
+  }
+
+  async getFor(user: AuthenticatedUser, id: string): Promise<VisitingSpeaker> {
+    const row = await this.findOne(user.congregationId, id);
+    if (await readsDirectoryContacts(user, this.responsibilitiesRepo)) {
+      return row;
+    }
+    return speakerWithoutContacts(row);
   }
 
   async findOne(tenantId: string, id: string): Promise<VisitingSpeaker> {

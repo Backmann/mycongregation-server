@@ -29,8 +29,8 @@ export class TalkExchangeController {
   constructor(private readonly service: TalkExchangeService) {}
 
   @Get()
-  list(@TenantId() tenantId: string) {
-    return this.service.findAll(tenantId);
+  list(@CurrentUser() user: AuthenticatedUser) {
+    return this.service.listFor(user);
   }
 
   /** Special talks — date, theme, speaker — for the events screen. */
@@ -48,9 +48,10 @@ export class TalkExchangeController {
   @Post('rebuild-from-programme')
   rebuildFromProgramme(
     @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: RebuildFromProgrammeDto,
   ) {
-    return this.service.rebuildFromProgramme(tenantId, dto.from);
+    return this.service.rebuildFromProgramme(tenantId, dto.from, user);
   }
 
   /**
@@ -81,10 +82,10 @@ export class TalkExchangeController {
 
   @Get(':id')
   findOne(
-    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.service.findOne(tenantId, id);
+    return this.service.getFor(user, id);
   }
 
   @Post()

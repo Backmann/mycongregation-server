@@ -1,4 +1,8 @@
 import {
+  congregationWithoutContacts,
+  readsDirectoryContacts,
+} from '../common/directory-privacy';
+import {
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -73,6 +77,26 @@ export class ExternalCongregationsService {
         'Only the public talk coordinator may edit congregations',
       );
     }
+  }
+
+  /** As THIS person may read them — see common/directory-privacy.ts. */
+  async listFor(user: AuthenticatedUser): Promise<ExternalCongregation[]> {
+    const rows = await this.findAll(user.congregationId);
+    if (await readsDirectoryContacts(user, this.responsibilitiesRepo)) {
+      return rows;
+    }
+    return rows.map(congregationWithoutContacts);
+  }
+
+  async getFor(
+    user: AuthenticatedUser,
+    id: string,
+  ): Promise<ExternalCongregation> {
+    const row = await this.findOne(user.congregationId, id);
+    if (await readsDirectoryContacts(user, this.responsibilitiesRepo)) {
+      return row;
+    }
+    return congregationWithoutContacts(row);
   }
 
   findAll(tenantId: string): Promise<ExternalCongregation[]> {

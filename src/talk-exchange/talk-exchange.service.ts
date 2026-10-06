@@ -1,3 +1,7 @@
+import {
+  exchangeWithoutPrivate,
+  readsDirectoryContacts,
+} from '../common/directory-privacy';
 import { versionForWeek } from '../common/week-rules';
 import {
   BadRequestException,
@@ -187,6 +191,23 @@ export class TalkExchangeService {
         'Only the public talk coordinator or his assistant may edit the talk exchange',
       );
     }
+  }
+
+  /** As THIS person may read them — see common/directory-privacy.ts. */
+  async listFor(user: AuthenticatedUser): Promise<TalkExchange[]> {
+    const rows = await this.findAll(user.congregationId);
+    if (await readsDirectoryContacts(user, this.responsibilitiesRepo)) {
+      return rows;
+    }
+    return rows.map(exchangeWithoutPrivate);
+  }
+
+  async getFor(user: AuthenticatedUser, id: string): Promise<TalkExchange> {
+    const row = await this.findOne(user.congregationId, id);
+    if (await readsDirectoryContacts(user, this.responsibilitiesRepo)) {
+      return row;
+    }
+    return exchangeWithoutPrivate(row);
   }
 
   findAll(tenantId: string): Promise<TalkExchange[]> {
@@ -1107,7 +1128,11 @@ export class TalkExchangeService {
   async rebuildFromProgramme(
     tenantId: string,
     from: string,
+    user: AuthenticatedUser,
   ): Promise<{ weeks: number; created: number; linked: number }> {
+    // It writes the journal. It was the one way to write it that asked
+    // nobody who was asking (6 October): any signed-in member could run it.
+    await this.assertCanWrite(user);
     const slots = await this.assignmentRepo.find({
       where: {
         congregationId: tenantId,

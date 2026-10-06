@@ -27,16 +27,16 @@ export class ExternalCongregationsController {
   constructor(private readonly service: ExternalCongregationsService) {}
 
   @Get()
-  list(@TenantId() tenantId: string) {
-    return this.service.findAll(tenantId);
+  list(@CurrentUser() user: AuthenticatedUser) {
+    return this.service.listFor(user);
   }
 
   @Get(':id')
   findOne(
-    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.service.findOne(tenantId, id);
+    return this.service.getFor(user, id);
   }
 
   @Post()

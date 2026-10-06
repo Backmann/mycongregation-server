@@ -17,6 +17,13 @@ describe('TalkExchangeService.rebuildFromProgramme', () => {
    * отдавала два числа, потому что и служба считала числа; теперь она смотрит
    * на сами записи, и подделка обязана показывать то же самое.
    */
+  const admin = {
+    id: 'u-admin',
+    email: null,
+    role: 'admin',
+    congregationId: 'c1',
+    uiLanguage: 'ru',
+  } as never;
   type Row = { id: string; visitingSpeakerId?: string | null };
   const build = (
     weeks: string[],
@@ -48,7 +55,7 @@ describe('TalkExchangeService.rebuildFromProgramme', () => {
       '2026-03-09',
     ]);
 
-    const out = await service.rebuildFromProgramme('c1', '2026-03-01');
+    const out = await service.rebuildFromProgramme('c1', '2026-03-01', admin);
 
     expect(synced).toEqual(['2026-03-02', '2026-03-09']);
     expect(out.weeks).toBe(2);
@@ -61,7 +68,7 @@ describe('TalkExchangeService.rebuildFromProgramme', () => {
     );
 
     await expect(
-      service.rebuildFromProgramme('c1', '2026-03-01'),
+      service.rebuildFromProgramme('c1', '2026-03-01', admin),
     ).resolves.toMatchObject({ created: 5 });
   });
 
@@ -72,7 +79,7 @@ describe('TalkExchangeService.rebuildFromProgramme', () => {
     const { service } = build(['2026-03-02'], [rows, rows]);
 
     await expect(
-      service.rebuildFromProgramme('c1', '2026-03-01'),
+      service.rebuildFromProgramme('c1', '2026-03-01', admin),
     ).resolves.toMatchObject({ created: 0, linked: 0 });
   });
 
@@ -96,7 +103,7 @@ describe('TalkExchangeService.rebuildFromProgramme', () => {
     );
 
     await expect(
-      service.rebuildFromProgramme('c1', '2026-03-01'),
+      service.rebuildFromProgramme('c1', '2026-03-01', admin),
     ).resolves.toMatchObject({ created: 0, linked: 2 });
   });
 
@@ -109,14 +116,14 @@ describe('TalkExchangeService.rebuildFromProgramme', () => {
     );
 
     await expect(
-      service.rebuildFromProgramme('c1', '2026-03-01'),
+      service.rebuildFromProgramme('c1', '2026-03-01', admin),
     ).resolves.toMatchObject({ created: 1, linked: 0 });
   });
 
   it('asks only for weeks from the given date onwards', async () => {
     const { service } = build([]);
 
-    await service.rebuildFromProgramme('c1', '2026-03-01');
+    await service.rebuildFromProgramme('c1', '2026-03-01', admin);
 
     const where = (
       service as unknown as { assignmentRepo: { find: jest.Mock } }
@@ -124,5 +131,50 @@ describe('TalkExchangeService.rebuildFromProgramme', () => {
       weekStartDate: { value: string };
     };
     expect(where.weekStartDate.value).toBe('2026-03-01');
+  });
+
+  /**
+   * It writes the journal, and it was the one way to write it that asked
+   * nobody who was asking: any signed-in member could run it (6 October).
+   */
+  describe('who may run it', () => {
+    const member = (role: string) =>
+      ({
+        id: 'u1',
+        email: null,
+        role,
+        congregationId: 'c1',
+        uiLanguage: 'ru',
+      }) as never;
+    const withHolders = (held: number) => {
+      const { service, synced } = build(['2026-03-02']);
+      Object.assign(service, {
+        responsibilitiesRepo: { count: jest.fn(async () => held) },
+      });
+      return { service, synced };
+    };
+
+    it.each(['publisher', 'ministerial_servant', 'elder'])(
+      'refuses a %s who does not keep the journal, and touches nothing',
+      async (role) => {
+        const { service, synced } = withHolders(0);
+        await expect(
+          service.rebuildFromProgramme('c1', '2026-03-01', member(role)),
+        ).rejects.toThrow('public talk coordinator');
+        expect(synced).toEqual([]);
+      },
+    );
+
+    it('lets the public talk coordinator run it', async () => {
+      const { service, synced } = withHolders(1);
+      await service.rebuildFromProgramme('c1', '2026-03-01', member('elder'));
+      expect(synced).toEqual(['2026-03-02']);
+    });
+
+    it('lets an administrator run it', async () => {
+      const { service, synced } = withHolders(0);
+      await service.rebuildFromProgramme('c1', '2026-03-01', admin);
+      expect(synced).toEqual(['2026-03-02']);
+    });
   });
 });
