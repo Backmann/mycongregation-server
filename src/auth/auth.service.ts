@@ -1,3 +1,4 @@
+import { signInUser } from './session-user';
 import {
   BadRequestException,
   ConflictException,
@@ -709,17 +710,7 @@ export class AuthService {
     return {
       accessToken: this.signAccessToken(user),
       refreshToken: await this.signRefreshToken(user, familyId, client),
-      user: {
-        id: user.id,
-        email: user.email,
-        // The one thing a person needs to sign in again on another day, and
-        // until now the app had no way of telling them: it is not in the
-        // session, so no screen could show it.
-        loginName: user.loginName,
-        role: user.role,
-        congregationId: user.congregationId,
-        canViewPrivateData: user.canViewPrivateData,
-      },
+      user: signInUser(user),
     };
   }
 }

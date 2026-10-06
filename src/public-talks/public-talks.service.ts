@@ -8,6 +8,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, MoreThanOrEqual, Repository } from 'typeorm';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { Assignment } from '../entities/assignment.entity';
+import {
+  scheduledSpeakerCongregation,
+  scheduledSpeakerName,
+} from './scheduled-speaker';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
@@ -535,6 +539,12 @@ export class PublicTalksService {
         publicTalkId: In(talkIds),
         weekStartDate: MoreThanOrEqual(from),
       },
+      // The speaker is as often a link as a typed name: see
+      // scheduled-speaker.ts.
+      relations: {
+        publisher: true,
+        visitingSpeaker: { externalCongregation: true },
+      },
       order: { weekStartDate: 'ASC' },
     });
 
@@ -545,6 +555,10 @@ export class PublicTalksService {
         congregationId,
         publicTalkId: In(talkIds),
         date: MoreThanOrEqual(from),
+      },
+      relations: {
+        publisher: true,
+        visitingSpeaker: { externalCongregation: true },
       },
       order: { date: 'ASC' },
     });
@@ -561,8 +575,8 @@ export class PublicTalksService {
         a.weekStartDate,
         (weekendDow.get(a.weekStartDate) ?? 7) - 1,
       ),
-      speakerName: a.speakerName ?? null,
-      speakerCongregation: a.speakerCongregation ?? null,
+      speakerName: scheduledSpeakerName(a),
+      speakerCongregation: scheduledSpeakerCongregation(a),
       source: 'programme' as const,
     }));
 
@@ -570,11 +584,11 @@ export class PublicTalksService {
       publicTalkId: e.publicTalkId as string,
       weekStartDate: mondayOfISO(e.date),
       meetingDate: e.date,
-      // Outgoing: our own brother, so his name comes from the linked card and
-      // is not repeated here — the screen looks it up. Incoming: the visiting
-      // speaker's own name, as the coordinator typed it.
-      speakerName: e.speakerName ?? null,
-      speakerCongregation: e.speakerCongregation ?? null,
+      // Whoever gives it, by whichever way the log names him: typed, a
+      // visiting speaker's card, or our own brother — at home (incoming) or
+      // travelling (outgoing).
+      speakerName: scheduledSpeakerName(e),
+      speakerCongregation: scheduledSpeakerCongregation(e),
       source: (e.direction === 'outgoing' ? 'outgoing' : 'incoming') as
         | 'outgoing'
         | 'incoming',
