@@ -6,6 +6,7 @@ import { TalkExchange } from '../entities/talk-exchange.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { VisitingSpeakerDistinctPair } from '../entities/visiting-speaker-distinct-pair.entity';
 import { Responsibility } from '../entities/responsibility.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { VisitingSpeakersService } from './visiting-speakers.service';
 import { VisitingSpeakersController } from './visiting-speakers.controller';
 
@@ -17,6 +18,7 @@ import { VisitingSpeakersController } from './visiting-speakers.controller';
       TalkExchange,
       Assignment,
       VisitingSpeakerDistinctPair,
+      SpecialEvent,
     ]),
     AuditLogModule,
   ],

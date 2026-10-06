@@ -1234,6 +1234,81 @@ describe('TalkExchangeService', () => {
       expect(repo.restore).not.toHaveBeenCalled();
     });
 
+    /**
+     * На живых данных 6 октября: заместитель, который уже был, в журнале
+     * есть, а районного, который приедет в феврале, нет — у февраля ещё нет
+     * программы выходных, и зеркалу нечего читать.
+     */
+    describe('у недели ещё нет программы выходных', () => {
+      beforeEach(() => {
+        assignmentRepo.findOne.mockResolvedValue(null);
+      });
+
+      it('запись пишется по самому визиту', async () => {
+        await service.circuitVisitApplied(TENANT, WEEK);
+        expect(repo.save).toHaveBeenCalledWith(
+          expect.objectContaining({
+            direction: 'incoming',
+            date: '2026-10-18',
+            speakerName: 'Иван Тестов',
+            visitingSpeakerId: 'speaker-new',
+          }),
+        );
+        expect(speakerRepo.save).toHaveBeenCalledWith(
+          expect.objectContaining({ circuitOverseer: true }),
+        );
+      });
+
+      it('уже записанный визит второй раз не пишется', async () => {
+        speakerRepo.find.mockResolvedValue([
+          {
+            id: 'co-card',
+            firstName: 'Иван',
+            lastName: 'Тестов',
+            externalCongregationId: null,
+            circuitOverseer: true,
+          },
+        ]);
+        repo.find.mockResolvedValue([
+          {
+            id: 'e-1',
+            speakerName: 'Иван Тестов',
+            publisherId: null,
+            visitingSpeakerId: 'co-card',
+          },
+        ]);
+        await service.circuitVisitApplied(TENANT, WEEK);
+        expect(repo.save).not.toHaveBeenCalled();
+      });
+
+      it('сменили районного — та же запись получает новое имя и карточку', async () => {
+        eventRepo.find.mockResolvedValue([
+          visit({ coFirstName: 'Пётр', coLastName: 'Новый' }),
+        ]);
+        const entry = {
+          id: 'e-1',
+          speakerName: 'Иван Тестов',
+          publisherId: null,
+          visitingSpeakerId: 'previous-co',
+          note: 'обед у семьи',
+        };
+        repo.find.mockResolvedValue([entry]);
+        await service.circuitVisitApplied(TENANT, WEEK, 'Иван Тестов');
+        expect(entry.speakerName).toBe('Пётр Новый');
+        expect(entry.visitingSpeakerId).toBe('speaker-new');
+        expect(entry.note).toBe('обед у семьи');
+        expect(repo.save).toHaveBeenCalledTimes(1);
+      });
+
+      it('на эти выходные уже записан другой гость — его запись не трогается', async () => {
+        repo.find.mockResolvedValue([
+          { id: 'guest', speakerName: 'Пётр Гостев', publisherId: null },
+        ]);
+        await service.circuitVisitApplied(TENANT, WEEK);
+        expect(repo.save).not.toHaveBeenCalled();
+      });
+    });
+
     describe('визит убран', () => {
       it('запись уходит — даже с заметкой и гостеприимством', async () => {
         repo.find.mockResolvedValue([

@@ -11,6 +11,7 @@ import {
   SpeakerMergeRecord,
   VisitingSpeaker,
 } from '../entities/visiting-speaker.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { VisitingSpeakerDistinctPair } from '../entities/visiting-speaker-distinct-pair.entity';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { Assignment } from '../entities/assignment.entity';
@@ -49,6 +50,13 @@ function speakerLabel(row: VisitingSpeaker): string {
   return [row.firstName, row.lastName].filter(Boolean).join(' ');
 }
 
+export type CircuitRole = 'overseer' | 'substitute';
+
+/** A name as it is compared: case and stray spaces do not make two brothers. */
+function normalName(name: string): string {
+  return name.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
 @Injectable()
 export class VisitingSpeakersService {
   constructor(
@@ -65,6 +73,9 @@ export class VisitingSpeakersService {
     private readonly assignmentRepo: Repository<Assignment>,
     @InjectRepository(VisitingSpeakerDistinctPair)
     private readonly distinctRepo: Repository<VisitingSpeakerDistinctPair>,
+    /** The circuit visits: who came as the overseer, who as his substitute. */
+    @InjectRepository(SpecialEvent)
+    private readonly eventRepo: Repository<SpecialEvent>,
   ) {}
 
   private static readonly MANAGER_RESPONSIBILITIES = [
@@ -91,15 +102,52 @@ export class VisitingSpeakersService {
     }
   }
 
-  findAll(tenantId: string): Promise<VisitingSpeaker[]> {
-    return this.repo.find({
-      // Объединённые не показываются: их визиты уже переехали к оставшейся
-      // карточке, и предлагать их к выбору значило бы разводить двойников
-      // заново.
-      where: { congregationId: tenantId, mergedIntoId: IsNull() },
-      relations: { externalCongregation: true },
-      order: { lastName: 'ASC', firstName: 'ASC' },
-    });
+  async findAll(
+    tenantId: string,
+  ): Promise<Array<VisitingSpeaker & { circuitRole?: CircuitRole }>> {
+    const rows: Array<VisitingSpeaker & { circuitRole?: CircuitRole }> =
+      await this.repo.find({
+        // Объединённые не показываются: их визиты уже переехали к оставшейся
+        // карточке, и предлагать их к выбору значило бы разводить двойников
+        // заново.
+        where: { congregationId: tenantId, mergedIntoId: IsNull() },
+        relations: { externalCongregation: true },
+        order: { lastName: 'ASC', firstName: 'ASC' },
+      });
+    /**
+     * Кем он приезжал: районным или его заместителем.
+     *
+     * Пометка на карточке говорит только «приезжает с визитом районного», а
+     * подпись «Районный старейшина» под именем заместителя — неправда (на
+     * живых данных 6 октября так и вышло). Кем он был, знает визит; берётся
+     * самый поздний визит с этим именем, потому что заместитель со временем
+     * может стать районным, а назад — нет повода.
+     */
+    if (rows.some((r) => r.circuitOverseer)) {
+      const visits = await this.eventRepo.find({
+        where: { congregationId: tenantId, type: 'circuit_overseer_visit' },
+        order: { date: 'ASC' },
+      });
+      const roleByName = new Map<string, CircuitRole>();
+      for (const v of visits) {
+        const name = normalName(
+          [v.coFirstName, v.coLastName].filter(Boolean).join(' '),
+        );
+        if (name === '') continue;
+        roleByName.set(
+          name,
+          v.coRole === 'substitute' ? 'substitute' : 'overseer',
+        );
+      }
+      for (const r of rows) {
+        if (!r.circuitOverseer) continue;
+        r.circuitRole =
+          roleByName.get(
+            normalName([r.firstName, r.lastName].filter(Boolean).join(' ')),
+          ) ?? 'overseer';
+      }
+    }
+    return rows;
   }
 
   async findOne(tenantId: string, id: string): Promise<VisitingSpeaker> {

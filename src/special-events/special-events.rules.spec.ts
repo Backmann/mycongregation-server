@@ -245,9 +245,12 @@ describe('the talk journal follows a circuit visit', () => {
   it('another name on the same visit reaches the journal', async () => {
     const { svc, journal, template } = build({});
     await svc.update(TENANT, 'e1', { coFirstName: 'Пётр' });
+    // With the name the visit carried before: where the week has no
+    // programme yet, the entry is found by it.
     expect(journal.circuitVisitApplied).toHaveBeenCalledWith(
       TENANT,
       '2026-10-12',
+      'Иван Тестов',
     );
     // After the slot has been given the new name, not before.
     expect(template.syncSpeaker.mock.invocationCallOrder[0]).toBeLessThan(

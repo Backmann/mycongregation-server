@@ -7,6 +7,7 @@ import { VisitingSpeakersService } from './visiting-speakers.service';
 import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { Assignment } from '../entities/assignment.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { VisitingSpeakerDistinctPair } from '../entities/visiting-speaker-distinct-pair.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -37,6 +38,7 @@ describe('VisitingSpeakersService', () => {
   };
   let auditLog: { logUpdate: jest.Mock };
   let distinctRepo: { find: jest.Mock; findOne: jest.Mock; save: jest.Mock };
+  let eventRepo: { find: jest.Mock };
   let responsibilityRepo: { count: jest.Mock };
   // Слияние переносит историю: подделки журнала речей и программы нужны
   // тестам, чтобы проверить, что она действительно переехала.
@@ -83,6 +85,7 @@ describe('VisitingSpeakersService', () => {
       find: jest.fn().mockResolvedValue([{ id: 'as-1' }]),
     };
 
+    eventRepo = { find: jest.fn().mockResolvedValue([]) };
     const moduleRef = await Test.createTestingModule({
       providers: [
         VisitingSpeakersService,
@@ -109,6 +112,7 @@ describe('VisitingSpeakersService', () => {
           provide: getRepositoryToken(VisitingSpeakerDistinctPair),
           useValue: distinctRepo,
         },
+        { provide: getRepositoryToken(SpecialEvent), useValue: eventRepo },
       ],
     }).compile();
 
@@ -136,6 +140,63 @@ describe('VisitingSpeakersService', () => {
       service.create(TENANT, { firstName: 'Nope' }, user()),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  describe('кем он приезжал', () => {
+    const card = (over: Record<string, unknown>) => ({
+      id: 'c1',
+      firstName: 'Иван',
+      lastName: 'Тестов',
+      circuitOverseer: true,
+      ...over,
+    });
+    const visit = (over: Record<string, unknown>) => ({
+      date: '2026-08-04',
+      coFirstName: 'Иван',
+      coLastName: 'Тестов',
+      coRole: 'overseer',
+      ...over,
+    });
+
+    it('заместитель подписан заместителем', async () => {
+      repo.find.mockResolvedValue([card({})]);
+      eventRepo.find.mockResolvedValue([visit({ coRole: 'substitute' })]);
+      const [row] = await service.findAll(TENANT);
+      expect(row.circuitRole).toBe('substitute');
+    });
+
+    it('решает самый поздний визит: заместитель стал районным', async () => {
+      repo.find.mockResolvedValue([card({})]);
+      eventRepo.find.mockResolvedValue([
+        visit({ date: '2026-02-03', coRole: 'substitute' }),
+        visit({ date: '2026-08-04', coRole: 'overseer' }),
+      ]);
+      const [row] = await service.findAll(TENANT);
+      expect(row.circuitRole).toBe('overseer');
+    });
+
+    it('имя сравнивается без регистра и лишних пробелов', async () => {
+      repo.find.mockResolvedValue([
+        card({ firstName: ' иван', lastName: 'ТЕСТОВ ' }),
+      ]);
+      eventRepo.find.mockResolvedValue([visit({ coRole: 'substitute' })]);
+      const [row] = await service.findAll(TENANT);
+      expect(row.circuitRole).toBe('substitute');
+    });
+
+    it('без визита с этим именем — районный: пометку поставили руками', async () => {
+      repo.find.mockResolvedValue([card({})]);
+      eventRepo.find.mockResolvedValue([visit({ coFirstName: 'Пётр' })]);
+      const [row] = await service.findAll(TENANT);
+      expect(row.circuitRole).toBe('overseer');
+    });
+
+    it('обычной карточке роль не приписывается, и визиты ради неё не читаются', async () => {
+      repo.find.mockResolvedValue([card({ circuitOverseer: false })]);
+      const [row] = await service.findAll(TENANT);
+      expect(row.circuitRole).toBeUndefined();
+      expect(eventRepo.find).not.toHaveBeenCalled();
+    });
   });
 
   it('lists speakers with their home congregation', async () => {

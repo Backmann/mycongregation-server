@@ -479,6 +479,7 @@ export class SpecialEventsService {
       await this.talkExchange.circuitVisitApplied(
         tenantId,
         mondayOf(saved.date),
+        prevName,
       );
     }
     if (told) await this.eventNotifications.announce(saved, 'changed');

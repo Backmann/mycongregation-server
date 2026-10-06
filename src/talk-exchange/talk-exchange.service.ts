@@ -538,6 +538,8 @@ export class TalkExchangeService {
   async circuitVisitApplied(
     tenantId: string,
     weekStartDate: string,
+    /** The name the visit carried before this change, when it was another. */
+    previousName: string | null = null,
   ): Promise<void> {
     const name = await this.overseerOfWeek(tenantId, weekStartDate);
     if (!name) return;
@@ -570,7 +572,66 @@ export class TalkExchangeService {
         await this.repo.restore(gone.id);
       }
     }
-    await this.syncProgramToJournal(tenantId, weekStartDate);
+    /**
+     * A visit whose weekend has no programme yet.
+     *
+     * The mirror reads the talk slot, and a visit entered months ahead has no
+     * slot to read — the Watchtower for that week is not out. So the overseer
+     * who comes in February was nowhere in the journal in October, while the
+     * substitute who had already been was (live data, 6 October). The visit
+     * itself is enough to know who is coming: the entry is written from it,
+     * and the programme, when it is loaded, finds the entry already there.
+     */
+    const slot = await this.assignmentRepo.findOne({
+      where: {
+        congregationId: tenantId,
+        weekStartDate,
+        partKey: PUBLIC_TALK_PART_KEY,
+      },
+    });
+    if (slot) {
+      await this.syncProgramToJournal(tenantId, weekStartDate);
+      return;
+    }
+    const cardId = await this.overseerCard(tenantId, name);
+    const entries = await this.repo.find({
+      where: {
+        congregationId: tenantId,
+        direction: TalkExchangeDirection.INCOMING,
+        date: Between(weekStartDate, addDaysISO(weekStartDate, 6)),
+        status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
+      },
+    });
+    const isNamed = (e: TalkExchange, n: string | null) =>
+      !!n &&
+      !e.publisherId &&
+      normalName(e.speakerName ?? '') === normalName(n);
+    const mine =
+      entries.find((e) => isNamed(e, name)) ??
+      entries.find((e) => isNamed(e, previousName));
+    if (mine) {
+      if (mine.speakerName === name && mine.visitingSpeakerId === cardId) {
+        return;
+      }
+      mine.speakerName = name;
+      mine.speakerCongregation = null;
+      mine.visitingSpeakerId = cardId;
+      await this.repo.save(mine);
+      return;
+    }
+    // Somebody else is already entered for that weekend: the coordinator's
+    // arrangement stands until the programme says otherwise.
+    if (entries.length > 0) return;
+    await this.repo.save(
+      this.repo.create({
+        congregationId: tenantId,
+        direction: TalkExchangeDirection.INCOMING,
+        date: await this.weekendDateFor(tenantId, weekStartDate),
+        visitingSpeakerId: cardId,
+        speakerName: name,
+        speakerCongregation: null,
+      }),
+    );
   }
 
   /**
