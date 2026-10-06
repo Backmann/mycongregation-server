@@ -471,6 +471,13 @@ export class SpecialEventsService {
       return this.present(applied, true);
     }
     if (!(await this.coVisitTemplate.weekIsOver(saved))) {
+      // Saving a visit offers its week the template again. A meeting that has
+      // it is not touched a second time; one loaded since gets it; and a slot
+      // left from before the overseer had it to himself is put right — so
+      // «open the visit and save» is how a week is mended, by hand, today.
+      if (saved.type === CIRCUIT_OVERSEER_VISIT_TYPE) {
+        await this.coVisitTemplate.apply(saved);
+      }
       await this.coVisitTemplate.syncSpeaker(saved, prevName);
     }
     // Another overseer's name on the same visit: the slot now carries it,

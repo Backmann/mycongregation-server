@@ -130,12 +130,39 @@ describe('a circuit visit that moves', () => {
     expect(event.coRevertData).toBeNull();
   });
 
-  it('leaves the programme alone when only the days inside the week change', async () => {
+  it('does not take the week back when only the days inside it change', async () => {
     const { svc, template } = build({});
     await svc.update(TENANT, 'e1', { endDate: '2026-10-17' });
     expect(template.revert).not.toHaveBeenCalled();
-    expect(template.apply).not.toHaveBeenCalled();
     expect(template.syncSpeaker).toHaveBeenCalled();
+  });
+
+  /**
+   * 6 October: a slot left from before the overseer had it to himself — one
+   * of ours still beneath him — is put right by the template, and the template
+   * ran only when a meeting was loaded. Saving the visit now offers it again;
+   * a meeting that already has it is not touched a second time.
+   */
+  it('offers the template to the week again on every save of a coming visit', async () => {
+    const { svc, template } = build({});
+    await svc.update(TENANT, 'e1', { note: 'уточнение' });
+    expect(template.apply).toHaveBeenCalledTimes(1);
+    expect(template.revert).not.toHaveBeenCalled();
+    expect(template.apply.mock.invocationCallOrder[0]).toBeLessThan(
+      template.syncSpeaker.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('does not offer it for a visit that is over, nor for another kind of event', async () => {
+    const over = build({
+      event: row({ date: '2026-09-08', endDate: '2026-09-13' }),
+    });
+    await over.svc.update(TENANT, 'e1', { note: 'уточнение' });
+    expect(over.template.apply).not.toHaveBeenCalled();
+
+    const other = build({ event: row({ type: 'other', coRevertData: null }) });
+    await other.svc.update(TENANT, 'e1', { note: 'уточнение' });
+    expect(other.template.apply).not.toHaveBeenCalled();
   });
 
   it('takes the programme back when the event stops being a visit', async () => {

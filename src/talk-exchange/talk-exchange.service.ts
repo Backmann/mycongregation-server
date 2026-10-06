@@ -543,11 +543,13 @@ export class TalkExchangeService {
   ): Promise<void> {
     const name = await this.overseerOfWeek(tenantId, weekStartDate);
     if (!name) return;
-    // A visit taken away and put back: its entry comes back with whatever
-    // the coordinator had added to it, rather than a bare new one. The week
-    // may meanwhile hold the entry of one of ours — he was assigned beneath
-    // the visit and became the speaker when it left. That entry is the
-    // mirror's own and gives way, unless somebody has written into it.
+    const slot = await this.assignmentRepo.findOne({
+      where: {
+        congregationId: tenantId,
+        weekStartDate,
+        partKey: PUBLIC_TALK_PART_KEY,
+      },
+    });
     const live = await this.repo.find({
       where: {
         congregationId: tenantId,
@@ -556,21 +558,39 @@ export class TalkExchangeService {
         status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
       },
     });
-    const mirrorsOwn =
-      live.length === 1 &&
-      !!live[0].publisherId &&
-      !live[0].note &&
-      !live[0].hospitalityPublisherId;
-    if (live.length === 0 || mirrorsOwn) {
+    const isHis = (e: TalkExchange) =>
+      !e.publisherId &&
+      [name, previousName].some(
+        (n) => !!n && normalName(e.speakerName ?? '') === normalName(n),
+      );
+    /**
+     * Whoever was to speak that weekend steps aside WHOLE.
+     *
+     * The mirror keeps one entry a week and used to rewrite it: a visiting
+     * speaker's entry became the overseer's, and the coordinator's note about
+     * the guest — «обед у семьи» — then stood on the overseer's visit. Taking
+     * the visit away removed that entry, note and all, and the guest came back
+     * with a bare new one (stand, 6 October). Now his entry is set aside
+     * untouched and returns untouched; the overseer gets an entry of his own.
+     *
+     * Only once the weekend has a programme: until then the slot has not been
+     * given to the overseer, and the coordinator's arrangement stands.
+     */
+    if (slot) {
+      for (const e of live) {
+        if (!isHis(e)) await this.repo.softDelete(e.id);
+      }
+    }
+    // A visit taken away and put back: its entry comes back with whatever
+    // the coordinator had added to it, rather than a bare new one.
+    const othersStand = !slot && live.some((e) => !isHis(e));
+    if (!live.some(isHis) && !othersStand) {
       const gone = (
         await this.overseerEntries(tenantId, weekStartDate, name, true)
       )
         .filter((r) => !!r.deletedAt)
         .sort((a, b) => +b.deletedAt! - +a.deletedAt!)[0];
-      if (gone) {
-        if (mirrorsOwn) await this.repo.softDelete(live[0].id);
-        await this.repo.restore(gone.id);
-      }
+      if (gone) await this.repo.restore(gone.id);
     }
     /**
      * A visit whose weekend has no programme yet.
@@ -582,13 +602,6 @@ export class TalkExchangeService {
      * itself is enough to know who is coming: the entry is written from it,
      * and the programme, when it is loaded, finds the entry already there.
      */
-    const slot = await this.assignmentRepo.findOne({
-      where: {
-        congregationId: tenantId,
-        weekStartDate,
-        partKey: PUBLIC_TALK_PART_KEY,
-      },
-    });
     if (slot) {
       await this.syncProgramToJournal(tenantId, weekStartDate);
       return;
@@ -677,9 +690,50 @@ export class TalkExchangeService {
       : []) {
       await this.repo.softDelete(e.id);
     }
-    // The week is itself again: if one of ours was assigned under the visit,
-    // he is the speaker now and the journal says so.
+    // The week is itself again: whoever was to speak before the visit is the
+    // speaker now, and his entry comes back as it was set aside.
+    await this.returnEntry(tenantId, weekStartDate);
     await this.syncProgramToJournal(tenantId, weekStartDate);
+  }
+
+  /**
+   * Brings back the journal entry of whoever the talk slot holds again after
+   * a visit has left the week — the entry set aside when the visit came, with
+   * the coordinator's note and the host family still on it. Without one, the
+   * mirror writes a new entry from the slot, as for any week.
+   */
+  private async returnEntry(
+    tenantId: string,
+    weekStartDate: string,
+  ): Promise<void> {
+    const slot = await this.assignmentRepo.findOne({
+      where: {
+        congregationId: tenantId,
+        weekStartDate,
+        partKey: PUBLIC_TALK_PART_KEY,
+      },
+    });
+    if (!slot) return;
+    const name = normalName(slot.speakerName ?? '');
+    if (!slot.publisherId && name === '') return;
+    const all = await this.repo.find({
+      where: {
+        congregationId: tenantId,
+        direction: TalkExchangeDirection.INCOMING,
+        date: Between(weekStartDate, addDaysISO(weekStartDate, 6)),
+        status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
+      },
+      withDeleted: true,
+    });
+    if (all.some((e) => !e.deletedAt)) return;
+    const his = all
+      .filter((e) =>
+        slot.publisherId
+          ? e.publisherId === slot.publisherId
+          : !e.publisherId && normalName(e.speakerName ?? '') === name,
+      )
+      .sort((a, b) => +b.deletedAt! - +a.deletedAt!)[0];
+    if (his) await this.repo.restore(his.id);
   }
 
   /**
@@ -717,6 +771,7 @@ export class TalkExchangeService {
       }
     }
     // The week left behind is itself again — see circuitVisitRemoved.
+    await this.returnEntry(tenantId, fromWeek);
     await this.syncProgramToJournal(tenantId, fromWeek);
   }
 

@@ -9,6 +9,13 @@ import { CongregationClock } from '../common/congregation-clock.service';
 import { mondayOf } from '../common/week';
 import { addDaysISO } from '../common/week-rules';
 import { HeldByVisit, heldFromOps, nothingHeld } from './co-visit-held';
+import {
+  SlotSpeaker,
+  leftBeneath,
+  overseerInSlot,
+  restoreSpeaker,
+  speakerOf,
+} from './co-visit-speaker';
 
 /** The special-event `type` that drives the circuit-overseer program template. */
 export const CIRCUIT_OVERSEER_VISIT_TYPE = 'circuit_overseer_visit';
@@ -55,6 +62,11 @@ type RevertOp =
     }
   | { op: 'added'; id: string }
   | { op: 'deleted'; id: string }
+  /**
+   * The speaker the talk slot held before the overseer — taken off whole and
+   * put back whole. See co-visit-speaker.ts.
+   */
+  | { op: 'speaker'; id: string; prev: Partial<SlotSpeaker> }
   /**
    * Not a change: a note that this meeting of the week has had the template.
    *
@@ -312,6 +324,18 @@ export class CoVisitTemplateService {
       const weekend = await loadMeeting(EventType.WEEKEND);
       if (applied.has('weekend')) {
         await this.foldStrays(em, weekend, WEEKEND_HIDE_KEYS, ops, hidePart);
+        // A visit laid on the week before the slot was cleared for the
+        // overseer: one of ours may still stand beneath him. Taken off now.
+        const talk = weekend.find((a) => a.partKey === PUBLIC_TALK_KEY);
+        const beneath = talk ? leftBeneath(speakerOf(talk), speaker) : null;
+        if (talk && beneath) {
+          ops.push({ op: 'speaker', id: talk.id, prev: beneath });
+          talk.publisherId = null;
+          talk.publicTalkId = null;
+          talk.specialTalk = false;
+          talk.partTitle = null;
+          await aRepo.save(talk);
+        }
       } else if (weekend.length > 0) {
         const byKey = new Map(weekend.map((a) => [a.partKey, a]));
         const wtConductor = byKey.get(WT_CONDUCTOR_KEY);
@@ -336,7 +360,16 @@ export class CoVisitTemplateService {
         }
         const publicTalk = byKey.get(PUBLIC_TALK_KEY);
         if (publicTalk && speaker) {
-          await setField(publicTalk, 'speakerName', speaker);
+          // The overseer gives the talk, and nobody else is left in the slot
+          // beneath him: whoever was there is remembered and comes back with
+          // the week.
+          ops.push({
+            op: 'speaker',
+            id: publicTalk.id,
+            prev: speakerOf(publicTalk),
+          });
+          Object.assign(publicTalk, overseerInSlot(speaker));
+          await aRepo.save(publicTalk);
         }
         const concludingTalk = aRepo.create({
           congregationId: event.congregationId,
@@ -511,7 +544,9 @@ export class CoVisitTemplateService {
         }
         const a = await aRepo.findOne({ where: { id: op.id } });
         if (!a) continue;
-        if (op.op === 'status') {
+        if (op.op === 'speaker') {
+          restoreSpeaker(a, op.prev);
+        } else if (op.op === 'status') {
           a.status = op.prev;
         } else if (op.field === 'partDurationMin') {
           a.partDurationMin = op.prev as number | null;
