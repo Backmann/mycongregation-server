@@ -37,6 +37,56 @@ export const PRIVATE_PUBLISHER_FIELDS = [
   // themselves should not travel.
   'contactsConfirmedAt',
   'userId',
+  // Found on 6 October by asking the server with a publisher's own sign-in,
+  // field by field. None of these is drawn on any screen a publisher has —
+  // and that was the whole protection: they travelled with every roster row
+  // and with the two leaders of every group.
+  //
+  // Anointed or of the other sheep: a matter between a person and God, kept
+  // for the record card (S-21) and for nobody's curiosity.
+  'spiritualStatus',
+  // Who confirmed, who edited, who overrode a status and when — bookkeeping
+  // about the elders' own work, the same kind as contactsConfirmedAt above.
+  'contactsConfirmedByUserId',
+  'lastEditedById',
+  'statusOverriddenById',
+  'statusOverriddenAt',
+  // «Was restored on…» says a person had been removed. «Was anonymised»
+  // says they asked for their data to be erased.
+  'restoredAt',
+  'anonymizedAt',
+] as const;
+
+/**
+ * What a fellow publisher DOES get: names, the group, and what the schedules
+ * are made of. Written out so that the list above is not the only one — a
+ * field added to the publisher's card tomorrow belongs to neither, and
+ * publisher-privacy.spec.ts fails until somebody has decided which. Before
+ * this, a new field was public by default, and that is how the seven above
+ * came to travel.
+ */
+export const ROSTER_PUBLISHER_FIELDS = [
+  'id',
+  'congregationId',
+  'serviceGroupId',
+  'firstName',
+  'middleName',
+  'lastName',
+  'displayName',
+  'gender',
+  'isActive',
+  'appointment',
+  'pioneerType',
+  'capabilities',
+  // Regular, irregular, inactive. The inactive are left out of the roster
+  // altogether (publicRosterPage); the irregular stay, by the owner's
+  // decision of 15 September.
+  'status',
+  'statusManuallyOverridden',
+  'publicTalkNumbers',
+  'createdAt',
+  'updatedAt',
+  'deletedAt',
 ] as const;
 
 /**

@@ -170,8 +170,29 @@ export class ServiceGroupsService {
     );
     return {
       ...page,
-      data: page.data.map((g) => ({ ...g, mine: g.id === ownGroupId })),
+      data: page.data.map((g) => ({
+        ...this.notesFor(g, privileged, ownGroupId),
+        mine: g.id === ownGroupId,
+      })),
     };
+  }
+
+  /**
+   * A group's notes go to the elders and to the group itself.
+   *
+   * They were sent to every signed-in member for every group (6 October) —
+   * the app draws them only on a group's own card, which an outsider cannot
+   * open, and that was the whole protection. What is written about one group
+   * is not for the members of another. One's own group keeps them: its card
+   * shows them today, and nothing a person already reads is taken away here.
+   */
+  private notesFor<T extends { id: string; notes?: string | null }>(
+    group: T,
+    privileged: boolean,
+    ownGroupId: string | null,
+  ): T {
+    if (privileged || group.id === ownGroupId) return group;
+    return { ...group, notes: null };
   }
 
   async findOneFor(
@@ -183,7 +204,13 @@ export class ServiceGroupsService {
       tenantId,
       user,
     );
-    return this.findOne(tenantId, id, privileged);
+    const group = await this.findOne(tenantId, id, privileged);
+    if (privileged) return group;
+    const ownGroupId = await this.publishersService.findOwnServiceGroupId(
+      tenantId,
+      user.id,
+    );
+    return this.notesFor(group, privileged, ownGroupId);
   }
 
   async findOne(

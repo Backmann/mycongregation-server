@@ -1,7 +1,81 @@
+import { join } from 'path';
+import { DataSource } from 'typeorm';
+import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
 import {
   redactPrivateFields,
   PRIVATE_PUBLISHER_FIELDS,
+  publicRosterView,
+  ROSTER_PUBLISHER_FIELDS,
 } from './publisher-privacy';
+
+/**
+ * Every field of a publisher's card is either private or part of the roster —
+ * decided, not left to chance.
+ *
+ * The private list was a list of exceptions: whatever nobody thought to put on
+ * it went to every signed-in member. Seven fields travelled that way until
+ * 6 October, «anointed or of the other sheep» among them. Now a field that is
+ * on neither list fails here, on the day it is added.
+ */
+describe('a publisher’s card: every field has a side', () => {
+  let fields: string[];
+
+  beforeAll(async () => {
+    const db = new DataSource({
+      type: 'postgres',
+      entities: [join(__dirname, '..', 'entities', '*.entity.{ts,js}')],
+      namingStrategy: new SnakeNamingStrategy(),
+    });
+    // Reads the decorators; opens no connection.
+    await (
+      db as unknown as { buildMetadatas(): Promise<void> }
+    ).buildMetadatas();
+    const card = db.entityMetadatas.find((m) => m.tableName === 'publishers');
+    fields = (card?.columns ?? []).map((c) => c.propertyName);
+  });
+
+  it('sees the card at all', () => {
+    expect(fields.length).toBeGreaterThan(30);
+    expect(fields).toContain('mobilePhone');
+  });
+
+  it('has no field that nobody decided about', () => {
+    const decided = new Set<string>([
+      ...PRIVATE_PUBLISHER_FIELDS,
+      ...ROSTER_PUBLISHER_FIELDS,
+    ]);
+    expect(fields.filter((f) => !decided.has(f))).toEqual([]);
+  });
+
+  it('has no decision about a field that is gone, and none made twice', () => {
+    const all = [...PRIVATE_PUBLISHER_FIELDS, ...ROSTER_PUBLISHER_FIELDS];
+    expect(all.filter((f) => !fields.includes(f))).toEqual([]);
+    expect(all.filter((f, i) => all.indexOf(f) !== i)).toEqual([]);
+  });
+
+  it('sends a fellow publisher the roster fields and nothing else', () => {
+    const card: Record<string, unknown> = {};
+    for (const f of fields) card[f] = `значение-${f}`;
+    const sent = Object.keys(publicRosterView(card)).sort();
+    // pioneerActive is worked out for the roster from two private dates.
+    expect(sent).toEqual([...ROSTER_PUBLISHER_FIELDS, 'pioneerActive'].sort());
+  });
+
+  it('keeps to itself what was found travelling on 6 October', () => {
+    const out = publicRosterView({
+      id: 'p1',
+      firstName: 'Иван',
+      spiritualStatus: 'anointed',
+      contactsConfirmedByUserId: 'u9',
+      lastEditedById: 'u9',
+      statusOverriddenById: 'u9',
+      statusOverriddenAt: '2026-01-01',
+      restoredAt: '2026-01-01',
+      anonymizedAt: null,
+    });
+    expect(out).toEqual({ id: 'p1', firstName: 'Иван', pioneerActive: false });
+  });
+});
 
 describe('redactPrivateFields', () => {
   const full = {
