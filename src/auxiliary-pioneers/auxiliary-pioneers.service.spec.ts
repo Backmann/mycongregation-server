@@ -16,6 +16,7 @@ import { PublisherAppointment } from '../common/enums/publisher-appointment.enum
 import { setNow, restoreNow } from '../common/testing/set-now';
 import { clockStub } from '../common/testing/clock-stub';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { IsNull } from 'typeorm';
 
 const CONG = 'cong-1';
 const admin = { id: 'u-admin', role: UserRole.ADMIN } as never;
@@ -184,6 +185,117 @@ describe('AuxiliaryPioneersService', () => {
       repo.find.mockResolvedValue([]);
       const res = await service.listForMonth(CONG, '2026-07-01');
       expect(res.hourGoal).toBe(30);
+    });
+  });
+
+  describe('servingNow — what everybody is told', () => {
+    afterEach(() => restoreNow());
+
+    const period = (
+      publisherId: string,
+      startMonth: string,
+      endMonth: string | null,
+      untilCancelled = false,
+    ) => ({
+      id: `r-${publisherId}-${startMonth}`,
+      publisherId,
+      startMonth,
+      endMonth,
+      untilCancelled,
+      note: 'private note',
+    });
+
+    it('names those serving in the congregation’s current month, and nobody else', async () => {
+      setNow(Date.parse('2026-10-06T10:00:00Z'));
+      repo.find.mockResolvedValue([
+        period('p-now', '2026-10-01', '2026-10-01'),
+        period('p-open', '2026-03-01', null, true),
+        period('p-past', '2026-09-01', '2026-09-01'),
+        period('p-next', '2026-11-01', '2026-11-01'),
+      ]);
+      publisherRepo.find.mockImplementation(async ({ where }) =>
+        [
+          { id: 'p-now', displayName: 'Фукс Зигрид' },
+          { id: 'p-open', displayName: 'Альт Ида' },
+          { id: 'p-past', displayName: 'Краус Вернер' },
+          { id: 'p-next', displayName: 'Розен Дора' },
+        ].filter((p) => where.id.value.includes(p.id)),
+      );
+      const res = await service.servingNow(CONG);
+      expect(res).toEqual({
+        month: '2026-10-01',
+        people: [
+          { publisherId: 'p-open', name: 'Альт Ида' },
+          { publisherId: 'p-now', name: 'Фукс Зигрид' },
+        ],
+      });
+    });
+
+    it('gives a name and an id — no hours, no terms, no note', async () => {
+      setNow(Date.parse('2026-10-06T10:00:00Z'));
+      repo.find.mockResolvedValue([period('p-open', '2026-03-01', null, true)]);
+      publisherRepo.find.mockResolvedValue([
+        { id: 'p-open', displayName: 'Альт Ида' },
+      ]);
+      const res = await service.servingNow(CONG);
+      expect(Object.keys(res).sort()).toEqual(['month', 'people']);
+      expect(Object.keys(res.people[0]).sort()).toEqual([
+        'name',
+        'publisherId',
+      ]);
+      expect(JSON.stringify(res)).not.toMatch(
+        /2026-03|private note|hour|until/i,
+      );
+    });
+
+    it('names a person once, whatever the number of periods', async () => {
+      setNow(Date.parse('2026-10-06T10:00:00Z'));
+      repo.find.mockResolvedValue([
+        period('p-1', '2026-10-01', '2026-10-01'),
+        period('p-1', '2026-08-01', null, true),
+      ]);
+      publisherRepo.find.mockResolvedValue([
+        { id: 'p-1', displayName: 'Эбер Клара' },
+      ]);
+      const res = await service.servingNow(CONG);
+      expect(res.people).toHaveLength(1);
+      expect(publisherRepo.find.mock.calls[0][0].where.id.value).toEqual([
+        'p-1',
+      ]);
+    });
+
+    it('asks only for cards that have not been removed, in this congregation', async () => {
+      setNow(Date.parse('2026-10-06T10:00:00Z'));
+      repo.find.mockResolvedValue([period('p-1', '2026-10-01', '2026-10-01')]);
+      await service.servingNow(CONG);
+      const { where, select } = publisherRepo.find.mock.calls[0][0];
+      expect(where.congregationId).toBe(CONG);
+      expect(where.removedAt).toEqual(IsNull());
+      expect(select).toEqual(['id', 'displayName']);
+    });
+
+    it('the month is the congregation’s, not the server’s: 23:30 UTC on the 31st is already November in Berlin', async () => {
+      setNow(Date.parse('2026-10-31T23:30:00Z'));
+      repo.find.mockResolvedValue([
+        period('p-oct', '2026-10-01', '2026-10-01'),
+        period('p-nov', '2026-11-01', '2026-11-01'),
+      ]);
+      publisherRepo.find.mockImplementation(async ({ where }) =>
+        where.id.value.map((id: string) => ({ id, displayName: id })),
+      );
+      const res = await service.servingNow(CONG);
+      expect(res.month).toBe('2026-11-01');
+      expect(res.people.map((p) => p.publisherId)).toEqual(['p-nov']);
+    });
+
+    it('nobody serving: an empty list, and no question about publishers', async () => {
+      setNow(Date.parse('2026-10-06T10:00:00Z'));
+      repo.find.mockResolvedValue([
+        period('p-past', '2026-09-01', '2026-09-01'),
+      ]);
+      const res = await service.servingNow(CONG);
+      expect(res.people).toEqual([]);
+      expect(publisherRepo.find).not.toHaveBeenCalled();
     });
   });
 

@@ -58,6 +58,23 @@ export interface AuxPioneerJournalRow {
   currentPioneerType: PioneerType;
 }
 
+/**
+ * Who serves as an auxiliary pioneer THIS month — for everybody.
+ *
+ * Names, and nothing else: no hours, no terms («до отмены · с марта»), no
+ * other month, no journal. A publisher is told who serves beside her now so
+ * that she can go out with them (Lionel, 6 October 2026); the rest is the
+ * working list of those who keep it.
+ *
+ * `publisherId` is there because two screens open to everybody — a group's
+ * card and the roster's filter — mark these very people; they read the whole
+ * journal for it, which gave every signed-in person every period ever served.
+ */
+export interface AuxPioneersServingNow {
+  month: string;
+  people: { publisherId: string; name: string }[];
+}
+
 /** Один собственный период — ровно то, что нужно назвать на главной. */
 export interface MyAuxPioneerPeriod {
   startMonth: string;
@@ -180,6 +197,46 @@ export class AuxiliaryPioneersService {
     }));
     rows.sort((a, b) => a.publisherName.localeCompare(b.publisherName));
     return { month: `${monthKey}-01`, hourGoal, rows };
+  }
+
+  /**
+   * This month's auxiliary pioneers, by name — the only answer about them
+   * that is given to everybody (see AuxPioneersServingNow).
+   *
+   * The month is the congregation's own, read from its clock: it cannot be
+   * asked for, so there is no way to page back through who served when.
+   * Somebody whose card has been removed is not named.
+   */
+  async servingNow(congregationId: string): Promise<AuxPioneersServingNow> {
+    const monthKey = monthKeyOf(await this.clock.todayFor(congregationId));
+    const all = await this.repo.find({ where: { congregationId } });
+    const ids = [
+      ...new Set(
+        all
+          .filter((p) =>
+            isActiveInMonth(
+              {
+                startMonth: p.startMonth,
+                endMonth: p.endMonth,
+                untilCancelled: p.untilCancelled,
+              },
+              monthKey,
+            ),
+          )
+          .map((p) => p.publisherId),
+      ),
+    ];
+    const publishers =
+      ids.length === 0
+        ? []
+        : await this.publisherRepo.find({
+            where: { id: In(ids), congregationId, removedAt: IsNull() },
+            select: ['id', 'displayName'],
+          });
+    const people = publishers
+      .map((p) => ({ publisherId: p.id, name: p.displayName }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return { month: `${monthKey}-01`, people };
   }
 
   /**

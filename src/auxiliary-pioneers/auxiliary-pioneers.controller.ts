@@ -15,7 +15,10 @@ import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { AuxiliaryPioneersService } from './auxiliary-pioneers.service';
-import type { MyAuxPioneerStatus } from './auxiliary-pioneers.service';
+import type {
+  AuxPioneersServingNow,
+  MyAuxPioneerStatus,
+} from './auxiliary-pioneers.service';
 import { CreateAuxiliaryPioneerDto } from './dto/create-auxiliary-pioneer.dto';
 import { StopAuxiliaryPioneerDto } from './dto/stop-auxiliary-pioneer.dto';
 import { UpdateAuxiliaryPioneerDto } from './dto/update-auxiliary-pioneer.dto';
@@ -29,17 +32,36 @@ export class AuxiliaryPioneersController {
     private readonly clock: CongregationClock,
   ) {}
 
+  /**
+   * THE WORKING LIST belongs to those who keep it.
+   *
+   * Until 6 October the three readings below — any month with its hour goal,
+   * the whole journal, the pioneers without a date — were given to anybody
+   * signed in: only the changes asked who was asking. The app showed the
+   * door to the managers alone, but an address or a request needed no door.
+   * What everybody is meant to see is `serving-now`, and only that.
+   */
+
   /** Everyone serving in a given month (?month=YYYY-MM-DD), with hour goal. */
   @Get()
   async list(
     @TenantId() congregationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Query('month') month: string,
   ) {
+    await this.service.assertCanManage(congregationId, user);
     const monthIso = month || (await this.clock.todayFor(congregationId));
     return this.service.listForMonth(congregationId, monthIso);
   }
 
-  /** Full history journal. */
+  /** This month's auxiliary pioneers by name — for everybody. */
+  @Get('serving-now')
+  servingNow(
+    @TenantId() congregationId: string,
+  ): Promise<AuxPioneersServingNow> {
+    return this.service.servingNow(congregationId);
+  }
+
   /**
    * Permanent pioneers whose card has no date of appointment and no start of
    * ministry — the ones a spell of pioneer service could not be given a
@@ -47,12 +69,21 @@ export class AuxiliaryPioneersController {
    * starts reading history from spells.
    */
   @Get('pioneers-missing-date')
-  pioneersMissingDate(@TenantId() congregationId: string) {
+  async pioneersMissingDate(
+    @TenantId() congregationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.service.assertCanManage(congregationId, user);
     return this.service.pioneersMissingDate(congregationId);
   }
 
+  /** Full history journal. */
   @Get('journal')
-  journal(@TenantId() congregationId: string) {
+  async journal(
+    @TenantId() congregationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.service.assertCanManage(congregationId, user);
     return this.service.journal(congregationId);
   }
 
