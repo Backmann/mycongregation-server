@@ -103,6 +103,32 @@ describe('readClient', () => {
     ).toBe('windows');
   });
 
+  describe('the website opened from its own icon', () => {
+    const IPHONE =
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148';
+
+    it('is told apart from the same site in Safari — by what the site says', () => {
+      // Nothing in the agent differs between the two; to the phone they are
+      // two browsers with separate memories, signed in separately.
+      expect(readClient(IPHONE, 'kind=homescreen')).toMatchObject({
+        platform: 'ios',
+        kind: 'homescreen',
+      });
+      expect(readClient(IPHONE)).toMatchObject({
+        platform: 'ios',
+        kind: 'browser',
+      });
+    });
+
+    it('never turns the installed app into a website', () => {
+      expect(readClient('okhttp/4.12.0', 'kind=homescreen').kind).toBe('app');
+    });
+
+    it('takes the word only as written', () => {
+      expect(readClient(IPHONE, 'kind=something-else').kind).toBe('browser');
+    });
+  });
+
   it('says «other» rather than dressing a guess as a fact', () => {
     expect(readClient(undefined)).toEqual({
       platform: 'other',

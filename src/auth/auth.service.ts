@@ -226,8 +226,7 @@ export class AuthService {
     // counted something else, which would have left a successful sign-in
     // counting against the next one.
     this.loginAttempts.delete(`login:id:${identifier}`);
-    await this.usersService.touchLastLogin(user.id);
-    return this.issueTokens(user, undefined, client);
+    return this.letIn(user, client);
   }
 
   // ---- Password reset (forgot password) ----
@@ -330,8 +329,7 @@ export class AuthService {
     // home screen. Leaving the stamp to the sign-in form alone made
     // «никогда не входил» and «вошёл по ссылке» look identical in the one list
     // an elder has for finding people who are stuck.
-    await this.usersService.touchLastLogin(user.id);
-    return this.issueTokens(user, undefined, client);
+    return this.letIn(user, client);
   }
 
   /**
@@ -428,9 +426,8 @@ export class AuthService {
     await this.revokeAllSessions(user.id);
     // Same reason as the link path: the code ends inside the app, so the
     // account has been entered and the list must say so.
-    await this.usersService.touchLastLogin(user.id);
     this.logger.log(`invite redeemed by ${user.loginName ?? user.id}`);
-    return this.issueTokens(user, undefined, client);
+    return this.letIn(user, client);
   }
 
   /**
@@ -646,12 +643,34 @@ export class AuthService {
     await this.usersService.revokeAllSessions(userId);
   }
 
-  private signAccessToken(user: User): string {
+  /**
+   * The end of every door that lets a person in: the entry is stamped, and the
+   * answer says whether it was the first one ever.
+   *
+   * `firstSignIn` is what lets the app greet a newcomer once — with their
+   * sign-in name and the two things worth doing on day one — instead of
+   * meeting them with a row of dialogs. It is read BEFORE the stamp, from the
+   * row the door already holds.
+   */
+  private async letIn(user: User, client?: ClientInfo) {
+    const firstSignIn = !user.lastLoginAt;
+    await this.usersService.touchLastLogin(user.id);
+    return {
+      ...(await this.issueTokens(user, undefined, client)),
+      firstSignIn,
+    };
+  }
+
+  private signAccessToken(user: User, familyId: string): string {
     const payload = {
       sub: user.id,
       email: user.email,
       role: user.role,
       congregationId: user.congregationId,
+      // Which sign-in this token belongs to — the chain, not the row, because
+      // the row changes at every renewal. Read for one thing only: saying
+      // «это устройство» in the list of places somebody is signed in.
+      fid: familyId,
     };
     return this.jwtService.sign(payload);
   }
@@ -665,7 +684,7 @@ export class AuthService {
     /** Continue an existing chain; a fresh sign-in starts its own. */
     familyId?: string,
     client?: ClientInfo,
-  ): Promise<string> {
+  ): Promise<{ token: string; familyId: string }> {
     const sessions = this.dataSource.getRepository(RefreshSession);
     const ttlMs = durationToMs(this.config.get<string>('jwt.refreshExpiresIn'));
     const session = await sessions.save(
@@ -702,7 +721,7 @@ export class AuthService {
 
     session.tokenHash = digest(token);
     await sessions.save(session);
-    return token;
+    return { token, familyId: session.familyId };
   }
 
   private async issueTokens(
@@ -710,9 +729,12 @@ export class AuthService {
     familyId?: string,
     client?: ClientInfo,
   ) {
+    // The session first: a fresh sign-in learns its chain only once the row
+    // exists, and the access token names that chain.
+    const refresh = await this.signRefreshToken(user, familyId, client);
     return {
-      accessToken: this.signAccessToken(user),
-      refreshToken: await this.signRefreshToken(user, familyId, client),
+      accessToken: this.signAccessToken(user, refresh.familyId),
+      refreshToken: refresh.token,
       user: signInUser(user),
     };
   }

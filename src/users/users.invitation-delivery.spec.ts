@@ -163,8 +163,9 @@ describe('UsersService.sendInvitation', () => {
     const issued = await service.sendInvitation('u1');
 
     const link = sendInvite.mock.calls[0][2] as string;
+    // …and it opens the screen in the language the letter is written in.
     expect(link).toBe(
-      `https://mycongregation.org/reset-password?code=${issued.code}`,
+      `https://mycongregation.org/reset-password?code=${issued.code}&lang=ru`,
     );
     expect(link).not.toMatch(/token=/);
   });

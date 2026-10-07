@@ -56,6 +56,21 @@ describe('AuthService.login — name or address', () => {
     expect(issued).toHaveLength(1);
   });
 
+  it('says whether this is the first time the person has ever got in', async () => {
+    // What lets the app greet a newcomer once instead of meeting everybody
+    // with a row of dialogs.
+    const { service } = build({ user: alive, shared: false });
+    const first = await service.login(dto({ login: 'sidorova.vera' }));
+    expect(first).toHaveProperty('firstSignIn', true);
+
+    const { service: again } = build({
+      user: { ...alive, lastLoginAt: new Date('2026-09-01T00:00:00Z') },
+      shared: false,
+    });
+    const later = await again.login(dto({ login: 'sidorova.vera' }));
+    expect(later).toHaveProperty('firstSignIn', false);
+  });
+
   it('still accepts the field the app in people\u2019s pockets sends', async () => {
     // Builds already installed send { email, password }. Renaming the field on
     // the wire without accepting the old one would sign everybody out at once.

@@ -216,6 +216,18 @@ export class AuthController {
     return { ok: true };
   }
 
+  /**
+   * Where I am signed in — «это устройство», and the others.
+   *
+   * People here use a phone app, a website and an icon on an iPhone that is a
+   * third thing again, each signed in separately; «я же вошёл» and «у меня не
+   * открывается» are usually both true, on different ones.
+   */
+  @Get('sessions')
+  sessions(@CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.signedInPlaces(user.id, user.sessionFamilyId);
+  }
+
   @Get('me')
   async me(@CurrentUser() user: AuthenticatedUser) {
     const account = await this.usersService.findByIdInCongregation(

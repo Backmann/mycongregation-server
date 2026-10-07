@@ -63,7 +63,12 @@ export class PresenceService {
         ...(client
           ? {
               clientPlatform: client.platform,
-              clientKind: client.kind,
+              // «Last seen from» keeps its two words. The icon is told apart
+              // where it matters — in the list of places somebody is signed
+              // in — and every older screen reading this column still gets a
+              // word it knows.
+              clientKind:
+                client.kind === 'homescreen' ? 'browser' : client.kind,
               clientOs: client.os,
               clientAppVersion: client.appVersion,
               clientSeenAt: new Date(now),

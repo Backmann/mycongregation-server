@@ -19,6 +19,21 @@ describe('PresenceService', () => {
       });
     });
 
+    it('keeps «last seen from» to the two words every screen knows', () => {
+      // The icon on a home screen is told apart in the list of sign-ins; this
+      // older column is read by screens that know «app» and «browser» only.
+      service.touch('u1', T0, {
+        platform: 'ios',
+        kind: 'homescreen',
+        os: null,
+        appVersion: null,
+      });
+      expect(usersRepo.update.mock.calls[0][1]).toMatchObject({
+        clientPlatform: 'ios',
+        clientKind: 'browser',
+      });
+    });
+
     it('throttles repeated touches within the write window', () => {
       service.touch('u1', T0);
       service.touch('u1', T0 + 30_000); // 30s later

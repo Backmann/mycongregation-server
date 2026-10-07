@@ -34,6 +34,7 @@ import { OverrideStatusDto } from './dto/override-status.dto';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { deriveRoleFromAppointment } from './derive-role';
 import { UsersService } from '../users/users.service';
+import type { SignedInPlace } from '../users/users.service';
 import { AuxiliaryPioneersService } from '../auxiliary-pioneers/auxiliary-pioneers.service';
 import { PioneerSpellsService } from '../pioneer-spells/pioneer-spells.service';
 import { GrantAccessDto } from './dto/grant-access.dto';
@@ -168,6 +169,12 @@ export interface AccessSummary {
    */
   lastFailedLoginAt?: Date | null;
   lastFailedLoginReason?: string | null;
+  /**
+   * Where the account is signed in right now. Empty for somebody who «не
+   * может войти» means exactly that; one row reading «браузер» for somebody
+   * who says the app does not open answers the other half of such calls.
+   */
+  signedIn?: SignedInPlace[];
   role: UserRole | null;
   isActive: boolean | null;
   lastLoginAt: Date | null;
@@ -927,6 +934,7 @@ export class PublishersService {
       canViewPrivateData: user.canViewPrivateData,
       lastFailedLoginAt: failed?.at ?? null,
       lastFailedLoginReason: failed?.reason ?? null,
+      signedIn: await this.usersService.signedInPlaces(user.id),
     };
   }
 

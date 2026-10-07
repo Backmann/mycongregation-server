@@ -10,6 +10,8 @@ export interface JwtPayload {
   email: string;
   role: UserRole;
   congregationId: string;
+  /** The sign-in this token came from. Absent on tokens issued before it. */
+  fid?: string;
   iat?: number;
   exp?: number;
 }
@@ -39,6 +41,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       congregationId: user.congregationId,
       uiLanguage: user.uiLanguage,
       isOwner: user.isOwner === true,
+      sessionFamilyId: payload.fid,
     };
   }
 }

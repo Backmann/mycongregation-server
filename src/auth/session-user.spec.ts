@@ -37,6 +37,18 @@ describe('who the app is told it is', () => {
     }
   });
 
+  it('says at sign-in which language the account is kept in', () => {
+    // A device never told a language takes this one instead of asking.
+    expect(
+      signInUser({ ...account, uiLanguage: 'de' } as unknown as User),
+    ).toHaveProperty('uiLanguage', 'de');
+  });
+
+  it('keeps the id of the sign-in to itself', () => {
+    const answer = meUser({ ...session, sessionFamilyId: 'f1' }, account);
+    expect(answer).not.toHaveProperty('sessionFamilyId');
+  });
+
   it('gives the capability and never the owner flag or the password', () => {
     const owner = meUser({ ...session, isOwner: true }, account);
     expect(owner.canManageBackups).toBe(true);

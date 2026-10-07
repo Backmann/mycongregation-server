@@ -22,7 +22,13 @@ import { Logger } from '@nestjs/common';
 const logger = new Logger('Client');
 
 export type ClientPlatform = 'android' | 'ios' | 'windows' | 'mac' | 'other';
-export type ClientKind = 'app' | 'browser';
+/**
+ * `homescreen` is the website opened from its own icon — «На экран "Домой"» on
+ * an iPhone, an installed site elsewhere. To the person it is «the app»; to
+ * the phone it is a browser with a separate memory, signed in separately from
+ * Safari. Nothing in the agent tells the two apart, so the site says it.
+ */
+export type ClientKind = 'app' | 'browser' | 'homescreen';
 
 export interface ClientInfo {
   platform: ClientPlatform;
@@ -80,14 +86,21 @@ export function readClient(
     }
   }
 
-  // No header: a browser, or one of our older builds. The agent is honest
-  // about browsers, which is exactly the case this still covers.
+  // No platform stated: a browser, or one of our older builds. The agent is
+  // honest about browsers, which is exactly the case this still covers.
   const ua = (userAgent ?? '').toLowerCase();
+
+  // The one thing a browser does state: that it was opened from an icon. The
+  // platform still comes from the agent, which knows it better.
+  const fromIcon =
+    !!stated && parseHeader(stated).kind?.toLowerCase() === 'homescreen';
 
   const kind: ClientKind =
     ua.includes('expo') || ua.includes('okhttp') || ua.includes('cfnetwork')
       ? 'app'
-      : 'browser';
+      : fromIcon
+        ? 'homescreen'
+        : 'browser';
 
   let platform: ClientPlatform = 'other';
   if (ua.includes('android')) platform = 'android';

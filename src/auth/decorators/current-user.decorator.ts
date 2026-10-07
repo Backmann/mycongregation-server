@@ -16,6 +16,12 @@ export interface AuthenticatedUser {
    * that forgets to set it fails closed rather than open.
    */
   isOwner?: boolean;
+  /**
+   * Which sign-in this request belongs to — see RefreshSession.familyId.
+   * Absent for a token issued before it was written in; then nothing is
+   * marked «это устройство», which is the honest answer.
+   */
+  sessionFamilyId?: string;
 }
 
 export const CurrentUser = createParamDecorator(

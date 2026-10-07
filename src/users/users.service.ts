@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, QueryFailedError, Repository } from 'typeorm';
+import { IsNull, MoreThan, QueryFailedError, Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import {
   makeInviteCode,
@@ -225,6 +225,25 @@ export function freshPassword(passwordHash: string) {
 }
 
 /** Why an account was last turned away at the door — see noteFailedLogin. */
+/**
+ * One place a person is signed in right now — a platform and a kind, the same
+ * two words the session row keeps, and nothing that names a device.
+ */
+export interface SignedInPlace {
+  /** android · ios · windows · mac · other — or null on a session older than the record. */
+  platform: string | null;
+  /** app · browser · homescreen. */
+  kind: string | null;
+  os: string | null;
+  appVersion: string | null;
+  /** When they signed in there. */
+  since: Date;
+  /** When that sign-in last renewed itself — about when it was last opened. */
+  lastActiveAt: Date;
+  /** The one this very request came from. */
+  current: boolean;
+}
+
 export type FailedLoginReason =
   | 'wrong_password'
   | 'no_password'
@@ -990,6 +1009,60 @@ export class UsersService {
    * elder's reset quietly did not — so a lost phone kept its way in for up to
    * thirty days after the password was changed to lock it out.
    */
+  async signedInPlaces(
+    userId: string,
+    currentFamilyId?: string,
+  ): Promise<SignedInPlace[]> {
+    // One sign-in is a chain of rows — a new one at every renewal, the old
+    // one revoked. So a living chain is exactly an unrevoked, unexpired row:
+    // its newest. (A reply lost on the way can leave two for a moment; the
+    // newer one speaks for the chain.)
+    const alive = await this.sessionsRepo.find({
+      where: { userId, revokedAt: IsNull(), expiresAt: MoreThan(new Date()) },
+      order: { createdAt: 'DESC' },
+    });
+    const chains = new Map<string, { newest: RefreshSession; since: Date }>();
+    for (const row of alive) {
+      if (!chains.has(row.familyId)) {
+        chains.set(row.familyId, { newest: row, since: row.createdAt });
+      }
+    }
+    if (chains.size === 0) return [];
+    // When the person signed in there is the chain's FIRST row, long revoked.
+    const firsts = await this.sessionsRepo
+      .createQueryBuilder('s')
+      .select('s.family_id', 'familyId')
+      .addSelect('MIN(s.created_at)', 'since')
+      .where('s.family_id IN (:...ids)', { ids: [...chains.keys()] })
+      .groupBy('s.family_id')
+      .getRawMany<{ familyId: string; since: Date | string }>();
+    for (const f of firsts) {
+      const chain = chains.get(f.familyId);
+      if (chain) chain.since = new Date(f.since);
+    }
+    const now = Date.now();
+    const places: SignedInPlace[] = [];
+    for (const [familyId, { newest, since }] of chains) {
+      if (newest.revokedAt || newest.expiresAt.getTime() <= now) continue;
+      places.push({
+        platform: newest.clientPlatform,
+        kind: newest.clientKind,
+        os: newest.clientOs,
+        appVersion: newest.clientAppVersion,
+        since,
+        lastActiveAt: newest.createdAt,
+        current: !!currentFamilyId && familyId === currentFamilyId,
+      });
+    }
+    // «Это устройство» first, then the most recently used.
+    places.sort(
+      (a, b) =>
+        Number(b.current) - Number(a.current) ||
+        b.lastActiveAt.getTime() - a.lastActiveAt.getTime(),
+    );
+    return places.slice(0, 12);
+  }
+
   async revokeAllSessions(userId: string): Promise<void> {
     await this.sessionsRepo.update(
       { userId, revokedAt: IsNull() },
@@ -1253,7 +1326,9 @@ export class UsersService {
     // The path is /reset-password because that is the one the installed
     // Android app is registered to open; the screen there sees `code` and
     // hands over to the code screen.
-    const fillLink = `${base}/reset-password?code=${issued.code}`;
+    // …in the language of the letter. A phone set to German would otherwise
+    // open a Russian letter's button onto a German screen.
+    const fillLink = `${base}/reset-password?code=${issued.code}&lang=${lang}`;
     const congregation = user?.congregationId
       ? await this.congregationsRepo.findOne({
           where: { id: user.congregationId },

@@ -170,6 +170,18 @@ describe('AuthService — refresh sessions', () => {
     expect(rows[sidAfter].familyId).toBe(rows[sidBefore].familyId);
   });
 
+  it('the access token names the sign-in it belongs to, and keeps naming it across renewals', async () => {
+    // What lets the list of places say «это устройство». The chain, not the
+    // row: the row is replaced four times an hour.
+    const first = await issue();
+    const chain = Object.values(rows)[0].familyId;
+    expect(jwt.decode(first.accessToken)).toMatchObject({ fid: chain });
+
+    const renewed = await service.refresh(first.refreshToken);
+
+    expect(jwt.decode(renewed.accessToken)).toMatchObject({ fid: chain });
+  });
+
   it('a fresh sign-in starts its own family', async () => {
     const a = await issue();
     const b = await issue();

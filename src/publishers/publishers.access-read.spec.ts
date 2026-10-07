@@ -57,6 +57,7 @@ describe('PublishersService.getAccess — reading is not doing', () => {
         suggestLoginName: () => 'sidorova.vera',
         // A read, like the rest of this method.
         lastFailedLogin: jest.fn(async () => null),
+        signedInPlaces: jest.fn(async () => []),
         sendInvitation,
         mailService,
       },

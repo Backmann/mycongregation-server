@@ -26,6 +26,10 @@ export function signInUser(user: User) {
     role: user.role,
     congregationId: user.congregationId,
     canViewPrivateData: user.canViewPrivateData,
+    // The language the account is kept in — the one its letters are written
+    // in. A device that has never been told a language takes this one, so
+    // nobody is asked «выберите язык» before they have seen a single screen.
+    uiLanguage: user.uiLanguage,
   };
 }
 
@@ -34,7 +38,9 @@ export function meUser(session: AuthenticatedUser, account: User) {
   // everywhere; what the interface actually needs is whether to show the
   // backups row, and that can be answered without telling anyone that a
   // notion of platform owner exists at all.
-  const { isOwner, ...rest } = session;
+  // The chain id is plumbing — it marks «это устройство» on the server and
+  // has no business in what the app is told about the person.
+  const { isOwner, sessionFamilyId: _chain, ...rest } = session;
   return {
     ...rest,
     loginName: account.loginName,
