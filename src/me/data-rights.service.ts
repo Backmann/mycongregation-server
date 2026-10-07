@@ -6,7 +6,7 @@ import {
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, In, IsNull } from 'typeorm';
 import { CongregationClock } from '../common/congregation-clock.service';
-import * as bcrypt from 'bcrypt';
+import { passwordMatches } from '../auth/password-edges';
 import { Publisher } from '../entities/publisher.entity';
 import { User } from '../entities/user.entity';
 import { Absence } from '../entities/absence.entity';
@@ -158,7 +158,7 @@ export class DataRightsService {
       }
     }
 
-    const ok = await bcrypt.compare(password, user.passwordHash);
+    const ok = await passwordMatches(password, user.passwordHash);
     if (!ok) {
       throw new BadRequestException('Invalid password.');
     }

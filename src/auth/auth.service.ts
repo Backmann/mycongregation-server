@@ -13,7 +13,6 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, IsNull } from 'typeorm';
-import * as bcrypt from 'bcrypt';
 import { createHash, randomBytes } from 'crypto';
 import { MailService } from '../mail/mail.service';
 import { User } from '../entities/user.entity';
@@ -26,6 +25,7 @@ import { UpdateMeDto } from './dto/update-me.dto';
 import type { AuthenticatedUser } from './decorators/current-user.decorator';
 import { LoginDto } from './dto/login.dto';
 import { passwordProblem } from './password-policy';
+import { hashPassword, passwordMatches } from './password-edges';
 import { normalizeInviteCode } from './invite-code';
 import type { ClientInfo } from './read-client';
 
@@ -91,7 +91,7 @@ export class AuthService {
     }
 
     const rounds = this.config.get<number>('bcrypt.rounds') ?? 12;
-    const passwordHash = await bcrypt.hash(dto.password, rounds);
+    const passwordHash = await hashPassword(dto.password, rounds);
 
     const result = await this.dataSource.transaction(async (manager) => {
       const congregation = manager.create(Congregation, {
@@ -210,7 +210,7 @@ export class AuthService {
     if (!user.passwordHash) {
       return refuse('no password has been set (invited but never completed?)');
     }
-    const ok = await bcrypt.compare(dto.password, user.passwordHash);
+    const ok = await passwordMatches(dto.password, user.passwordHash);
     if (!ok) return refuse('wrong password');
     // Successful login clears this identifier's counter — the SAME key the
     // limiter above writes. It used to clear `login:email:…` while the limiter
@@ -329,7 +329,7 @@ export class AuthService {
       throw new BadRequestException({ code: 'WEAK_PASSWORD', problem });
     }
     const rounds = this.config.get<number>('bcrypt.rounds') ?? 12;
-    const passwordHash = await bcrypt.hash(password, rounds);
+    const passwordHash = await hashPassword(password, rounds);
     await this.usersService.completePasswordReset(user.id, passwordHash);
     await this.revokeAllSessions(user.id);
     // This IS an entry — the link hands out a session, the person lands on the
@@ -417,7 +417,7 @@ export class AuthService {
     }
 
     const rounds = this.config.get<number>('bcrypt.rounds') ?? 12;
-    const passwordHash = await bcrypt.hash(password, rounds);
+    const passwordHash = await hashPassword(password, rounds);
     await this.usersService.completeInvite(user.id, passwordHash);
     // A code sets a password, so it ends the old sessions like any other
     // password change — this is the way back in for a lost phone, and the

@@ -18,7 +18,6 @@ import {
   INVITE_LINK_LIFETIME_MS,
 } from '../auth/invite-code';
 import { MailService } from '../mail/mail.service';
-import * as bcrypt from 'bcrypt';
 import { User } from '../entities/user.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Gender } from '../common/enums/gender.enum';
@@ -30,6 +29,10 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { PresenceService } from '../presence/presence.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { passwordProblem } from '../auth/password-policy';
+import {
+  hashPassword as hashClean,
+  passwordMatches,
+} from '../auth/password-edges';
 import {
   loginNameFrom,
   loginNameFromEmail,
@@ -1081,7 +1084,7 @@ export class UsersService {
       );
     }
 
-    const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+    const ok = await passwordMatches(currentPassword, user.passwordHash);
     if (!ok) {
       throw new BadRequestException('Current password is incorrect');
     }
@@ -1420,6 +1423,6 @@ export class UsersService {
 
   private hashPassword(password: string): Promise<string> {
     const rounds = this.config.get<number>('bcrypt.rounds') ?? 12;
-    return bcrypt.hash(password, rounds);
+    return hashClean(password, rounds);
   }
 }
