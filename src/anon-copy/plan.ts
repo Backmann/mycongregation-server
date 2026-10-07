@@ -86,6 +86,8 @@ export const PLAN: Record<string, TablePlan> = {
   web_push_subscriptions: 'skip',
   /** Texts of notifications, with names. */
   notification_outbox: 'skip',
+  /** Up to when somebody read them — nothing without the texts. */
+  inbox_seen: 'skip',
   /** «Told about the assignment» marks — of no use to a test. */
   assignment_notices: 'skip',
   /** The copy carries the name of the last migration instead. */

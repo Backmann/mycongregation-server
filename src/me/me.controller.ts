@@ -7,6 +7,7 @@ import { UpdateMyContactsDto } from './dto/update-my-contacts.dto';
 import { UpdateNotificationPreferenceDto } from './dto/update-notification-preference.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationReachService } from '../notifications/notification-reach.service';
+import { InboxService } from '../notifications/inbox.service';
 import { ReportPushStateDto } from './dto/report-push-state.dto';
 import { SetReminderLadderDto } from './dto/set-reminder-ladder.dto';
 import { TestNotificationDto } from './dto/test-notification.dto';
@@ -26,6 +27,7 @@ export class MeController {
     private readonly service: MeService,
     private readonly notifications: NotificationsService,
     private readonly reach: NotificationReachService,
+    private readonly inboxService: InboxService,
     private readonly dataRights: DataRightsService,
     private readonly tasks: TasksService,
     private readonly pendingService: MePendingService,
@@ -151,6 +153,22 @@ export class MeController {
     @Body() dto: SetReminderLadderDto,
   ) {
     return this.reach.setLadder(user.id, dto.ladder);
+  }
+
+  /**
+   * Everything the app has told me lately, whether or not a device took it —
+   * and up to when I have read it. See InboxService.
+   */
+  @Get('inbox')
+  inbox(@TenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.inboxService.read(tenantId, user.id);
+  }
+
+  /** I have opened the list. */
+  @Post('inbox/seen')
+  @HttpCode(204)
+  async inboxSeen(@CurrentUser() user: AuthenticatedUser): Promise<void> {
+    await this.inboxService.markSeen(user.id);
   }
 
   /** Whether the phone app is already registered for me. */

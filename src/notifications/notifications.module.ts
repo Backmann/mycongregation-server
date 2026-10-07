@@ -12,6 +12,8 @@ import { Publisher } from '../entities/publisher.entity';
 import { PushToken } from '../entities/push-token.entity';
 import { User } from '../entities/user.entity';
 import { WebPushSubscription } from '../entities/web-push-subscription.entity';
+import { InboxSeen } from '../entities/inbox-seen.entity';
+import { InboxService } from './inbox.service';
 
 @Module({
   imports: [
@@ -23,12 +25,13 @@ import { WebPushSubscription } from '../entities/web-push-subscription.entity';
       PushToken,
       User,
       WebPushSubscription,
+      InboxSeen,
     ]),
     PushNotificationsModule,
     CongregationClockModule,
   ],
   controllers: [NotificationsController],
-  providers: [NotificationsService, NotificationReachService],
-  exports: [NotificationsService, NotificationReachService],
+  providers: [NotificationsService, NotificationReachService, InboxService],
+  exports: [NotificationsService, NotificationReachService, InboxService],
 })
 export class NotificationsModule {}
