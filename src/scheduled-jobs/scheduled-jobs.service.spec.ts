@@ -22,6 +22,7 @@ describe('ScheduledJobsService', () => {
   let service: ScheduledJobsService;
   let annualSent: { nightly: jest.Mock };
   let monthlySent: { nightly: jest.Mock };
+  let users: { forgetDeadSessions: jest.Mock };
   let publishersService: { recomputeEveryCongregation: jest.Mock };
   let pushNotificationsService: jest.Mocked<PushNotificationsService>;
   let auditLogService: { cleanupOldAuditLogs: jest.Mock };
@@ -52,6 +53,7 @@ describe('ScheduledJobsService', () => {
     };
     annualSent = { nightly: jest.fn(async () => 0) };
     monthlySent = { nightly: jest.fn(async () => 0) };
+    users = { forgetDeadSessions: jest.fn(async () => 0) };
     service = new ScheduledJobsService(
       publishersService as any,
       pushNotificationsService,
@@ -76,7 +78,22 @@ describe('ScheduledJobsService', () => {
         tick: jest.fn(async () => undefined),
         announceDuties: jest.fn(async () => 0),
       } as never,
+      users as never,
     );
+  });
+
+  describe('the nightly sweep of dead sessions', () => {
+    it('asks the users service, once', async () => {
+      await service.handleDeadSessionsCleanup();
+      expect(users.forgetDeadSessions).toHaveBeenCalledTimes(1);
+    });
+
+    it('a failure is logged and goes no further — the next job still runs', async () => {
+      users.forgetDeadSessions.mockRejectedValueOnce(new Error('db down'));
+      await expect(
+        service.handleDeadSessionsCleanup(),
+      ).resolves.toBeUndefined();
+    });
   });
 
   it('handleNightlyStatusRecompute delegates to recomputeEveryCongregation', async () => {

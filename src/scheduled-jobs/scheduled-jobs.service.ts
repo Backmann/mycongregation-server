@@ -13,6 +13,7 @@ import { GroupVisitTasksService } from '../field-service-meetings/group-visit-ta
 import { EventNotificationsService } from '../special-events/event-notifications.service';
 import { AnnualSentService } from '../annual-report/annual-sent.service';
 import { MonthlySentService } from '../service-reports/monthly-sent.service';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -32,6 +33,7 @@ export class ScheduledJobsService {
     private readonly annualSent: AnnualSentService,
     private readonly monthlySent: MonthlySentService,
     private readonly assignmentReminders: AssignmentRemindersService,
+    private readonly users: UsersService,
   ) {}
 
   /**
@@ -208,6 +210,25 @@ export class ScheduledJobsService {
       if (frozen > 0) this.logger.log(`S-1 frozen: ${frozen}`);
     } catch (e) {
       this.logger.error(`S-1 freeze round failed: ${String(e)}`);
+    }
+  }
+
+  /**
+   * Sessions that can no longer be used — nightly, 04:20 UTC. See
+   * UsersService.forgetDeadSessions for what may go and what must stay.
+   */
+  @Cron('20 4 * * *', {
+    name: 'dead-sessions-cleanup',
+    timeZone: 'UTC',
+  })
+  async handleDeadSessionsCleanup(): Promise<void> {
+    try {
+      const deleted = await this.users.forgetDeadSessions();
+      this.logger.log(
+        `[Sessions] dead sessions forgotten — deleted=${deleted}`,
+      );
+    } catch (err) {
+      this.logger.error('[Sessions] cleanup failed', err as Error);
     }
   }
 

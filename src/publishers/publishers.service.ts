@@ -930,7 +930,10 @@ export class PublishersService {
       }),
       role: user.role,
       isActive: user.isActive,
-      lastLoginAt: user.lastLoginAt,
+      // An account that is plainly in use but carries no stamped entry (it
+      // came in by a door that did not stamp one, before August) must not
+      // read «ещё не входил» to the elder helping. Its activity stands in.
+      lastLoginAt: user.lastLoginAt ?? user.lastSeenAt ?? null,
       canViewPrivateData: user.canViewPrivateData,
       lastFailedLoginAt: failed?.at ?? null,
       lastFailedLoginReason: failed?.reason ?? null,

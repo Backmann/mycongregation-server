@@ -653,7 +653,11 @@ export class AuthService {
    * row the door already holds.
    */
   private async letIn(user: User, client?: ClientInfo) {
-    const firstSignIn = !user.lastLoginAt;
+    // «Never been in» is BOTH stamps empty. On a copy of the live data
+    // (7 October 2026) one account had no entry stamped and had been using
+    // the app for weeks: it came in by an invitation link at a time when
+    // that door did not stamp the entry. Activity is evidence too.
+    const firstSignIn = !user.lastLoginAt && !user.lastSeenAt;
     await this.usersService.touchLastLogin(user.id);
     return {
       ...(await this.issueTokens(user, undefined, client)),

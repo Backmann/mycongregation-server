@@ -217,6 +217,84 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
       });
     });
 
+    describe('who needs help — said by the list itself', () => {
+      it('names the person the account belongs to', async () => {
+        // The list showed what is typed to sign in. «Кому помочь» is a
+        // question about a person.
+        listReturns([userFixture({ id: 'u-1' }), userFixture({ id: 'u-2' })]);
+        const publishers = (
+          service as unknown as {
+            publishersRepo: { createQueryBuilder: jest.Mock };
+          }
+        ).publishersRepo;
+        publishers.createQueryBuilder.mockReturnValue({
+          select: jest.fn().mockReturnThis(),
+          where: jest.fn().mockReturnThis(),
+          andWhere: jest.fn().mockReturnThis(),
+          getMany: jest
+            .fn()
+            .mockResolvedValue([
+              { id: 'p-1', userId: 'u-1', displayName: 'Вебер Анна' },
+            ]),
+        });
+
+        const result = await service.findAllInCongregation(CONG, 'viewer-1');
+
+        expect(result[0].publisherName).toBe('Вебер Анна');
+        // An account with no card has no name to give — and says so.
+        expect(result[1].publisherName).toBeNull();
+      });
+
+      it('tells a refusal that came AFTER the last time the person got in', async () => {
+        listReturns([
+          userFixture({
+            id: 'u-1',
+            lastLoginAt: new Date('2026-10-01T10:00:00Z'),
+            lastFailedLoginAt: new Date('2026-10-07T08:49:00Z'),
+            lastFailedLoginReason: 'wrong_password',
+          }),
+        ]);
+
+        const [row] = await service.findAllInCongregation(CONG, 'viewer-1');
+
+        expect(row.lastFailedLoginAt).toEqual(new Date('2026-10-07T08:49:00Z'));
+        expect(row.lastFailedLoginReason).toBe('wrong_password');
+      });
+
+      it('says nothing of a refusal the person has since got past', async () => {
+        // History, not a reason to help: he mistyped on Monday and has been
+        // in every day since.
+        listReturns([
+          userFixture({
+            id: 'u-1',
+            lastLoginAt: new Date('2026-10-07T09:00:00Z'),
+            lastFailedLoginAt: new Date('2026-10-07T08:49:00Z'),
+            lastFailedLoginReason: 'wrong_password',
+          }),
+        ]);
+
+        const [row] = await service.findAllInCongregation(CONG, 'viewer-1');
+
+        expect(row.lastFailedLoginAt).toBeNull();
+        expect(row.lastFailedLoginReason).toBeNull();
+      });
+
+      it('somebody who has never got in keeps the refusal', async () => {
+        listReturns([
+          userFixture({
+            id: 'u-1',
+            lastLoginAt: null,
+            lastFailedLoginAt: new Date('2026-10-07T08:49:00Z'),
+            lastFailedLoginReason: 'no_password',
+          }),
+        ]);
+
+        const [row] = await service.findAllInCongregation(CONG, 'viewer-1');
+
+        expect(row.lastFailedLoginReason).toBe('no_password');
+      });
+    });
+
     it('masks presence of hidden users for other viewers', async () => {
       listReturns([
         userFixture({ id: 'u-1', hidePresence: true, lastSeenAt: new Date() }),

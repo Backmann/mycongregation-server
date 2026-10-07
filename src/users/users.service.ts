@@ -85,6 +85,14 @@ export interface PublicUser {
    * themselves.
    */
   publisherId: string | null;
+  /** The name on that card — whose account this is. Null without a card. */
+  publisherName: string | null;
+  /**
+   * The last time this account was turned away, when that was AFTER the last
+   * time it got in — and which of the reasons. Null otherwise.
+   */
+  lastFailedLoginAt: Date | null;
+  lastFailedLoginReason: string | null;
   /**
    * When this account's invitation code stops working, or null when there is
    * no invitation outstanding.
@@ -156,9 +164,20 @@ function toPublicUser(
   publisherId: string | null = null,
   lastClient: PublicUser['lastClient'] = null,
   gender: Gender | null = null,
+  publisherName: string | null = null,
 ): PublicUser {
+  // The same rule as the card: a refusal older than the last time the person
+  // got in is history, not a reason to help.
+  const failedAt =
+    u.lastFailedLoginAt &&
+    (!u.lastLoginAt || u.lastFailedLoginAt.getTime() > u.lastLoginAt.getTime())
+      ? u.lastFailedLoginAt
+      : null;
   return {
     gender,
+    publisherName,
+    lastFailedLoginAt: failedAt,
+    lastFailedLoginReason: failedAt ? (u.lastFailedLoginReason ?? null) : null,
     publisherId,
     hasPassword: !!u.passwordHash,
     inviteExpiresAt: u.inviteCodeExpiresAt ?? null,
@@ -243,6 +262,25 @@ export interface SignedInPlace {
   /** The one this very request came from. */
   current: boolean;
 }
+
+/**
+ * See UsersService.forgetDeadSessions. A day of slack past the expiry, so a
+ * clock that disagrees by an hour deletes nothing that could still be asked
+ * for. Exported so the stand can run these very words against a real table.
+ */
+export const FORGET_DEAD_SESSIONS_SQL = `
+  DELETE FROM refresh_sessions s
+  WHERE s.expires_at < now() - interval '1 day'
+    AND NOT (
+      s.id = s.family_id
+      AND EXISTS (
+        SELECT 1 FROM refresh_sessions alive
+        WHERE alive.family_id = s.family_id
+          AND alive.revoked_at IS NULL
+          AND alive.expires_at > now()
+      )
+    )
+`;
 
 export type FailedLoginReason =
   | 'wrong_password'
@@ -471,6 +509,9 @@ export class UsersService {
     const rows = await this.usersRepo
       .createQueryBuilder('user')
       .addSelect('user.passwordHash')
+      // …and for the last refusal, so the list can say who is stuck at the
+      // door without anybody opening sixty cards one by one.
+      .addSelect(['user.lastFailedLoginAt', 'user.lastFailedLoginReason'])
       .where('user.congregation_id = :congregationId', { congregationId })
       .orderBy('user.created_at', 'ASC')
       .getMany();
@@ -486,18 +527,28 @@ export class UsersService {
     // Select only non-encrypted columns so publisher names aren't decrypted.
     const pubs = await this.publishersRepo
       .createQueryBuilder('p')
-      .select(['p.id', 'p.userId', 'p.appointment', 'p.gender'])
+      .select([
+        'p.id',
+        'p.userId',
+        'p.appointment',
+        'p.gender',
+        // Whose account this is. The list named accounts by what is typed to
+        // sign in — and «кому помочь» is a question about a person.
+        'p.displayName',
+      ])
       .where('p.congregation_id = :cid', { cid: congregationId })
       .andWhere('p.user_id IS NOT NULL')
       .getMany();
     const apptByUser = new Map<string, PublisherAppointment>();
     const cardByUser = new Map<string, string>();
     const genderByUser = new Map<string, Gender>();
+    const nameByUser = new Map<string, string>();
     for (const p of pubs) {
       if (p.userId) {
         apptByUser.set(p.userId, p.appointment);
         cardByUser.set(p.userId, p.id);
         genderByUser.set(p.userId, p.gender);
+        nameByUser.set(p.userId, p.displayName);
       }
     }
     const now = Date.now();
@@ -518,6 +569,7 @@ export class UsersService {
             }
           : null,
         genderByUser.get(u.id) ?? null,
+        nameByUser.get(u.id) ?? null,
       );
       // Presence is recorded for everyone but masked for users who hide it —
       // except when they are viewing their own row.
@@ -1061,6 +1113,32 @@ export class UsersService {
         b.lastActiveAt.getTime() - a.lastActiveAt.getTime(),
     );
     return places.slice(0, 12);
+  }
+
+  /**
+   * Forget the sessions nobody can come back to.
+   *
+   * The table was never pruned. Every renewal adds a row and revokes the one
+   * before — about four an hour for as long as the app is open — and the old
+   * rows were kept for ever, by an account that is read row by row for «Где
+   * вы вошли».
+   *
+   * What may go is exactly what can no longer be reached: a row is found only
+   * through the token that names it, and that token dies at the row's own
+   * `expiresAt`. Until then a revoked row is NOT dead weight — presenting its
+   * token again is how a stolen one is recognised (AuthService.refresh), so
+   * nothing younger than its expiry is touched.
+   *
+   * One row is kept past that: the first of a chain that is still alive. It
+   * is where «когда вошёл здесь» is read from.
+   */
+  async forgetDeadSessions(): Promise<number> {
+    const result: unknown = await this.sessionsRepo.query(
+      FORGET_DEAD_SESSIONS_SQL,
+    );
+    // node-postgres answers a DELETE with [rows, count].
+    const count = Array.isArray(result) ? result[1] : 0;
+    return typeof count === 'number' ? count : 0;
   }
 
   async revokeAllSessions(userId: string): Promise<void> {

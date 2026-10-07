@@ -127,4 +127,32 @@ describe('PublishersService.getAccess — reading is not doing', () => {
 
     expect(summary.invitePendingUntil).toBeNull();
   });
+
+  it('does not say «ещё не входил» of an account that is plainly in use', async () => {
+    // Found on a copy of the live data, 7 October 2026: no entry stamped —
+    // the account came in by a door that did not stamp one at the time — and
+    // activity on Saturday. Its activity stands in for the missing stamp.
+    const { service } = build();
+    const seen = new Date('2026-10-03T09:00:00Z');
+    (
+      service as unknown as {
+        usersService: { findByIdInCongregation: jest.Mock };
+      }
+    ).usersService.findByIdInCongregation = jest.fn(async () => ({
+      id: 'u1',
+      email: null,
+      loginName: 'sidorova.vera',
+      role: 'publisher',
+      isActive: true,
+      lastLoginAt: null,
+      lastSeenAt: seen,
+      canViewPrivateData: false,
+      passwordHash: 'x',
+      inviteCodeExpiresAt: null,
+    }));
+
+    const summary = await read(service);
+
+    expect(summary.lastLoginAt).toEqual(seen);
+  });
 });

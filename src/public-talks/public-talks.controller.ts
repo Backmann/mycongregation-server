@@ -24,6 +24,7 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { CatalogueKeeperGuard } from './catalogue-keeper.guard';
 import { UserRole } from '../common/enums/user-role.enum';
 
 @Controller('public-talks')
@@ -71,8 +72,7 @@ export class PublicTalksController {
   }
 
   @Post('retirement-preview')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(CatalogueKeeperGuard)
   retirementPreview(
     @Body() dto: RetirementPreviewDto,
     @TenantId() congregationId: string,
@@ -106,8 +106,7 @@ export class PublicTalksController {
    * сняли».
    */
   @Post('lift-restriction')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(CatalogueKeeperGuard)
   liftRestriction(
     @Body() dto: LiftRestrictionDto,
     @TenantId() congregationId: string,
@@ -122,8 +121,7 @@ export class PublicTalksController {
   }
 
   @Post('retire-missing')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(CatalogueKeeperGuard)
   retireMissing(
     @Body() dto: RetireMissingDto,
     @TenantId() congregationId: string,

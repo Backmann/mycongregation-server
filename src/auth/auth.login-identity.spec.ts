@@ -71,6 +71,21 @@ describe('AuthService.login — name or address', () => {
     expect(later).toHaveProperty('firstSignIn', false);
   });
 
+  it('somebody who has plainly been using the app is not greeted as a newcomer', async () => {
+    // No entry stamped, activity recorded: they came in through a door that
+    // did not stamp entries at the time.
+    const { service } = build({
+      user: {
+        ...alive,
+        lastLoginAt: null,
+        lastSeenAt: new Date('2026-10-03T00:00:00Z'),
+      },
+      shared: false,
+    });
+    const result = await service.login(dto({ login: 'sidorova.vera' }));
+    expect(result).toHaveProperty('firstSignIn', false);
+  });
+
   it('still accepts the field the app in people\u2019s pockets sends', async () => {
     // Builds already installed send { email, password }. Renaming the field on
     // the wire without accepting the old one would sign everybody out at once.

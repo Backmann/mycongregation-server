@@ -13,6 +13,7 @@ import { MemorialModule } from '../memorial/memorial.module';
 import { SpecialEventsModule } from '../special-events/special-events.module';
 import { TasksModule } from '../tasks/tasks.module';
 import { FieldServiceMeetingsModule } from '../field-service-meetings/field-service-meetings.module';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { FieldServiceMeetingsModule } from '../field-service-meetings/field-serv
     SpecialEventsModule,
     AnnualReportModule,
     ServiceReportsModule,
+    UsersModule,
   ],
   controllers: [AdminController],
   providers: [ScheduledJobsService],
