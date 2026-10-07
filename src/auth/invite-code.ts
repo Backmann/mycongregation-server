@@ -16,9 +16,6 @@ import { createHash, randomInt } from 'crypto';
 const ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 const CODE_LENGTH = 8;
 
-/** Five wrong guesses and the code is spent. */
-export const INVITE_MAX_ATTEMPTS = 5;
-
 /**
  * How long an invitation code lives — thirty days, not the three of a
  * password-reset link.
@@ -41,10 +38,14 @@ export const INVITE_MAX_ATTEMPTS = 5;
 export const INVITE_CODE_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
- * How long the sign-in LINK in the same letter lives. Unchanged: it signs its
- * clicker straight in, which is exactly what must not sit around for a month.
+ * How long a «Забыли пароль» code lives — a day.
+ *
+ * Not the invitation's month: this one is asked for by somebody standing at
+ * the sign-in screen right now, and a code that opens an account should not
+ * sit in a mailbox longer than that takes. Not the old link's hour either:
+ * the letter may land in the evening and be read in the morning.
  */
-export const INVITE_LINK_LIFETIME_MS = 72 * 60 * 60 * 1000;
+export const RESET_CODE_LIFETIME_MS = 24 * 60 * 60 * 1000;
 
 export function makeInviteCode(): string {
   let out = '';

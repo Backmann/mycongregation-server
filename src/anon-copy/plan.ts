@@ -109,7 +109,8 @@ export const PLAN: Record<string, TablePlan> = {
       updated_at deleted_at ui_language can_view_private_data last_seen_at
       is_owner hide_presence client_platform client_kind client_os
       client_app_version client_seen_at invite_code_attempts push_state
-      push_state_at reminder_ladder`),
+      push_state_at reminder_ladder last_failed_login_at
+      last_failed_login_reason`),
     { email: 'email', login_name: 'login' },
     remove(`password_hash reset_token_hash reset_token_expires_at
       invite_code_hash invite_code_expires_at`),

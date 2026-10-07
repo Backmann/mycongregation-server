@@ -62,28 +62,85 @@ describe('the invitation letter', () => {
   });
 
   /**
-   * The order of a letter is not decoration. What a person reads first is what
-   * they act on, and the two things this letter exists to hand over — the code
-   * and the name to sign in with — used to sit third and last, behind a button
-   * about installing the app.
+   * The order of a letter is not decoration: a person does things in the
+   * order they are told them. Open the app — and what «the app» is on this
+   * device — then the code, then what to keep.
    */
-  it('puts the code and the login name ahead of the install page', async () => {
+  it('goes in the order a person acts: where the app is, the code, the name', async () => {
     const { service, sent } = build();
 
-    await service.sendInvite('vera@gmail.com', 'ru', 'https://x/y', {
+    await service.sendInvite(
+      'vera@gmail.com',
+      'ru',
+      'https://mycongregation.org/reset-password?code=K7QM-3XPD',
+      {
+        code: 'K7QM-3XPD',
+        loginName: 'sidorova.vera',
+        installUrl: 'https://mycongregation.org/app/',
+        recipientName: 'Вера',
+      },
+    );
+
+    for (const body of [sent[0].text, sent[0].html]) {
+      const at = (x: string) => {
+        const i = body.indexOf(x);
+        expect(i).toBeGreaterThan(-1);
+        return i;
+      };
+      expect(at('Шаг 1')).toBeLessThan(at('mycongregation.org/app/'));
+      expect(at('mycongregation.org/app/')).toBeLessThan(at('Шаг 2'));
+      expect(at('Шаг 2')).toBeLessThan(at('K7QM-3XPD'));
+      expect(at('K7QM-3XPD')).toBeLessThan(at('sidorova.vera'));
+    }
+  });
+
+  it('says what «the app» is on an Android phone, an iPhone and a computer', async () => {
+    // People use it three ways, and «откройте приложение» meant nothing to
+    // somebody whose app is an icon on an iPhone's Home Screen.
+    const { service, sent } = build();
+
+    await service.sendInvite('vera@gmail.com', 'ru', '', {
       code: 'K7QM-3XPD',
-      loginName: 'sidorova.vera',
       installUrl: 'https://mycongregation.org/app/',
-      recipientName: 'Вера',
     });
 
-    const text = sent[0].text;
-    expect(text.indexOf('K7QM-3XPD')).toBeLessThan(
-      text.indexOf('mycongregation.org/app/'),
+    expect(sent[0].text).toMatch(/Android/);
+    expect(sent[0].text).toMatch(/iPhone/);
+    expect(sent[0].text).toMatch(/компьютер/i);
+    expect(sent[0].text).toContain('На каждом устройстве входят отдельно');
+  });
+
+  it('carries no link that signs anybody in, and says so about its button', async () => {
+    const { service, sent } = build();
+
+    await service.sendInvite(
+      'vera@gmail.com',
+      'ru',
+      'https://mycongregation.org/reset-password?code=K7QM-3XPD',
+      { code: 'K7QM-3XPD' },
     );
-    expect(text.indexOf('sidorova.vera')).toBeLessThan(
-      text.indexOf('mycongregation.org/app/'),
-    );
+
+    for (const body of [sent[0].text, sent[0].html]) {
+      expect(body).not.toMatch(/token=/);
+      expect(body).toContain('только вписывает код');
+      expect(body).not.toMatch(
+        /Читаете с компьютера|72 часа|общий почтовый ящик/,
+      );
+    }
+  });
+
+  it('does not say «вводите имя, а не адрес» — the address works too', async () => {
+    // The sign-in field is labelled «Имя входа или почта» and takes either;
+    // the letter contradicted it.
+    const { service, sent } = build();
+
+    await service.sendInvite('vera@gmail.com', 'ru', '', {
+      code: 'K7QM-3XPD',
+      loginName: 'sidorova.vera',
+    });
+
+    expect(sent[0].text).not.toMatch(/не адрес почты/);
+    expect(sent[0].text).toContain('Адрес почты тоже подойдёт');
   });
 
   it('names the congregation the invitation comes from', async () => {
@@ -108,11 +165,13 @@ describe('the invitation letter', () => {
 
     await service.sendInvite('vera@gmail.com', 'ru', 'https://x/y', {
       code: 'K7QM-3XPD',
-      expiresAt: new Date('2026-10-06T12:00:00Z'),
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     });
 
-    expect(sent[0].text).toContain('6 октября');
-    expect(sent[0].text).not.toContain('06.10.2026');
+    expect(sent[0].text).toMatch(
+      /Код действует до \d{1,2} (января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)/,
+    );
+    expect(sent[0].text).not.toMatch(/\d{2}\.\d{2}\.\d{4}/);
     expect(sent[0].text).not.toMatch(/\d{2}:\d{2}/);
   });
 
@@ -151,17 +210,64 @@ describe('the invitation letter', () => {
     expect(line).not.toContain('K7QM-3XPD');
   });
 
-  it('says which name is which in a reset letter too', async () => {
-    // Two reset letters in one mailbox is the likelier of the two cases: both
-    // of them forgot, and each needs to know which is theirs.
-    const { service, sent } = build();
+  describe('«Забыли пароль»', () => {
+    const send = async (extra: Record<string, unknown> = {}) => {
+      const { service, sent } = build();
+      await service.sendPasswordReset(
+        'family@gmail.com',
+        'ru',
+        'https://mycongregation.org/reset-password?code=K7QM-3XPD',
+        {
+          code: 'K7QM-3XPD',
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          recipientName: 'Александр',
+          loginName: 'sidorov.aleksandr',
+          ...extra,
+        },
+      );
+      return sent[0];
+    };
 
-    await service.sendPasswordReset('family@gmail.com', 'ru', 'https://x/y', {
-      recipientName: 'Александр',
-      loginName: 'sidorov.aleksandr',
+    it('is a code letter: two steps, the code, «сутки» — and no sign-in link', async () => {
+      // It used to say «перейдите по ссылке:» and follow that with the login
+      // name; the link itself stood under «Читаете с компьютера?».
+      const letter = await send();
+      for (const body of [letter.text, letter.html]) {
+        expect(body).toContain('Шаг 1');
+        expect(body).toContain('У меня есть код');
+        expect(body).toContain('K7QM-3XPD');
+        expect(body).toContain('Код действует сутки');
+        expect(body).not.toMatch(
+          /token=|перейдите по ссылке|Читаете с компьютера|1 час/,
+        );
+      }
     });
 
-    expect(sent[0].html).toContain('Здравствуйте, Александр!');
-    expect(sent[0].html).toContain('sidorov.aleksandr');
+    it('says which name is which — two such letters may share a mailbox', async () => {
+      const letter = await send();
+      expect(letter.html).toContain('Здравствуйте, Александр!');
+      expect(letter.html).toContain('sidorov.aleksandr');
+    });
+
+    it('«вы попросили» for the person’s own request, «вам выдали код» for an elder’s', async () => {
+      expect((await send()).text).toContain('Вы попросили восстановить пароль');
+      const byElder = (await send({ issuedByElder: true })).text;
+      expect(byElder).toContain('Вам выдали код');
+      expect(byElder).not.toContain('Вы попросили');
+      expect(byElder).not.toContain('Если вы не запрашивали');
+    });
+  });
+
+  it('«вам задали пароль» is a plain notice: no steps, no «читаете с компьютера»', async () => {
+    const { service, sent } = build();
+
+    await service.sendPasswordSetByAdmin('vera@gmail.com', 'ru', {
+      recipientName: 'Вера',
+      loginName: 'sidorova.vera',
+    });
+
+    expect(sent[0].text).toContain('sidorova.vera');
+    expect(sent[0].text).not.toMatch(/Читаете с компьютера|Шаг 1/);
+    expect(sent[0].text).not.toMatch(/\n\n\n/);
   });
 });

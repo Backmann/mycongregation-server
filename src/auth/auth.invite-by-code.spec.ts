@@ -20,6 +20,7 @@ describe('AuthService.redeemInvite — the code says who this is', () => {
     Object.assign(service, {
       usersService: {
         findByInviteCode,
+        noteFailedLogin: jest.fn(),
         completeInvite,
         // Setting a password by code ends the account's other sessions — the
         // lost phone must not keep the way in it already had.

@@ -3,7 +3,6 @@ import { getDataSourceToken } from '@nestjs/typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { BadRequestException } from '@nestjs/common';
-import { createHash } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
@@ -34,6 +33,7 @@ describe('AuthService — password reset', () => {
     findByValidResetToken: jest.Mock;
     completePasswordReset: jest.Mock;
     touchLastLogin: jest.Mock;
+    sendResetCode: jest.Mock;
   };
   let mail: { sendPasswordReset: jest.Mock };
 
@@ -59,6 +59,7 @@ describe('AuthService — password reset', () => {
       completePasswordReset: jest.fn().mockResolvedValue(undefined),
       // Setting a password by link ends with a session — that is an entry.
       touchLastLogin: jest.fn().mockResolvedValue(undefined),
+      sendResetCode: jest.fn().mockResolvedValue(undefined),
     };
     mail = { sendPasswordReset: jest.fn().mockResolvedValue(undefined) };
 
@@ -97,7 +98,7 @@ describe('AuthService — password reset', () => {
     users.findAllForReset.mockResolvedValue([]);
     const res = await service.forgotPassword('ghost@nowhere.org', '1.2.3.4');
     expect(res).toEqual({ ok: true });
-    expect(mail.sendPasswordReset).not.toHaveBeenCalled();
+    expect(users.sendResetCode).not.toHaveBeenCalled();
     expect(users.setPasswordResetToken).not.toHaveBeenCalled();
   });
 
@@ -106,30 +107,21 @@ describe('AuthService — password reset', () => {
       { ...activeUser, isActive: false },
     ]);
     await service.forgotPassword(activeUser.email, '1.2.3.4');
-    expect(mail.sendPasswordReset).not.toHaveBeenCalled();
+    expect(users.sendResetCode).not.toHaveBeenCalled();
   });
 
-  it('stores only the sha256 of the token and mails a 1-hour link', async () => {
+  it('asks for a code letter for the account — and mints no link', async () => {
     users.findAllForReset.mockResolvedValue([{ ...activeUser }]);
-    const before = Date.now();
     await service.forgotPassword('  LIONEL@mycongregation.org ', '1.2.3.4');
 
-    expect(users.setPasswordResetToken).toHaveBeenCalledTimes(1);
-    const [userId, storedHash, expiresAt] =
-      users.setPasswordResetToken.mock.calls[0];
-    expect(userId).toBe('u1');
-
-    expect(mail.sendPasswordReset).toHaveBeenCalledTimes(1);
-    const [to, lang, link] = mail.sendPasswordReset.mock.calls[0];
-    expect(to).toBe(activeUser.email);
-    expect(lang).toBe('ru');
-    const token = String(link).split('token=')[1];
-    expect(token).toMatch(/^[0-9a-f]{64}$/);
-    expect(createHash('sha256').update(token).digest('hex')).toBe(storedHash);
-
-    const ttlMs = (expiresAt as Date).getTime() - before;
-    expect(ttlMs).toBeGreaterThan(55 * 60 * 1000);
-    expect(ttlMs).toBeLessThan(65 * 60 * 1000);
+    expect(users.findAllForReset).toHaveBeenCalledWith(
+      'lionel@mycongregation.org',
+    );
+    expect(users.sendResetCode).toHaveBeenCalledTimes(1);
+    expect(users.sendResetCode).toHaveBeenCalledWith('u1');
+    // The link signed its clicker in wherever the letter was opened; none is
+    // issued any more.
+    expect(users.setPasswordResetToken).not.toHaveBeenCalled();
   });
 
   it('rate-limits to 3 mails per email per hour', async () => {
@@ -137,7 +129,7 @@ describe('AuthService — password reset', () => {
     for (let i = 0; i < 4; i++) {
       await service.forgotPassword(activeUser.email, '1.2.3.4');
     }
-    expect(mail.sendPasswordReset).toHaveBeenCalledTimes(3);
+    expect(users.sendResetCode).toHaveBeenCalledTimes(3);
   });
 
   it('rejects an invalid or expired token', async () => {

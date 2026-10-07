@@ -19,8 +19,9 @@ import { join } from 'path';
 describe('who is allowed to send a letter', () => {
   /** Methods that may put a letter in the post, and why they are allowed to. */
   const ALLOWED = new Set([
-    // Issues an invitation: this IS the letter.
-    'sendInvitation',
+    // The code letter itself — an invitation, or «Забыли пароль». Every code
+    // that goes by post goes through here (sendInvitation, sendResetCode).
+    'postCode',
     // Creating a login with no password invites it — otherwise the account is
     // born unenterable.
     'createUserByAdmin',
@@ -28,8 +29,6 @@ describe('who is allowed to send a letter', () => {
     'resetPasswordByAdmin',
     // A mailbox that has just started serving two logins.
     'noticeMailboxNowShared',
-    // «Забыли пароль», asked for by the person themselves.
-    'forgotPassword',
     // A notification for somebody with no device, sent as a letter instead —
     // only for kinds marked emailFallback (the person's own assignments).
     'mailUndelivered',

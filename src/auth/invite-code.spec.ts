@@ -3,7 +3,8 @@ import {
   formatInviteCode,
   normalizeInviteCode,
   hashInviteCode,
-  INVITE_MAX_ATTEMPTS,
+  INVITE_CODE_LIFETIME_MS,
+  RESET_CODE_LIFETIME_MS,
 } from './invite-code';
 
 /**
@@ -55,7 +56,8 @@ describe('invite code', () => {
     expect(hashInviteCode(code)).toBe(hash);
   });
 
-  it('allows five attempts', () => {
-    expect(INVITE_MAX_ATTEMPTS).toBe(5);
+  it('a forgotten-password code lives a day, an invitation a month', () => {
+    expect(RESET_CODE_LIFETIME_MS).toBe(24 * 60 * 60 * 1000);
+    expect(INVITE_CODE_LIFETIME_MS).toBe(30 * 24 * 60 * 60 * 1000);
   });
 });

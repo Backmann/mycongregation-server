@@ -162,6 +162,12 @@ export interface AccessSummary {
   invitePendingUntil?: Date | null;
   /** Whether a password has ever been set — i.e. whether they ever got in. */
   hasPassword?: boolean;
+  /**
+   * The last time this account was turned away, if that was after the last
+   * time it got in — and which of four reasons. For the elder helping.
+   */
+  lastFailedLoginAt?: Date | null;
+  lastFailedLoginReason?: string | null;
   role: UserRole | null;
   isActive: boolean | null;
   lastLoginAt: Date | null;
@@ -898,6 +904,7 @@ export class PublishersService {
       publisher.userId,
       tenantId,
     );
+    const failed = await this.usersService.lastFailedLogin(user.id);
     const pending =
       user.inviteCodeExpiresAt &&
       user.inviteCodeExpiresAt.getTime() > Date.now()
@@ -918,6 +925,8 @@ export class PublishersService {
       isActive: user.isActive,
       lastLoginAt: user.lastLoginAt,
       canViewPrivateData: user.canViewPrivateData,
+      lastFailedLoginAt: failed?.at ?? null,
+      lastFailedLoginReason: failed?.reason ?? null,
     };
   }
 

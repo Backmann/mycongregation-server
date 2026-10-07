@@ -55,6 +55,8 @@ describe('PublishersService.getAccess — reading is not doing', () => {
           inviteCodeExpiresAt: new Date(Date.now() + 86400000),
         })),
         suggestLoginName: () => 'sidorova.vera',
+        // A read, like the rest of this method.
+        lastFailedLogin: jest.fn(async () => null),
         sendInvitation,
         mailService,
       },

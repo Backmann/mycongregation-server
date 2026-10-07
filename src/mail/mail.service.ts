@@ -34,14 +34,11 @@ interface LetterExtras {
   /** What this person types to sign in; the letter is where they learn it. */
   loginName?: string | null;
   /**
-   * True when this letter is going to a mailbox the reader shares with the
-   * person it is about — a wife's invitation sent to her husband's address.
-   *
-   * Then the letter carries NO link. A link signs its clicker in; a code has
-   * to be typed by the person it belongs to. And it says out loud who the
-   * code is for, so whoever opens it knows to pass it on.
+   * The elder issued this code himself, for somebody who already has a
+   * password (a lost phone, a password nobody remembers). The letter then
+   * does not say «вы попросили».
    */
-  borrowedMailbox?: boolean;
+  issuedByElder?: boolean;
   /**
    * Which congregation this letter comes from.
    *
@@ -68,11 +65,8 @@ interface Strings {
   loginNameLead: string;
   /** Says plainly that this, and not the address, is what to type. */
   loginNameHint: string;
-  linkHint: string;
   footerAuto: string;
   invite: Message;
-  /** One line for a letter that landed in somebody else's mailbox. */
-  passItOn: string;
   reset: Message;
   /**
    * Sent to whoever ALREADY used an address, at the moment it starts serving a
@@ -92,20 +86,48 @@ interface Strings {
    * owner of the account finds out at all.
    */
   passwordSet: Message;
-  /** Only the invitation carries a code; the reset does not. */
   newestLetter: string;
-  installLead: string;
   installButton: string;
-  codeLead: string;
-  codeHint: string;
   codeValid: string;
-  orBrowser: string;
   /** Month names in the genitive, as a date is read aloud: «6 октября». */
   months: string[];
   /** Whose congregation this is — said before anything is asked of the reader. */
   fromCongregation: string;
   /** Where to turn when the code does not work. */
   askWhoInvited: string;
+  /**
+   * THE CODE LETTER (7 October 2026) — an invitation and a forgotten password
+   * are the same letter now: two steps and a code.
+   *
+   * Both used to carry a link that signed its clicker in WHERE THE LETTER WAS
+   * OPENED. People use this app three ways — the Android app, the icon on an
+   * iPhone's Home Screen, a browser on a computer — and a link from a mail
+   * client lands in the right one of those only some of the time: on an
+   * iPhone it signs the mail client's own browser in and leaves the icon on
+   * the Home Screen asking for a password; on an Android phone without the
+   * app yet it signs the browser in and the app, installed a minute later,
+   * asks again. «Вошёл — и снова экран входа» was the complaint.
+   *
+   * A code is typed where the person already is, so it works the same in all
+   * three. The button that remains only OPENS the code screen with the code
+   * filled in; opened in the wrong place it costs nothing — the code is still
+   * good.
+   */
+  step1: string;
+  /** What «the app» is on each kind of device, and where to get it. */
+  step1NoApp: string;
+  step2Invite: string;
+  step2Reset: string;
+  thenInvite: string;
+  thenReset: string;
+  /** For a code that lives a day: a date would say less than «сутки». */
+  codeValidDay: string;
+  fillButton: string;
+  fillNote: string;
+  /** A session on the phone is not a session on the computer. */
+  eachDevice: string;
+  /** «Вам выдали код» — for somebody who already has a password. */
+  resetByElderIntro: string;
 }
 
 /** Why a notification came as a letter, and how to make the letters stop. */
@@ -118,22 +140,31 @@ const NOTICE_WHY: Record<Lang, string> = {
 const STRINGS: Record<Lang, Strings> = {
   ru: {
     brand: 'MyCongregation.org',
-    passItOn:
-      'Это письмо пришло на общий почтовый ящик. Код предназначен человеку, названному выше, — передайте письмо ему. Ссылки для входа здесь нет: код нужно ввести в приложении на своём телефоне.',
+    step1: 'Шаг 1. Откройте приложение собрания',
+    step1NoApp:
+      'Ещё не установлено? Откройте на своём телефоне страницу ниже — она сама покажет, что нужно: на Android — установку приложения, на iPhone — как добавить значок на экран «Домой». На компьютере приложение — это сайт mycongregation.org.',
+    step2Invite:
+      'Шаг 2. На экране входа нажмите «Вас пригласили?» и введите код',
+    step2Reset:
+      'Шаг 2. На экране входа нажмите «Забыли пароль?», затем «У меня есть код», и введите его',
+    thenInvite: 'Затем придумайте пароль — и вы сразу внутри.',
+    thenReset: 'Затем придумайте новый пароль — и вы сразу внутри.',
+    codeValidDay: 'Код действует сутки.',
+    fillButton: 'Открыть и вписать код',
+    fillNote:
+      'Кнопка только вписывает код за вас. Если после неё вы снова видите экран входа — значит, она открылась не там, где у вас приложение. Ничего страшного: код действует, введите его вручную, как сказано в шаге 2.',
+    eachDevice:
+      'Пользуетесь и телефоном, и компьютером? На каждом устройстве входят отдельно — тем же именем и паролем.',
+    resetByElderIntro:
+      'Вам выдали код, чтобы вы снова могли войти в приложение собрания и задать новый пароль.',
     greetingNamed: 'Здравствуйте, {{name}}!',
     loginNameLead: 'Ваше имя для входа:',
     loginNameHint:
-      'Именно это имя нужно вводить при входе в приложение — не адрес почты. Запишите его: адрес у вас может быть общий с кем-то из семьи, а имя принадлежит только вам.',
+      'Этим именем вы входите в приложение — запишите его. Адрес почты тоже подойдёт, если этим ящиком пользуетесь только вы.',
     newestLetter:
-      'Если писем с приглашением несколько — откройте самое новое: код из прежних уже не работает.',
-    installLead:
-      'Приложения ещё нет? Откройте эту страницу на телефоне — там всё для вашего устройства:',
+      'Если таких писем несколько — берите код из самого нового: прежние уже не работают.',
     installButton: 'Как установить',
-    codeLead: 'Откройте приложение и введите этот код:',
-    codeHint:
-      'В приложении нажмите «Вас пригласили?» вверху экрана входа и введите код. Пароль вы придумаете сами на следующем шаге.',
     codeValid: 'Код действует до',
-    orBrowser: 'Читаете с компьютера? Откройте ссылку:',
     months: [
       'января',
       'февраля',
@@ -150,9 +181,8 @@ const STRINGS: Record<Lang, Strings> = {
     ],
     fromCongregation: 'Собрание: {{name}}',
     askWhoInvited:
-      'Если что-то не получается — обратитесь к тому, кто вас пригласил.',
+      'Если что-то не получается — обратитесь к тому, кто вас пригласил, или к любому из старейшин.',
     greeting: 'Здравствуйте!',
-    linkHint: 'Если кнопка не открывается, скопируйте ссылку в браузер:',
     footerAuto: 'Это автоматическое сообщение, отвечать на него не нужно.',
     invite: {
       subject: 'Приглашение в приложение собрания — mycongregation.org',
@@ -191,7 +221,7 @@ const STRINGS: Record<Lang, Strings> = {
       subject: 'Восстановление пароля — mycongregation.org',
       title: 'Восстановление пароля',
       intro:
-        'Вы (или кто-то другой) запросили восстановление пароля для mycongregation.org.',
+        'Вы попросили восстановить пароль для входа в приложение собрания.',
       lead: 'Чтобы задать новый пароль, перейдите по ссылке:',
       button: 'Задать новый пароль',
       validity: 'Ссылка действует 1 час.',
@@ -201,22 +231,31 @@ const STRINGS: Record<Lang, Strings> = {
   },
   en: {
     brand: 'MyCongregation.org',
-    passItOn:
-      'This letter arrived in a shared mailbox. The code belongs to the person named above — please pass it on to them. There is no sign-in link here: the code has to be typed into the app on their own phone.',
+    step1: 'Step 1. Open the congregation app',
+    step1NoApp:
+      'Not installed yet? Open the page below on your phone — it shows what your device needs: on Android, how to install the app; on an iPhone, how to add the icon to the Home Screen. On a computer the app is the website mycongregation.org.',
+    step2Invite:
+      'Step 2. On the sign-in screen tap «Were you invited?» and enter the code',
+    step2Reset:
+      'Step 2. On the sign-in screen tap «Forgot password?», then «I have a code», and enter it',
+    thenInvite: 'Then choose a password — and you are in.',
+    thenReset: 'Then choose a new password — and you are in.',
+    codeValidDay: 'The code is valid for one day.',
+    fillButton: 'Open and fill in the code',
+    fillNote:
+      'The button only fills the code in for you. If you see the sign-in screen again after it, it opened somewhere other than where your app is. No harm done: the code is still good — enter it by hand as in step 2.',
+    eachDevice:
+      'Using both a phone and a computer? You sign in on each device separately — with the same name and password.',
+    resetByElderIntro:
+      'You have been given a code so that you can get back into your congregation app and choose a new password.',
     greetingNamed: 'Hello, {{name}}!',
     loginNameLead: 'Your name for signing in:',
     loginNameHint:
-      'This name, not the e-mail address, is what to type when signing in. Do write it down: an address may be shared with someone in the family, but this name is yours alone.',
+      'This is the name you sign in with — do write it down. Your e-mail address works too, if you are the only one using that mailbox.',
     newestLetter:
-      'If several invitation letters arrived, open the newest — codes from earlier ones no longer work.',
-    installLead:
-      'No app yet? Open this page on your phone — it shows what your device needs:',
+      'If several such letters arrived, take the code from the newest — earlier ones no longer work.',
     installButton: 'How to install',
-    codeLead: 'Open the app and enter this code:',
-    codeHint:
-      'Tap «Were you invited?» at the top of the sign-in screen and enter the code. You will choose your own password on the next step.',
     codeValid: 'The code is valid until',
-    orBrowser: 'Reading on a computer? Open the link:',
     months: [
       'January',
       'February',
@@ -233,9 +272,8 @@ const STRINGS: Record<Lang, Strings> = {
     ],
     fromCongregation: 'Congregation: {{name}}',
     askWhoInvited:
-      'If something does not work, ask the person who invited you.',
+      'If something does not work, ask the person who invited you or any of the elders.',
     greeting: 'Hello!',
-    linkHint: "If the button doesn't work, copy this link into your browser:",
     footerAuto: 'This is an automated message — no need to reply.',
     invite: {
       subject: 'Invitation to your congregation app — mycongregation.org',
@@ -273,8 +311,7 @@ const STRINGS: Record<Lang, Strings> = {
     reset: {
       subject: 'Password reset — mycongregation.org',
       title: 'Password reset',
-      intro:
-        'You (or someone else) requested a password reset for mycongregation.org.',
+      intro: 'You asked to reset the password for your congregation app.',
       lead: 'To set a new password, follow the link:',
       button: 'Set a new password',
       validity: 'The link is valid for 1 hour.',
@@ -284,22 +321,31 @@ const STRINGS: Record<Lang, Strings> = {
   },
   de: {
     brand: 'MyCongregation.org',
-    passItOn:
-      'Dieser Brief kam in einem gemeinsamen Postfach an. Der Code gehört der oben genannten Person — bitte geben Sie ihn weiter. Einen Anmeldelink gibt es hier nicht: der Code wird in der App auf ihrem eigenen Telefon eingegeben.',
+    step1: 'Schritt 1. Öffnen Sie die Versammlungs-App',
+    step1NoApp:
+      'Noch nicht installiert? Öffnen Sie die Seite unten auf Ihrem Telefon – sie zeigt, was Ihr Gerät braucht: auf Android die Installation der App, auf dem iPhone, wie Sie das Symbol zum Home-Bildschirm hinzufügen. Am Computer ist die App die Website mycongregation.org.',
+    step2Invite:
+      'Schritt 2. Tippen Sie auf dem Anmeldebildschirm auf «Wurden Sie eingeladen?» und geben Sie den Code ein',
+    step2Reset:
+      'Schritt 2. Tippen Sie auf dem Anmeldebildschirm auf «Passwort vergessen?», dann auf «Ich habe einen Code», und geben Sie ihn ein',
+    thenInvite: 'Danach wählen Sie ein Passwort – und Sie sind drin.',
+    thenReset: 'Danach wählen Sie ein neues Passwort – und Sie sind drin.',
+    codeValidDay: 'Der Code ist einen Tag gültig.',
+    fillButton: 'Öffnen und Code eintragen',
+    fillNote:
+      'Die Schaltfläche trägt nur den Code für Sie ein. Wenn Sie danach wieder den Anmeldebildschirm sehen, hat sie sich nicht dort geöffnet, wo Ihre App ist. Das macht nichts: Der Code gilt weiter – geben Sie ihn von Hand ein, wie in Schritt 2 beschrieben.',
+    eachDevice:
+      'Nutzen Sie Telefon und Computer? Auf jedem Gerät melden Sie sich separat an – mit demselben Namen und Passwort.',
+    resetByElderIntro:
+      'Sie haben einen Code erhalten, damit Sie wieder in die Versammlungs-App gelangen und ein neues Passwort wählen können.',
     greetingNamed: 'Hallo, {{name}}!',
     loginNameLead: 'Ihr Name für die Anmeldung:',
     loginNameHint:
-      'Dieser Name, nicht die E-Mail-Adresse, wird bei der Anmeldung eingegeben. Notieren Sie ihn: eine Adresse teilt man womöglich mit der Familie, dieser Name gehört nur Ihnen.',
+      'Mit diesem Namen melden Sie sich in der App an – bitte notieren Sie ihn. Ihre E-Mail-Adresse funktioniert ebenfalls, wenn nur Sie dieses Postfach nutzen.',
     newestLetter:
-      'Sind mehrere Einladungen angekommen, öffnen Sie die neueste — Codes aus älteren gelten nicht mehr.',
-    installLead:
-      'Noch keine App? Öffnen Sie diese Seite auf dem Telefon — dort steht, was Ihr Gerät braucht:',
+      'Falls mehrere solche E-Mails angekommen sind: Nehmen Sie den Code aus der neuesten – frühere funktionieren nicht mehr.',
     installButton: 'So wird installiert',
-    codeLead: 'Öffnen Sie die App und geben Sie diesen Code ein:',
-    codeHint:
-      'Tippen Sie oben im Anmeldebildschirm auf «Wurden Sie eingeladen?» und geben Sie den Code ein. Ihr Passwort wählen Sie im nächsten Schritt selbst.',
     codeValid: 'Der Code ist gültig bis',
-    orBrowser: 'Lesen Sie am Computer? Öffnen Sie den Link:',
     months: [
       'Januar',
       'Februar',
@@ -316,10 +362,8 @@ const STRINGS: Record<Lang, Strings> = {
     ],
     fromCongregation: 'Versammlung: {{name}}',
     askWhoInvited:
-      'Wenn etwas nicht klappt, wende dich an die Person, die dich eingeladen hat.',
+      'Wenn etwas nicht klappt, wenden Sie sich an die Person, die Sie eingeladen hat, oder an einen der Ältesten.',
     greeting: 'Hallo!',
-    linkHint:
-      'Falls die Schaltfläche nicht funktioniert, kopieren Sie den Link in Ihren Browser:',
     footerAuto:
       'Dies ist eine automatische Nachricht — eine Antwort ist nicht nötig.',
     invite: {
@@ -359,7 +403,7 @@ const STRINGS: Record<Lang, Strings> = {
       subject: 'Passwort zurücksetzen — mycongregation.org',
       title: 'Passwort zurücksetzen',
       intro:
-        'Sie (oder jemand anderes) haben das Zurücksetzen des Passworts für mycongregation.org angefordert.',
+        'Sie haben darum gebeten, das Passwort für die Versammlungs-App zurückzusetzen.',
       lead: 'Um ein neues Passwort festzulegen, folgen Sie dem Link:',
       button: 'Neues Passwort festlegen',
       validity: 'Der Link ist 1 Stunde gültig.',
@@ -425,28 +469,10 @@ export class MailService {
     return `${when.getDate()} ${lang.months[when.getMonth()]}`;
   }
 
-  private renderHtml(
-    s: Strings,
-    m: Message,
-    link: string,
-    extra: LetterExtras = {},
-  ): string {
-    const {
-      code,
-      expiresAt,
-      installUrl,
-      recipientName,
-      loginName,
-      borrowedMailbox,
-      congregationName,
-    } = extra;
-    const hello = recipientName
-      ? s.greetingNamed.replace('{{name}}', recipientName)
-      : s.greeting;
-    const p =
-      'font-size:15px;line-height:1.6;color:#334155;margin:0 0 14px;' +
+  /** The outer shell every letter shares: logo, title, body, footer. */
+  private shell(s: Strings, title: string, body: string, foot: string[]) {
+    const font =
       'font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;';
-    const small = 'font-size:13px;color:#64748b;';
     return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f6;margin:0;padding:24px 12px;">
 <tr><td align="center">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
@@ -454,54 +480,177 @@ export class MailService {
 <table role="presentation" cellpadding="0" cellspacing="0"><tr>
 <td align="center"><img src="cid:logo" width="64" height="64" alt="MyCongregation.org" style="display:block;border:0;border-radius:16px;" /></td>
 </tr></table>
-<div style="font-size:15px;font-weight:600;color:#0f172a;margin-top:12px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${s.brand}</div>
+<div style="font-size:15px;font-weight:600;color:#0f172a;margin-top:12px;${font}">${s.brand}</div>
 </td></tr>
-<tr><td style="padding:26px 32px 4px;">
-<h1 style="font-size:20px;margin:0 0 14px;color:#0f172a;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${m.title}</h1>
-<p style="${p}">${hello}</p>
-<p style="${p}">${m.intro}</p>
-${
-  congregationName
-    ? `<p style="${small}margin:0 0 16px;">${s.fromCongregation.replace('{{name}}', congregationName)}</p>`
-    : ''
-}
-<p style="${p}">${code ? s.codeLead : m.lead}</p>
-${code ? `<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f172a;text-align:center;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 12px;margin:0 0 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${code}</p><p style="${small}margin:0 0 14px;">${s.codeHint}</p><p style="${small}margin:0 0 14px;">${s.newestLetter}</p>${expiresAt ? `<p style="${small}margin:0 0 14px;">${s.codeValid} ${this.until(s, expiresAt)}</p>` : ''}` : ''}
-${
-  loginName
-    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:4px 0 18px;"><tr><td style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:12px;padding:14px 16px;">
-<p style="${small}margin:0 0 6px;">${s.loginNameLead}</p>
-<p style="font-size:19px;font-weight:700;color:#0c4a6e;margin:0 0 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${loginName}</p>
-<p style="${small}margin:0;">${s.loginNameHint}</p>
-</td></tr></table>`
-    : ''
-}
-${code && installUrl ? `<p style="${p}">${s.installLead}</p><table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:16px auto 18px;"><tr><td bgcolor="#15788f" style="border-radius:10px;"><a href="${installUrl}" style="display:inline-block;padding:13px 30px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;border-radius:10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${s.installButton}</a></td></tr></table><p style="${small}word-break:break-all;margin:0 0 16px;">${installUrl}</p>` : ''}
-${code && link ? `<p style="${p}">${s.orBrowser}</p>` : ''}
-${
-  link
-    ? `<table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:20px auto 8px;"><tr>
-<td bgcolor="#15788f" style="border-radius:10px;">
-<a href="${link}" style="display:inline-block;padding:13px 30px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;border-radius:10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${m.button}</a>
-</td></tr></table>
-<p style="${small}text-align:center;margin:6px 0 16px;">${m.validity}</p>`
-    : ''
-}
-<p style="${small}margin:0 0 12px;">${s.askWhoInvited}</p>
-${
-  borrowedMailbox
-    ? `<p style="${small}background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:11px 13px;margin:0 0 12px;color:#92400e;">${s.passItOn}</p>`
-    : `<p style="${small}margin:0 0 6px;">${s.linkHint}</p>
-<p style="font-size:13px;color:#0369a1;word-break:break-all;background:#f8fafc;border:1px solid #eef2f6;border-radius:8px;padding:10px 12px;margin:0 0 12px;">${link}</p>`
-}
+<tr><td style="padding:26px 32px 12px;">
+<h1 style="font-size:20px;margin:0 0 14px;color:#0f172a;${font}">${title}</h1>
+${body}
 </td></tr>
 <tr><td style="padding:18px 32px 26px;background:#f8fafc;border-top:1px solid #eef2f6;">
-<p style="font-size:12px;color:#94a3b8;margin:0 0 6px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${m.ignore}</p>
-<p style="font-size:12px;color:#94a3b8;margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${s.footerAuto}</p>
+${foot
+  .filter(Boolean)
+  .map(
+    (line, i, all) =>
+      `<p style="font-size:12px;color:#94a3b8;margin:0 0 ${i === all.length - 1 ? 0 : 6}px;${font}">${line}</p>`,
+  )
+  .join('\n')}
 </td></tr>
 </table>
 </td></tr>
 </table>`;
+  }
+
+  private static readonly P =
+    'font-size:15px;line-height:1.6;color:#334155;margin:0 0 14px;' +
+    'font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;';
+  private static readonly SMALL = 'font-size:13px;color:#64748b;';
+
+  private button(href: string, label: string): string {
+    return `<table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:16px auto 10px;"><tr><td bgcolor="#15788f" style="border-radius:10px;"><a href="${href}" style="display:inline-block;padding:13px 30px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;border-radius:10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${label}</a></td></tr></table>`;
+  }
+
+  private nameBox(s: Strings, loginName?: string | null): string {
+    if (!loginName) return '';
+    const small = MailService.SMALL;
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:4px 0 18px;"><tr><td style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:12px;padding:14px 16px;">
+<p style="${small}margin:0 0 6px;">${s.loginNameLead}</p>
+<p style="font-size:19px;font-weight:700;color:#0c4a6e;margin:0 0 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${loginName}</p>
+<p style="${small}margin:0;">${s.loginNameHint}</p>
+</td></tr></table>`;
+  }
+
+  /** «Код действует до 6 ноября» — or «сутки», for a code that lives a day. */
+  private validity(s: Strings, expiresAt?: Date): string {
+    if (!expiresAt) return '';
+    const left = expiresAt.getTime() - Date.now();
+    return left <= 36 * 60 * 60 * 1000
+      ? s.codeValidDay
+      : `${s.codeValid} ${this.until(s, expiresAt)}`;
+  }
+
+  /**
+   * The code letter, in the order a person acts on it: open the app (and
+   * what «the app» is on this device), enter the code, and only then the
+   * things to keep — the name, the note about several letters and several
+   * devices. See Strings.step1 for why there is no sign-in link in it.
+   *
+   * `fillLink` opens the code screen with the code already typed. It signs
+   * nobody in.
+   */
+  private codeParts(s: Strings, kind: 'invite' | 'reset', extra: LetterExtras) {
+    const m = kind === 'invite' ? s.invite : s.reset;
+    return {
+      m,
+      hello: extra.recipientName
+        ? s.greetingNamed.replace('{{name}}', extra.recipientName)
+        : s.greeting,
+      intro:
+        kind === 'reset' && extra.issuedByElder ? s.resetByElderIntro : m.intro,
+      congregation: extra.congregationName
+        ? s.fromCongregation.replace('{{name}}', extra.congregationName)
+        : '',
+      step2: kind === 'invite' ? s.step2Invite : s.step2Reset,
+      then: kind === 'invite' ? s.thenInvite : s.thenReset,
+      valid: this.validity(s, extra.expiresAt),
+      // Somebody who did not ask is told what to do about it; an elder's own
+      // act needs no such line.
+      ignore: kind === 'reset' && extra.issuedByElder ? '' : m.ignore,
+    };
+  }
+
+  private renderCodeHtml(
+    s: Strings,
+    kind: 'invite' | 'reset',
+    fillLink: string,
+    extra: LetterExtras,
+  ): string {
+    const c = this.codeParts(s, kind, extra);
+    const p = MailService.P;
+    const small = MailService.SMALL;
+    const step =
+      'font-size:16px;font-weight:700;color:#0f172a;margin:18px 0 8px;' +
+      'font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;';
+    const body = `<p style="${p}">${c.hello}</p>
+<p style="${p}">${c.intro}</p>
+${c.congregation ? `<p style="${small}margin:0 0 6px;">${c.congregation}</p>` : ''}
+<p style="${step}">${s.step1}</p>
+${
+  extra.installUrl
+    ? `<p style="${small}margin:0 0 4px;line-height:1.55;">${s.step1NoApp}</p>${this.button(extra.installUrl, s.installButton)}<p style="${small}word-break:break-all;text-align:center;margin:0 0 6px;">${extra.installUrl}</p>`
+    : ''
+}
+<p style="${step}">${c.step2}</p>
+<p style="font-size:30px;letter-spacing:4px;font-weight:700;color:#0f172a;text-align:center;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 12px;margin:0 0 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${extra.code ?? ''}</p>
+<p style="${p}margin-bottom:6px;">${c.then}</p>
+${c.valid ? `<p style="${small}margin:0 0 6px;">${c.valid}</p>` : ''}
+${fillLink ? `${this.button(fillLink, s.fillButton)}<p style="${small}margin:0 0 16px;line-height:1.55;">${s.fillNote}</p>` : ''}
+${this.nameBox(s, extra.loginName)}
+<p style="${small}margin:0 0 10px;line-height:1.55;">${s.newestLetter}</p>
+<p style="${small}margin:0 0 10px;line-height:1.55;">${s.eachDevice}</p>
+<p style="${small}margin:0 0 12px;line-height:1.55;">${s.askWhoInvited}</p>`;
+    return this.shell(s, c.m.title, body, [c.ignore, s.footerAuto]);
+  }
+
+  private renderCodeText(
+    s: Strings,
+    kind: 'invite' | 'reset',
+    fillLink: string,
+    extra: LetterExtras,
+  ): string {
+    const c = this.codeParts(s, kind, extra);
+    return [
+      c.hello,
+      '',
+      c.intro,
+      ...(c.congregation ? ['', c.congregation] : []),
+      '',
+      s.step1,
+      ...(extra.installUrl ? [s.step1NoApp, extra.installUrl] : []),
+      '',
+      c.step2 + ':',
+      extra.code ?? '',
+      '',
+      c.then,
+      ...(c.valid ? [c.valid] : []),
+      ...(fillLink ? ['', `${s.fillButton}:`, fillLink, s.fillNote] : []),
+      ...(extra.loginName
+        ? ['', s.loginNameLead, extra.loginName, s.loginNameHint]
+        : []),
+      '',
+      s.newestLetter,
+      s.eachDevice,
+      '',
+      s.askWhoInvited,
+      '',
+      ...(c.ignore ? [c.ignore] : []),
+      s.footerAuto,
+    ].join('\n');
+  }
+
+  /**
+   * A plain notice with a way into the app: «вам задали пароль», «входите по
+   * имени». No code, no steps.
+   */
+  private renderHtml(
+    s: Strings,
+    m: Message,
+    link: string,
+    extra: LetterExtras = {},
+  ): string {
+    const p = MailService.P;
+    const small = MailService.SMALL;
+    const hello = extra.recipientName
+      ? s.greetingNamed.replace('{{name}}', extra.recipientName)
+      : s.greeting;
+    const body = `<p style="${p}">${hello}</p>
+<p style="${p}">${m.intro}</p>
+<p style="${p}">${m.lead}</p>
+${this.nameBox(s, extra.loginName)}
+${link ? this.button(link, m.button) : ''}
+${link ? `<p style="${small}word-break:break-all;text-align:center;margin:0 0 14px;">${link}</p>` : ''}
+<p style="${small}margin:0 0 10px;line-height:1.55;">${s.eachDevice}</p>
+<p style="${small}margin:0 0 12px;line-height:1.55;">${s.askWhoInvited}</p>`;
+    return this.shell(s, m.title, body, [m.ignore, s.footerAuto]);
   }
 
   private renderText(
@@ -510,59 +659,20 @@ ${
     link: string,
     extra: LetterExtras = {},
   ): string {
-    const {
-      code,
-      expiresAt,
-      installUrl,
-      recipientName,
-      loginName,
-      borrowedMailbox,
-      congregationName,
-    } = extra;
     return [
-      recipientName
-        ? s.greetingNamed.replace('{{name}}', recipientName)
+      extra.recipientName
+        ? s.greetingNamed.replace('{{name}}', extra.recipientName)
         : s.greeting,
       '',
       m.intro,
       '',
-      // Whose congregation this is, before anything is asked of the reader.
-      ...(congregationName
-        ? [s.fromCongregation.replace('{{name}}', congregationName), '']
+      m.lead,
+      ...(extra.loginName
+        ? [s.loginNameLead, extra.loginName, s.loginNameHint]
         : []),
-      // The code first, then the name — the two things this letter exists to
-      // carry. Everything else (where to get the app, how to do it from a
-      // computer) is a means to using them, and a means belongs after its end.
-      // They used to sit third and last, behind an install button, so the
-      // reader scrolled past the point of the letter to reach it.
-      ...(code
-        ? [
-            s.codeLead,
-            code,
-            '',
-            s.codeHint,
-            s.newestLetter,
-            ...(expiresAt
-              ? [`${s.codeValid} ${this.until(s, expiresAt)}`]
-              : []),
-            '',
-          ]
-        : [m.lead]),
-      ...(loginName
-        ? [s.loginNameLead, loginName, '', s.loginNameHint, '']
-        : []),
-      ...(code && installUrl ? [s.installLead, installUrl, ''] : []),
-      // «Or open it in a browser» — but there is nothing to open when the
-      // letter carries no link.
-      ...(borrowedMailbox ? [] : [s.orBrowser]),
-      ...(borrowedMailbox ? [s.passItOn] : [link]),
+      ...(link ? ['', `${m.button}:`, link] : []),
       '',
-      // The link's own life, said next to the link rather than next to the
-      // code: they expire on different days now, and the one worth stating
-      // here is the shorter.
-      ...(borrowedMailbox ? [] : [m.validity, '']),
-      // Somebody to turn to. «This message is automatic» used to be the last
-      // word, which left a reader whose code did not work with nowhere to go.
+      s.eachDevice,
       s.askWhoInvited,
       '',
       m.ignore,
@@ -626,8 +736,8 @@ ${
       await this.deliver(
         to,
         m.subject,
-        this.renderHtml(s, m, link, extra),
-        this.renderText(s, m, link, extra),
+        this.renderCodeHtml(s, 'invite', link, extra),
+        this.renderCodeText(s, 'invite', link, extra),
       );
     } catch (e) {
       this.logger.warn(
@@ -776,8 +886,8 @@ ${lines
       const sent = await this.deliver(
         to,
         m.subject,
-        this.renderHtml(s, m, link, extra),
-        this.renderText(s, m, link, extra),
+        this.renderCodeHtml(s, 'reset', link, extra),
+        this.renderCodeText(s, 'reset', link, extra),
       );
       if (sent) this.logger.log(`Password reset mail sent to ${to}`);
     } catch (err) {

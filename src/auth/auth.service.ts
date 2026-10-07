@@ -13,7 +13,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, IsNull } from 'typeorm';
-import { createHash, randomBytes } from 'crypto';
+import { createHash } from 'crypto';
 import { MailService } from '../mail/mail.service';
 import { User } from '../entities/user.entity';
 import { RefreshSession } from '../entities/refresh-session.entity';
@@ -206,12 +206,21 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     };
     if (!user) return refuse('no account with this name or address');
-    if (!user.isActive) return refuse('account is switched off');
+    // From here the refusal belongs to an account, and the account remembers
+    // it for the elder who will be asked to help (UsersService.noteFailedLogin).
+    if (!user.isActive) {
+      await this.usersService.noteFailedLogin(user.id, 'disabled');
+      return refuse('account is switched off');
+    }
     if (!user.passwordHash) {
+      await this.usersService.noteFailedLogin(user.id, 'no_password');
       return refuse('no password has been set (invited but never completed?)');
     }
     const ok = await passwordMatches(dto.password, user.passwordHash);
-    if (!ok) return refuse('wrong password');
+    if (!ok) {
+      await this.usersService.noteFailedLogin(user.id, 'wrong_password');
+      return refuse('wrong password');
+    }
     // Successful login clears this identifier's counter — the SAME key the
     // limiter above writes. It used to clear `login:email:…` while the limiter
     // counted something else, which would have left a successful sign-in
@@ -241,7 +250,7 @@ export class AuthService {
   }
 
   /**
-   * A letter to whoever has forgotten a password.
+   * A letter with a code to whoever has forgotten a password.
    *
    * Takes a login name OR an address, because after this month those are two
    * different things and a person may remember either one.
@@ -278,28 +287,13 @@ export class AuthService {
     }
 
     const recipients = await this.usersService.findAllForReset(identifier);
-    const base =
-      this.config.get<string>('PUBLIC_APP_URL') ?? 'https://mycongregation.org';
-
+    // A CODE, not a link (7 October 2026). The link signed its clicker in
+    // wherever the letter was opened — the mail client's browser on an
+    // iPhone, a browser on an Android phone whose app then asked again. The
+    // code is typed on the very screen this request came from.
     for (const user of recipients) {
       if (!user.isActive || !user.email) continue;
-      const token = randomBytes(32).toString('hex');
-      const tokenHash = createHash('sha256').update(token).digest('hex');
-      const expiresAt = new Date(Date.now() + HOUR);
-      await this.usersService.setPasswordResetToken(
-        user.id,
-        tokenHash,
-        expiresAt,
-      );
-      await this.mailService.sendPasswordReset(
-        user.email,
-        user.uiLanguage,
-        `${base}/reset-password?token=${token}`,
-        {
-          recipientName: await this.usersService.firstNameOf(user.id),
-          loginName: user.loginName,
-        },
-      );
+      await this.usersService.sendResetCode(user.id);
     }
     return { ok: true };
   }
@@ -401,11 +395,15 @@ export class AuthService {
 
     const user = await this.usersService.findByInviteCode(clean);
     if (!user) throw refuse('no account holds this code');
-    if (!user.isActive) throw refuse('account disabled');
+    if (!user.isActive) {
+      await this.usersService.noteFailedLogin(user.id, 'disabled');
+      throw refuse('account disabled');
+    }
     if (
       !user.inviteCodeExpiresAt ||
       user.inviteCodeExpiresAt.getTime() <= Date.now()
     ) {
+      await this.usersService.noteFailedLogin(user.id, 'code_expired');
       throw refuse('code expired');
     }
 

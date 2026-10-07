@@ -9,13 +9,12 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, QueryFailedError, Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { createHash, randomBytes } from 'crypto';
 import {
   makeInviteCode,
   formatInviteCode,
   hashInviteCode,
   INVITE_CODE_LIFETIME_MS,
-  INVITE_LINK_LIFETIME_MS,
+  RESET_CODE_LIFETIME_MS,
 } from '../auth/invite-code';
 import { MailService } from '../mail/mail.service';
 import { User } from '../entities/user.entity';
@@ -203,6 +202,34 @@ export interface CreatedUser extends PublicUser {
 
 /** Postgres unique-violation SQLSTATE code. */
 const PG_UNIQUE_VIOLATION = '23505';
+
+/**
+ * A new password ends every OTHER way in that was handed out before it.
+ *
+ * Found on 7 October 2026, on the stand: an elder set a sister's password,
+ * and the invitation code from her letter — still good for weeks — set a
+ * different one a minute later. His password stopped working, the card said
+ * «пароль задан», and nothing anywhere said a code was alive. The two paths
+ * that end an invitation cleared the code and the link; the two where a
+ * password is simply set (by an elder, by the person in the profile) did
+ * not. One object now, used by all four, so a fifth cannot forget.
+ */
+export function freshPassword(passwordHash: string) {
+  return {
+    passwordHash,
+    inviteCodeHash: null,
+    inviteCodeExpiresAt: null,
+    resetTokenHash: null,
+    resetTokenExpiresAt: null,
+  };
+}
+
+/** Why an account was last turned away at the door — see noteFailedLogin. */
+export type FailedLoginReason =
+  | 'wrong_password'
+  | 'no_password'
+  | 'disabled'
+  | 'code_expired';
 
 @Injectable()
 export class UsersService {
@@ -952,22 +979,7 @@ export class UsersService {
   }
 
   async completePasswordReset(id: string, passwordHash: string): Promise<void> {
-    await this.usersRepo.update(
-      { id },
-      {
-        passwordHash,
-        resetTokenHash: null,
-        resetTokenExpiresAt: null,
-        // The invitation code dies here too. An invitation issues BOTH doors
-        // at once for one purpose; walking through the link and leaving the
-        // code alive left a second way in for up to three days, in a letter
-        // that may be sitting in a mailbox somebody else can read. The code
-        // path already closes both — see completeInvite — and these two are
-        // the same act arriving by different routes.
-        inviteCodeHash: null,
-        inviteCodeExpiresAt: null,
-      },
-    );
+    await this.usersRepo.update({ id }, freshPassword(passwordHash));
   }
 
   /**
@@ -1004,7 +1016,7 @@ export class UsersService {
     }
 
     const passwordHash = await this.hashPassword(newPassword);
-    await this.usersRepo.update(targetId, { passwordHash });
+    await this.usersRepo.update(targetId, freshPassword(passwordHash));
 
     // A password an elder sets is often set BECAUSE the old way in is no
     // longer trusted — a lost phone, a shared password. Leaving the old
@@ -1094,7 +1106,7 @@ export class UsersService {
     }
 
     const passwordHash = await this.hashPassword(newPassword);
-    await this.usersRepo.update(userId, { passwordHash });
+    await this.usersRepo.update(userId, freshPassword(passwordHash));
 
     await this.auditLog.logRawUpdate({
       tenantId: user.congregationId,
@@ -1175,92 +1187,165 @@ export class UsersService {
     // Default true: the letter is the better path when there is an address,
     // and every caller that does not care should keep getting it.
     const post = opts.post ?? true;
-    const now = Date.now();
-    // Two doors, two lives. See the constants for why they stopped being the
-    // same number: the link signs its clicker in and must not sit around; the
-    // code is typed by the person it belongs to, on their own phone, whenever
-    // they get round to it.
-    const linkExpiresAt = new Date(now + INVITE_LINK_LIFETIME_MS);
-    const expiresAt = new Date(now + INVITE_CODE_LIFETIME_MS);
-    const token = randomBytes(32).toString('hex');
-    const tokenHash = createHash('sha256').update(token).digest('hex');
-    await this.setPasswordResetToken(userId, tokenHash, linkExpiresAt);
+    const user = await this.findById(userId);
+    // Somebody who already has a password is not being invited: the elder is
+    // giving him a way back in (a lost phone, a password nobody remembers).
+    // Same code, same month to use it — a different letter.
+    const withPassword = await this.usersRepo
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('user.id = :id', { id: userId })
+      .getOne();
+    const kind: 'invite' | 'reset' = withPassword?.passwordHash
+      ? 'reset'
+      : 'invite';
+    const issued = await this.issueCode(userId, INVITE_CODE_LIFETIME_MS);
+    const address = post ? (user?.email ?? null) : null;
+    if (!address) {
+      // Nowhere to send — or nobody asked us to. The first is the ordinary
+      // case for most of this congregation; the second is an elder who will
+      // read the code out himself. Either way the code is the answer, and
+      // `sentTo: null` says plainly that no letter went anywhere.
+      return issued;
+    }
+    await this.postCode(userId, address, kind, issued, { issuedByElder: true });
+    return { ...issued, sentTo: address };
+  }
+
+  /**
+   * A fresh code for one account — the ONE way in that a letter or an elder
+   * hands over.
+   *
+   * It replaces whatever was issued before, and it ends the old sign-in link
+   * too: those links signed their clicker in wherever the letter happened to
+   * be opened, which is the wrong place as often as not (see the code letter
+   * in MailService). None is issued any more; one that is still out there
+   * from an earlier letter stops working here.
+   */
+  private async issueCode(
+    userId: string,
+    lifetimeMs: number,
+  ): Promise<InvitationIssued> {
+    const code = makeInviteCode();
+    const expiresAt = new Date(Date.now() + lifetimeMs);
+    await this.usersRepo.update(userId, {
+      inviteCodeHash: hashInviteCode(code),
+      inviteCodeExpiresAt: expiresAt,
+      resetTokenHash: null,
+      resetTokenExpiresAt: null,
+    });
+    return { code: formatInviteCode(code), expiresAt, sentTo: null };
+  }
+
+  /** The code letter: who it is for, which congregation, where the app is. */
+  private async postCode(
+    userId: string,
+    address: string,
+    kind: 'invite' | 'reset',
+    issued: InvitationIssued,
+    opts: { issuedByElder?: boolean } = {},
+  ): Promise<void> {
     const user = await this.findById(userId);
     const lang = user?.uiLanguage ?? 'ru';
     const base =
       this.config.get<string>('PUBLIC_APP_URL') ?? 'https://mycongregation.org';
-    const link = `${base}/reset-password?token=${token}`;
-
-    // The second door. Same room, a longer life — this one is walked through
-    // inside the app, which is where the phone already is.
-    const code = makeInviteCode();
-    await this.usersRepo.update(userId, {
-      inviteCodeHash: hashInviteCode(code),
-      inviteCodeExpiresAt: expiresAt,
-    });
-
-    const issued: InvitationIssued = {
-      code: formatInviteCode(code),
-      expiresAt,
-      sentTo: null,
-    };
-
-    // Whose congregation this is. Read even when there is no letter to send —
-    // it costs one query and keeps the two paths from drifting apart.
+    // Opens the code screen with the code typed in — and signs nobody in.
+    // The path is /reset-password because that is the one the installed
+    // Android app is registered to open; the screen there sees `code` and
+    // hands over to the code screen.
+    const fillLink = `${base}/reset-password?code=${issued.code}`;
     const congregation = user?.congregationId
       ? await this.congregationsRepo.findOne({
           where: { id: user.congregationId },
           select: { id: true, name: true },
         })
       : null;
-
-    const address = post ? (user?.email ?? null) : null;
-    if (!address) {
-      // Nowhere to send — or nobody asked us to. The first is the ordinary
-      // case for most of this congregation; the second is an elder who will
-      // read the code out himself. Either way the code above is the answer,
-      // and `sentTo: null` says plainly that no letter went anywhere.
-      return issued;
-    }
-
-    // The same setting the version endpoint hands out, so the letter
-    // cannot point somewhere the app is no longer given away from.
-    const installUrl = this.config.get<string>('appVersion.downloadUrl');
-
-    /**
-     * Is this the person's OWN mailbox, or one they borrow?
-     *
-     * It decides whether the letter may carry a link. The link signs its
-     * clicker straight in — that is the whole point of it on a computer — so
-     * in a mailbox shared with somebody else it is a way into another person's
-     * account for whoever opens the letter first. A code cannot do that: it
-     * has to be typed on the phone of the person it belongs to.
-     *
-     * The publisher's own card is what «own» means here. A borrowed mailbox
-     * gets the code, the name, and a line asking whoever reads it to pass it
-     * on — and no link at all.
-     */
-    const card = await this.publishersRepo.findOne({
-      where: { userId },
-      select: { id: true, firstName: true, email: true },
-    });
-    const ownAddress =
-      !!card?.email && card.email.trim().toLowerCase() === address;
-
-    await this.mailService.sendInvite(address, lang, ownAddress ? link : '', {
-      code: formatInviteCode(code),
-      expiresAt,
-      installUrl,
-      borrowedMailbox: !ownAddress,
-      // Who this letter is for, and what they will type to sign in. Both matter
-      // most in the case that made all of this necessary: a husband and wife
-      // with one mailbox, who would otherwise receive two identical letters
-      // and no way to tell which is whose.
-      recipientName: card?.firstName ?? null,
+    const extra = {
+      code: issued.code,
+      expiresAt: issued.expiresAt,
+      // The same setting the version endpoint hands out, so the letter
+      // cannot point somewhere the app is no longer given away from.
+      installUrl: this.config.get<string>('appVersion.downloadUrl'),
+      // Who this letter is for, and what they will type to sign in. One
+      // mailbox may serve a husband and a wife: the name at the top is what
+      // tells two otherwise identical letters apart.
+      recipientName: await this.firstNameOf(userId),
       loginName: user?.loginName ?? null,
       congregationName: congregation?.name ?? null,
-    });
-    return { ...issued, sentTo: address };
+      issuedByElder: opts.issuedByElder === true,
+    };
+    if (kind === 'invite') {
+      await this.mailService.sendInvite(address, lang, fillLink, extra);
+    } else {
+      await this.mailService.sendPasswordReset(address, lang, fillLink, extra);
+    }
+  }
+
+  /**
+   * «Забыли пароль» — a code by post, for one account.
+   *
+   * A day to use it, not the invitation's month: this letter is asked for by
+   * somebody standing at the sign-in screen right now, and a code that opens
+   * an account should not sit in a mailbox longer than that needs.
+   *
+   * Somebody who never finished their invitation and presses «Забыли пароль»
+   * is sent the invitation again instead — with its month, and its words.
+   */
+  async sendResetCode(userId: string): Promise<void> {
+    const user = await this.usersRepo
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('user.id = :id', { id: userId })
+      .getOne();
+    if (!user?.email || !user.isActive) return;
+    if (!user.passwordHash) {
+      await this.sendInvitation(userId);
+      return;
+    }
+    const issued = await this.issueCode(userId, RESET_CODE_LIFETIME_MS);
+    await this.postCode(userId, user.email, 'reset', issued);
+  }
+
+  /**
+   * Remember why this account was last turned away — for the elder helping.
+   *
+   * The sign-in form answers every refusal with one sentence, on purpose.
+   * The reason went to the server's log, and the log starts again at every
+   * deploy: on 7 October a sister could not get in, the log was empty, and
+   * nobody could say whether her password was wrong or never set. The card
+   * now can. Only refusals that reached THIS account are recorded — a
+   * mistyped name belongs to no account, and its absence here says so.
+   */
+  /**
+   * The last refusal, if it came AFTER the last time the person got in — an
+   * older one says nothing about today.
+   */
+  async lastFailedLogin(
+    userId: string,
+  ): Promise<{ at: Date; reason: string | null } | null> {
+    const row = await this.usersRepo
+      .createQueryBuilder('user')
+      .addSelect(['user.lastFailedLoginAt', 'user.lastFailedLoginReason'])
+      .where('user.id = :id', { id: userId })
+      .getOne()
+      .catch(() => null);
+    if (!row?.lastFailedLoginAt) return null;
+    if (
+      row.lastLoginAt &&
+      row.lastFailedLoginAt.getTime() <= row.lastLoginAt.getTime()
+    ) {
+      return null;
+    }
+    return { at: row.lastFailedLoginAt, reason: row.lastFailedLoginReason };
+  }
+
+  async noteFailedLogin(userId: string, reason: FailedLoginReason) {
+    await this.usersRepo
+      .update(userId, {
+        lastFailedLoginAt: new Date(),
+        lastFailedLoginReason: reason,
+      })
+      .catch(() => undefined);
   }
 
   /**
@@ -1412,13 +1497,7 @@ export class UsersService {
    * the code was used would keep a way in that nobody is watching.
    */
   async completeInvite(userId: string, passwordHash: string): Promise<void> {
-    await this.usersRepo.update(userId, {
-      passwordHash,
-      inviteCodeHash: null,
-      inviteCodeExpiresAt: null,
-      resetTokenHash: null,
-      resetTokenExpiresAt: null,
-    });
+    await this.usersRepo.update(userId, freshPassword(passwordHash));
   }
 
   private hashPassword(password: string): Promise<string> {

@@ -134,6 +134,32 @@ export class User {
    */
   @Column({ name: 'invite_code_attempts', type: 'int', default: 0 })
   inviteCodeAttempts!: number;
+
+  /**
+   * When this account was last turned away at the door, and why — for the
+   * elder who is helping (UsersService.noteFailedLogin). The reason is one
+   * of four words, never what was typed.
+   *
+   * `select: false` on both, and read only where they are shown: the server
+   * starts a few seconds before its migrations run, and a column every query
+   * on users selects would fail every sign-in during those seconds.
+   */
+  @Column({
+    name: 'last_failed_login_at',
+    type: 'timestamptz',
+    nullable: true,
+    select: false,
+  })
+  lastFailedLoginAt!: Date | null;
+
+  @Column({
+    name: 'last_failed_login_reason',
+    type: 'varchar',
+    length: 20,
+    nullable: true,
+    select: false,
+  })
+  lastFailedLoginReason!: string | null;
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
   @UpdateDateColumn({ type: 'timestamptz' })

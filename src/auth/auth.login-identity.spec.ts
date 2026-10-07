@@ -17,7 +17,11 @@ describe('AuthService.login — name or address', () => {
     const issued: unknown[] = [];
     const service = Object.create(AuthService.prototype) as AuthService;
     Object.assign(service, {
-      usersService: { findForLogin, touchLastLogin: jest.fn() },
+      usersService: {
+        findForLogin,
+        touchLastLogin: jest.fn(),
+        noteFailedLogin: jest.fn(),
+      },
       logger: { warn: jest.fn(), log: jest.fn() },
       loginAttempts: new Map<string, number[]>(),
       issueTokens: (u: unknown) => {
