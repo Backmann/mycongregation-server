@@ -312,7 +312,7 @@ export class AuthService {
    * belongs to whoever holds the mailbox, which is precisely the person the
    * link was for.
    */
-  async resetPassword(token: string, password: string) {
+  async resetPassword(token: string, password: string, client?: ClientInfo) {
     const tokenHash = createHash('sha256').update(token).digest('hex');
     const user = await this.usersService.findByValidResetToken(tokenHash);
     if (!user) {
@@ -331,7 +331,7 @@ export class AuthService {
     // «никогда не входил» and «вошёл по ссылке» look identical in the one list
     // an elder has for finding people who are stuck.
     await this.usersService.touchLastLogin(user.id);
-    return this.issueTokens(user);
+    return this.issueTokens(user, undefined, client);
   }
 
   /**
@@ -372,7 +372,12 @@ export class AuthService {
    * those requests would strand whoever is mid-invitation on the day this
    * ships.
    */
-  async redeemInvite(code: string, password: string, ip = 'unknown') {
+  async redeemInvite(
+    code: string,
+    password: string,
+    ip = 'unknown',
+    client?: ClientInfo,
+  ) {
     const FIFTEEN_MIN = 15 * 60 * 1000;
     // No account can be named by a wrong code, so the address is the only
     // thing to count here — which makes the size of this net the difference
@@ -425,7 +430,7 @@ export class AuthService {
     // account has been entered and the list must say so.
     await this.usersService.touchLastLogin(user.id);
     this.logger.log(`invite redeemed by ${user.loginName ?? user.id}`);
-    return this.issueTokens(user);
+    return this.issueTokens(user, undefined, client);
   }
 
   /**

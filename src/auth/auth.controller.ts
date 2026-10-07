@@ -146,8 +146,23 @@ export class AuthController {
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('reset-password')
-  resetPassword(@Body() dto: ResetPasswordDto) {
-    return this.authService.resetPassword(dto.token, dto.password);
+  async resetPassword(
+    @Body() dto: ResetPasswordDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.resetPassword(
+      dto.token,
+      dto.password,
+      readClient(req.headers['user-agent'], req.headers[CLIENT_HEADER]),
+    );
+    // A SESSION IS HANDED OUT HERE, so it leaves the way every session does.
+    // Until 7 October 2026 this door and the code below answered with the
+    // tokens in the body and set no cookie — and a browser keeps nothing but
+    // the cookie. So on the website a person set a password, was let in, and
+    // was asked to sign in again the moment the page was closed or reloaded:
+    // every iPhone and every computer, on the very first visit.
+    return this.deliverTokens(req, res, result);
   }
 
   /**
@@ -162,10 +177,22 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 600000 } })
   @HttpCode(HttpStatus.OK)
   @Post('invite/redeem')
-  redeemInvite(@Body() dto: RedeemInviteDto, @Req() req: Request) {
+  async redeemInvite(
+    @Body() dto: RedeemInviteDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     // dto.email is deliberately not passed on: the code identifies the
     // account by itself, and older app builds still send an address.
-    return this.authService.redeemInvite(dto.code, dto.password, clientIp(req));
+    const result = await this.authService.redeemInvite(
+      dto.code,
+      dto.password,
+      clientIp(req),
+      readClient(req.headers['user-agent'], req.headers[CLIENT_HEADER]),
+    );
+    // See resetPassword above: without this a browser was let in for as long
+    // as the page stayed open, and not a minute longer.
+    return this.deliverTokens(req, res, result);
   }
 
   /**
