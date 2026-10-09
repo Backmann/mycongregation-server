@@ -9,6 +9,7 @@ import {
 } from './dto/field-service-template.dto';
 import { mondayOf } from '../common/week';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { CongregationClock } from '../common/congregation-clock.service';
 
 /** UTC 'YYYY-MM-DD'. */
 function toISO(d: Date): string {
@@ -41,6 +42,7 @@ export class FieldServiceTemplateService {
     @InjectRepository(FieldServiceMeeting)
     private readonly meetingRepo: Repository<FieldServiceMeeting>,
     private readonly auditLog: AuditLogService,
+    private readonly clock: CongregationClock,
   ) {}
 
   getSlots(congregationId: string): Promise<FieldServiceTemplateSlot[]> {
@@ -65,20 +67,26 @@ export class FieldServiceTemplateService {
     dto: ReplaceFieldServiceTemplateDto,
   ): Promise<FieldServiceTemplateSlot[]> {
     const before = await this.getSlots(congregationId);
-    await this.slotRepo.delete({ congregationId });
-    if (dto.slots.length) {
-      const rows = dto.slots.map((s, i) =>
-        this.slotRepo.create({
-          congregationId,
-          position: i,
-          ordinal: s.ordinal,
-          dayOfWeek: s.dayOfWeek,
-          startTime: s.startTime,
-          address: s.address,
-        }),
-      );
-      await this.slotRepo.save(rows);
-    }
+    // Delete and insert as ONE step. Apart, a failed insert (a bad row, a
+    // dropped connection) left the congregation with no template at all —
+    // the old one already gone, the new one never written.
+    await this.slotRepo.manager.transaction(async (em) => {
+      const repo = em.getRepository(FieldServiceTemplateSlot);
+      await repo.delete({ congregationId });
+      if (dto.slots.length) {
+        const rows = dto.slots.map((s, i) =>
+          repo.create({
+            congregationId,
+            position: i,
+            ordinal: s.ordinal,
+            dayOfWeek: s.dayOfWeek,
+            startTime: s.startTime,
+            address: s.address,
+          }),
+        );
+        await repo.save(rows);
+      }
+    });
     const after = await this.getSlots(congregationId);
     const shape = (rows: FieldServiceTemplateSlot[]) =>
       rows.map((r) => ({
@@ -100,15 +108,31 @@ export class FieldServiceTemplateService {
 
   /**
    * Materialize the template into real meetings across the chosen month range.
-   * Conductor/topic are left empty. Existing meetings on the same
-   * week+weekday+time are left untouched (idempotent, safe to re-run / extend).
+   * Conductor/topic are left empty. Safe to re-run / extend:
+   *
+   *  • A day already gone is not filled (`past`). The month being lived is the
+   *    month most often generated, and its first Saturdays are behind it —
+   *    they came back as fresh, empty meetings on days nobody could hold them
+   *    any more (9 October 2026). The day is the congregation's; today is
+   *    still open.
+   *  • A meeting already on that DAY at the same time, OR at the same place,
+   *    counts as the slot being there (`skipped`). Until 9 October 2026 only
+   *    the exact time counted: move the third Saturday from 10:30 to 10:00 by
+   *    hand, run the month again, and a second, empty 10:30 meeting appeared
+   *    beside it. A group's own meeting that day — another time AND another
+   *    place — does not stand in for the template's and does not block it.
+   *
+   * The whole run is ONE line in the journal (how many, which weeks), as the
+   * bulk creation of assignments already is: until now generating a month
+   * left no trace at all.
    */
   async generate(
     congregationId: string,
     dto: GenerateFieldServiceDto,
-  ): Promise<{ created: number; skipped: number }> {
+  ): Promise<{ created: number; skipped: number; past: number }> {
     const slots = await this.getSlots(congregationId);
-    if (!slots.length) return { created: 0, skipped: 0 };
+    if (!slots.length) return { created: 0, skipped: 0, past: 0 };
+    const today = await this.clock.todayFor(congregationId);
 
     const specs: {
       weekStartDate: string;
@@ -116,12 +140,17 @@ export class FieldServiceTemplateService {
       startTime: string;
       address: string;
     }[] = [];
+    let past = 0;
     let y = dto.startYear;
     let m = dto.startMonth;
     for (let i = 0; i < dto.months; i++) {
       for (const slot of slots) {
         const date = nthWeekdayOfMonth(y, m, slot.dayOfWeek, slot.ordinal);
         if (!date) continue;
+        if (toISO(date) < today) {
+          past += 1;
+          continue;
+        }
         specs.push({
           weekStartDate: mondayOf(toISO(date)),
           dayOfWeek: slot.dayOfWeek,
@@ -135,7 +164,7 @@ export class FieldServiceTemplateService {
         y += 1;
       }
     }
-    if (!specs.length) return { created: 0, skipped: 0 };
+    if (!specs.length) return { created: 0, skipped: 0, past };
 
     const weekStarts = specs.map((s) => s.weekStartDate).sort();
     const existing = await this.meetingRepo.find({
@@ -147,20 +176,40 @@ export class FieldServiceTemplateService {
         ),
       },
     });
-    const seen = new Set(
-      existing.map((e) => `${e.weekStartDate}|${e.dayOfWeek}|${e.startTime}`),
-    );
+    const day = (m: { weekStartDate: string; dayOfWeek: number }) =>
+      `${m.weekStartDate}|${m.dayOfWeek}`;
+    const place = (a: string) => a.trim().toLowerCase();
+    // What already stands on each day: its times and its places. A meeting
+    // made in this very run joins them, so a template with two slots on one
+    // day at one time still yields one meeting.
+    const onDay = new Map<
+      string,
+      { times: Set<string>; places: Set<string> }
+    >();
+    const note = (m: {
+      weekStartDate: string;
+      dayOfWeek: number;
+      startTime: string;
+      address: string;
+    }) => {
+      const k = day(m);
+      const d = onDay.get(k) ?? { times: new Set(), places: new Set() };
+      d.times.add(m.startTime);
+      d.places.add(place(m.address));
+      onDay.set(k, d);
+    };
+    existing.forEach(note);
 
     let created = 0;
     let skipped = 0;
     const toInsert: FieldServiceMeeting[] = [];
     for (const s of specs) {
-      const key = `${s.weekStartDate}|${s.dayOfWeek}|${s.startTime}`;
-      if (seen.has(key)) {
+      const d = onDay.get(day(s));
+      if (d && (d.times.has(s.startTime) || d.places.has(place(s.address)))) {
         skipped += 1;
         continue;
       }
-      seen.add(key);
+      note(s);
       toInsert.push(
         this.meetingRepo.create({
           congregationId,
@@ -176,7 +225,21 @@ export class FieldServiceTemplateService {
       );
       created += 1;
     }
-    if (toInsert.length) await this.meetingRepo.save(toInsert);
-    return { created, skipped };
+    if (toInsert.length) {
+      const saved = await this.meetingRepo.save(toInsert);
+      await this.auditLog.logEvent({
+        tenantId: congregationId,
+        entityType: 'field_service_meeting',
+        entityId: saved[0]?.id ?? congregationId,
+        action: 'CREATE' as never,
+        detail: {
+          bulk: true,
+          count: saved.length,
+          weeks: [...new Set(saved.map((x) => x.weekStartDate))].sort(),
+          fromTemplate: true,
+        },
+      });
+    }
+    return { created, skipped, past };
   }
 }

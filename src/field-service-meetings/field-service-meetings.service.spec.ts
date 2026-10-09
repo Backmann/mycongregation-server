@@ -34,6 +34,19 @@ function makeQb(result: unknown[]) {
 }
 
 const CONG = '11111111-1111-1111-1111-111111111111';
+// Groups are looked up only when a meeting names one.
+const groupsRepoMock = { findOne: jest.fn().mockResolvedValue(null) } as any;
+
+// The meetings below are in May–July 2026. A meeting already held can no
+// longer be changed (9 October 2026), so these tests are pinned to a day
+// before all of them: they are about pushes and the journal, not the past.
+let nowSpy: jest.SpyInstance;
+beforeEach(() => {
+  nowSpy = jest
+    .spyOn(Date, 'now')
+    .mockReturnValue(Date.parse('2026-05-01T08:00:00Z'));
+});
+afterEach(() => nowSpy.mockRestore());
 
 describe('FieldServiceMeetingsService', () => {
   it('list() scopes by congregation, filters by week, orders by day then time', async () => {
@@ -46,6 +59,7 @@ describe('FieldServiceMeetingsService', () => {
       notifyMock,
       auditMock,
       clockStub(),
+      groupsRepoMock,
     );
 
     const out = await svc.list(CONG, { weekStart: '2026-05-18' });
@@ -75,6 +89,7 @@ describe('FieldServiceMeetingsService', () => {
       notifyMock,
       auditMock,
       clockStub(),
+      groupsRepoMock,
     );
 
     await svc.list(CONG, {});
@@ -97,6 +112,7 @@ describe('FieldServiceMeetingsService', () => {
       notifyMock,
       auditMock,
       clockStub(),
+      groupsRepoMock,
     );
 
     const out = await svc.create(CONG, {
@@ -126,6 +142,7 @@ describe('FieldServiceMeetingsService', () => {
       notifyMock,
       auditMock,
       clockStub(),
+      groupsRepoMock,
     );
 
     await expect(
@@ -139,6 +156,8 @@ describe('FieldServiceMeetingsService', () => {
   it('update() applies only the provided fields and can clear topic', async () => {
     const row = {
       id: 'm1',
+      weekStartDate: '2026-05-18',
+      dayOfWeek: 2,
       startTime: '10:00',
       address: 'A',
       topic: 'old',
@@ -154,6 +173,7 @@ describe('FieldServiceMeetingsService', () => {
       notifyMock,
       auditMock,
       clockStub(),
+      groupsRepoMock,
     );
 
     const out = await svc.update(CONG, 'm1', {
@@ -178,6 +198,7 @@ describe('FieldServiceMeetingsService', () => {
       notifyMock,
       auditMock,
       clockStub(),
+      groupsRepoMock,
     );
 
     await expect(svc.remove(CONG, 'missing')).rejects.toBeInstanceOf(
@@ -210,6 +231,8 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
         id: 'p1',
         userId: 'u1',
         user: { uiLanguage: 'ru' },
+        isActive: true,
+        capabilities: { fs_meeting_conductor: true },
       })),
     } as any;
   }
@@ -232,6 +255,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       notify,
       auditMock,
       clockStub(),
+      groupsRepoMock,
     );
 
     await svc.create(CONG, {
@@ -275,6 +299,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       makeNotify(),
       audit,
       clockStub(),
+      groupsRepoMock,
     );
 
     await svc.update(CONG, 'm9', {
@@ -310,6 +335,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       makeNotify(),
       audit,
       clockStub(),
+      groupsRepoMock,
     );
 
     await svc.remove(CONG, 'm9');
@@ -335,6 +361,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       notify,
       auditMock,
       clockStub(),
+      groupsRepoMock,
     );
 
     await svc.create(CONG, {
@@ -360,6 +387,8 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
         id: where.id,
         userId: `u-${where.id}`,
         user: { uiLanguage: 'ru' },
+        isActive: true,
+        capabilities: { fs_meeting_conductor: true },
       })),
     } as any;
     const push = makePush();
@@ -371,6 +400,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       notify,
       auditMock,
       clockStub(),
+      groupsRepoMock,
     );
 
     await svc.update(CONG, 'm1', { conductorPublisherId: 'p-new' } as any);
@@ -395,6 +425,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       notify,
       auditMock,
       clockStub(),
+      groupsRepoMock,
     );
 
     await svc.remove(CONG, 'm1');
@@ -409,7 +440,13 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       save: jest.fn(async (x: any) => ({ ...meetingRow, ...x })),
     } as any;
     const pubRepo = {
-      findOne: jest.fn(async () => ({ id: 'p1', userId: null, user: null })),
+      findOne: jest.fn(async () => ({
+        id: 'p1',
+        userId: null,
+        user: null,
+        isActive: true,
+        capabilities: { fs_meeting_conductor: true },
+      })),
     } as any;
     const push = makePush();
     const notify = makeNotify();
@@ -420,6 +457,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       notify,
       auditMock,
       clockStub(),
+      groupsRepoMock,
     );
 
     await svc.create(CONG, {

@@ -1,4 +1,10 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
@@ -6,6 +12,7 @@ import { CreateFieldServiceMeetingDto } from './dto/create-field-service-meeting
 import { UpdateFieldServiceMeetingDto } from './dto/update-field-service-meeting.dto';
 import { QueryFieldServiceMeetingsDto } from './dto/query-field-service-meetings.dto';
 import { Publisher } from '../entities/publisher.entity';
+import { ServiceGroup } from '../entities/service-group.entity';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -80,7 +87,128 @@ export class FieldServiceMeetingsService {
     private readonly notifications: NotificationsService,
     private readonly auditLog: AuditLogService,
     private readonly clock: CongregationClock,
+    @InjectRepository(ServiceGroup)
+    private readonly groupsRepo: Repository<ServiceGroup>,
   ) {}
+
+  /**
+   * A meeting already held is a record, not a plan.
+   *
+   * The same rule the duties of a past meeting, a finished circuit visit and
+   * the Memorial already follow, in the same words: the day is the
+   * CONGREGATION'S, today itself is still open (the meeting may not have
+   * started), and the refusal is written to the journal under the reason the
+   * journal already names — «встреча уже прошла».
+   *
+   * Until 9 October 2026 nothing stopped it: a meeting could be created on a
+   * day already gone, and last month's could be edited or deleted — deleting
+   * one even sent its conductor «встреча отменена» about a Saturday long past.
+   */
+  private async assertNotHeld(
+    congregationId: string,
+    dateISO: string,
+    entityId: string | null,
+  ): Promise<void> {
+    if (dateISO >= (await this.clock.todayFor(congregationId))) return;
+    await this.auditLog.logEvent({
+      tenantId: congregationId,
+      entityType: 'field_service_meeting',
+      entityId: entityId ?? congregationId,
+      action: 'DENY',
+      detail: { reason: 'past_frozen', date: dateISO },
+    });
+    throw new ConflictException(
+      'This field service meeting is on a day already past; it is part of the record and can no longer be changed.',
+    );
+  }
+
+  /**
+   * Everything a meeting points at belongs to THIS congregation, and the
+   * conductor is one the congregation allows to conduct.
+   *
+   * Found on the stand, 9 October 2026: a week starting on a Wednesday was
+   * accepted (the meeting then sat on a day nobody chose, invisible to every
+   * by-week lookup); a conductor who does not exist came back as «Internal
+   * server error»; an assistant who does not exist was stored without a word —
+   * that column has no link to the cards at all; a meeting both general and
+   * a group's, or a visit with no group, hit the database's own rule and came
+   * back as «Internal server error» as well. Each is now refused here, in
+   * words, before anything is written.
+   *
+   * Only what CHANGES is checked against the card switch «Проводит встречу
+   * для проповеди»: switching it off for a brother must not lock the meetings
+   * he already has — they stay editable, he is simply not assigned anew. The
+   * service overseer conducting his own visit is not held to the switch: the
+   * visit is his by appointment.
+   */
+  private async assertConsistent(
+    congregationId: string,
+    next: {
+      conductorPublisherId: string | null;
+      isGeneral: boolean;
+      serviceGroupId: string | null;
+      serviceOverseerVisit: boolean;
+      serviceOverseerPublisherId: string | null;
+      serviceOverseerAssistantId: string | null;
+    },
+    prev?: FieldServiceMeeting,
+  ): Promise<void> {
+    if (next.isGeneral && next.serviceGroupId) {
+      throw new BadRequestException(
+        'A meeting is either for the whole congregation or for one group, not both.',
+      );
+    }
+    if (next.serviceOverseerVisit && !next.serviceGroupId) {
+      throw new BadRequestException(
+        "A service overseer's visit is to a group; choose the group.",
+      );
+    }
+    const changed = <K extends keyof typeof next>(k: K) =>
+      next[k] !== null && (!prev || prev[k] !== next[k]);
+
+    if (changed('serviceGroupId')) {
+      const group = await this.groupsRepo.findOne({
+        where: { id: next.serviceGroupId!, congregationId },
+      });
+      if (!group) {
+        throw new BadRequestException(
+          'No such service group in this congregation.',
+        );
+      }
+    }
+    const person = (id: string) =>
+      this.publishersRepo.findOne({ where: { id, congregationId } });
+    for (const k of [
+      'serviceOverseerPublisherId',
+      'serviceOverseerAssistantId',
+    ] as const) {
+      if (changed(k) && !(await person(next[k]!))) {
+        throw new BadRequestException(
+          'No such publisher in this congregation.',
+        );
+      }
+    }
+    if (changed('conductorPublisherId')) {
+      const conductor = await person(next.conductorPublisherId!);
+      if (!conductor) {
+        throw new BadRequestException(
+          'No such publisher in this congregation.',
+        );
+      }
+      const ownVisit =
+        next.serviceOverseerVisit &&
+        next.conductorPublisherId === next.serviceOverseerPublisherId;
+      if (
+        !ownVisit &&
+        (!conductor.isActive ||
+          conductor.capabilities?.fs_meeting_conductor !== true)
+      ) {
+        throw new BadRequestException(
+          'This publisher is not marked as one who conducts field service meetings.',
+        );
+      }
+    }
+  }
 
   /**
    * Push-notify a conductor about being assigned to / removed from a meeting
@@ -165,9 +293,30 @@ export class FieldServiceMeetingsService {
     congregationId: string,
     dto: CreateFieldServiceMeetingDto,
   ): Promise<FieldServiceMeeting> {
+    // Every by-week lookup — the week view, the double-booking warning, the
+    // generator's «already there» — keys on the Monday. Another day here puts
+    // the meeting on a date nobody chose and hides it from all of them.
+    const monday = new Date(`${dto.weekStartDate.slice(0, 10)}T00:00:00Z`);
+    if (Number.isNaN(monday.getTime()) || monday.getUTCDay() !== 1) {
+      throw new BadRequestException('weekStartDate must be a Monday.');
+    }
+    const weekStartDate = dto.weekStartDate.slice(0, 10);
+    await this.assertNotHeld(
+      congregationId,
+      addDaysISO(weekStartDate, dto.dayOfWeek - 1),
+      null,
+    );
+    await this.assertConsistent(congregationId, {
+      conductorPublisherId: dto.conductorPublisherId ?? null,
+      isGeneral: dto.isGeneral ?? false,
+      serviceGroupId: dto.serviceGroupId ?? null,
+      serviceOverseerVisit: dto.serviceOverseerVisit ?? false,
+      serviceOverseerPublisherId: dto.serviceOverseerPublisherId ?? null,
+      serviceOverseerAssistantId: dto.serviceOverseerAssistantId ?? null,
+    });
     const entity = this.repo.create({
       congregationId,
-      weekStartDate: dto.weekStartDate,
+      weekStartDate,
       dayOfWeek: dto.dayOfWeek,
       startTime: dto.startTime,
       address: dto.address,
@@ -236,6 +385,41 @@ export class FieldServiceMeetingsService {
     if (!entity) {
       throw new NotFoundException('Field service meeting not found');
     }
+    // Held already — or being moved onto a day already gone.
+    await this.assertNotHeld(congregationId, meetingDateISO(entity), entity.id);
+    if (dto.dayOfWeek !== undefined && dto.dayOfWeek !== entity.dayOfWeek) {
+      await this.assertNotHeld(
+        congregationId,
+        addDaysISO(entity.weekStartDate, dto.dayOfWeek - 1),
+        entity.id,
+      );
+    }
+    const pick = <T>(v: T | undefined, cur: T): T =>
+      v === undefined ? cur : v;
+    await this.assertConsistent(
+      congregationId,
+      {
+        conductorPublisherId:
+          pick(dto.conductorPublisherId, entity.conductorPublisherId) ?? null,
+        isGeneral: pick(dto.isGeneral, entity.isGeneral),
+        serviceGroupId: pick(dto.serviceGroupId, entity.serviceGroupId) ?? null,
+        serviceOverseerVisit: pick(
+          dto.serviceOverseerVisit,
+          entity.serviceOverseerVisit,
+        ),
+        serviceOverseerPublisherId:
+          pick(
+            dto.serviceOverseerPublisherId,
+            entity.serviceOverseerPublisherId,
+          ) ?? null,
+        serviceOverseerAssistantId:
+          pick(
+            dto.serviceOverseerAssistantId,
+            entity.serviceOverseerAssistantId,
+          ) ?? null,
+      },
+      entity,
+    );
     const prevConductorId = entity.conductorPublisherId;
     const prevAssistantId = entity.serviceOverseerAssistantId;
     // Snapshot taken BEFORE the mutations below — the entity is edited in
@@ -363,6 +547,7 @@ export class FieldServiceMeetingsService {
     if (!entity) {
       throw new NotFoundException('Field service meeting not found');
     }
+    await this.assertNotHeld(congregationId, meetingDateISO(entity), entity.id);
     await this.repo.delete({ id, congregationId });
     await this.auditLog.logEvent({
       tenantId: congregationId,

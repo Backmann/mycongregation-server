@@ -38,6 +38,7 @@ function build() {
       logEvent: jest.fn(),
     } as never,
     {} as never,
+    { findOne: jest.fn() } as never,
   );
   return { service, where };
 }

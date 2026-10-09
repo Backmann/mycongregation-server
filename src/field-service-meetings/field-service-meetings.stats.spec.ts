@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { FieldServiceMeetingsService } from './field-service-meetings.service';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { Publisher } from '../entities/publisher.entity';
+import { ServiceGroup } from '../entities/service-group.entity';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -39,6 +40,10 @@ async function buildService(rows: FieldServiceMeeting[]) {
       { provide: getRepositoryToken(FieldServiceMeeting), useValue: repo },
       {
         provide: getRepositoryToken(Publisher),
+        useValue: { findOne: jest.fn().mockResolvedValue(null) },
+      },
+      {
+        provide: getRepositoryToken(ServiceGroup),
         useValue: { findOne: jest.fn().mockResolvedValue(null) },
       },
       {
