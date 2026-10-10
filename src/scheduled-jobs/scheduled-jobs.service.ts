@@ -10,6 +10,7 @@ import { CleaningRemindersService } from '../cleaning/cleaning-reminders.service
 import { CalendarTasksService } from '../tasks/calendar-tasks.service';
 import { TaskRemindersService } from '../tasks/task-reminders.service';
 import { GroupVisitTasksService } from '../field-service-meetings/group-visit-tasks.service';
+import { FieldServiceAutomationService } from '../field-service-meetings/field-service-automation.service';
 import { EventNotificationsService } from '../special-events/event-notifications.service';
 import { AnnualSentService } from '../annual-report/annual-sent.service';
 import { MonthlySentService } from '../service-reports/monthly-sent.service';
@@ -28,6 +29,7 @@ export class ScheduledJobsService {
     private readonly calendarTasks: CalendarTasksService,
     private readonly taskReminders: TaskRemindersService,
     private readonly groupVisitTasks: GroupVisitTasksService,
+    private readonly fieldServiceAutomation: FieldServiceAutomationService,
     private readonly memorial: MemorialService,
     private readonly eventNotifications: EventNotificationsService,
     private readonly annualSent: AnnualSentService,
@@ -172,6 +174,24 @@ export class ScheduledJobsService {
       await this.groupVisitTasks.ensureForToday();
     } catch (e) {
       this.logger.error(`task reminders failed: ${String(e)}`);
+    }
+  }
+
+  /**
+   * The month of field-service meetings prepared, reminded about and
+   * published without being asked — once a night, each congregation on its
+   * own day. After the calendar tasks, so the task it raises joins a whole
+   * list.
+   */
+  @Cron('40 3 * * *', {
+    name: 'field-service-automation',
+    timeZone: 'Europe/Berlin',
+  })
+  async handleFieldServiceAutomation(): Promise<void> {
+    try {
+      await this.fieldServiceAutomation.ensureForToday();
+    } catch (e) {
+      this.logger.error(`field-service automation failed: ${String(e)}`);
     }
   }
 

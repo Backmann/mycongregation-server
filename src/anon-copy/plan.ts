@@ -207,6 +207,12 @@ export const PLAN: Record<string, TablePlan> = {
       start_time service_group_id conductor_rule created_at updated_at`),
     { address: 'label:Адрес' },
   ),
+  /** Three timestamps per month: nothing about a person. */
+  field_service_month_runs: table(
+    copy(
+      'congregation_id year month prepared_at reminded_at auto_published_at',
+    ),
+  ),
   /** Switches only: nothing about a person. */
   field_service_settings: table(
     copy(`congregation_id skip_assemblies co_visit_from_schedule auto_prepare

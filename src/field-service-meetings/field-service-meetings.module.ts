@@ -14,6 +14,8 @@ import { FieldServiceSettings } from '../entities/field-service-settings.entity'
 import { SpecialEvent } from '../entities/special-event.entity';
 import { Absence } from '../entities/absence.entity';
 import { FieldServicePlannerService } from './field-service-planner.service';
+import { FieldServiceAutomationService } from './field-service-automation.service';
+import { FieldServiceMonthRun } from '../entities/field-service-month-run.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
@@ -36,6 +38,7 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
       FieldServiceMonthTheme,
       FieldServiceTemplateSlot,
       FieldServiceSettings,
+      FieldServiceMonthRun,
       SpecialEvent,
       Absence,
       Responsibility,
@@ -62,10 +65,11 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
     FieldServiceMonthThemesService,
     FieldServiceTemplateService,
     FieldServicePlannerService,
+    FieldServiceAutomationService,
     ServiceOverseerService,
     GroupVisitTasksService,
     ResponsibilityGuard,
   ],
-  exports: [GroupVisitTasksService],
+  exports: [GroupVisitTasksService, FieldServiceAutomationService],
 })
 export class FieldServiceMeetingsModule {}

@@ -69,7 +69,11 @@ export type TaskKind =
   // Raised on 1 September by the annual report: «save what was sent to the
   // branch». Closes itself when it is saved; due 20 September, after which the app
   // freezes its own figures if nobody has. Lives in annual-report.
-  | 'annual_report_sent';
+  | 'annual_report_sent'
+  // Raised when a month of field-service meetings has been prepared as a
+  // draft by the app itself: «check the month, then publish it». Closes
+  // itself once the month holds no draft. Lives in field-service-meetings.
+  | 'field_service_month';
 
 @Entity('elder_tasks')
 @Index(['congregationId', 'status'])
