@@ -36,6 +36,7 @@ function makeQb(result: unknown[]) {
 const CONG = '11111111-1111-1111-1111-111111111111';
 // Groups are looked up only when a meeting names one.
 const groupsRepoMock = { findOne: jest.fn().mockResolvedValue(null) } as any;
+const respRepoMock = { count: jest.fn().mockResolvedValue(0) } as any;
 
 // The meetings below are in May–July 2026. A meeting already held can no
 // longer be changed (9 October 2026), so these tests are pinned to a day
@@ -60,6 +61,7 @@ describe('FieldServiceMeetingsService', () => {
       auditMock,
       clockStub(),
       groupsRepoMock,
+      respRepoMock,
     );
 
     const out = await svc.list(CONG, { weekStart: '2026-05-18' });
@@ -90,11 +92,33 @@ describe('FieldServiceMeetingsService', () => {
       auditMock,
       clockStub(),
       groupsRepoMock,
+      respRepoMock,
     );
 
     await svc.list(CONG, {});
 
-    expect(qb.andWhere).not.toHaveBeenCalled();
+    // The one condition that always stands: the announced schedule only.
+    expect(qb.andWhere).toHaveBeenCalledTimes(1);
+    expect(qb.andWhere).toHaveBeenCalledWith('m.publishedAt IS NOT NULL');
+  });
+
+  it('list() includes the drafts only when the caller asked for them', async () => {
+    const qb = makeQb([]);
+    const repo = { createQueryBuilder: jest.fn(() => qb) } as any;
+    const svc = new FieldServiceMeetingsService(
+      repo,
+      pubRepoMock,
+      pushMock,
+      notifyMock,
+      auditMock,
+      clockStub(),
+      groupsRepoMock,
+      respRepoMock,
+    );
+
+    await svc.list(CONG, {}, true);
+
+    expect(qb.andWhere).not.toHaveBeenCalledWith('m.publishedAt IS NOT NULL');
   });
 
   it('create() defaults optional fields to null and stamps the tenant id', async () => {
@@ -113,6 +137,7 @@ describe('FieldServiceMeetingsService', () => {
       auditMock,
       clockStub(),
       groupsRepoMock,
+      respRepoMock,
     );
 
     const out = await svc.create(CONG, {
@@ -143,6 +168,7 @@ describe('FieldServiceMeetingsService', () => {
       auditMock,
       clockStub(),
       groupsRepoMock,
+      respRepoMock,
     );
 
     await expect(
@@ -174,6 +200,7 @@ describe('FieldServiceMeetingsService', () => {
       auditMock,
       clockStub(),
       groupsRepoMock,
+      respRepoMock,
     );
 
     const out = await svc.update(CONG, 'm1', {
@@ -199,6 +226,7 @@ describe('FieldServiceMeetingsService', () => {
       auditMock,
       clockStub(),
       groupsRepoMock,
+      respRepoMock,
     );
 
     await expect(svc.remove(CONG, 'missing')).rejects.toBeInstanceOf(
@@ -256,6 +284,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       auditMock,
       clockStub(),
       groupsRepoMock,
+      respRepoMock,
     );
 
     await svc.create(CONG, {
@@ -300,6 +329,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       audit,
       clockStub(),
       groupsRepoMock,
+      respRepoMock,
     );
 
     await svc.update(CONG, 'm9', {
@@ -336,6 +366,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       audit,
       clockStub(),
       groupsRepoMock,
+      respRepoMock,
     );
 
     await svc.remove(CONG, 'm9');
@@ -362,6 +393,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       auditMock,
       clockStub(),
       groupsRepoMock,
+      respRepoMock,
     );
 
     await svc.create(CONG, {
@@ -401,6 +433,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       auditMock,
       clockStub(),
       groupsRepoMock,
+      respRepoMock,
     );
 
     await svc.update(CONG, 'm1', { conductorPublisherId: 'p-new' } as any);
@@ -426,6 +459,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       auditMock,
       clockStub(),
       groupsRepoMock,
+      respRepoMock,
     );
 
     await svc.remove(CONG, 'm1');
@@ -458,6 +492,7 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       auditMock,
       clockStub(),
       groupsRepoMock,
+      respRepoMock,
     );
 
     await svc.create(CONG, {

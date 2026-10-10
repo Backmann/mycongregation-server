@@ -10,6 +10,10 @@ import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { FieldServiceMonthTheme } from '../entities/field-service-month-theme.entity';
 import { FieldServiceTemplateSlot } from '../entities/field-service-template-slot.entity';
+import { FieldServiceSettings } from '../entities/field-service-settings.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
+import { Absence } from '../entities/absence.entity';
+import { FieldServicePlannerService } from './field-service-planner.service';
 import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
@@ -31,6 +35,9 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
       FieldServiceMeeting,
       FieldServiceMonthTheme,
       FieldServiceTemplateSlot,
+      FieldServiceSettings,
+      SpecialEvent,
+      Absence,
       Responsibility,
       Publisher,
       ServiceGroup,
@@ -54,6 +61,7 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
     FieldServiceMeetingsService,
     FieldServiceMonthThemesService,
     FieldServiceTemplateService,
+    FieldServicePlannerService,
     ServiceOverseerService,
     GroupVisitTasksService,
     ResponsibilityGuard,

@@ -440,6 +440,7 @@ export class MeService {
       .createQueryBuilder('f')
       .select('f.week_start_date', 'week')
       .where('f.congregation_id = :tenantId', { tenantId })
+      .andWhere('f.published_at IS NOT NULL')
       // The visit belongs to the assistant as much as to the man conducting:
       // he goes to that group, on that day, and until now nothing told him so.
       .andWhere(
@@ -686,6 +687,8 @@ export class MeService {
     const fieldMeetings = await this.fieldRepo
       .createQueryBuilder('f')
       .where('f.congregation_id = :tenantId', { tenantId })
+      // A draft is nobody's assignment yet.
+      .andWhere('f.published_at IS NOT NULL')
       .andWhere('f.week_start_date BETWEEN :ws AND :we', {
         ws: weekFloor,
         we: horizon,

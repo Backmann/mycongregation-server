@@ -6,8 +6,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
+import { Responsibility } from '../entities/responsibility.entity';
+import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
+import { UserRole } from '../common/enums/user-role.enum';
+import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import type { SupportedLanguage } from '../common/i18n/supported-languages';
 import { CreateFieldServiceMeetingDto } from './dto/create-field-service-meeting.dto';
 import { UpdateFieldServiceMeetingDto } from './dto/update-field-service-meeting.dto';
 import { QueryFieldServiceMeetingsDto } from './dto/query-field-service-meetings.dto';
@@ -74,6 +79,66 @@ function fmtDate(iso: string): string {
   return `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}`;
 }
 
+const LOCALE: Record<SupportedLanguage, string> = {
+  ru: 'ru-RU',
+  en: 'en-GB',
+  de: 'de-DE',
+};
+
+/** «Сб 7 нояб.» in the reader's language. */
+function fmtDayShort(iso: string, lang: SupportedLanguage): string {
+  return new Intl.DateTimeFormat(LOCALE[lang], {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  }).format(new Date(`${iso}T00:00:00Z`));
+}
+
+/** «ноябрь 2026» in the reader's language. */
+function fmtMonth(
+  year: number,
+  month: number,
+  lang: SupportedLanguage,
+): string {
+  return new Intl.DateTimeFormat(LOCALE[lang], {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(Date.UTC(year, month - 1, 1)));
+}
+
+const PUBLISH_TEXTS: Record<
+  SupportedLanguage,
+  { title: string; intro: string; assistant: string; visit: string }
+> = {
+  ru: {
+    title: 'Встречи для проповеди',
+    intro: 'Вы ведёте встречи — {month}:',
+    assistant: 'помощник на посещении',
+    visit: 'посещение группы',
+  },
+  en: {
+    title: 'Field service meetings',
+    intro: 'You conduct meetings — {month}:',
+    assistant: 'assistant on the visit',
+    visit: 'group visit',
+  },
+  de: {
+    title: 'Zusammenkünfte für den Predigtdienst',
+    intro: 'Du leitest Zusammenkünfte — {month}:',
+    assistant: 'Gehilfe beim Besuch',
+    visit: 'Gruppenbesuch',
+  },
+};
+
+export interface PublishMonthResult {
+  /** Drafts of that month turned into announced meetings. */
+  published: number;
+  /** People told — one message each, whatever the number of their dates. */
+  notified: number;
+}
+
 @Injectable()
 export class FieldServiceMeetingsService {
   private readonly logger = new Logger(FieldServiceMeetingsService.name);
@@ -89,7 +154,30 @@ export class FieldServiceMeetingsService {
     private readonly clock: CongregationClock,
     @InjectRepository(ServiceGroup)
     private readonly groupsRepo: Repository<ServiceGroup>,
+    @InjectRepository(Responsibility)
+    private readonly responsibilitiesRepo: Repository<Responsibility>,
   ) {}
+
+  /**
+   * May this person see a DRAFT — the same people who may write one: an
+   * administrator, the service overseer, his assistant. The same test the
+   * guard on POST/PATCH/DELETE makes; it is repeated here because reading is
+   * open to everybody and only the drafts are not.
+   */
+  async canPlan(user: AuthenticatedUser): Promise<boolean> {
+    if (user.role === UserRole.ADMIN) return true;
+    const held = await this.responsibilitiesRepo.count({
+      where: {
+        congregationId: user.congregationId,
+        userId: user.id,
+        type: In([
+          ResponsibilityType.SERVICE_OVERSEER,
+          ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+        ]),
+      },
+    });
+    return held > 0;
+  }
 
   /**
    * A meeting already held is a record, not a plan.
@@ -260,13 +348,21 @@ export class FieldServiceMeetingsService {
     }
   }
 
+  /**
+   * `drafts` — include the meetings not yet announced. The controller passes
+   * it only for a reader who may plan AND asked for them: an app that does
+   * not know what a draft is never sees one, so a phone with last month's
+   * version keeps showing exactly the announced schedule.
+   */
   list(
     congregationId: string,
     query: QueryFieldServiceMeetingsDto,
+    drafts = false,
   ): Promise<FieldServiceMeeting[]> {
     const qb = this.repo
       .createQueryBuilder('m')
       .where('m.congregationId = :congregationId', { congregationId });
+    if (!drafts) qb.andWhere('m.publishedAt IS NOT NULL');
     // With an upper bound this reads as a span; without one it stays the
     // exact week it has always been, so no existing caller changes behaviour.
     //
@@ -328,8 +424,16 @@ export class FieldServiceMeetingsService {
       serviceOverseerVisit: dto.serviceOverseerVisit ?? false,
       serviceOverseerPublisherId: dto.serviceOverseerPublisherId ?? null,
       serviceOverseerAssistantId: dto.serviceOverseerAssistantId ?? null,
+      // Made by hand it is announced at once, as it always was. Only a caller
+      // that is adding to a month still being prepared asks for a draft.
+      publishedAt: dto.draft ? null : new Date(),
     });
     const saved = await this.repo.save(entity);
+    // Nobody is told about a draft: the whole month is announced at once, by
+    // publishMonth, one message per person. Until then the schedule may still
+    // change under him, and three messages about one Saturday is how people
+    // learn to ignore the fourth.
+    const tell = dto.notifyConductor !== false && saved.publishedAt !== null;
     await this.auditLog.logCreate({
       tenantId: congregationId,
       entityType: 'field_service_meeting',
@@ -345,9 +449,10 @@ export class FieldServiceMeetingsService {
         conductorPublisherId: saved.conductorPublisherId,
         topic: saved.topic,
         isGeneral: saved.isGeneral,
+        draft: saved.publishedAt === null,
       },
     });
-    if (saved.conductorPublisherId && dto.notifyConductor !== false) {
+    if (saved.conductorPublisherId && tell) {
       await this.notifyConductor(
         congregationId,
         saved,
@@ -362,7 +467,7 @@ export class FieldServiceMeetingsService {
       saved.serviceOverseerVisit &&
       saved.serviceOverseerAssistantId &&
       saved.serviceOverseerAssistantId !== saved.conductorPublisherId &&
-      dto.notifyConductor !== false
+      tell
     ) {
       await this.notifyConductor(
         congregationId,
@@ -460,6 +565,8 @@ export class FieldServiceMeetingsService {
         dto.serviceOverseerAssistantId ?? null;
     }
     const saved = await this.repo.save(entity);
+    // A draft changes in silence; see create().
+    const tell = dto.notifyConductor !== false && saved.publishedAt !== null;
     await this.auditLog.logUpdate({
       tenantId: congregationId,
       entityType: 'field_service_meeting',
@@ -493,10 +600,7 @@ export class FieldServiceMeetingsService {
     });
     // Told when he becomes the assistant, and told when he stops being one:
     // a person who was expecting to go should hear that he is not.
-    if (
-      dto.notifyConductor !== false &&
-      prevAssistantId !== saved.serviceOverseerAssistantId
-    ) {
+    if (tell && prevAssistantId !== saved.serviceOverseerAssistantId) {
       if (prevAssistantId && prevAssistantId !== saved.conductorPublisherId) {
         await this.notifyConductor(
           congregationId,
@@ -518,10 +622,7 @@ export class FieldServiceMeetingsService {
         );
       }
     }
-    if (
-      dto.notifyConductor !== false &&
-      prevConductorId !== saved.conductorPublisherId
-    ) {
+    if (tell && prevConductorId !== saved.conductorPublisherId) {
       if (prevConductorId) {
         await this.notifyConductor(
           congregationId,
@@ -560,8 +661,11 @@ export class FieldServiceMeetingsService {
         weekStartDate: entity.weekStartDate,
         startTime: entity.startTime,
         address: entity.address,
+        draft: entity.publishedAt === null,
       },
     });
+    // A draft nobody was told about is not «cancelled» for anybody.
+    if (entity.publishedAt === null) return;
     if (entity.conductorPublisherId) {
       await this.notifyConductor(
         congregationId,
@@ -587,6 +691,183 @@ export class FieldServiceMeetingsService {
         entity.serviceOverseerAssistantId,
       );
     }
+  }
+
+  /**
+   * Announce a month: every draft whose day falls in it becomes a meeting the
+   * congregation can see, and each person concerned hears ONCE, with all of
+   * his dates in one message — the conductor of each meeting, and on a
+   * visit the overseer and his assistant as well.
+   *
+   * Why by month and not by draft: the service overseer prepares a month,
+   * reads it over, moves a Saturday, fills a gap — and only then says «so».
+   * Announcing each change as it was made is what the old way did, and a
+   * brother put on, taken off and put back got three messages about one
+   * morning. The month is one piece of news.
+   *
+   * A draft of ANOTHER month stays a draft: December prepared early is not
+   * announced by publishing November.
+   *
+   * Meetings already past are not published either: a draft that was never
+   * announced before its day is a plan that did not happen, and announcing
+   * it now would tell a brother he «conducts» last Saturday. They stay as
+   * they are, for the overseer to delete or leave.
+   */
+  async publishMonth(
+    congregationId: string,
+    year: number,
+    month: number,
+  ): Promise<PublishMonthResult> {
+    const first = `${year}-${String(month).padStart(2, '0')}-01`;
+    const next =
+      month === 12
+        ? `${year + 1}-01-01`
+        : `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const today = await this.clock.todayFor(congregationId);
+    // The month's weeks, with a margin: the week holding the 1st may start in
+    // the previous month and the week holding the 31st end in the next.
+    const drafts = (
+      await this.repo
+        .createQueryBuilder('m')
+        .where('m.congregationId = :congregationId', { congregationId })
+        .andWhere('m.publishedAt IS NULL')
+        .andWhere('m.weekStartDate >= :from', { from: addDaysISO(first, -6) })
+        .andWhere('m.weekStartDate < :to', { to: next })
+        .getMany()
+    ).filter((m) => {
+      const d = meetingDateISO(m);
+      return d >= first && d < next && d >= today;
+    });
+    if (drafts.length === 0) return { published: 0, notified: 0 };
+
+    const now = new Date();
+    await this.repo.update(
+      { id: In(drafts.map((m) => m.id)) },
+      { publishedAt: now },
+    );
+    // The journal has no PUBLISH action; as the Memorial does, the month's
+    // announcement is the one UPDATE of `publishedAt`, with its dates.
+    await this.auditLog.logUpdate({
+      tenantId: congregationId,
+      entityType: 'field_service_meeting',
+      entityId: drafts[0].id,
+      before: { publishedAt: null, published: null },
+      after: {
+        publishedAt: now.toISOString(),
+        published: JSON.stringify({
+          year,
+          month,
+          count: drafts.length,
+          dates: drafts.map(meetingDateISO).sort(),
+        }),
+      },
+      fields: ['publishedAt', 'published'],
+    });
+
+    // Who hears what: one list of lines per person.
+    type Line = {
+      date: string;
+      time: string;
+      address: string;
+      groupId: string | null;
+      role: 'conductor' | 'overseer' | 'assistant';
+    };
+    const byPerson = new Map<string, Line[]>();
+    const add = (pid: string | null, line: Line) => {
+      if (!pid) return;
+      const list = byPerson.get(pid) ?? [];
+      list.push(line);
+      byPerson.set(pid, list);
+    };
+    for (const m of drafts) {
+      const base = {
+        date: meetingDateISO(m),
+        time: m.startTime,
+        address: m.address,
+        groupId: m.serviceGroupId,
+      };
+      add(m.conductorPublisherId, { ...base, role: 'conductor' });
+      if (m.serviceOverseerVisit) {
+        if (m.serviceOverseerPublisherId !== m.conductorPublisherId) {
+          add(m.serviceOverseerPublisherId, { ...base, role: 'overseer' });
+        }
+        if (m.serviceOverseerAssistantId !== m.conductorPublisherId) {
+          add(m.serviceOverseerAssistantId, { ...base, role: 'assistant' });
+        }
+      }
+    }
+    if (byPerson.size === 0) return { published: drafts.length, notified: 0 };
+
+    const groupIds = [
+      ...new Set(drafts.map((m) => m.serviceGroupId).filter(Boolean)),
+    ] as string[];
+    const groups = groupIds.length
+      ? await this.groupsRepo.find({
+          where: { congregationId, id: In(groupIds) },
+        })
+      : [];
+    const groupName = new Map(groups.map((g) => [g.id, g.name]));
+    const people = await this.publishersRepo.find({
+      where: { congregationId, id: In([...byPerson.keys()]) },
+    });
+
+    let notified = 0;
+    for (const person of people) {
+      if (!person.userId) continue;
+      const lines = (byPerson.get(person.id) ?? []).sort((a, b) =>
+        a.date === b.date
+          ? a.time.localeCompare(b.time)
+          : a.date.localeCompare(b.date),
+      );
+      const firstLine = lines[0];
+      const firstMeeting = drafts.find(
+        (m) => meetingDateISO(m) === firstLine.date,
+      );
+      try {
+        await this.notifications.notify({
+          tenantId: congregationId,
+          userIds: [person.userId],
+          kind: 'field_service_meeting',
+          text: (lang) => {
+            const t = PUBLISH_TEXTS[lang];
+            const body = lines
+              .map((l) => {
+                const group = l.groupId ? groupName.get(l.groupId) : null;
+                const where = group
+                  ? l.address
+                    ? `${group} · ${l.address}`
+                    : group
+                  : l.address;
+                const role =
+                  l.role === 'assistant'
+                    ? ` (${t.assistant})`
+                    : l.role === 'overseer'
+                      ? ` (${t.visit})`
+                      : '';
+                return `${fmtDayShort(l.date, lang)}, ${l.time} — ${where}${role}`;
+              })
+              .join('\n');
+            return {
+              title: t.title,
+              body: `${t.intro.replace('{month}', fmtMonth(year, month, lang))}\n${body}`,
+            };
+          },
+          // His own assignments: with no device to take them, they go by post.
+          emailFallback: true,
+          data: {
+            type: 'field_service_meeting',
+            meetingId: firstMeeting?.id ?? drafts[0].id,
+            date: firstLine.date,
+          },
+        });
+        notified += 1;
+      } catch (e) {
+        this.logger.warn(
+          `publish notice failed: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    }
+    return { published: drafts.length, notified };
   }
 
   /**

@@ -6,6 +6,8 @@ import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { clockStub } from '../common/testing/clock-stub';
+import { FieldServiceSettings } from '../entities/field-service-settings.entity';
+import { ServiceGroup } from '../entities/service-group.entity';
 
 const CONG = 'cong-1';
 
@@ -89,6 +91,14 @@ describe('FieldServiceTemplateService.generate', () => {
           useValue: (audit = { logUpdate: jest.fn(), logEvent: jest.fn() }),
         },
         { provide: CongregationClock, useValue: clockStub() },
+        {
+          provide: getRepositoryToken(FieldServiceSettings),
+          useValue: { findOne: jest.fn(), create: jest.fn(), save: jest.fn() },
+        },
+        {
+          provide: getRepositoryToken(ServiceGroup),
+          useValue: { find: jest.fn().mockResolvedValue([]) },
+        },
       ],
     }).compile();
     service = moduleRef.get(FieldServiceTemplateService);
@@ -264,7 +274,16 @@ describe('FieldServiceTemplateService.replaceSlots', () => {
     // template to go back to, so the journal is the only place a person can
     // read what stood there and type it back.
     const before = [
-      { ordinal: 1, dayOfWeek: 6, startTime: '10:30', address: 'Зал' },
+      {
+        ordinal: 1,
+        ordinals: [1],
+        lastOnly: false,
+        dayOfWeek: 6,
+        startTime: '10:30',
+        address: 'Зал',
+        serviceGroupId: null,
+        conductorRule: 'none',
+      },
     ];
     let call = 0;
     const slotRepo: any = {
@@ -283,6 +302,8 @@ describe('FieldServiceTemplateService.replaceSlots', () => {
       { find: jest.fn(), create: jest.fn(), save: jest.fn() } as never,
       audit as never,
       clockStub(),
+      {} as never,
+      { find: jest.fn(async () => []) } as never,
     );
 
     await service.replaceSlots('cong-1', { slots: [] } as never);
@@ -290,7 +311,19 @@ describe('FieldServiceTemplateService.replaceSlots', () => {
     expect(audit.logUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         entityType: 'field_service_template',
-        before: { slots: JSON.stringify(before) },
+        before: {
+          slots: JSON.stringify([
+            {
+              ordinals: [1],
+              lastOnly: false,
+              dayOfWeek: 6,
+              startTime: '10:30',
+              address: 'Зал',
+              serviceGroupId: null,
+              conductorRule: 'none',
+            },
+          ]),
+        },
       }),
     );
   });
@@ -317,6 +350,8 @@ describe('FieldServiceTemplateService.replaceSlots', () => {
       {} as never,
       { logUpdate: jest.fn(), logEvent: jest.fn() } as never,
       clockStub(),
+      {} as never,
+      { find: jest.fn(async () => []) } as never,
     );
 
     await service.replaceSlots('cong-1', {
@@ -326,5 +361,99 @@ describe('FieldServiceTemplateService.replaceSlots', () => {
     expect(inside).toEqual(['delete', 'save']);
     expect(slotRepo.delete).not.toHaveBeenCalled();
     expect(slotRepo.save).not.toHaveBeenCalled();
+  });
+});
+
+describe('FieldServiceTemplateService.replaceSlots — the two shapes', () => {
+  const make = (groups: unknown[] = []) => {
+    const written: unknown[] = [];
+    const txRepo = {
+      delete: jest.fn(),
+      create: jest.fn((x: unknown) => x),
+      save: jest.fn(async (x: unknown[]) => written.push(...x)),
+    };
+    const slotRepo: any = {
+      find: jest.fn(async () => []),
+      manager: {
+        transaction: async (fn: (em: unknown) => Promise<void>) =>
+          fn({ getRepository: () => txRepo }),
+      },
+    };
+    const service = new FieldServiceTemplateService(
+      slotRepo,
+      {} as never,
+      { logUpdate: jest.fn(), logEvent: jest.fn() } as never,
+      clockStub(),
+      {} as never,
+      { find: jest.fn(async () => groups) } as never,
+    );
+    return { service, written };
+  };
+
+  it('the old shape is stored as one ordinal, a general meeting, nobody picked', async () => {
+    const { service, written } = make();
+    await service.replaceSlots('cong-1', {
+      slots: [{ ordinal: 3, dayOfWeek: 6, startTime: '10:30', address: 'Зал' }],
+    } as never);
+    expect(written[0]).toMatchObject({
+      ordinal: 3,
+      ordinals: [3],
+      lastOnly: false,
+      address: 'Зал',
+      serviceGroupId: null,
+      conductorRule: 'none',
+    });
+  });
+
+  it('the new shape keeps every occurrence, the group, its rule; «ordinal» is the first', async () => {
+    const { service, written } = make([{ id: 'g-1' }]);
+    await service.replaceSlots('cong-1', {
+      slots: [
+        {
+          ordinals: [3, 1],
+          lastOnly: true,
+          dayOfWeek: 6,
+          startTime: '10:00',
+          serviceGroupId: 'g-1',
+          conductorRule: 'group_overseer',
+        },
+        { lastOnly: true, dayOfWeek: 7, startTime: '09:00', address: 'Парк' },
+      ],
+    } as never);
+    expect(written[0]).toMatchObject({
+      ordinal: 1,
+      ordinals: [1, 3],
+      lastOnly: true,
+      address: null,
+      serviceGroupId: 'g-1',
+      conductorRule: 'group_overseer',
+    });
+    // «The last» alone: the nearest the old shape can say is the 5th.
+    expect(written[1]).toMatchObject({
+      ordinal: 5,
+      ordinals: [],
+      lastOnly: true,
+    });
+  });
+
+  it('refuses a slot on no day, a general meeting with nowhere, a stranger’s group', async () => {
+    const { service, written } = make([{ id: 'g-1' }]);
+    const attempt = (s: Record<string, unknown>) =>
+      service.replaceSlots('cong-1', { slots: [s] } as never);
+    await expect(
+      attempt({ dayOfWeek: 6, startTime: '10:30', address: 'Зал' }),
+    ).rejects.toThrow(/which occurrences/);
+    await expect(
+      attempt({ ordinals: [1], dayOfWeek: 6, startTime: '10:30' }),
+    ).rejects.toThrow(/where it is held/);
+    await expect(
+      attempt({
+        ordinals: [1],
+        dayOfWeek: 6,
+        startTime: '10:30',
+        serviceGroupId: 'g-other',
+      }),
+    ).rejects.toThrow(/No such service group/);
+    expect(written).toEqual([]);
   });
 });

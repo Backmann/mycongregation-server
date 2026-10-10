@@ -81,6 +81,7 @@ function build(
     audit as any,
     clockStub(),
     groupsRepo as any,
+    { count: jest.fn(async () => 0) } as any,
   );
   return { svc, repo, audit, notify };
 }

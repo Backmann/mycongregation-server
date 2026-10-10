@@ -122,6 +122,15 @@ export class FieldServiceMeeting {
   @Column({ type: 'uuid', nullable: true })
   serviceOverseerAssistantId!: string | null;
 
+  /**
+   * When the congregation was told. Null is a DRAFT: a month prepared by the
+   * service overseer and not yet announced. A draft is read only by those who
+   * may write it, is told to no conductor, and becomes a meeting like any
+   * other the moment its month is published (October 2026).
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  publishedAt!: Date | null;
+
   // ---- Timestamps ----
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

@@ -1,6 +1,15 @@
-import { IsDateString, IsOptional } from 'class-validator';
+import { IsDateString, IsIn, IsOptional } from 'class-validator';
 
 export class QueryFieldServiceMeetingsDto {
+  /**
+   * «1» — include the drafts too. Honoured only for a reader who may plan;
+   * for everybody else, and for every app that does not send it, the list is
+   * the announced schedule alone.
+   */
+  @IsOptional()
+  @IsIn(['0', '1'])
+  drafts?: '0' | '1';
+
   /** Monday (ISO) of the week to list. When omitted, all weeks are returned. */
   @IsOptional()
   @IsDateString()

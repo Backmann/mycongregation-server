@@ -198,14 +198,19 @@ export const PLAN: Record<string, TablePlan> = {
     copy(`id congregation_id week_start_date day_of_week start_time
       conductor_publisher_id created_at updated_at is_general
       service_group_id service_overseer_visit service_overseer_publisher_id
-      service_overseer_assistant_id`),
+      service_overseer_assistant_id published_at`),
     { address: 'label:Адрес', source_url: 'url' },
     remove('topic'),
   ),
   field_service_template_slots: table(
-    copy(`id congregation_id position ordinal day_of_week start_time
-      created_at updated_at`),
+    copy(`id congregation_id position ordinal ordinals last_only day_of_week
+      start_time service_group_id conductor_rule created_at updated_at`),
     { address: 'label:Адрес' },
+  ),
+  /** Switches only: nothing about a person. */
+  field_service_settings: table(
+    copy(`congregation_id skip_assemblies co_visit_from_schedule auto_prepare
+      prepare_lead auto_pick_conductors unpublished_policy updated_at`),
   ),
   field_service_month_themes: table(
     copy('id congregation_id year month created_at updated_at'),

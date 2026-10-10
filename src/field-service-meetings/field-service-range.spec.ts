@@ -39,6 +39,7 @@ function build() {
     } as never,
     {} as never,
     { findOne: jest.fn() } as never,
+    { count: jest.fn() } as never,
   );
   return { service, where };
 }

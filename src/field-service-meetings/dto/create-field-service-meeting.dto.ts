@@ -74,4 +74,13 @@ export class CreateFieldServiceMeetingDto {
   @IsOptional()
   @IsBoolean()
   notifyConductor?: boolean;
+
+  /**
+   * Make it a draft: part of a month still being prepared, seen by the
+   * planners only and told to nobody until the month is published. Omitted,
+   * the meeting is announced at once, as it always was.
+   */
+  @IsOptional()
+  @IsBoolean()
+  draft?: boolean;
 }
