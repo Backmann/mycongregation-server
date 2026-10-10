@@ -48,6 +48,7 @@ const ASSEMBLY_TYPES = ['circuit_assembly', 'regional_convention'];
 export type CandidateReason =
   | 'never_led' // has never conducted
   | 'last_led' // conducted last on `lastDate`
+  | 'upcoming' // already put on a meeting after this day (`lastDate` is it)
   | 'group_overseer' // the group's own overseer
   | 'group_assistant' // the group's assistant (its overseer not free)
   | 'leads_that_day' // already conducts another meeting on that day
@@ -169,14 +170,22 @@ export class FieldServicePlannerService {
       },
     });
     const lastLed = new Map<string, string>();
+    // His soonest meeting on or after `before`: a brother already down for
+    // a later Saturday goes to the back of the queue, as the old window had
+    // it — «уже назначен на …» is the reason not to choose him today.
+    const upcoming = new Map<string, string>();
     for (const m of led) {
       if (!m.conductorPublisherId) continue;
       const d = meetingDateISO(m);
-      if (d >= before) continue;
+      if (d >= before) {
+        const cur = upcoming.get(m.conductorPublisherId);
+        if (!cur || d < cur) upcoming.set(m.conductorPublisherId, d);
+        continue;
+      }
       const cur = lastLed.get(m.conductorPublisherId);
       if (!cur || d > cur) lastLed.set(m.conductorPublisherId, d);
     }
-    return { brothers, people, lastLed };
+    return { brothers, people, lastLed, upcoming };
   }
 
   /** Who conducts something on each day of the span, drafts included. */
@@ -248,7 +257,7 @@ export class FieldServicePlannerService {
     },
   ): Promise<ConductorCandidate[]> {
     const groups = await this.template.groupsOf(congregationId);
-    const { brothers, people, lastLed } = await this.circle(
+    const { brothers, people, lastLed, upcoming } = await this.circle(
       congregationId,
       opts.date,
     );
@@ -263,6 +272,7 @@ export class FieldServicePlannerService {
       brothers,
       people,
       lastLed,
+      upcoming,
       busy.get(opts.date) ?? new Set(),
       (pid) => absent(pid, opts.date),
       opts.serviceGroupId ? (groups.get(opts.serviceGroupId) ?? null) : null,
@@ -274,6 +284,7 @@ export class FieldServicePlannerService {
     brothers: Publisher[],
     people: Map<string, Publisher>,
     lastLed: Map<string, string>,
+    upcoming: Map<string, string>,
     busyToday: Set<string>,
     isAbsent: (pid: string) => boolean,
     group: ServiceGroup | null,
@@ -317,7 +328,8 @@ export class FieldServicePlannerService {
       }
     }
     const rest = brothers.filter((p) => !taken.has(p.id));
-    const free = rest.filter((p) => !blocked(p));
+    const free = rest.filter((p) => !blocked(p) && !upcoming.has(p.id));
+    const later = rest.filter((p) => !blocked(p) && upcoming.has(p.id));
     const notFree = rest.filter((p) => blocked(p));
     free.sort((a, b) => {
       const la = lastLed.get(a.id);
@@ -329,6 +341,15 @@ export class FieldServicePlannerService {
     });
     for (const p of free) {
       out.push(one(p, lastLed.has(p.id) ? 'last_led' : 'never_led', true));
+    }
+    // Still free — just not first in line. Soonest booking last.
+    later.sort(
+      (a, b) =>
+        upcoming.get(a.id)!.localeCompare(upcoming.get(b.id)!) * -1 ||
+        name(a).localeCompare(name(b), 'ru'),
+    );
+    for (const p of later) {
+      out.push({ ...one(p, 'upcoming', true), lastDate: upcoming.get(p.id)! });
     }
     for (const p of notFree) out.push(blocked(p)!);
     return out;
@@ -403,7 +424,7 @@ export class FieldServicePlannerService {
     // Turns are counted up to the END of the month: a brother who already
     // has a Saturday in it — a draft, or one put in by hand — goes to the
     // back of the queue for the rest of it.
-    const { brothers, people, lastLed } = await this.circle(
+    const { brothers, people, lastLed, upcoming } = await this.circle(
       congregationId,
       addDaysISO(cal.last, 1),
     );
@@ -527,6 +548,7 @@ export class FieldServicePlannerService {
           brothers,
           people,
           lastLed,
+          upcoming,
           busy.get(date) ?? new Set(),
           (pid) => absent(pid, date),
           group,

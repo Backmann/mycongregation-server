@@ -482,6 +482,38 @@ describe('whose turn it is', () => {
     expect(nov.rows[0].conductor?.publisherId).not.toBe('p-keller');
   });
 
+  it('a brother already down for a later day is free, but last — with that day named', async () => {
+    const { planner } = build({
+      meetings: [
+        // Keller conducts on 21 November; asked about the 7th he is still free,
+        // but the turn goes to the others first.
+        meeting({
+          id: 'later',
+          weekStartDate: '2026-11-16',
+          conductorPublisherId: 'p-keller',
+        }),
+        meeting({
+          id: 'sooner',
+          weekStartDate: '2026-11-09',
+          conductorPublisherId: 'p-vogt',
+        }),
+      ],
+    });
+    const list = await planner.suggestConductor(CONG, { date: '2026-11-07' });
+    const ids = list.filter((c) => c.free).map((c) => c.publisherId);
+    // The two with bookings close the free part: the farther booking first,
+    // the soonest last.
+    expect(ids.slice(-2)).toEqual(['p-keller', 'p-vogt']);
+    expect(list.find((c) => c.publisherId === 'p-vogt')).toMatchObject({
+      reason: 'upcoming',
+      lastDate: '2026-11-14',
+      free: true,
+    });
+    // Within the month being prepared, the same booking is a turn taken.
+    const nov = await planner.preview(CONG, 2026, 11);
+    expect(nov.rows[0].conductor?.publisherId).not.toBe('p-keller');
+  });
+
   it('the meeting being edited does not make its own conductor «busy»', async () => {
     const { planner } = build({
       meetings: [meeting({ id: 'm-7', conductorPublisherId: 'p-keller' })],
