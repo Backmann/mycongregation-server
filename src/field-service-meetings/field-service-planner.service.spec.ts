@@ -523,6 +523,10 @@ describe('whose turn it is', () => {
       excludeMeetingId: 'm-7',
     });
     expect(list.find((c) => c.publisherId === 'p-keller')?.free).toBe(true);
+    // Nor «already down for» its own date: the booking IS this meeting.
+    expect(list.find((c) => c.publisherId === 'p-keller')?.reason).not.toBe(
+      'upcoming',
+    );
   });
 
   it('a group’s meeting: its overseer, else its assistant, even outside the circle', async () => {

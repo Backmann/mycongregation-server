@@ -147,7 +147,11 @@ export class FieldServicePlannerService {
    * so that a month being prepared spreads its Saturdays over the circle
    * instead of giving them all to the brother who was free on the 1st.
    */
-  private async circle(congregationId: string, before: string) {
+  private async circle(
+    congregationId: string,
+    before: string,
+    excludeMeetingId: string | null = null,
+  ) {
     const people = new Map(
       (
         await this.publishersRepo.find({
@@ -164,6 +168,7 @@ export class FieldServicePlannerService {
     const led = await this.meetingRepo.find({
       where: { congregationId },
       select: {
+        id: true,
         weekStartDate: true,
         dayOfWeek: true,
         conductorPublisherId: true,
@@ -175,6 +180,10 @@ export class FieldServicePlannerService {
     // it — «уже назначен на …» is the reason not to choose him today.
     const upcoming = new Map<string, string>();
     for (const m of led) {
+      // The meeting being edited is not a booking that counts against its
+      // own conductor: he stood at the top with «уже назначен на» its own
+      // date (seen on the phone, 11 October 2026).
+      if (m.id === excludeMeetingId) continue;
       if (!m.conductorPublisherId) continue;
       const d = meetingDateISO(m);
       if (d >= before) {
@@ -260,6 +269,7 @@ export class FieldServicePlannerService {
     const { brothers, people, lastLed, upcoming } = await this.circle(
       congregationId,
       opts.date,
+      opts.excludeMeetingId ?? null,
     );
     const busy = await this.busyByDay(
       congregationId,
