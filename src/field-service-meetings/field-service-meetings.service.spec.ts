@@ -81,7 +81,7 @@ describe('FieldServiceMeetingsService', () => {
     expect(out).toEqual([{ id: 'm1' }]);
   });
 
-  it('list() omits the week filter when weekStart is absent', async () => {
+  it('list() asks for the last year, not a week, when weekStart is absent', async () => {
     const qb = makeQb([]);
     const repo = { createQueryBuilder: jest.fn(() => qb) } as any;
     const svc = new FieldServiceMeetingsService(
@@ -97,9 +97,13 @@ describe('FieldServiceMeetingsService', () => {
 
     await svc.list(CONG, {});
 
-    // The one condition that always stands: the announced schedule only.
-    expect(qb.andWhere).toHaveBeenCalledTimes(1);
+    // The one condition that always stands: the announced schedule only —
+    // and, with no week named, the year behind today (October 2026).
+    expect(qb.andWhere).toHaveBeenCalledTimes(2);
     expect(qb.andWhere).toHaveBeenCalledWith('m.publishedAt IS NOT NULL');
+    expect(qb.andWhere).toHaveBeenCalledWith('m.weekStartDate >= :since', {
+      since: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    });
   });
 
   it('list() includes the drafts only when the caller asked for them', async () => {

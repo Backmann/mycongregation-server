@@ -354,7 +354,7 @@ export class FieldServiceMeetingsService {
    * not know what a draft is never sees one, so a phone with last month's
    * version keeps showing exactly the announced schedule.
    */
-  list(
+  async list(
     congregationId: string,
     query: QueryFieldServiceMeetingsDto,
     drafts = false,
@@ -366,9 +366,11 @@ export class FieldServiceMeetingsService {
     // With an upper bound this reads as a span; without one it stays the
     // exact week it has always been, so no existing caller changes behaviour.
     //
-    // NOTE: with NEITHER bound the whole history comes back. Harmless while
-    // there are a few dozen rows, and left alone here because callers already
-    // rely on it — but it will not stay harmless for ever.
+    // With NEITHER bound: the last year, not the whole history (October
+    // 2026). The month page now asks for a window of its own; a phone still
+    // on an older version, or any other client that asks for everything,
+    // gets the year behind it and all that lies ahead — what the page could
+    // show anyway — and the answer stops growing with every month in use.
     if (query.weekStart && query.weekEnd) {
       qb.andWhere('m.weekStartDate >= :weekStart', {
         weekStart: query.weekStart,
@@ -376,6 +378,10 @@ export class FieldServiceMeetingsService {
     } else if (query.weekStart) {
       qb.andWhere('m.weekStartDate = :weekStart', {
         weekStart: query.weekStart,
+      });
+    } else {
+      qb.andWhere('m.weekStartDate >= :since', {
+        since: addDaysISO(await this.clock.todayFor(congregationId), -365),
       });
     }
     return qb
