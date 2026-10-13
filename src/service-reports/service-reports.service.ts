@@ -65,6 +65,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { SubmitReportDto } from './dto/submit-report.dto';
 import { UpdateReportDto } from './dto/update-report.dto';
+import { refusal } from '../common/errors/refusal';
 
 /**
  * The signed-in publisher's own standing for the month they should be
@@ -431,7 +432,9 @@ export class ServiceReportsService {
     // Students (appointment=STUDENT) are not reporting publishers — they never
     // submit a service report, not even on their behalf.
     if (publisher.appointment === PublisherAppointment.STUDENT) {
-      throw new BadRequestException('Students do not submit service reports');
+      throw new BadRequestException(
+        refusal('REPORT_STUDENT', 'Students do not submit service reports'),
+      );
     }
     const reportMonth = this.normalizeReportMonth(dto.reportMonth);
     this.assertMonthIsReportable(reportMonth);
@@ -448,7 +451,10 @@ export class ServiceReportsService {
       (await this.isMonthClosed(tenantId, reportMonth))
     ) {
       throw new ForbiddenException(
-        'This month has been closed. Ask the secretary to reopen it.',
+        refusal(
+          'REPORT_MONTH_CLOSED',
+          'This month has been closed. Ask the secretary to reopen it.',
+        ),
       );
     }
     // The hours form applies to actual pioneers AND to anyone serving as an
@@ -691,7 +697,10 @@ export class ServiceReportsService {
     });
     if (!target) {
       throw new BadRequestException(
-        'Target publisher not found in this congregation.',
+        refusal(
+          'NO_SUCH_PUBLISHER',
+          'Target publisher not found in this congregation.',
+        ),
       );
     }
 
@@ -706,8 +715,11 @@ export class ServiceReportsService {
     }
     if (!allowed) {
       throw new ForbiddenException(
-        'Only an admin, the secretary, or the publisher\u2019s service group ' +
-          'overseer may submit a report on their behalf.',
+        refusal(
+          'REPORT_ON_BEHALF_FORBIDDEN',
+          'Only an admin, the secretary, or the publisher\u2019s service group ' +
+            'overseer may submit a report on their behalf.',
+        ),
       );
     }
 
@@ -864,8 +876,11 @@ export class ServiceReportsService {
     const report = await this.findOne(tenantId, user, reportId);
     if (!report.canEdit) {
       throw new ForbiddenException(
-        'This report month has closed, or it is not yours to change. ' +
-          'Contact the secretary.',
+        refusal(
+          'REPORT_NOT_EDITABLE',
+          'This report month has closed, or it is not yours to change. ' +
+            'Contact the secretary.',
+        ),
       );
     }
 
@@ -912,8 +927,11 @@ export class ServiceReportsService {
     );
     if (!(report as ServiceReport & { canEdit: boolean }).canEdit) {
       throw new ForbiddenException(
-        'This report month has closed, or it is not yours to change. ' +
-          'Contact the secretary.',
+        refusal(
+          'REPORT_NOT_EDITABLE',
+          'This report month has closed, or it is not yours to change. ' +
+            'Contact the secretary.',
+        ),
       );
     }
 
@@ -1002,7 +1020,9 @@ export class ServiceReportsService {
     const isOverseer =
       groupId !== null && ctx.overseenGroupIds.includes(groupId);
     if (!ctx.alwaysView && !isOwnReport && !isOverseer) {
-      throw new ForbiddenException('You may only view your own reports.');
+      throw new ForbiddenException(
+        refusal('REPORT_ONLY_OWN', 'You may only view your own reports.'),
+      );
     }
 
     this.setCanEdit(
@@ -1070,27 +1090,38 @@ export class ServiceReportsService {
     if (!this.canEditWithCtx(report, ctx, groupId, isClosed)) {
       if (isClosed && !ctx.alwaysEdit) {
         throw new ForbiddenException(
-          'This month has been closed by the secretary. Only the secretary ' +
-            'or an admin can make further changes.',
+          refusal(
+            'REPORT_MONTH_CLOSED',
+            'This month has been closed by the secretary. Only the secretary ' +
+              'or an admin can make further changes.',
+          ),
         );
       }
       const isOwnReport = report.submittedById === user.id;
       if (isOwnReport) {
         throw new ForbiddenException(
-          'This report month has closed. A report can be corrected while its ' +
-            'month is still being collected, by the congregation clock. ' +
-            'Contact the secretary to request changes.',
+          refusal(
+            'REPORT_COLLECTION_OVER',
+            'This report month has closed. A report can be corrected while its ' +
+              'month is still being collected, by the congregation clock. ' +
+              'Contact the secretary to request changes.',
+          ),
         );
       }
       throw new ForbiddenException(
-        'You are not allowed to edit this report. Contact the secretary or ' +
-          'an admin.',
+        refusal(
+          'REPORT_NOT_EDITABLE',
+          'You are not allowed to edit this report. Contact the secretary or ' +
+            'an admin.',
+        ),
       );
     }
 
     if (!publisher) {
       // Defensive — FK guarantees existence.
-      throw new BadRequestException('Publisher record not found.');
+      throw new BadRequestException(
+        refusal('NO_SUCH_PUBLISHER', 'Publisher record not found.'),
+      );
     }
     // The hours form also applies to an auxiliary pioneer for the month this
     // report belongs to — so editing their report keeps the hours variant.
@@ -1233,9 +1264,12 @@ export class ServiceReportsService {
       // Caller must be the overseer of at least one service group.
       if (ctx.myPublisherId === null || ctx.overseenGroupIds.length === 0) {
         throw new ForbiddenException(
-          'You are not authorized to view group reports. Group reports are ' +
-            'visible to elders, admins, the secretary, and service group ' +
-            'overseers.',
+          refusal(
+            'REPORT_GROUP_FORBIDDEN',
+            'You are not authorized to view group reports. Group reports are ' +
+              'visible to elders, admins, the secretary, and service group ' +
+              'overseers.',
+          ),
         );
       }
 
@@ -1479,7 +1513,10 @@ export class ServiceReportsService {
       groupId !== null && ctx.overseenGroupIds.includes(groupId);
     if (!ctx.alwaysView && !isOwner && !isOverseer) {
       throw new ForbiddenException(
-        'You may only view your own report history.',
+        refusal(
+          'REPORT_ONLY_OWN',
+          'You may only view your own report history.',
+        ),
       );
     }
 
@@ -1661,7 +1698,11 @@ export class ServiceReportsService {
     const isElder = user.role === UserRole.ELDER;
     if (!isAdmin && !isElder) {
       throw new ForbiddenException(
-        'The S-21 record card is available only to elders and administrators.',
+        refusal(
+          'NEEDS_ROLE',
+          'The S-21 record card is available only to elders and administrators.',
+          { roles: ['admin', 'elder'] },
+        ),
       );
     }
 
@@ -1692,7 +1733,10 @@ export class ServiceReportsService {
     // Students don't submit service reports, so an S-21 card is meaningless.
     if (publisher.appointment === PublisherAppointment.STUDENT) {
       throw new BadRequestException(
-        'The S-21 record card does not apply to students.',
+        refusal(
+          'S21_STUDENT',
+          'The S-21 record card does not apply to students.',
+        ),
       );
     }
 
@@ -1787,7 +1831,10 @@ export class ServiceReportsService {
     const isOverseer = ctx.overseenGroupIds.length > 0;
     if (!ctx.alwaysEdit && !isOverseer) {
       throw new ForbiddenException(
-        'Only administrators, the secretary and a group overseer may view report collection.',
+        refusal(
+          'REPORT_COLLECTION_FORBIDDEN',
+          'Only administrators, the secretary and a group overseer may view report collection.',
+        ),
       );
     }
 
@@ -1945,7 +1992,10 @@ export class ServiceReportsService {
     // keeping what was sent — stays with the secretary and has its own gates.
     if (!ctx.alwaysView) {
       throw new ForbiddenException(
-        'Only elders, the secretary and administrators may view the service summary.',
+        refusal(
+          'REPORT_SUMMARY_FORBIDDEN',
+          'Only elders, the secretary and administrators may view the service summary.',
+        ),
       );
     }
 
@@ -2220,7 +2270,10 @@ export class ServiceReportsService {
     const ctx = await this.buildPermissionContext(tenantId, user);
     if (!ctx.alwaysView) {
       throw new ForbiddenException(
-        "Only elders may review the pioneers' service year.",
+        refusal(
+          'PIONEER_REVIEW_FORBIDDEN',
+          "Only elders may review the pioneers' service year.",
+        ),
       );
     }
     const today = await this.clock.todayFor(tenantId);
@@ -2379,7 +2432,10 @@ export class ServiceReportsService {
     const ctx = await this.buildPermissionContext(tenantId, user);
     if (!ctx.alwaysEdit) {
       throw new ForbiddenException(
-        'Only administrators and the secretary may close a month.',
+        refusal(
+          'REPORT_CLOSE_FORBIDDEN',
+          'Only administrators and the secretary may close a month.',
+        ),
       );
     }
     const existing = await this.closuresRepo.findOne({
@@ -2414,7 +2470,10 @@ export class ServiceReportsService {
     const ctx = await this.buildPermissionContext(tenantId, user);
     if (!ctx.alwaysEdit) {
       throw new ForbiddenException(
-        'Only administrators and the secretary may reopen a month.',
+        refusal(
+          'REPORT_CLOSE_FORBIDDEN',
+          'Only administrators and the secretary may reopen a month.',
+        ),
       );
     }
     await this.closuresRepo.delete({ congregationId: tenantId, reportMonth });
@@ -2604,12 +2663,18 @@ export class ServiceReportsService {
   ): void {
     if (isPioneer && dto.servedThisMonth !== undefined) {
       throw new BadRequestException(
-        'servedThisMonth must not be provided for pioneers.',
+        refusal(
+          'REPORT_FORM_MISMATCH',
+          'servedThisMonth must not be provided for pioneers.',
+        ),
       );
     }
     if (!isPioneer && dto.hoursReported !== undefined) {
       throw new BadRequestException(
-        'hoursReported must not be provided for regular publishers.',
+        refusal(
+          'REPORT_FORM_MISMATCH',
+          'hoursReported must not be provided for regular publishers.',
+        ),
       );
     }
     if (
@@ -2619,7 +2684,10 @@ export class ServiceReportsService {
       dto.notes === undefined
     ) {
       throw new BadRequestException(
-        'At least one field must be provided to update.',
+        refusal(
+          'NOTHING_TO_SAVE',
+          'At least one field must be provided to update.',
+        ),
       );
     }
   }
@@ -2700,7 +2768,10 @@ export class ServiceReportsService {
 
     if (!publisher) {
       throw new BadRequestException(
-        'You are not registered as a publisher in this congregation.',
+        refusal(
+          'NO_OWN_CARD',
+          'You are not registered as a publisher in this congregation.',
+        ),
       );
     }
 
@@ -2725,7 +2796,10 @@ export class ServiceReportsService {
     ).padStart(2, '0')}-01`;
     if (reportMonth >= currentMonthStart) {
       throw new BadRequestException(
-        'Reports can only be submitted for a month that has already ended.',
+        refusal(
+          'REPORT_MONTH_NOT_OVER',
+          'Reports can only be submitted for a month that has already ended.',
+        ),
       );
     }
   }
@@ -2735,23 +2809,35 @@ export class ServiceReportsService {
     if (isPioneer) {
       if (dto.hoursReported === undefined) {
         throw new BadRequestException(
-          'hoursReported is required for pioneers.',
+          refusal(
+            'REPORT_HOURS_REQUIRED',
+            'hoursReported is required for pioneers.',
+          ),
         );
       }
       if (dto.servedThisMonth !== undefined) {
         throw new BadRequestException(
-          'servedThisMonth must not be provided for pioneers; report hours instead.',
+          refusal(
+            'REPORT_FORM_MISMATCH',
+            'servedThisMonth must not be provided for pioneers; report hours instead.',
+          ),
         );
       }
     } else {
       if (dto.servedThisMonth === undefined) {
         throw new BadRequestException(
-          'servedThisMonth is required for regular publishers.',
+          refusal(
+            'REPORT_SERVED_REQUIRED',
+            'servedThisMonth is required for regular publishers.',
+          ),
         );
       }
       if (dto.hoursReported !== undefined) {
         throw new BadRequestException(
-          'hoursReported must not be provided for regular publishers.',
+          refusal(
+            'REPORT_FORM_MISMATCH',
+            'hoursReported must not be provided for regular publishers.',
+          ),
         );
       }
     }

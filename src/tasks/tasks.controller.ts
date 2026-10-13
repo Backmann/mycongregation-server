@@ -33,6 +33,7 @@ import { TaskAddresseesService } from './task-addressees.service';
 import { AgendaItemsService } from './agenda-items.service';
 import { TASK_AREAS, type TaskArea } from './task-areas';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { refusal } from '../common/errors/refusal';
 
 // The one list, shared with the entity's type and checked against the
 // database's own constraints by task-areas.spec.ts.
@@ -209,7 +210,7 @@ export class TasksController {
 
   private async mustBuild(user: AuthenticatedUser): Promise<void> {
     if (!(await this.items.mayBuild(user))) {
-      throw new ForbiddenException('Not allowed');
+      throw new ForbiddenException(refusal('AGENDA_FORBIDDEN', 'Not allowed'));
     }
   }
 

@@ -28,6 +28,7 @@ import { passwordProblem } from './password-policy';
 import { hashPassword, passwordMatches } from './password-edges';
 import { normalizeInviteCode } from './invite-code';
 import type { ClientInfo } from './read-client';
+import { refusal } from '../common/errors/refusal';
 
 interface RefreshTokenPayload {
   sub: string;
@@ -86,7 +87,10 @@ export class AuthService {
     const existing = await this.usersService.count();
     if (existing > 0) {
       throw new ConflictException(
-        'Bootstrap already performed. Use invitation flow instead.',
+        refusal(
+          'BOOTSTRAP_DONE',
+          'Bootstrap already performed. Use invitation flow instead.',
+        ),
       );
     }
 
@@ -315,7 +319,9 @@ export class AuthService {
     const tokenHash = createHash('sha256').update(token).digest('hex');
     const user = await this.usersService.findByValidResetToken(tokenHash);
     if (!user) {
-      throw new BadRequestException('Invalid or expired reset link');
+      throw new BadRequestException(
+        refusal('RESET_LINK_INVALID', 'Invalid or expired reset link'),
+      );
     }
     const problem = passwordProblem(password, user.email ?? undefined);
     if (problem) {

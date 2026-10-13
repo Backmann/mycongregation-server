@@ -17,6 +17,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import { SetCleaningSlotDto } from './dto/set-cleaning-slot.dto';
 import { PlanThoroughDto } from './dto/plan-thorough.dto';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { refusal } from '../common/errors/refusal';
 
 export interface CleaningWeek {
   assignments: CleaningAssignment[];
@@ -67,7 +68,9 @@ export class CleaningService {
     weekEnd: string,
   ): Promise<CleaningAssignment[]> {
     if (weekEnd <= weekStart) {
-      throw new BadRequestException('weekEnd must be after weekStart.');
+      throw new BadRequestException(
+        refusal('SPAN_INVALID', 'weekEnd must be after weekStart.'),
+      );
     }
     return this.repo.find({
       where: {
@@ -218,7 +221,10 @@ export class CleaningService {
     );
     if (!allowed) {
       throw new ForbiddenException(
-        'Only the cleaning coordinator or the overseer of the assigned group can plan it',
+        refusal(
+          'CLEANING_PLAN_FORBIDDEN',
+          'Only the cleaning coordinator or the overseer of the assigned group can plan it',
+        ),
       );
     }
 
@@ -258,7 +264,10 @@ export class CleaningService {
     const allowed = await this.isCoordinatorOrAdmin(congregationId, user);
     if (!allowed) {
       throw new ForbiddenException(
-        'Only the cleaning coordinator can plan the general cleaning',
+        refusal(
+          'CLEANING_GENERAL_FORBIDDEN',
+          'Only the cleaning coordinator can plan the general cleaning',
+        ),
       );
     }
 
@@ -282,7 +291,10 @@ export class CleaningService {
       plannedAt.getTime() >= weekEnd.getTime() + slack
     ) {
       throw new BadRequestException(
-        'plannedAt must fall inside the assignment week',
+        refusal(
+          'CLEANING_OUTSIDE_WEEK',
+          'plannedAt must fall inside the assignment week',
+        ),
       );
     }
   }

@@ -50,6 +50,7 @@ import { DutiesService } from '../duties/duties.service';
 import { LocalNeedsService } from '../local-needs/local-needs.service';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { CoVisitTemplateService } from '../special-events/co-visit-template.service';
+import { refusal } from '../common/errors/refusal';
 
 const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
 
@@ -675,7 +676,9 @@ export class AssignmentsService {
     dto: SwapPublicTalkDto,
   ): Promise<{ source: Assignment; target: Assignment }> {
     if (dto.sourceWeekStartDate === dto.targetWeekStartDate) {
-      throw new BadRequestException('Source and target weeks must differ');
+      throw new BadRequestException(
+        refusal('SWAP_SAME_WEEK', 'Source and target weeks must differ'),
+      );
     }
 
     /**

@@ -18,6 +18,7 @@ import { QueryLocalNeedsTopicsDto } from './dto/query-local-needs-topics.dto';
 import { MarkUsedLocalNeedsTopicDto } from './dto/mark-used-local-needs-topic.dto';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { mondayOf } from '../common/week';
+import { refusal } from '../common/errors/refusal';
 
 @Injectable()
 export class LocalNeedsService {
@@ -56,7 +57,11 @@ export class LocalNeedsService {
 
   private async assertCanManage(user: AuthenticatedUser): Promise<void> {
     if (!(await this.isManager(user))) {
-      throw new ForbiddenException('Not allowed to manage local needs');
+      throw new ForbiddenException(
+        refusal('NEEDS_RESPONSIBILITY', 'Not allowed to manage local needs', {
+          responsibilities: LocalNeedsService.MANAGER_RESPONSIBILITIES,
+        }),
+      );
     }
   }
 
@@ -64,7 +69,12 @@ export class LocalNeedsService {
   private async assertCanView(user: AuthenticatedUser): Promise<void> {
     if (user.role === UserRole.ADMIN || user.role === UserRole.ELDER) return;
     if (await this.isManager(user)) return;
-    throw new ForbiddenException('Local needs are visible to elders only');
+    throw new ForbiddenException(
+      refusal(
+        'LOCAL_NEEDS_FOR_ELDERS',
+        'Local needs are visible to elders only',
+      ),
+    );
   }
 
   private baseQuery(tenantId: string) {

@@ -25,6 +25,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { CreateVisitingSpeakerDto } from './dto/create-visiting-speaker.dto';
 import { UpdateVisitingSpeakerDto } from './dto/update-visiting-speaker.dto';
+import { refusal } from '../common/errors/refusal';
 
 /**
  * What the journal remembers about a visiting speaker. The phone is a person's
@@ -101,7 +102,13 @@ export class VisitingSpeakersService {
     });
     if (held === 0) {
       throw new ForbiddenException(
-        'Only the public talk coordinator may edit visiting speakers',
+        refusal(
+          'NEEDS_RESPONSIBILITY',
+          'Only the public talk coordinator may edit visiting speakers',
+          {
+            responsibilities: VisitingSpeakersService.MANAGER_RESPONSIBILITIES,
+          },
+        ),
       );
     }
   }

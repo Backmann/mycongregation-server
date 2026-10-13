@@ -30,34 +30,31 @@ const FILES = sources(SRC).map((p) => ({
 const REFUSALS = FILES.flatMap(({ rel, text }) =>
   [
     ...text.matchAll(
-      /new (BadRequest|Conflict|Forbidden|NotFound|UnprocessableEntity)Exception\(\s*([\s\S]{0,12})/g,
+      /new (BadRequest|Conflict|Forbidden|NotFound|UnprocessableEntity)Exception\(\s*([\s\S]{0,60})/g,
     ),
   ].map((m) => ({
     rel,
     kind: m[1],
     line: text.slice(0, m.index).split('\n').length,
     coded: m[2].startsWith('{') || m[2].startsWith('refusal('),
+    // The words of a plain-string refusal, for the wiring list.
+    message: /^'([^']*)'/.exec(m[2])?.[1] ?? m[2],
   })),
 );
 
-/** The sections whose every refusal already speaks by code. */
-const DONE = [
-  'field-service-meetings/',
-  'duties/',
-  'memorial/',
-  'co-visit-items/',
-  'special-events/',
-  // The guards' «who may» refusals are coded; their «no user context» is a
-  // fault of the wiring, never met by a signed-in person, and stays as is.
-];
-
 /**
- * Refusals of the «bad request / conflict» kind still without a code, all
- * sections together. It may only go DOWN: lower it when a section is done.
- * A «not found» needs no code — the app says it in general words; a
- * «forbidden» without one keeps the server's sentence until its section.
+ * The only refusals allowed without a code: faults of the wiring, never met
+ * by a person who is signed in — a request reaching a guard with no user or
+ * no congregation attached, a route the platform hides. Everything else a
+ * person can meet speaks by code (13 October 2026: all sections done).
  */
-const UNCODED_LEFT = 72;
+const WIRING = new Set([
+  'No tenant context',
+  'No user context',
+  'No role context',
+  'Cannot determine schedule section',
+  'Not available',
+]);
 
 describe('refusal codes', () => {
   it('every code thrown is on the list', () => {
@@ -76,25 +73,11 @@ describe('refusal codes', () => {
     expect(REFUSAL_CODES.filter((c) => !all.includes(`'${c}'`))).toEqual([]);
   });
 
-  it('the sections done say every refusal by code', () => {
+  it('every refusal a person can meet speaks by code', () => {
     const left = REFUSALS.filter(
-      (r) =>
-        !r.coded &&
-        r.kind !== 'NotFound' &&
-        DONE.some((d) => r.rel.startsWith(d) || r.rel === d),
-    ).map((r) => `${r.rel}:${r.line}`);
+      (r) => !r.coded && r.kind !== 'NotFound' && !WIRING.has(r.message),
+    ).map((r) => `${r.rel}:${r.line} ${r.message}`);
     expect(left).toEqual([]);
-  });
-
-  it('the refusals still without a code only ever become fewer', () => {
-    const left = REFUSALS.filter(
-      (r) =>
-        !r.coded &&
-        (r.kind === 'BadRequest' ||
-          r.kind === 'Conflict' ||
-          r.kind === 'UnprocessableEntity'),
-    ).length;
-    expect(left).toBeLessThanOrEqual(UNCODED_LEFT);
   });
 
   it('a wrong field is said by its name and the rule it broke', () => {

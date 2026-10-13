@@ -11,6 +11,7 @@ import { CongregationClock } from '../common/congregation-clock.service';
 import { minutesOfDayIn, todayIn } from '../common/congregation-clock';
 import { mondayOf } from '../common/week';
 import { rulesFromContext } from '../common/week-rules.service';
+import { refusal } from '../common/errors/refusal';
 
 /** One meeting's figure as the report reads it. */
 export interface AttendanceRow {
@@ -108,13 +109,17 @@ export class MeetingAttendanceService {
   ): Promise<MeetingAttendance> {
     const notHeld = dto.notHeld === true;
     if (!notHeld && (dto.count === undefined || dto.count === null)) {
-      throw new BadRequestException('A held meeting needs a figure.');
+      throw new BadRequestException(
+        refusal('ATTENDANCE_NEEDS_FIGURE', 'A held meeting needs a figure.'),
+      );
     }
     if (
       !notHeld &&
       (!Number.isInteger(dto.count) || (dto.count as number) < 0)
     ) {
-      throw new BadRequestException('Attendance cannot be negative.');
+      throw new BadRequestException(
+        refusal('ATTENDANCE_NEGATIVE', 'Attendance cannot be negative.'),
+      );
     }
 
     const existing = await this.repo.findOne({

@@ -654,7 +654,10 @@ export class UsersService {
       // would make «мои задания» mean two different things at once.
       if (next.userId && next.userId !== userId) {
         throw new ConflictException(
-          'That publisher card already belongs to another account',
+          refusal(
+            'CARD_TAKEN',
+            'That publisher card already belongs to another account',
+          ),
         );
       }
     }
@@ -1264,13 +1267,18 @@ export class UsersService {
       // Invited account that has not set a password yet — direct them
       // to set a password via the invitation link instead.
       throw new BadRequestException(
-        'Set a password via the invitation link first',
+        refusal(
+          'PASSWORD_NOT_SET',
+          'Set a password via the invitation link first',
+        ),
       );
     }
 
     const ok = await passwordMatches(currentPassword, user.passwordHash);
     if (!ok) {
-      throw new BadRequestException('Current password is incorrect');
+      throw new BadRequestException(
+        refusal('WRONG_PASSWORD', 'Current password is incorrect'),
+      );
     }
     const problem = passwordProblem(newPassword, user.email ?? undefined);
     if (problem) {

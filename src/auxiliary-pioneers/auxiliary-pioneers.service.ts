@@ -27,6 +27,7 @@ import {
   REDUCED_HOUR_EVENT_TYPES,
 } from './auxiliary-pioneer-hours';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { refusal } from '../common/errors/refusal';
 
 /** The roles/responsibilities that may manage auxiliary pioneers. */
 const MANAGER_RESPONSIBILITIES = [
@@ -140,8 +141,11 @@ export class AuxiliaryPioneersService {
   ): Promise<void> {
     if (await this.canManage(congregationId, user)) return;
     throw new ForbiddenException(
-      'Only admins, the body coordinator, the secretary or the service ' +
-        'overseer may manage auxiliary pioneers.',
+      refusal(
+        'AUX_PIONEERS_FORBIDDEN',
+        'Only admins, the body coordinator, the secretary or the service ' +
+          'overseer may manage auxiliary pioneers.',
+      ),
     );
   }
 
@@ -357,7 +361,10 @@ export class AuxiliaryPioneersService {
       publisher.appointment === PublisherAppointment.STUDENT
     ) {
       throw new BadRequestException(
-        'Only baptized publishers can serve as auxiliary pioneers.',
+        refusal(
+          'PIONEER_NOT_BAPTIZED',
+          'Only baptized publishers can serve as auxiliary pioneers.',
+        ),
       );
     }
     const untilCancelled = dto.untilCancelled === true;
@@ -367,7 +374,9 @@ export class AuxiliaryPioneersService {
         ? null
         : this.normalizeMonth(dto.endMonth);
     if (endMonth && endMonth < startMonth) {
-      throw new BadRequestException('End month cannot precede start month.');
+      throw new BadRequestException(
+        refusal('END_BEFORE_START', 'End month cannot precede start month.'),
+      );
     }
     const row = this.repo.create({
       congregationId,
@@ -424,7 +433,9 @@ export class AuxiliaryPioneersService {
       row.endMonth = this.normalizeMonth(dto.endMonth);
     }
     if (row.endMonth && row.endMonth < row.startMonth) {
-      throw new BadRequestException('End month cannot precede start month.');
+      throw new BadRequestException(
+        refusal('END_BEFORE_START', 'End month cannot precede start month.'),
+      );
     }
     const saved = await this.repo.save(row);
     await this.auditLog.logUpdate({
@@ -459,7 +470,9 @@ export class AuxiliaryPioneersService {
       dto.endMonth ?? (await this.clock.todayFor(congregationId)),
     );
     if (endMonth < row.startMonth) {
-      throw new BadRequestException('End month cannot precede start month.');
+      throw new BadRequestException(
+        refusal('END_BEFORE_START', 'End month cannot precede start month.'),
+      );
     }
     const beforeStop = {
       endMonth: row.endMonth,

@@ -18,6 +18,7 @@ import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
+import { refusal } from '../common/errors/refusal';
 
 /**
  * Figures for the annual congregation report (S-10).
@@ -64,10 +65,18 @@ export class AnnualReportController {
   ) {
     const year = Number(startYear);
     if (!Number.isInteger(year) || year < 2000 || year > 2100) {
-      throw new BadRequestException('startYear must be a year, e.g. 2025');
+      throw new BadRequestException(
+        refusal('INVALID_FIELD', 'startYear must be a year, e.g. 2025', {
+          fields: [{ field: 'startYear', rules: ['isInt'] }],
+        }),
+      );
     }
     if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day) || isNaN(Date.parse(day))) {
-      throw new BadRequestException('day must be a date, YYYY-MM-DD');
+      throw new BadRequestException(
+        refusal('INVALID_FIELD', 'day must be a date, YYYY-MM-DD', {
+          fields: [{ field: 'day', rules: ['isDateString'] }],
+        }),
+      );
     }
     return this.service.figuresAsOf(congregationId, year, day);
   }
@@ -83,7 +92,11 @@ export class AnnualReportController {
   ) {
     const year = Number(startYear);
     if (!Number.isInteger(year) || year < 2000 || year > 2100) {
-      throw new BadRequestException('startYear must be a year, e.g. 2025');
+      throw new BadRequestException(
+        refusal('INVALID_FIELD', 'startYear must be a year, e.g. 2025', {
+          fields: [{ field: 'startYear', rules: ['isInt'] }],
+        }),
+      );
     }
     return this.sent.view(congregationId, year);
   }

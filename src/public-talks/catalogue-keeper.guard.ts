@@ -10,6 +10,7 @@ import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { Responsibility } from '../entities/responsibility.entity';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { refusal } from '../common/errors/refusal';
 
 /**
  * Who may set talks aside and bring them back.
@@ -58,7 +59,10 @@ export class CatalogueKeeperGuard implements CanActivate {
     });
     if (held > 0) return true;
     throw new ForbiddenException(
-      'Only elders and the public talk coordinator may set talks aside',
+      refusal(
+        'TALKS_SET_ASIDE_FORBIDDEN',
+        'Only elders and the public talk coordinator may set talks aside',
+      ),
     );
   }
 }

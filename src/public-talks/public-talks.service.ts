@@ -33,6 +33,7 @@ function mondayOfISO(iso: string): string {
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 import { CreatePublicTalkDto } from './dto/create-public-talk.dto';
 import { UpdatePublicTalkDto } from './dto/update-public-talk.dto';
+import { refusal } from '../common/errors/refusal';
 
 /**
  * Monday (ISO `YYYY-MM-DD`) of the current week. A public talk only counts as
@@ -287,7 +288,13 @@ export class PublicTalksService {
       where: { number: dto.number },
     });
     if (existing) {
-      throw new ConflictException(`Public talk #${dto.number} already exists`);
+      throw new ConflictException(
+        refusal(
+          'TALK_NUMBER_TAKEN',
+          `Public talk #${dto.number} already exists`,
+          { number: dto.number },
+        ),
+      );
     }
     const talk = this.repo.create(dto);
     return this.repo.save(talk);
@@ -302,7 +309,11 @@ export class PublicTalksService {
       });
       if (conflict && conflict.id !== existing.id) {
         throw new ConflictException(
-          `Public talk #${dto.number} already exists`,
+          refusal(
+            'TALK_NUMBER_TAKEN',
+            `Public talk #${dto.number} already exists`,
+            { number: dto.number },
+          ),
         );
       }
     }

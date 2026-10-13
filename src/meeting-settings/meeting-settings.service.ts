@@ -15,6 +15,7 @@ import { addDaysISO } from '../common/week-rules';
 import { UpsertMeetingSettingsDto } from './dto/upsert-meeting-settings.dto';
 import { UpdateCongregationDto } from './dto/update-congregation.dto';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { refusal } from '../common/errors/refusal';
 
 @Injectable()
 export class MeetingSettingsService {
@@ -175,7 +176,11 @@ export class MeetingSettingsService {
       const impact = await this.impact(tenantId, dto);
       if (impact.attendanceOnMovedDays > 0) {
         throw new ConflictException(
-          `This moves meetings of weeks already begun to another weekday, and attendance for ${impact.attendanceOnMovedDays} of them is already recorded on the old day. Confirm to save.`,
+          refusal(
+            'SCHEDULE_PAST_NEEDS_CONFIRM',
+            `This moves meetings of weeks already begun to another weekday, and attendance for ${impact.attendanceOnMovedDays} of them is already recorded on the old day. Confirm to save.`,
+            { moved: impact.attendanceOnMovedDays },
+          ),
         );
       }
     }
@@ -267,7 +272,10 @@ export class MeetingSettingsService {
     const today = await this.clock.todayFor(tenantId);
     if (row.effectiveFrom <= mondayOf(today)) {
       throw new ConflictException(
-        'This schedule version is already in force: past weeks are counted by it, so it cannot be deleted. Correct it by saving the schedule with the same start date.',
+        refusal(
+          'SCHEDULE_VERSION_IN_FORCE',
+          'This schedule version is already in force: past weeks are counted by it, so it cannot be deleted. Correct it by saving the schedule with the same start date.',
+        ),
       );
     }
     await this.note(row, null, true);

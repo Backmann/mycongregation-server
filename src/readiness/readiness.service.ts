@@ -13,6 +13,7 @@ import {
 import { WeekRulesService } from '../common/week-rules.service';
 import { addDaysISO } from '../common/week-rules';
 import { mondayOf } from '../common/week';
+import { refusal } from '../common/errors/refusal';
 
 /**
  * HOW FAR ALONG A DAY IS.
@@ -132,7 +133,10 @@ export class ReadinessService {
       weeks.push(w);
       if (weeks.length > MAX_WEEKS) {
         throw new BadRequestException(
-          `Range too wide: at most ${MAX_WEEKS} weeks at a time.`,
+          refusal(
+            'SPAN_INVALID',
+            `Range too wide: at most ${MAX_WEEKS} weeks at a time.`,
+          ),
         );
       }
     }

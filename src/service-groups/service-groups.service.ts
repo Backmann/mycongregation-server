@@ -20,6 +20,7 @@ import {
   redactPrivateFields,
 } from '../publishers/publisher-privacy';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { refusal } from '../common/errors/refusal';
 
 type ResolvedPublisher = Awaited<ReturnType<PublishersService['findOne']>>;
 
@@ -290,7 +291,9 @@ export class ServiceGroupsService {
   async remove(tenantId: string, id: string): Promise<void> {
     const group = await this.findEntity(tenantId, id);
     if (group.deletedAt) {
-      throw new BadRequestException('Service group already removed');
+      throw new BadRequestException(
+        refusal('GROUP_ALREADY_REMOVED', 'Service group already removed'),
+      );
     }
     await this.auditLog.logEvent({
       tenantId,
@@ -308,7 +311,9 @@ export class ServiceGroupsService {
   ): Promise<ServiceGroupWithLeaders> {
     const group = await this.findEntity(tenantId, id);
     if (!group.deletedAt) {
-      throw new BadRequestException('Service group is not removed');
+      throw new BadRequestException(
+        refusal('GROUP_NOT_REMOVED', 'Service group is not removed'),
+      );
     }
     await this.serviceGroupsRepo.restore(id);
     return this.findOne(tenantId, id);

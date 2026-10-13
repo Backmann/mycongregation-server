@@ -13,6 +13,7 @@ import { EventType } from '../enums/event-type.enum';
 import { ResponsibilityType } from '../enums/responsibility-type.enum';
 import { UserRole } from '../enums/user-role.enum';
 import type { AuthenticatedUser } from '../../auth/decorators/current-user.decorator';
+import { refusal } from '../../common/errors/refusal';
 
 /**
  * Maps a schedule section (assignment event type) to the responsibilities that
@@ -104,7 +105,11 @@ export class AssignmentSectionGuard implements CanActivate {
       const allowed = EVENT_TYPE_RESPONSIBILITY[eventType];
       if (!allowed || allowed.length === 0) {
         throw new ForbiddenException(
-          `Section ${eventType} is restricted to admins`,
+          refusal(
+            'NEEDS_ROLE',
+            `Section ${eventType} is restricted to admins`,
+            { roles: ['admin'] },
+          ),
         );
       }
       allowed.forEach((t) => candidates.add(t));
@@ -127,7 +132,11 @@ export class AssignmentSectionGuard implements CanActivate {
       const satisfied = allowed.some((t) => heldTypes.has(t));
       if (!satisfied) {
         throw new ForbiddenException(
-          `Requires one of [${allowed.join(', ')}] for section ${eventType}`,
+          refusal(
+            'NEEDS_RESPONSIBILITY',
+            `Requires one of [${allowed.join(', ')}] for section ${eventType}`,
+            { responsibilities: allowed },
+          ),
         );
       }
     }

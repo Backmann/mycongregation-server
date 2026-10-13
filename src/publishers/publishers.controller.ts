@@ -33,6 +33,7 @@ import { RequireResponsibility } from '../common/decorators/require-responsibili
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { refusal } from '../common/errors/refusal';
 
 @Controller('publishers')
 @UseGuards(RolesGuard)
@@ -148,8 +149,11 @@ export class PublishersController {
     );
     if (!privileged) {
       throw new ForbiddenException(
-        'The reasoning behind a status is shown to those who may see the ' +
-          'publisher card.',
+        refusal(
+          'PUBLISHER_CARD_CLOSED',
+          'The reasoning behind a status is shown to those who may see the ' +
+            'publisher card.',
+        ),
       );
     }
     return this.publishersService.explainStatus(tenantId, id);
@@ -167,8 +171,11 @@ export class PublishersController {
     );
     if (!privileged) {
       throw new ForbiddenException(
-        'Publisher cards are visible to admins, elders, and members granted ' +
-          'access to private data.',
+        refusal(
+          'PUBLISHER_CARD_CLOSED',
+          'Publisher cards are visible to admins, elders, and members granted ' +
+            'access to private data.',
+        ),
       );
     }
     const publisher = await this.publishersService.findOne(tenantId, id);

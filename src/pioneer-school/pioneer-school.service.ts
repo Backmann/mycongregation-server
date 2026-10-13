@@ -28,6 +28,7 @@ import {
   UpdatePioneerSchoolDto,
   UpdatePioneerSchoolHelperDto,
 } from './dto/pioneer-school.dto';
+import { refusal } from '../common/errors/refusal';
 
 /** Said in the congregation's own words, not in code. */
 const PIONEER_SCHOOL_ABSENCE_NOTE = 'Школа пионерского служения';
@@ -79,13 +80,19 @@ export class PioneerSchoolService {
    */
   private assertCanEdit(user: AuthenticatedUser): void {
     if (user.role !== UserRole.ADMIN) {
-      throw new ForbiddenException('Only an administrator may edit the school');
+      throw new ForbiddenException(
+        refusal('NEEDS_ROLE', 'Only an administrator may edit the school', {
+          roles: ['admin'],
+        }),
+      );
     }
   }
 
   private assertCanView(user: AuthenticatedUser): void {
     if (user.role === UserRole.ADMIN || user.role === UserRole.ELDER) return;
-    throw new ForbiddenException('The school schedule is for elders');
+    throw new ForbiddenException(
+      refusal('SCHOOL_FOR_ELDERS', 'The school schedule is for elders'),
+    );
   }
 
   // ---------------------------------------------------------------- schools
@@ -110,7 +117,9 @@ export class PioneerSchoolService {
   ): Promise<PioneerSchool> {
     this.assertCanEdit(user);
     if (dto.endDate < dto.startDate) {
-      throw new BadRequestException('endDate is before startDate');
+      throw new BadRequestException(
+        refusal('END_BEFORE_START', 'endDate is before startDate'),
+      );
     }
     const school = await this.schoolsRepo.save(
       this.schoolsRepo.create({
@@ -150,7 +159,9 @@ export class PioneerSchoolService {
     };
     Object.assign(school, dto);
     if (school.endDate < school.startDate) {
-      throw new BadRequestException('endDate is before startDate');
+      throw new BadRequestException(
+        refusal('END_BEFORE_START', 'endDate is before startDate'),
+      );
     }
     const saved = await this.schoolsRepo.save(school);
     await this.reconcile(saved);
@@ -738,7 +749,9 @@ export class PioneerSchoolService {
       // The standing roles come from the school's settings; removing one here
       // would be undone by the next reconciliation, which is worse than a
       // refusal because it looks like it worked.
-      throw new BadRequestException('Only a custom role can be removed');
+      throw new BadRequestException(
+        refusal('SCHOOL_ONLY_OWN_ROLE', 'Only a custom role can be removed'),
+      );
     }
     await this.dutiesRepo.delete(duty.id);
   }

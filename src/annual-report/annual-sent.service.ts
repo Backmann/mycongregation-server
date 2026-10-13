@@ -19,6 +19,7 @@ import type {
   LastMonthCollection,
 } from './annual-figures';
 import type { LateFact } from './as-of';
+import { refusal } from '../common/errors/refusal';
 
 /**
  * The figures of the S-10 that are lists of people — every one of them can be
@@ -367,11 +368,16 @@ export class AnnualSentService {
     const yearEnd = `${startYear + 1}-08-31`;
     if (input.sentOn <= yearEnd) {
       throw new BadRequestException(
-        'The annual report is sent after the service year has ended.',
+        refusal(
+          'ANNUAL_YEAR_NOT_OVER',
+          'The annual report is sent after the service year has ended.',
+        ),
       );
     }
     if (input.sentOn > today) {
-      throw new BadRequestException('The day it was sent is still ahead.');
+      throw new BadRequestException(
+        refusal('SENT_DAY_AHEAD', 'The day it was sent is still ahead.'),
+      );
     }
     const figures = this.cleanFigures(input.figures);
 
@@ -514,7 +520,11 @@ export class AnnualSentService {
       }
       const n = typeof v === 'number' ? v : Number(v);
       if (!Number.isInteger(n) || n < 0 || n > 100000) {
-        throw new BadRequestException(`${k} must be a whole number`);
+        throw new BadRequestException(
+          refusal('INVALID_FIELD', `${k} must be a whole number`, {
+            fields: [{ field: k, rules: ['isInt'] }],
+          }),
+        );
       }
       out[k] = n;
     }

@@ -26,6 +26,7 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { CongregationClock } from '../common/congregation-clock.service';
 import { SupportedLanguage } from '../common/i18n/supported-languages';
 import { shortDay } from '../assignment-reminders/digest';
+import { refusal } from '../common/errors/refusal';
 
 /**
  * What the cart's notifications say.
@@ -277,14 +278,18 @@ export class CartWeeksService {
     const startMin = toMin(dto.startTime);
     const endMin = toMin(dto.endTime);
     if (endMin - startMin < dto.stepMinutes) {
-      throw new BadRequestException('Window is smaller than one step');
+      throw new BadRequestException(
+        refusal('CART_WINDOW_TOO_SHORT', 'Window is smaller than one step'),
+      );
     }
     const uniqueLocationIds = [...new Set(dto.locationIds)];
     const locations = await this.locationsRepo.find({
       where: { id: In(uniqueLocationIds), congregationId },
     });
     if (locations.length !== uniqueLocationIds.length) {
-      throw new BadRequestException('Unknown location');
+      throw new BadRequestException(
+        refusal('CART_NO_SUCH_LOCATION', 'Unknown location'),
+      );
     }
     // Additive: a pre-existing draft/collecting week is extended with the new
     // days x locations rather than recreated. Window/step are week-level, so a
@@ -293,7 +298,9 @@ export class CartWeeksService {
       where: { congregationId, weekStartDate: dto.weekStartDate },
     });
     if (week && week.status === 'published') {
-      throw new BadRequestException('Week is already published');
+      throw new BadRequestException(
+        refusal('CART_WEEK_PUBLISHED', 'Week is already published'),
+      );
     }
     if (!week) {
       week = await this.weeksRepo.save(
@@ -349,7 +356,9 @@ export class CartWeeksService {
     });
     if (!week) throw new NotFoundException('Week not found');
     if (week.status !== 'draft') {
-      throw new BadRequestException('Only a draft week can be opened');
+      throw new BadRequestException(
+        refusal('CART_WEEK_NOT_DRAFT', 'Only a draft week can be opened'),
+      );
     }
     week.status = 'collecting';
     return this.weeksRepo.save(week);
@@ -532,7 +541,10 @@ export class CartWeeksService {
     const hasExt = !!dto.externalName && dto.externalName.trim().length > 0;
     if (hasPub === hasExt) {
       throw new BadRequestException(
-        'Provide exactly one of publisherId or externalName',
+        refusal(
+          'CART_WHO_ONE',
+          'Provide exactly one of publisherId or externalName',
+        ),
       );
     }
     const slot = await this.slotsRepo.findOne({
@@ -541,21 +553,29 @@ export class CartWeeksService {
     if (!slot) throw new NotFoundException('Slot not found');
     const week = await this.weeksRepo.findOne({ where: { id: slot.weekId } });
     if (!week || week.status === 'draft') {
-      throw new BadRequestException('Week is not open for assignment');
+      throw new BadRequestException(
+        refusal('CART_WEEK_CLOSED', 'Week is not open for assignment'),
+      );
     }
     const current = await this.assignmentsRepo.count({ where: { slotId } });
     if (current >= CART_CAPACITY_MAX) {
-      throw new BadRequestException('Slot is full');
+      throw new BadRequestException(refusal('CART_SLOT_FULL', 'Slot is full'));
     }
     if (hasPub) {
       const pub = await this.publishersRepo.findOne({
         where: { id: dto.publisherId, congregationId },
       });
-      if (!pub) throw new BadRequestException('Unknown publisher');
+      if (!pub)
+        throw new BadRequestException(
+          refusal('NO_SUCH_PUBLISHER', 'Unknown publisher'),
+        );
       const existing = await this.assignmentsRepo.findOne({
         where: { slotId, publisherId: dto.publisherId },
       });
-      if (existing) throw new BadRequestException('Already assigned');
+      if (existing)
+        throw new BadRequestException(
+          refusal('CART_ALREADY_ASSIGNED', 'Already assigned'),
+        );
     }
     return this.assignmentsRepo.save(
       this.assignmentsRepo.create({
@@ -586,7 +606,12 @@ export class CartWeeksService {
     });
     if (!week) throw new NotFoundException('Week not found');
     if (week.status !== 'collecting') {
-      throw new BadRequestException('Week is not in the collecting state');
+      throw new BadRequestException(
+        refusal(
+          'CART_WEEK_NOT_COLLECTING',
+          'Week is not in the collecting state',
+        ),
+      );
     }
     week.status = 'published';
     const saved = await this.weeksRepo.save(week);
@@ -684,9 +709,14 @@ export class CartWeeksService {
     dto: CreateCartRequestDto,
   ): Promise<CartRequest> {
     const me = await this.myPublisher(congregationId, user.id);
-    if (!me) throw new ForbiddenException('No publisher profile');
+    if (!me)
+      throw new ForbiddenException(
+        refusal('NO_OWN_CARD', 'No publisher profile'),
+      );
     if (!me.capabilities || me.capabilities['public_witnessing'] !== true) {
-      throw new ForbiddenException('Not eligible for cart witnessing');
+      throw new ForbiddenException(
+        refusal('CART_NOT_ELIGIBLE', 'Not eligible for cart witnessing'),
+      );
     }
     const slot = await this.slotsRepo.findOne({
       where: { id: slotId, congregationId },
@@ -694,12 +724,16 @@ export class CartWeeksService {
     });
     if (!slot) throw new NotFoundException('Slot not found');
     if (!slot.week || slot.week.status === 'draft') {
-      throw new BadRequestException('Week is not open for requests');
+      throw new BadRequestException(
+        refusal('CART_WEEK_NO_REQUESTS', 'Week is not open for requests'),
+      );
     }
     if (slot.week.status === 'published') {
       const assigned = await this.assignmentsRepo.count({ where: { slotId } });
       if (assigned >= CART_CAPACITY_MAX) {
-        throw new BadRequestException('Slot is full');
+        throw new BadRequestException(
+          refusal('CART_SLOT_FULL', 'Slot is full'),
+        );
       }
     }
     const existing = await this.requestsRepo.findOne({
@@ -740,7 +774,10 @@ export class CartWeeksService {
     user: AuthenticatedUser,
   ): Promise<void> {
     const me = await this.myPublisher(congregationId, user.id);
-    if (!me) throw new ForbiddenException('No publisher profile');
+    if (!me)
+      throw new ForbiddenException(
+        refusal('NO_OWN_CARD', 'No publisher profile'),
+      );
     await this.requestsRepo.delete({
       slotId,
       publisherId: me.id,
@@ -754,7 +791,10 @@ export class CartWeeksService {
     user: AuthenticatedUser,
   ): Promise<void> {
     const me = await this.myPublisher(congregationId, user.id);
-    if (!me) throw new ForbiddenException('No publisher profile');
+    if (!me)
+      throw new ForbiddenException(
+        refusal('NO_OWN_CARD', 'No publisher profile'),
+      );
     const asg = await this.assignmentsRepo.findOne({
       where: { slotId, publisherId: me.id, congregationId },
     });

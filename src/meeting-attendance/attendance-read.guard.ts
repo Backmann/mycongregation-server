@@ -10,6 +10,7 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { refusal } from '../common/errors/refusal';
 
 /**
  * Who may READ the attendance figures (form S-3).
@@ -55,7 +56,10 @@ export class AttendanceReadGuard implements CanActivate {
     });
     if (held > 0) return true;
     throw new ForbiddenException(
-      'Attendance is for elders and those who record it.',
+      refusal(
+        'ATTENDANCE_FORBIDDEN',
+        'Attendance is for elders and those who record it.',
+      ),
     );
   }
 }

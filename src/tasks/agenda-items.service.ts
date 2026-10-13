@@ -18,6 +18,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { TasksService } from './tasks.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { refusal } from '../common/errors/refusal';
 
 export interface ItemInput {
   title?: string;
@@ -163,7 +164,7 @@ export class AgendaItemsService {
     // Building it is the coordinator's; adding at the table is the recorder's,
     // because ideas do arise in the room and are worth writing down.
     if (!(await this.mayRecord(user, meeting))) {
-      throw new ForbiddenException('Not allowed');
+      throw new ForbiddenException(refusal('AGENDA_FORBIDDEN', 'Not allowed'));
     }
     const last = await this.items.findOne({
       where: { congregationId: user.congregationId, meetingId },
@@ -202,7 +203,8 @@ export class AgendaItemsService {
     const allowed = meeting
       ? await this.mayRecord(user, meeting)
       : await this.mayBuild(user);
-    if (!allowed) throw new ForbiddenException('Not allowed');
+    if (!allowed)
+      throw new ForbiddenException(refusal('AGENDA_FORBIDDEN', 'Not allowed'));
 
     const before = {
       area: item.area,
@@ -259,7 +261,7 @@ export class AgendaItemsService {
       ? await this.meetingOf(user.congregationId, item.meetingId)
       : null;
     if (!meeting || !(await this.mayRecord(user, meeting))) {
-      throw new ForbiddenException('Not allowed');
+      throw new ForbiddenException(refusal('AGENDA_FORBIDDEN', 'Not allowed'));
     }
 
     const task = await this.tasks.createTask(
@@ -292,7 +294,7 @@ export class AgendaItemsService {
     });
     if (!item) throw new NotFoundException('Item not found');
     if (!(await this.mayBuild(user)))
-      throw new ForbiddenException('Not allowed');
+      throw new ForbiddenException(refusal('AGENDA_FORBIDDEN', 'Not allowed'));
 
     const siblings = await this.items.find({
       where: {
@@ -318,7 +320,7 @@ export class AgendaItemsService {
 
   async remove(user: AuthenticatedUser, id: string): Promise<void> {
     if (!(await this.mayBuild(user)))
-      throw new ForbiddenException('Not allowed');
+      throw new ForbiddenException(refusal('AGENDA_FORBIDDEN', 'Not allowed'));
     const item = await this.items.findOne({
       where: { id, congregationId: user.congregationId },
     });

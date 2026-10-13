@@ -19,6 +19,7 @@ import {
 import { WebPushService } from '../web-push/web-push.service';
 import { WebPushSubscription } from '../entities/web-push-subscription.entity';
 import { webDeviceKind } from '../web-push/device-kind';
+import { refusal } from '../common/errors/refusal';
 
 /**
  * Where one person was reached by one send.
@@ -73,7 +74,9 @@ export class PushNotificationsService {
     deviceInfo?: Record<string, any>,
   ): Promise<PushToken> {
     if (!Expo.isExpoPushToken(token)) {
-      throw new BadRequestException('Invalid Expo push token.');
+      throw new BadRequestException(
+        refusal('PUSH_TOKEN_INVALID', 'Invalid Expo push token.'),
+      );
     }
 
     // One phone, one person. The token names the DEVICE, and a row is kept per

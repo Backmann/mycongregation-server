@@ -106,6 +106,7 @@ import { CreatePublisherDto } from './dto/create-publisher.dto';
 import { UpdatePublisherDto } from './dto/update-publisher.dto';
 import { QueryPublishersDto } from './dto/query-publishers.dto';
 import { RemovePublisherDto } from './dto/remove-publisher.dto';
+import { refusal } from '../common/errors/refusal';
 
 export type RecomputeResult = 'skipped_override' | 'unchanged' | 'updated';
 
@@ -660,7 +661,11 @@ export class PublishersService {
   ): Promise<Publisher> {
     if (user.role !== UserRole.ADMIN && user.role !== UserRole.ELDER) {
       throw new ForbiddenException(
-        'Only elders and admins may override publisher status.',
+        refusal(
+          'NEEDS_ROLE',
+          'Only elders and admins may override publisher status.',
+          { roles: ['admin', 'elder'] },
+        ),
       );
     }
     const publisher = await this.publishersRepo.findOne({
@@ -709,7 +714,11 @@ export class PublishersService {
   ): Promise<Publisher> {
     if (user.role !== UserRole.ADMIN && user.role !== UserRole.ELDER) {
       throw new ForbiddenException(
-        'Only elders and admins may clear status overrides.',
+        refusal(
+          'NEEDS_ROLE',
+          'Only elders and admins may clear status overrides.',
+          { roles: ['admin', 'elder'] },
+        ),
       );
     }
     const publisher = await this.publishersRepo.findOne({
@@ -949,7 +958,9 @@ export class PublishersService {
   ): Promise<AccessSummary> {
     const publisher = await this.findOne(tenantId, id);
     if (publisher.userId) {
-      throw new ConflictException('This person already has app access');
+      throw new ConflictException(
+        refusal('HAS_APP_ACCESS', 'This person already has app access'),
+      );
     }
     // An address is no longer required. Most of this congregation has none
     // written down, and demanding one left the choice between refusing them a
@@ -962,7 +973,10 @@ export class PublishersService {
 
     if (!dto.sendInvite && !dto.password) {
       throw new BadRequestException(
-        'Provide a password or enable the invitation',
+        refusal(
+          'ACCESS_PASSWORD_OR_INVITE',
+          'Provide a password or enable the invitation',
+        ),
       );
     }
 
@@ -1152,8 +1166,11 @@ export class PublishersService {
       pioneerType !== PioneerType.NONE
     ) {
       throw new BadRequestException(
-        'Only baptized publishers may be pioneers; students and unbaptized ' +
-          'publishers cannot have a pioneer type.',
+        refusal(
+          'PIONEER_NOT_BAPTIZED',
+          'Only baptized publishers may be pioneers; students and unbaptized ' +
+            'publishers cannot have a pioneer type.',
+        ),
       );
     }
   }
@@ -1400,7 +1417,9 @@ export class PublishersService {
   ): Promise<Publisher> {
     const publisher = await this.findOne(tenantId, id);
     if (publisher.deletedAt) {
-      throw new BadRequestException('Publisher already removed');
+      throw new BadRequestException(
+        refusal('PUBLISHER_ALREADY_REMOVED', 'Publisher already removed'),
+      );
     }
     publisher.removalReason = dto.reason;
     publisher.removedNote = dto.note ?? null;
@@ -1491,8 +1510,11 @@ export class PublishersService {
       // what to clear, and a wall is how a strict rule turns into people
       // marking duplicates as departed instead.
       throw new BadRequestException(
-        'publisher_has_history: ' +
-          holders.map((h) => `${h.table}=${h.count}`).join(', '),
+        refusal(
+          'PUBLISHER_HAS_HISTORY',
+          'publisher_has_history: ' +
+            holders.map((h) => `${h.table}=${h.count}`).join(', '),
+        ),
       );
     }
     // The one action here that truly destroys something. It is refused while
@@ -1526,7 +1548,9 @@ export class PublishersService {
   ): Promise<Publisher> {
     const publisher = await this.findOne(tenantId, id);
     if (!publisher.deletedAt) {
-      throw new BadRequestException('Publisher is not removed');
+      throw new BadRequestException(
+        refusal('PUBLISHER_NOT_REMOVED', 'Publisher is not removed'),
+      );
     }
     await this.publishersRepo.restore(id);
     publisher.restoredAt = new Date();

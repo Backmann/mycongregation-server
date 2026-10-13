@@ -25,6 +25,7 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { Assignment } from '../entities/assignment.entity';
 import { EVENT_TYPE_RESPONSIBILITY } from '../common/guards/assignment-section.guard';
+import { refusal } from '../common/errors/refusal';
 
 /**
  * Putting a change back the way it was.
@@ -206,7 +207,9 @@ export class AuditRevertService {
    */
   private assertMayAsk(user: AuthenticatedUser): void {
     if (user.role === UserRole.ADMIN) return;
-    throw new BadRequestException('Not allowed');
+    throw new BadRequestException(
+      refusal('NEEDS_ROLE', 'Not allowed', { roles: ['admin'] }),
+    );
   }
 
   private async holdsAny(
@@ -355,7 +358,11 @@ export class AuditRevertService {
   ): Promise<void> {
     const plan = await this.preview(tenantId, id, user);
     if (!plan.supported) {
-      throw new BadRequestException(plan.reason ?? 'Not revertable');
+      throw new BadRequestException(
+        refusal('NOT_REVERTABLE', plan.reason ?? 'Not revertable', {
+          reason: plan.reason ?? null,
+        }),
+      );
     }
     const log = await this.entry(tenantId, id);
     const rule = this.revertable[log.entityType];

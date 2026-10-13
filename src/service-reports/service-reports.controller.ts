@@ -22,16 +22,25 @@ import {
   type AuthenticatedUser,
 } from '../auth/decorators/current-user.decorator';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
+import { refusal } from '../common/errors/refusal';
 
 const MONTH_RE = /^\d{4}-\d{2}(-\d{2})?$/;
 
 function requireMonth(value: string | undefined): string {
   if (!value) {
-    throw new BadRequestException('reportMonth is required (YYYY-MM)');
+    throw new BadRequestException(
+      refusal('INVALID_FIELD', 'reportMonth is required (YYYY-MM)', {
+        fields: [{ field: 'reportMonth', rules: ['isNotEmpty'] }],
+      }),
+    );
   }
   if (!MONTH_RE.test(value)) {
     throw new BadRequestException(
-      'reportMonth must be in YYYY-MM or YYYY-MM-DD format',
+      refusal(
+        'INVALID_FIELD',
+        'reportMonth must be in YYYY-MM or YYYY-MM-DD format',
+        { fields: [{ field: 'reportMonth', rules: ['matches'] }] },
+      ),
     );
   }
   return value;
@@ -110,7 +119,11 @@ export class ServiceReportsController {
     if (yearRaw !== undefined && yearRaw !== '') {
       year = parseInt(yearRaw, 10);
       if (isNaN(year) || year < 2000 || year > 2100) {
-        throw new BadRequestException('year must be between 2000 and 2100');
+        throw new BadRequestException(
+          refusal('INVALID_FIELD', 'year must be between 2000 and 2100', {
+            fields: [{ field: 'year', rules: ['min'] }],
+          }),
+        );
       }
     }
     return this.serviceReportsService.findMyReports(tenantId, user, year);
@@ -204,7 +217,9 @@ export class ServiceReportsController {
   ) {
     if (user.role !== UserRole.ADMIN && user.role !== UserRole.ELDER) {
       throw new ForbiddenException(
-        'Only elders and admins may view audit logs.',
+        refusal('NEEDS_ROLE', 'Only elders and admins may view audit logs.', {
+          roles: ['admin', 'elder'],
+        }),
       );
     }
     // Verify the report exists in this tenant (findOne enforces access).

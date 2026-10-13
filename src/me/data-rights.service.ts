@@ -25,6 +25,7 @@ import { AuditLog } from '../entities/audit-log.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
+import { refusal } from '../common/errors/refusal';
 
 /**
  * Self-service data-subject rights (GDPR) for the signed-in member.
@@ -141,7 +142,9 @@ export class DataRightsService {
       },
     });
     if (!user || !user.passwordHash) {
-      throw new BadRequestException('Account cannot be erased.');
+      throw new BadRequestException(
+        refusal('ACCOUNT_NOT_ERASABLE', 'Account cannot be erased.'),
+      );
     }
 
     // Not "the owner may not leave" — that would be a loss of rights, and a
@@ -153,14 +156,19 @@ export class DataRightsService {
       const owners = await usersRepo.count({ where: { isOwner: true } });
       if (owners <= 1) {
         throw new BadRequestException(
-          'The last platform owner cannot be removed. Appoint another owner first.',
+          refusal(
+            'LAST_OWNER',
+            'The last platform owner cannot be removed. Appoint another owner first.',
+          ),
         );
       }
     }
 
     const ok = await passwordMatches(password, user.passwordHash);
     if (!ok) {
-      throw new BadRequestException('Invalid password.');
+      throw new BadRequestException(
+        refusal('WRONG_PASSWORD', 'Invalid password.'),
+      );
     }
 
     if (user.role === UserRole.ADMIN) {
@@ -173,7 +181,10 @@ export class DataRightsService {
       });
       if (admins <= 1) {
         throw new ConflictException(
-          'LAST_ADMIN: assign another administrator before deleting your account.',
+          refusal(
+            'LAST_ADMIN',
+            'LAST_ADMIN: assign another administrator before deleting your account.',
+          ),
         );
       }
     }

@@ -17,6 +17,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { CreateExternalCongregationDto } from './dto/create-external-congregation.dto';
 import { UpdateExternalCongregationDto } from './dto/update-external-congregation.dto';
+import { refusal } from '../common/errors/refusal';
 
 /**
  * What the journal remembers about a guest congregation. The contact's phone
@@ -74,7 +75,14 @@ export class ExternalCongregationsService {
     });
     if (held === 0) {
       throw new ForbiddenException(
-        'Only the public talk coordinator may edit congregations',
+        refusal(
+          'NEEDS_RESPONSIBILITY',
+          'Only the public talk coordinator may edit congregations',
+          {
+            responsibilities:
+              ExternalCongregationsService.MANAGER_RESPONSIBILITIES,
+          },
+        ),
       );
     }
   }

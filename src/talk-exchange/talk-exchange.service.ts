@@ -38,6 +38,7 @@ import {
   OutgoingTalkNotificationsService,
   outgoingFacts,
 } from './outgoing-talk-notifications.service';
+import { refusal } from '../common/errors/refusal';
 
 const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
 const CIRCUIT_OVERSEER_VISIT_TYPE = 'circuit_overseer_visit';
@@ -188,7 +189,11 @@ export class TalkExchangeService {
     });
     if (held === 0) {
       throw new ForbiddenException(
-        'Only the public talk coordinator or his assistant may edit the talk exchange',
+        refusal(
+          'NEEDS_RESPONSIBILITY',
+          'Only the public talk coordinator or his assistant may edit the talk exchange',
+          { responsibilities: TalkExchangeService.MANAGER_RESPONSIBILITIES },
+        ),
       );
     }
   }
@@ -1315,7 +1320,9 @@ export class TalkExchangeService {
       slot.speakerName = name;
       slot.speakerCongregation = dto.speakerCongregation?.trim() || null;
     } else {
-      throw new BadRequestException('Nobody to put in the slot');
+      throw new BadRequestException(
+        refusal('TALK_SLOT_NOBODY', 'Nobody to put in the slot'),
+      );
     }
     /**
      * Речь меняется вместе с докладчиком — если её назвали.

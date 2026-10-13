@@ -17,6 +17,7 @@ import { CreateAbsenceDto } from './dto/create-absence.dto';
 import { UpdateAbsenceDto } from './dto/update-absence.dto';
 import { QueryAbsencesDto } from './dto/query-absences.dto';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { refusal } from '../common/errors/refusal';
 
 @Injectable()
 export class AbsencesService {
@@ -64,7 +65,9 @@ export class AbsencesService {
       where: { congregationId: user.congregationId, userId: user.id },
     });
     if (!mine || mine.id !== targetPublisherId) {
-      throw new ForbiddenException('You may only manage your own absences');
+      throw new ForbiddenException(
+        refusal('ABSENCE_ONLY_OWN', 'You may only manage your own absences'),
+      );
     }
   }
 
@@ -203,7 +206,9 @@ export class AbsencesService {
     if (!(await this.canReadAll(user))) {
       const myId = await this.ownPublisherId(user);
       if (!myId || found.publisherId !== myId) {
-        throw new ForbiddenException('You may only view your own absences');
+        throw new ForbiddenException(
+          refusal('ABSENCE_ONLY_OWN', 'You may only view your own absences'),
+        );
       }
     }
     // Карточка отсутствия — то же правило, что и список: причина поездки не
