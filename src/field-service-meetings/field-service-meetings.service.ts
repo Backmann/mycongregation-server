@@ -22,6 +22,7 @@ import { PushNotificationsService } from '../push-notifications/push-notificatio
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { refusal } from '../common/errors/refusal';
 
 /** Add n days to an ISO 'YYYY-MM-DD' date (UTC, calendar-safe). */
 function addDaysISO(iso: string, n: number): string {
@@ -229,7 +230,11 @@ export class FieldServiceMeetingsService {
       detail: { reason: 'past_frozen', date: dateISO },
     });
     throw new ConflictException(
-      'This field service meeting is on a day already past; it is part of the record and can no longer be changed.',
+      refusal(
+        'FS_PAST_LOCKED',
+        'This field service meeting is on a day already past; it is part of the record and can no longer be changed.',
+        { date: dateISO },
+      ),
     );
   }
 
@@ -266,12 +271,18 @@ export class FieldServiceMeetingsService {
   ): Promise<void> {
     if (next.isGeneral && next.serviceGroupId) {
       throw new BadRequestException(
-        'A meeting is either for the whole congregation or for one group, not both.',
+        refusal(
+          'FS_GENERAL_AND_GROUP',
+          'A meeting is either for the whole congregation or for one group, not both.',
+        ),
       );
     }
     if (next.serviceOverseerVisit && !next.serviceGroupId) {
       throw new BadRequestException(
-        "A service overseer's visit is to a group; choose the group.",
+        refusal(
+          'FS_VISIT_NEEDS_GROUP',
+          "A service overseer's visit is to a group; choose the group.",
+        ),
       );
     }
     const changed = <K extends keyof typeof next>(k: K) =>
@@ -283,7 +294,10 @@ export class FieldServiceMeetingsService {
       });
       if (!group) {
         throw new BadRequestException(
-          'No such service group in this congregation.',
+          refusal(
+            'NO_SUCH_GROUP',
+            'No such service group in this congregation.',
+          ),
         );
       }
     }
@@ -295,7 +309,10 @@ export class FieldServiceMeetingsService {
     ] as const) {
       if (changed(k) && !(await person(next[k]!))) {
         throw new BadRequestException(
-          'No such publisher in this congregation.',
+          refusal(
+            'NO_SUCH_PUBLISHER',
+            'No such publisher in this congregation.',
+          ),
         );
       }
     }
@@ -303,7 +320,10 @@ export class FieldServiceMeetingsService {
       const conductor = await person(next.conductorPublisherId!);
       if (!conductor) {
         throw new BadRequestException(
-          'No such publisher in this congregation.',
+          refusal(
+            'NO_SUCH_PUBLISHER',
+            'No such publisher in this congregation.',
+          ),
         );
       }
       const ownVisit =
@@ -315,7 +335,10 @@ export class FieldServiceMeetingsService {
           conductor.capabilities?.fs_meeting_conductor !== true)
       ) {
         throw new BadRequestException(
-          'This publisher is not marked as one who conducts field service meetings.',
+          refusal(
+            'FS_NOT_A_CONDUCTOR',
+            'This publisher is not marked as one who conducts field service meetings.',
+          ),
         );
       }
     }
@@ -481,7 +504,9 @@ export class FieldServiceMeetingsService {
     // the meeting on a date nobody chose and hides it from all of them.
     const monday = new Date(`${dto.weekStartDate.slice(0, 10)}T00:00:00Z`);
     if (Number.isNaN(monday.getTime()) || monday.getUTCDay() !== 1) {
-      throw new BadRequestException('weekStartDate must be a Monday.');
+      throw new BadRequestException(
+        refusal('WEEK_NOT_MONDAY', 'weekStartDate must be a Monday.'),
+      );
     }
     const weekStartDate = dto.weekStartDate.slice(0, 10);
     await this.assertNotHeld(

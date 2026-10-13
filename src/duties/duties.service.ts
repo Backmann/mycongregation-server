@@ -26,6 +26,7 @@ import { CreateCustomDutyDto } from './dto/create-custom-duty.dto';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { versionForWeek, MeetingKind, WeekRules } from '../common/week-rules';
 import { rulesFromContext } from '../common/week-rules.service';
+import { refusal } from '../common/errors/refusal';
 
 /**
  * Non-blocking conflict warning codes returned when a publisher is assigned to
@@ -158,7 +159,11 @@ export class DutiesService {
         detail: { reason: 'past_frozen', weekStartDate, eventType },
       });
       throw new ConflictException(
-        'This meeting has already taken place; its duties are part of the record and can no longer be changed.',
+        refusal(
+          'DUTIES_PAST_LOCKED',
+          'This meeting has already taken place; its duties are part of the record and can no longer be changed.',
+          { date: held.date },
+        ),
       );
     }
   }
@@ -266,7 +271,10 @@ export class DutiesService {
       const rules = await this.rulesOfWeek(congregationId, dto.weekStartDate);
       if (!rules.memorial) {
         throw new ConflictException(
-          'There is no Memorial that week, so it has no duties.',
+          refusal(
+            'DUTIES_NO_MEMORIAL',
+            'There is no Memorial that week, so it has no duties.',
+          ),
         );
       }
     }
@@ -288,7 +296,10 @@ export class DutiesService {
             : null;
       if (takenBy) {
         throw new ConflictException(
-          'That meeting is not held this week, so it has no duties.',
+          refusal(
+            'DUTIES_MEETING_NOT_HELD',
+            'That meeting is not held this week, so it has no duties.',
+          ),
         );
       }
     }
@@ -770,7 +781,10 @@ export class DutiesService {
     );
     if (duty.dutyType !== DutyType.CUSTOM) {
       throw new ConflictException(
-        'Only a duty the congregation added itself can be renamed.',
+        refusal(
+          'DUTY_ONLY_OWN_RENAME',
+          'Only a duty the congregation added itself can be renamed.',
+        ),
       );
     }
     const rows = await this.repo.find({
@@ -814,7 +828,10 @@ export class DutiesService {
     );
     if (duty.dutyType !== DutyType.CUSTOM) {
       throw new ConflictException(
-        'Only a duty the congregation added itself can be removed this way.',
+        refusal(
+          'DUTY_ONLY_OWN_REMOVE',
+          'Only a duty the congregation added itself can be removed this way.',
+        ),
       );
     }
     const rows = await this.repo.find({

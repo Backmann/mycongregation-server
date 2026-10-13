@@ -39,6 +39,7 @@ import {
   looksLikeEmail,
   settleLoginName,
 } from './login-name';
+import { refusal } from '../common/errors/refusal';
 
 /**
  * Public projection of a User — excludes sensitive fields (passwordHash)
@@ -796,12 +797,16 @@ export class UsersService {
     actorUserId: string,
   ): Promise<PublicUser> {
     if (targetId === actorUserId) {
-      throw new ForbiddenException('You cannot change your own role');
+      throw new ForbiddenException(
+        refusal('OWN_ROLE', 'You cannot change your own role'),
+      );
     }
 
     const user = await this.findByIdInCongregation(targetId, congregationId);
     if (user.isOwner) {
-      throw new ForbiddenException('The owner account is protected');
+      throw new ForbiddenException(
+        refusal('OWNER_PROTECTED', 'The owner account is protected'),
+      );
     }
     const oldRole = user.role;
     if (oldRole === newRole) {
@@ -817,7 +822,10 @@ export class UsersService {
         await this.countActiveAdminsInCongregation(congregationId);
       if (adminCount <= 1) {
         throw new ForbiddenException(
-          'Cannot demote the last active admin in this congregation',
+          refusal(
+            'LAST_ACTIVE_ADMIN',
+            'Cannot demote the last active admin in this congregation',
+          ),
         );
       }
     }
@@ -844,7 +852,9 @@ export class UsersService {
     actorUserId: string,
   ): Promise<PublicUser> {
     if (targetId === actorUserId && !isActive) {
-      throw new ForbiddenException('You cannot deactivate yourself');
+      throw new ForbiddenException(
+        refusal('OWN_DEACTIVATION', 'You cannot deactivate yourself'),
+      );
     }
 
     const user = await this.findByIdInCongregation(targetId, congregationId);
@@ -853,14 +863,19 @@ export class UsersService {
     }
 
     if (!isActive && user.isOwner) {
-      throw new ForbiddenException('The owner account cannot be deactivated');
+      throw new ForbiddenException(
+        refusal('OWNER_PROTECTED', 'The owner account cannot be deactivated'),
+      );
     }
     if (!isActive && user.role === UserRole.ADMIN) {
       const adminCount =
         await this.countActiveAdminsInCongregation(congregationId);
       if (adminCount <= 1) {
         throw new ForbiddenException(
-          'Cannot deactivate the last active admin in this congregation',
+          refusal(
+            'LAST_ACTIVE_ADMIN',
+            'Cannot deactivate the last active admin in this congregation',
+          ),
         );
       }
     }
@@ -921,7 +936,9 @@ export class UsersService {
   ): Promise<void> {
     const user = await this.findByIdInCongregation(id, congregationId);
     if (user.isOwner) {
-      throw new ForbiddenException('The owner account is protected');
+      throw new ForbiddenException(
+        refusal('OWNER_PROTECTED', 'The owner account is protected'),
+      );
     }
     const trimmed = rawEmail.trim().toLowerCase();
     const email: string | null = trimmed === '' ? null : trimmed;
@@ -960,7 +977,9 @@ export class UsersService {
   ): Promise<PublicUser> {
     const user = await this.findByIdInCongregation(id, congregationId);
     if (user.isOwner) {
-      throw new ForbiddenException('The owner account is protected');
+      throw new ForbiddenException(
+        refusal('OWNER_PROTECTED', 'The owner account is protected'),
+      );
     }
     const loginName = rawName.trim().toLowerCase();
     const problem = loginNameProblem(loginName);
@@ -1157,7 +1176,9 @@ export class UsersService {
     // Verify target exists in the caller's congregation
     const user = await this.findByIdInCongregation(targetId, congregationId);
     if (user.isOwner && actorUserId !== targetId) {
-      throw new ForbiddenException('The owner account is protected');
+      throw new ForbiddenException(
+        refusal('OWNER_PROTECTED', 'The owner account is protected'),
+      );
     }
     // The same bar as a person setting his own: an administrator handing out
     // «12345678» by telephone is exactly the case worth stopping.

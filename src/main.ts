@@ -7,6 +7,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { httpRefusalLogger } from './common/http-refusal-logger';
 import { isTrustedHop } from './common/client-ip';
+import { validationRefusal } from './common/errors/refusal';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: false });
@@ -130,6 +131,9 @@ async function bootstrap() {
       transform: true,
       forbidNonWhitelisted: true,
       transformOptions: { enableImplicitConversion: true },
+      // A wrong field is answered with its name and the rule it broke, so
+      // the app can say it in the reader's language (common/errors/refusal).
+      exceptionFactory: validationRefusal,
     }),
   );
 

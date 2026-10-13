@@ -7,6 +7,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { UserRole } from '../enums/user-role.enum';
+import { refusal } from '../errors/refusal';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -31,7 +32,11 @@ export class RolesGuard implements CanActivate {
 
     if (!requiredRoles.includes(user.role)) {
       throw new ForbiddenException(
-        `Requires one of roles: ${requiredRoles.join(', ')}`,
+        refusal(
+          'NEEDS_ROLE',
+          `Requires one of roles: ${requiredRoles.join(', ')}`,
+          { roles: requiredRoles },
+        ),
       );
     }
 

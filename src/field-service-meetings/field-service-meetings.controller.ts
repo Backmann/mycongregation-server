@@ -30,6 +30,7 @@ import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
+import { refusal } from '../common/errors/refusal';
 
 /**
  * Field-ministry meeting schedule. Reading is open to any authenticated
@@ -67,7 +68,10 @@ export class FieldServiceMeetingsController {
     // The month page asks for its window: a service year and a half at most.
     if (span < 0 || span > 550) {
       throw new BadRequestException(
-        'from must not be after to, and the span at most 550 days.',
+        refusal(
+          'SPAN_INVALID',
+          'from must not be after to, and the span at most 550 days.',
+        ),
       );
     }
     return this.hallBusy.between(congregationId, from, to);

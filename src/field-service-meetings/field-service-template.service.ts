@@ -17,6 +17,7 @@ import {
 import { mondayOf } from '../common/week';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { refusal } from '../common/errors/refusal';
 
 /** UTC 'YYYY-MM-DD'. */
 function toISO(d: Date): string {
@@ -141,13 +142,16 @@ export class FieldServiceTemplateService {
     const lastOnly = s.lastOnly === true;
     if (ordinals.length === 0 && !lastOnly) {
       throw new BadRequestException(
-        'A template slot must say which occurrences of the weekday it means.',
+        refusal(
+          'FS_SLOT_NO_OCCURRENCE',
+          'A template slot must say which occurrences of the weekday it means.',
+        ),
       );
     }
     const serviceGroupId = s.serviceGroupId ?? null;
     if (serviceGroupId && !groups.has(serviceGroupId)) {
       throw new BadRequestException(
-        'No such service group in this congregation.',
+        refusal('NO_SUCH_GROUP', 'No such service group in this congregation.'),
       );
     }
     // Three kinds: a group's own; the congregation's (general); the groups
@@ -157,7 +161,10 @@ export class FieldServiceTemplateService {
     const address = s.address?.trim() ? s.address.trim() : null;
     if (!address && isGeneral) {
       throw new BadRequestException(
-        'A meeting for the whole congregation must say where it is held.',
+        refusal(
+          'FS_GENERAL_NEEDS_ADDRESS',
+          'A meeting for the whole congregation must say where it is held.',
+        ),
       );
     }
     return {

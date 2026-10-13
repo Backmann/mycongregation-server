@@ -21,6 +21,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { refusal } from '../common/errors/refusal';
 
 /**
  * The field-service part of a circuit-overseer visit, as everyone may see it.
@@ -181,7 +182,10 @@ export class CoVisitItemsService {
     });
     if (held === 0) {
       throw new ForbiddenException(
-        'Only elders and those who plan the visit may read its schedule',
+        refusal(
+          'CO_VISIT_SCHEDULE_CLOSED',
+          'Only elders and those who plan the visit may read its schedule',
+        ),
       );
     }
   }
@@ -524,7 +528,11 @@ export class CoVisitItemsService {
       detail: { reason: 'past_visit_frozen', visitEnded: over },
     });
     throw new ConflictException(
-      'This visit is already over; its programme is part of the record and can no longer be changed.',
+      refusal(
+        'CO_VISIT_PAST_LOCKED',
+        'This visit is already over; its programme is part of the record and can no longer be changed.',
+        { date: over },
+      ),
     );
   }
 

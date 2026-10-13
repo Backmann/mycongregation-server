@@ -27,6 +27,7 @@ import {
   MEMORIAL_SECTION,
   MEMORIAL_TEMPLATE,
 } from './memorial-template';
+import { refusal } from '../common/errors/refusal';
 
 export interface MemorialSheet {
   event: {
@@ -104,7 +105,11 @@ export class MemorialService {
       detail: { reason: 'past_memorial_frozen', memorialDate: over },
     });
     throw new ConflictException(
-      'This Memorial has already taken place; its programme is part of the record and can no longer be changed.',
+      refusal(
+        'MEMORIAL_PAST_LOCKED',
+        'This Memorial has already taken place; its programme is part of the record and can no longer be changed.',
+        { date: over },
+      ),
     );
   }
 

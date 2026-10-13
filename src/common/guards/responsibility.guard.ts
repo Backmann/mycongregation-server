@@ -12,6 +12,7 @@ import { ResponsibilityType } from '../enums/responsibility-type.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { Responsibility } from '../../entities/responsibility.entity';
 import type { AuthenticatedUser } from '../../auth/decorators/current-user.decorator';
+import { refusal } from '../errors/refusal';
 
 /**
  * Enforces @RequireResponsibility. Semantics follow the authoritative
@@ -67,8 +68,14 @@ export class ResponsibilityGuard implements CanActivate {
       return true;
     }
 
+    // Who MAY do it, by name, so the app can say «это могут: …» instead of
+    // a bare «нет прав». An administrator always may; the app adds that.
     throw new ForbiddenException(
-      `Requires responsibility: ${required.join(', ')}`,
+      refusal(
+        'NEEDS_RESPONSIBILITY',
+        `Requires responsibility: ${required.join(', ')}`,
+        { responsibilities: required },
+      ),
     );
   }
 }
