@@ -14,6 +14,7 @@ import { Gender } from '../common/enums/gender.enum';
 import { mondayOf } from '../common/week';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { HallBusyService, type HallBusy } from './hall-busy.service';
 import {
   FieldServiceTemplateService,
   slotDatesInMonth,
@@ -87,6 +88,11 @@ export interface PlannedRow {
   conductor: ConductorCandidate | null;
   /** With `create` and no conductor: why none could be picked. */
   noConductor: 'rule_none' | 'nobody_free' | 'no_overseer' | null;
+  /**
+   * What else is on that day — the pioneer school, an event. Said, never
+   * acted on: the meeting is still made, the planner decides where.
+   */
+  busy: HallBusy[];
 }
 
 export interface MonthPreview {
@@ -140,6 +146,7 @@ export class FieldServicePlannerService {
     private readonly template: FieldServiceTemplateService,
     private readonly auditLog: AuditLogService,
     private readonly clock: CongregationClock,
+    private readonly hallBusy: HallBusyService,
   ) {}
 
   // ---- who may conduct ----------------------------------------------------
@@ -447,6 +454,11 @@ export class FieldServicePlannerService {
       null,
     );
     const absent = await this.absentByDay(congregationId, cal.first, cal.last);
+    const soft = await this.hallBusy.softByDay(
+      congregationId,
+      cal.first,
+      cal.last,
+    );
     // What the run itself puts on each day joins what already stands there.
     type Stands = { time: string; place: string; groupId: string | null };
     const place = (a: string) => a.trim().toLowerCase();
@@ -530,6 +542,7 @@ export class FieldServicePlannerService {
         because: null,
         conductor: null,
         noConductor: null,
+        busy: soft.get(date) ?? [],
       };
       const assembly = cal.assemblyOn(date);
       const visit = cal.visitOn(date);

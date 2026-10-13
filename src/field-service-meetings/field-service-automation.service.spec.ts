@@ -30,9 +30,15 @@ function settings(p: Partial<FieldServiceSettings> = {}): FieldServiceSettings {
 }
 
 function build(
-  opts: { months?: Record<string, Meeting[]>; tasks?: any[] } = {},
+  opts: {
+    months?: Record<string, Meeting[]>;
+    tasks?: any[];
+    /** What else is on, by day — the pioneer school, an event. */
+    busy?: Map<string, { title: string }[]>;
+  } = {},
 ) {
   const months: Record<string, Meeting[]> = opts.months ?? {};
+  const hallBusy = opts.busy ?? new Map();
   const runs = new Map<string, any>();
   const runsRepo = {
     findOne: jest.fn(
@@ -74,10 +80,21 @@ function build(
   };
   const planner = {
     prepare: jest.fn(async (_c: string, y: number, m: number) => {
+      // Two Saturdays of the month: the 7th and the 28th of November.
       months[`${y}-${m}`] = [
-        { id: `d-${y}-${m}-1`, publishedAt: null },
-        { id: `d-${y}-${m}-2`, publishedAt: null },
-      ];
+        {
+          id: `d-${y}-${m}-1`,
+          publishedAt: null,
+          weekStartDate: '2026-11-02',
+          dayOfWeek: 6,
+        },
+        {
+          id: `d-${y}-${m}-2`,
+          publishedAt: null,
+          weekStartDate: '2026-11-23',
+          dayOfWeek: 6,
+        },
+      ] as any;
       return { created: 2, withoutConductor: 0, skipped: {} };
     }),
   };
@@ -105,6 +122,7 @@ function build(
     planner as any,
     meetings as any,
     notifications as any,
+    { softByDay: jest.fn(async () => hallBusy) } as any,
   );
   const pass = async (s: FieldServiceSettings, today: string) => {
     const out = { prepared: 0, reminded: 0, published: 0, tasksClosed: 0 };
@@ -133,6 +151,47 @@ describe('preparing the month on its own', () => {
     const input = (notifications.notify.mock.calls as any[])[0][0];
     expect(input.userIds).toEqual(['u-so', 'u-asst']);
     expect(input.text('ru').body).toContain('ноябрь 2026');
+  });
+
+  it('a draft on a day with something else on says so in the message — and only without a notice', async () => {
+    const busy = new Map([
+      ['2026-11-28', [{ title: 'Школа пионерского служения' }]],
+    ]);
+    const a = build({ busy });
+    await a.pass(settings(), '2026-10-01');
+    const ru = (a.notifications.notify.mock.calls as any[])[0][0].text('ru');
+    expect(ru.body).toContain('28 нояб.');
+    expect(ru.body).toContain('Школа пионерского служения');
+    expect(ru.body).toContain('примечание для всех');
+    // Nothing on any day of the month: the message is as it was.
+    const b = build();
+    await b.pass(settings(), '2026-10-01');
+    const plain = (b.notifications.notify.mock.calls as any[])[0][0].text('ru');
+    expect(plain.body).not.toContain('примечание');
+  });
+
+  it('the reminder leaves out a busy day whose draft already has a notice', async () => {
+    const busy = new Map([
+      ['2026-11-28', [{ title: 'Школа пионерского служения' }]],
+    ]);
+    const a = build({
+      busy,
+      months: {
+        '2026-11': [
+          {
+            id: 'd-1',
+            publishedAt: null,
+            weekStartDate: '2026-11-23',
+            dayOfWeek: 6,
+            notice: 'Собираемся у парка',
+          } as any,
+        ],
+      },
+    });
+    // The day before the month publishes itself (24 October).
+    await a.pass(settings({ autoPrepare: false }), '2026-10-24');
+    const ru = (a.notifications.notify.mock.calls as any[])[0][0].text('ru');
+    expect(ru.body).not.toContain('Школа пионерского служения');
   });
 
   it('runs once: the next night prepares nothing again — even after the overseer deleted every draft', async () => {

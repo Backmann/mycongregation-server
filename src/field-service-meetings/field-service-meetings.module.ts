@@ -28,6 +28,9 @@ import { ElderTask } from '../entities/elder-task.entity';
 import { ElderTaskCalendarLog } from '../entities/elder-task-calendar-log.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { GroupVisitTasksService } from './group-visit-tasks.service';
+import { HallBusyService } from './hall-busy.service';
+import { PioneerSchool } from '../entities/pioneer-school.entity';
+import { PioneerSchoolDay } from '../entities/pioneer-school-day.entity';
 import { CongregationClockModule } from '../common/congregation-clock.module';
 
 @Module({
@@ -40,6 +43,9 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
       FieldServiceSettings,
       FieldServiceMonthRun,
       SpecialEvent,
+      // What else is on a day — the pioneer school sits in the hall too.
+      PioneerSchool,
+      PioneerSchoolDay,
       Absence,
       Responsibility,
       Publisher,
@@ -68,6 +74,7 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
     FieldServiceAutomationService,
     ServiceOverseerService,
     GroupVisitTasksService,
+    HallBusyService,
     ResponsibilityGuard,
   ],
   exports: [GroupVisitTasksService, FieldServiceAutomationService],

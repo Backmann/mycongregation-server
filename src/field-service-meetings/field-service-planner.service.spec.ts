@@ -4,6 +4,7 @@ import {
   slotDatesInMonth,
 } from './field-service-template.service';
 import { clockStub } from '../common/testing/clock-stub';
+import { HallBusyService } from './hall-busy.service';
 
 /**
  * How a month is prepared from the template (October 2026): the calendar,
@@ -135,6 +136,8 @@ function build(opts: {
   people?: Person[];
   settings?: Record<string, unknown>;
   groups?: Record<string, unknown>[];
+  schools?: Record<string, unknown>[];
+  schoolDays?: Record<string, unknown>[];
 }) {
   const meetings = opts.meetings ?? [];
   const meetingRepo = {
@@ -198,6 +201,12 @@ function build(opts: {
     template,
     audit as any,
     clockStub(),
+    // The real one over the same events, plus the pioneer school.
+    new HallBusyService(
+      eventsRepo as any,
+      { find: jest.fn(async () => opts.schools ?? []) } as any,
+      { find: jest.fn(async () => opts.schoolDays ?? []) } as any,
+    ),
   );
   return { planner, meetingRepo, audit };
 }
@@ -279,6 +288,76 @@ describe('the calendar', () => {
     expect(dec.rows.find((r) => r.date === '2026-12-05')?.status).toBe(
       'create',
     );
+  });
+
+  it('the pioneer school on a Saturday: the meeting is still made, and says why to look', async () => {
+    const { planner } = build({
+      schools: [
+        {
+          id: 'school-1',
+          title: 'Школа пионерского служения',
+          startDate: '2026-11-23',
+          endDate: '2026-11-28',
+          hallName: 'Зал Царства Hamm',
+          hallAddress: null,
+          startTime: '09:00',
+          endTime: '16:00',
+        },
+      ],
+      schoolDays: [
+        // The school's own hours on most days, its own on the Saturday.
+        {
+          schoolId: 'school-1',
+          date: '2026-11-27',
+          startTime: null,
+          endTime: null,
+        },
+        {
+          schoolId: 'school-1',
+          date: '2026-11-28',
+          startTime: '08:30',
+          endTime: '13:00',
+        },
+      ],
+      events: [
+        // An ordinary event is soft too; an assembly stays a hard rule.
+        {
+          type: 'other',
+          title: 'Ремонт зала',
+          date: '2026-11-07',
+          endDate: null,
+        },
+        {
+          type: 'regional_convention',
+          title: 'Конгресс',
+          date: '2026-11-20',
+          endDate: '2026-11-22',
+        },
+      ],
+    });
+    const nov = await planner.preview(CONG, 2026, 11);
+    const sat28 = nov.rows.filter((r) => r.date === '2026-11-28');
+    expect(sat28.length).toBeGreaterThan(0);
+    expect(sat28.every((r) => r.status === 'create')).toBe(true);
+    expect(sat28[0].busy).toEqual([
+      expect.objectContaining({
+        kind: 'pioneer_school',
+        title: 'Школа пионерского служения',
+        place: 'Зал Царства Hamm',
+        startTime: '08:30',
+        endTime: '13:00',
+        hard: false,
+      }),
+    ]);
+    const sat7 = nov.rows.find((r) => r.date === '2026-11-07');
+    expect(sat7?.status).toBe('create');
+    expect(sat7?.busy.map((b) => b.title)).toEqual(['Ремонт зала']);
+    // The convention is a status, not a soft mention as well.
+    const sat21 = nov.rows.find((r) => r.date === '2026-11-21');
+    expect(sat21?.status).toBe('assembly');
+    expect(sat21?.busy).toEqual([]);
+    // An ordinary Saturday says nothing.
+    expect(nov.rows.find((r) => r.date === '2026-11-14')?.busy).toEqual([]);
   });
 
   it('with the switch off, a convention day is filled like any other', async () => {

@@ -17,6 +17,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { FieldServiceMeetingsService } from './field-service-meetings.service';
 import { FieldServicePlannerService } from './field-service-planner.service';
 import { FieldServiceTemplateService } from './field-service-template.service';
+import { HallBusyService } from './hall-busy.service';
 
 /** Add n days to an ISO 'YYYY-MM-DD' date (UTC, calendar-safe). */
 function addDaysISO(iso: string, n: number): string {
@@ -26,6 +27,35 @@ function addDaysISO(iso: string, n: number): string {
 }
 function firstOf(year: number, month: number): string {
   return `${year}-${String(month).padStart(2, '0')}-01`;
+}
+
+/** «28 нояб.» in the reader's language. */
+function dayShort(iso: string, lang: SupportedLanguage): string {
+  return new Intl.DateTimeFormat(LOCALE_DAY[lang], {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  }).format(new Date(`${iso}T00:00:00Z`));
+}
+const LOCALE_DAY: Record<SupportedLanguage, string> = {
+  ru: 'ru-RU',
+  en: 'en-GB',
+  de: 'de-DE',
+};
+
+/**
+ * The line added to the planners' message when a draft stands on a day
+ * that has something else on it and no notice yet — said, not acted on.
+ */
+const BUSY_TEXTS: Record<SupportedLanguage, string> = {
+  ru: 'В эти дни есть и другое: {list}. Если встреча проходит иначе, впишите примечание для всех.',
+  en: 'Something else is on these days: {list}. If the meeting is held differently, add a notice for everyone.',
+  de: 'An diesen Tagen ist noch etwas anderes: {list}. Wenn die Zusammenkunft anders stattfindet, einen Hinweis für alle eintragen.',
+};
+
+/** The day of a meeting, from its Monday and weekday. */
+function dayOfMeeting(m: { weekStartDate: string; dayOfWeek: number }): string {
+  return addDaysISO(m.weekStartDate.slice(0, 10), m.dayOfWeek - 1);
 }
 function addMonths(
   year: number,
@@ -159,6 +189,7 @@ export class FieldServiceAutomationService {
     private readonly planner: FieldServicePlannerService,
     private readonly meetings: FieldServiceMeetingsService,
     private readonly notifications: NotificationsService,
+    private readonly hallBusy: HallBusyService,
   ) {}
 
   async ensureForToday(now: Date = new Date()): Promise<AutomationPassResult> {
@@ -235,7 +266,13 @@ export class FieldServiceAutomationService {
           if (made.created > 0) {
             out.prepared += 1;
             await this.openTask(cong, year, month, settings, today);
-            await this.tellPlanners(cong, year, month, 'prepared');
+            await this.tellPlanners(
+              cong,
+              year,
+              month,
+              'prepared',
+              await this.busyDays(cong, year, month),
+            );
             drafts = (
               await this.template.meetingsOfMonth(cong, year, month)
             ).filter((m) => m.publishedAt === null);
@@ -266,6 +303,7 @@ export class FieldServiceAutomationService {
           settings.unpublishedPolicy === 'publish_7d'
             ? 'remindPublish'
             : 'remindOnly',
+          await this.busyDays(cong, year, month),
         );
         out.reminded += 1;
       }
@@ -327,11 +365,56 @@ export class FieldServiceAutomationService {
     return { userIds, cards };
   }
 
+  /**
+   * The drafts of a month that stand on a day with something else on it
+   * and carry no notice yet: «28 нояб. — Школа пионерского служения».
+   * One entry per day and title; empty when there is nothing to say.
+   */
+  private async busyDays(
+    congregationId: string,
+    year: number,
+    month: number,
+  ): Promise<{ date: string; title: string }[]> {
+    try {
+      const drafts = (
+        await this.template.meetingsOfMonth(congregationId, year, month)
+      ).filter((m) => m.publishedAt === null && !m.notice?.trim());
+      if (drafts.length === 0) return [];
+      const first = firstOf(year, month);
+      const last = addDaysISO(
+        firstOf(
+          addMonths(year, month, 1).year,
+          addMonths(year, month, 1).month,
+        ),
+        -1,
+      );
+      const soft = await this.hallBusy.softByDay(congregationId, first, last);
+      const seen = new Set<string>();
+      const out: { date: string; title: string }[] = [];
+      for (const date of [...new Set(drafts.map(dayOfMeeting))].sort()) {
+        for (const b of soft.get(date) ?? []) {
+          const k = `${date}|${b.title}`;
+          if (seen.has(k)) continue;
+          seen.add(k);
+          out.push({ date, title: b.title });
+        }
+      }
+      return out;
+    } catch (e) {
+      // The message goes out without the line rather than not at all.
+      this.logger.warn(
+        `busy days failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return [];
+    }
+  }
+
   private async tellPlanners(
     congregationId: string,
     year: number,
     month: number,
     what: 'prepared' | 'remindPublish' | 'remindOnly' | 'published',
+    busy: { date: string; title: string }[] = [],
   ): Promise<void> {
     const { userIds } = await this.planners(congregationId);
     if (userIds.length === 0) return;
@@ -347,10 +430,17 @@ export class FieldServiceAutomationService {
             monthName(year, month, lang),
           );
           // A month name opens the sentence in two of the texts.
-          return {
-            title: TEXTS[lang].title,
-            body: body.charAt(0).toUpperCase() + body.slice(1),
-          };
+          const head = body.charAt(0).toUpperCase() + body.slice(1);
+          const extra = busy.length
+            ? ' ' +
+              BUSY_TEXTS[lang].replace(
+                '{list}',
+                busy
+                  .map((b) => `${dayShort(b.date, lang)} — ${b.title}`)
+                  .join('; '),
+              )
+            : '';
+          return { title: TEXTS[lang].title, body: head + extra };
         },
         data: {
           type: 'field_service_meeting',

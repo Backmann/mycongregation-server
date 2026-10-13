@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -15,6 +16,8 @@ import {
 import { FieldServiceMeetingsService } from './field-service-meetings.service';
 import { FieldServicePlannerService } from './field-service-planner.service';
 import { SuggestConductorDto } from './dto/suggest-conductor.dto';
+import { HallBusyQueryDto } from './dto/hall-busy.dto';
+import { HallBusyService } from './hall-busy.service';
 import { CreateFieldServiceMeetingDto } from './dto/create-field-service-meeting.dto';
 import { UpdateFieldServiceMeetingDto } from './dto/update-field-service-meeting.dto';
 import { QueryFieldServiceMeetingsDto } from './dto/query-field-service-meetings.dto';
@@ -38,7 +41,37 @@ export class FieldServiceMeetingsController {
   constructor(
     private readonly service: FieldServiceMeetingsService,
     private readonly planner: FieldServicePlannerService,
+    private readonly hallBusy: HallBusyService,
   ) {}
+
+  /**
+   * What else is on in a span of days — the pioneer school, the events —
+   * for the planners: the meeting window warns with it, the month page
+   * counts the drafts that stand on such a day without a notice.
+   */
+  @Get('hall-busy')
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+  )
+  hallBusyBetween(
+    @TenantId() congregationId: string,
+    @Query() q: HallBusyQueryDto,
+  ) {
+    const from = q.from.slice(0, 10);
+    const to = q.to.slice(0, 10);
+    const span =
+      (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) /
+      86_400_000;
+    // The month page asks for its window: a service year and a half at most.
+    if (span < 0 || span > 550) {
+      throw new BadRequestException(
+        'from must not be after to, and the span at most 550 days.',
+      );
+    }
+    return this.hallBusy.between(congregationId, from, to);
+  }
 
   /**
    * Who could conduct on a day, best first, each with his reason — the
