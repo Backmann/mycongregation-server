@@ -1,5 +1,6 @@
 import {
   IsBoolean,
+  IsDateString,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -12,10 +13,20 @@ import {
 } from 'class-validator';
 
 /**
- * All fields optional. weekStartDate is intentionally NOT editable — an entry
- * belongs to the week it was created under; to move it, delete and recreate.
+ * All fields optional.
+ *
+ * `weekStartDate` moves the meeting to another week (13 October 2026). It
+ * used to be fixed — «to move it, delete and recreate» — and a Saturday moved
+ * by a week came back as a new meeting: its journal began again, and the
+ * conductor heard «cancelled» and «you conduct» about one morning. The week
+ * and the day together are the new date; both are checked as one.
  */
 export class UpdateFieldServiceMeetingDto {
+  /** Monday (ISO) of the week the meeting moves to. */
+  @IsOptional()
+  @IsDateString()
+  weekStartDate?: string;
+
   @IsOptional()
   @IsInt()
   @Min(1)
@@ -83,4 +94,14 @@ export class UpdateFieldServiceMeetingDto {
   @IsOptional()
   @IsBoolean()
   notifyConductor?: boolean;
+
+  /**
+   * When the day, the time or the place of an announced meeting changes:
+   * false keeps it from everyone the meeting concerns (the group, or the
+   * whole congregation). Those assigned to it are told regardless, unless
+   * `notifyConductor` is false. Omitted — everyone is told.
+   */
+  @IsOptional()
+  @IsBoolean()
+  notifyAudience?: boolean;
 }

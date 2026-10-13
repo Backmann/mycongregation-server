@@ -59,6 +59,8 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
     kind === 'field_service_meeting' ||
     // The notice for everyone the meeting concerns — his own Saturday.
     kind === 'field_service_notice' ||
+    // A meeting moved, called off, or on again — the same Saturday.
+    kind === 'field_service_change' ||
     kind.startsWith('cart')
   ) {
     return 'ministry';

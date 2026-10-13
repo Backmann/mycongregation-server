@@ -97,10 +97,12 @@ describe('FieldServiceMeetingsService', () => {
 
     await svc.list(CONG, {});
 
-    // The one condition that always stands: the announced schedule only —
-    // and, with no week named, the year behind today (October 2026).
-    expect(qb.andWhere).toHaveBeenCalledTimes(2);
+    // The conditions that always stand: the announced schedule only, no
+    // cancelled meeting for an app that did not ask for one — and, with no
+    // week named, the year behind today (October 2026).
+    expect(qb.andWhere).toHaveBeenCalledTimes(3);
     expect(qb.andWhere).toHaveBeenCalledWith('m.publishedAt IS NOT NULL');
+    expect(qb.andWhere).toHaveBeenCalledWith('m.cancelledAt IS NULL');
     expect(qb.andWhere).toHaveBeenCalledWith('m.weekStartDate >= :since', {
       since: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     });
@@ -266,6 +268,10 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
         isActive: true,
         capabilities: { fs_meeting_conductor: true },
       })),
+      // By id — those assigned; without — the audience, nobody here.
+      find: jest.fn(async ({ where }: any) =>
+        where.id ? [{ id: 'p1', userId: 'u1' }] : [],
+      ),
     } as any;
   }
   function makePush() {

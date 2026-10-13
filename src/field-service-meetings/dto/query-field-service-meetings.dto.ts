@@ -10,6 +10,16 @@ export class QueryFieldServiceMeetingsDto {
   @IsIn(['0', '1'])
   drafts?: '0' | '1';
 
+  /**
+   * «1» — include the cancelled meetings, crossed out (13 October 2026). An
+   * app that does not send it — every version before this one — would draw a
+   * cancelled meeting as an ordinary one, so it is left out for them: to
+   * them it is gone, as a deleted meeting always was.
+   */
+  @IsOptional()
+  @IsIn(['0', '1'])
+  cancelled?: '0' | '1';
+
   /** Monday (ISO) of the week to list. When omitted, all weeks are returned. */
   @IsOptional()
   @IsDateString()

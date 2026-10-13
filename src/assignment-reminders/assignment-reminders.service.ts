@@ -278,8 +278,10 @@ export class AssignmentRemindersService {
       this.serviceMeetings.find({
         where: {
           congregationId,
-          // Nobody is reminded of a draft he was never told about.
+          // Nobody is reminded of a draft he was never told about, nor of a
+          // meeting called off.
           publishedAt: Not(IsNull()),
+          cancelledAt: IsNull(),
           weekStartDate: Between(fromWeek, addDaysISO(fromWeek, 7)),
         },
       }),

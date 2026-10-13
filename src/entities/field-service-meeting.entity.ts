@@ -140,6 +140,21 @@ export class FieldServiceMeeting {
   @Column({ type: 'timestamptz', nullable: true })
   publishedAt!: Date | null;
 
+  /**
+   * When the meeting was called off; null for a meeting that holds. A
+   * cancelled meeting stays in the schedule, crossed out with its reason —
+   * nobody is left to wonder whether they missed it (13 October 2026). It is
+   * sent only to an app that asks for it (`cancelled=1`): a phone with an
+   * older version would draw it as an ordinary meeting, so there it is
+   * simply absent, as a deleted one was.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  cancelledAt!: Date | null;
+
+  /** The short word drawn under the crossed-out line. */
+  @Column({ type: 'text', nullable: true })
+  cancelReason!: string | null;
+
   // ---- Timestamps ----
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

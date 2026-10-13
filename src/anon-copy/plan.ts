@@ -198,10 +198,11 @@ export const PLAN: Record<string, TablePlan> = {
     copy(`id congregation_id week_start_date day_of_week start_time
       conductor_publisher_id created_at updated_at is_general
       service_group_id service_overseer_visit service_overseer_publisher_id
-      service_overseer_assistant_id published_at`),
+      service_overseer_assistant_id published_at cancelled_at`),
     { address: 'label:Адрес', source_url: 'url' },
-    // Free text, like the theme: a notice may name a brother's flat.
-    remove('topic notice'),
+    // Free text, like the theme: a notice or the reason a meeting was called
+    // off may name a brother's flat.
+    remove('topic notice cancel_reason'),
   ),
   field_service_template_slots: table(
     copy(`id congregation_id position ordinal ordinals last_only day_of_week

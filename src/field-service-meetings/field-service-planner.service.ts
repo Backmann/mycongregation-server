@@ -174,8 +174,9 @@ export class FieldServicePlannerService {
         p.gender === Gender.BROTHER &&
         p.capabilities?.fs_meeting_conductor === true,
     );
+    // A cancelled meeting was nobody's turn and books nobody.
     const led = await this.meetingRepo.find({
-      where: { congregationId },
+      where: { congregationId, cancelledAt: IsNull() },
       select: {
         id: true,
         weekStartDate: true,
@@ -217,6 +218,8 @@ export class FieldServicePlannerService {
       where: {
         congregationId,
         weekStartDate: Between(mondayOf(from), mondayOf(to)),
+        // Called off: whoever was on it is free that day.
+        cancelledAt: IsNull(),
       },
     });
     const out = new Map<string, Set<string>>();

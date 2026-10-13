@@ -19,6 +19,10 @@ import { SuggestConductorDto } from './dto/suggest-conductor.dto';
 import { HallBusyQueryDto } from './dto/hall-busy.dto';
 import { HallBusyService } from './hall-busy.service';
 import { CreateFieldServiceMeetingDto } from './dto/create-field-service-meeting.dto';
+import {
+  CancelFieldServiceMeetingDto,
+  RestoreFieldServiceMeetingDto,
+} from './dto/cancel-field-service-meeting.dto';
 import { UpdateFieldServiceMeetingDto } from './dto/update-field-service-meeting.dto';
 import { QueryFieldServiceMeetingsDto } from './dto/query-field-service-meetings.dto';
 import { PublishFieldServiceMonthDto } from './dto/publish-field-service-month.dto';
@@ -162,6 +166,36 @@ export class FieldServiceMeetingsController {
     @Body() dto: UpdateFieldServiceMeetingDto,
   ) {
     return this.service.update(congregationId, id, dto);
+  }
+
+  /** Call an announced meeting off; it stays in sight, crossed out. */
+  @Post(':id/cancel')
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+  )
+  cancel(
+    @TenantId() congregationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CancelFieldServiceMeetingDto,
+  ) {
+    return this.service.cancel(congregationId, id, dto);
+  }
+
+  /** Bring a cancelled meeting back. */
+  @Post(':id/restore')
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+  )
+  restore(
+    @TenantId() congregationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RestoreFieldServiceMeetingDto,
+  ) {
+    return this.service.restore(congregationId, id, dto);
   }
 
   @Delete(':id')

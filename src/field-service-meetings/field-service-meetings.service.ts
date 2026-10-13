@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
@@ -16,6 +16,10 @@ import type { SupportedLanguage } from '../common/i18n/supported-languages';
 import { CreateFieldServiceMeetingDto } from './dto/create-field-service-meeting.dto';
 import { UpdateFieldServiceMeetingDto } from './dto/update-field-service-meeting.dto';
 import { QueryFieldServiceMeetingsDto } from './dto/query-field-service-meetings.dto';
+import {
+  CancelFieldServiceMeetingDto,
+  RestoreFieldServiceMeetingDto,
+} from './dto/cancel-field-service-meeting.dto';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
@@ -49,7 +53,7 @@ export interface TopicHistoryEntry {
 }
 
 type PushLang = 'ru' | 'en' | 'de';
-type ConductorPushKind = 'assigned' | 'unassigned' | 'cancelled';
+type ConductorPushKind = 'assigned' | 'unassigned';
 
 const PUSH_TEXTS: Record<
   PushLang,
@@ -59,19 +63,17 @@ const PUSH_TEXTS: Record<
     title: 'Встреча для проповеди',
     assigned: 'Вы ведёте встречу: {date}, {time} — {address}',
     unassigned: 'Вы больше не ведёте встречу {date}, {time}',
-    cancelled: 'Встреча {date}, {time} отменена',
   },
   en: {
     title: 'Field service meeting',
     assigned: 'You conduct the meeting: {date}, {time} — {address}',
     unassigned: 'You no longer conduct the meeting on {date}, {time}',
-    cancelled: 'The meeting on {date}, {time} was cancelled',
   },
   de: {
     title: 'Zusammenkunft für den Predigtdienst',
-    assigned: 'Du leitest die Zusammenkunft: {date}, {time} — {address}',
-    unassigned: 'Du leitest die Zusammenkunft am {date}, {time} nicht mehr',
-    cancelled: 'Die Zusammenkunft am {date}, {time} wurde abgesagt',
+    // «Sie», as the app speaks German (decision of 28 September 2026).
+    assigned: 'Sie leiten die Zusammenkunft: {date}, {time} — {address}',
+    unassigned: 'Sie leiten die Zusammenkunft am {date}, {time} nicht mehr',
   },
 };
 
@@ -108,6 +110,49 @@ const NOTICE_TEXTS: Record<SupportedLanguage, { title: string; body: string }> =
       body: '{day}, {time}: {notice}',
     },
   };
+
+/**
+ * A meeting that MOVED, was called off, or holds again — told to everyone it
+ * concerns (13 October 2026). Until now a Saturday moved to Sunday was told
+ * to nobody, not even the conductor: he was told only when he himself was
+ * put on or taken off. And a meeting deleted vanished from everyone's screen
+ * with a word to the conductor alone.
+ */
+const CHANGE_TEXTS: Record<
+  SupportedLanguage,
+  {
+    movedTitle: string;
+    moved: string;
+    cancelledTitle: string;
+    restoredTitle: string;
+  }
+> = {
+  ru: {
+    movedTitle: 'Встреча для проповеди изменена',
+    moved: 'Было: {was}\nТеперь: {now}',
+    cancelledTitle: 'Встреча для проповеди отменена',
+    restoredTitle: 'Встреча для проповеди снова в силе',
+  },
+  en: {
+    movedTitle: 'Field service meeting changed',
+    moved: 'Was: {was}\nNow: {now}',
+    cancelledTitle: 'Field service meeting cancelled',
+    restoredTitle: 'Field service meeting is on again',
+  },
+  de: {
+    movedTitle: 'Predigtdienstzusammenkunft geändert',
+    moved: 'Bisher: {was}\nJetzt: {now}',
+    cancelledTitle: 'Predigtdienstzusammenkunft abgesagt',
+    restoredTitle: 'Predigtdienstzusammenkunft findet wieder statt',
+  },
+};
+
+/** What a person needs to find the meeting: day, time and — when asked — place. */
+interface Where {
+  date: string;
+  time: string;
+  address: string;
+}
 
 /** «Сб 7 нояб.» in the reader's language. */
 function fmtDayShort(iso: string, lang: SupportedLanguage): string {
@@ -150,7 +195,7 @@ const PUBLISH_TEXTS: Record<
   },
   de: {
     title: 'Zusammenkünfte für den Predigtdienst',
-    intro: 'Du leitest Zusammenkünfte — {month}:',
+    intro: 'Sie leiten Zusammenkünfte — {month}:',
     assistant: 'Gehilfe beim Besuch',
     visit: 'Gruppenbesuch',
   },
@@ -395,6 +440,137 @@ export class FieldServiceMeetingsService {
   }
 
   /**
+   * The people assigned to a meeting — its conductor, and on a visit the
+   * overseer and his assistant — by their publisher ids.
+   */
+  private assignedPublisherIds(meeting: FieldServiceMeeting): string[] {
+    const ids = [meeting.conductorPublisherId];
+    if (meeting.serviceOverseerVisit) {
+      ids.push(
+        meeting.serviceOverseerPublisherId,
+        meeting.serviceOverseerAssistantId,
+      );
+    }
+    return [...new Set(ids.filter((x): x is string => !!x))];
+  }
+
+  /**
+   * «Moved», «cancelled», «on again» — one message in each reader's language.
+   *
+   * Those assigned hear it as their own assignment (by post when they have
+   * no device); everyone else the meeting concerns hears it as ministry news,
+   * unless the planner switched that off. Keyed by the meeting and what it
+   * now IS — so the same change saved twice is one message, while a second,
+   * different move the same evening is news again.
+   */
+  private async notifyChange(
+    congregationId: string,
+    meeting: FieldServiceMeeting,
+    change: {
+      kind: 'moved' | 'cancelled' | 'restored';
+      was?: Where;
+      now?: Where;
+      toAssigned: boolean;
+      toAudience: boolean;
+      skipPublishers?: Set<string>;
+    },
+  ): Promise<void> {
+    try {
+      const assignedIds = this.assignedPublisherIds(meeting).filter(
+        (id) => !change.skipPublishers?.has(id),
+      );
+      const people = assignedIds.length
+        ? await this.publishersRepo.find({
+            where: { congregationId, id: In(assignedIds) },
+            select: { id: true, userId: true },
+          })
+        : [];
+      const assignedUsers = people
+        .map((p) => p.userId)
+        .filter((u): u is string => !!u);
+      // Skipped people are not in the audience either: they heard already.
+      const skippedUsers = new Set<string>();
+      if (change.skipPublishers?.size) {
+        const skipped = await this.publishersRepo.find({
+          where: { congregationId, id: In([...change.skipPublishers]) },
+          select: { id: true, userId: true },
+        });
+        for (const p of skipped) if (p.userId) skippedUsers.add(p.userId);
+      }
+      const audienceUsers = change.toAudience
+        ? (await this.audienceUserIds(congregationId, meeting)).filter(
+            (u) => !assignedUsers.includes(u) && !skippedUsers.has(u),
+          )
+        : [];
+
+      const date = meetingDateISO(meeting);
+      const where = (w: Where, lang: SupportedLanguage, place: boolean) =>
+        `${fmtDayShort(w.date, lang)}, ${w.time}` +
+        (place ? ` — ${w.address}` : '');
+      const text = (lang: SupportedLanguage) => {
+        const t = CHANGE_TEXTS[lang];
+        if (change.kind === 'moved' && change.was && change.now) {
+          const placeMoved = change.was.address !== change.now.address;
+          return {
+            title: t.movedTitle,
+            body: t.moved
+              .replace('{was}', where(change.was, lang, placeMoved))
+              .replace('{now}', where(change.now, lang, placeMoved)),
+          };
+        }
+        const here = where(
+          { date, time: meeting.startTime, address: meeting.address },
+          lang,
+          change.kind === 'restored',
+        );
+        if (change.kind === 'cancelled') {
+          return {
+            title: t.cancelledTitle,
+            body: meeting.cancelReason
+              ? `${here}: ${meeting.cancelReason}`
+              : here,
+          };
+        }
+        return { title: t.restoredTitle, body: here };
+      };
+      const state =
+        change.kind === 'moved' && change.now
+          ? `${change.now.date}:${change.now.time}:${change.now.address}`
+          : `${change.kind}:${(meeting.updatedAt ?? new Date()).toISOString()}`;
+      const data = {
+        type: 'field_service_meeting',
+        meetingId: meeting.id,
+        date,
+      };
+      if (change.toAssigned && assignedUsers.length) {
+        await this.notifications.notify({
+          tenantId: congregationId,
+          userIds: assignedUsers,
+          text,
+          kind: 'field_service_meeting',
+          key: `field_service_change:${meeting.id}:${state}`,
+          emailFallback: true,
+          data,
+        });
+      }
+      if (audienceUsers.length) {
+        await this.notifications.notify({
+          tenantId: congregationId,
+          userIds: audienceUsers,
+          text,
+          kind: 'field_service_change',
+          key: `field_service_change:${meeting.id}:${state}`,
+          data,
+        });
+      }
+    } catch (e) {
+      this.logger.warn(
+        `change push failed (${change.kind}): ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  /**
    * Whom a meeting concerns: a group's own — that group; the congregation's
    * and «по группам» — everyone. The same rule the app draws the meeting by.
    */
@@ -467,6 +643,8 @@ export class FieldServiceMeetingsService {
       .createQueryBuilder('m')
       .where('m.congregationId = :congregationId', { congregationId });
     if (!drafts) qb.andWhere('m.publishedAt IS NOT NULL');
+    // A cancelled meeting only to an app that knows how to cross it out.
+    if (query.cancelled !== '1') qb.andWhere('m.cancelledAt IS NULL');
     // With an upper bound this reads as a span; without one it stays the
     // exact week it has always been, so no existing caller changes behaviour.
     //
@@ -611,12 +789,35 @@ export class FieldServiceMeetingsService {
     }
     // Held already — or being moved onto a day already gone.
     await this.assertNotHeld(congregationId, meetingDateISO(entity), entity.id);
-    if (dto.dayOfWeek !== undefined && dto.dayOfWeek !== entity.dayOfWeek) {
-      await this.assertNotHeld(
-        congregationId,
-        addDaysISO(entity.weekStartDate, dto.dayOfWeek - 1),
-        entity.id,
+    // A cancelled meeting is brought back first, then changed: editing it in
+    // its crossed-out state would move a meeting nobody is coming to.
+    if (entity.cancelledAt) {
+      throw new ConflictException(
+        refusal(
+          'FS_CANCELLED',
+          'This field service meeting is cancelled; restore it before changing it.',
+        ),
       );
+    }
+    let weekStartDate = entity.weekStartDate;
+    if (dto.weekStartDate !== undefined) {
+      const monday = new Date(`${dto.weekStartDate.slice(0, 10)}T00:00:00Z`);
+      if (Number.isNaN(monday.getTime()) || monday.getUTCDay() !== 1) {
+        throw new BadRequestException(
+          refusal('WEEK_NOT_MONDAY', 'weekStartDate must be a Monday.'),
+        );
+      }
+      weekStartDate = dto.weekStartDate.slice(0, 10);
+    }
+    const dayOfWeek = dto.dayOfWeek ?? entity.dayOfWeek;
+    const was: Where = {
+      date: meetingDateISO(entity),
+      time: entity.startTime,
+      address: entity.address,
+    };
+    const newDate = addDaysISO(weekStartDate, dayOfWeek - 1);
+    if (newDate !== was.date) {
+      await this.assertNotHeld(congregationId, newDate, entity.id);
     }
     const pick = <T>(v: T | undefined, cur: T): T =>
       v === undefined ? cur : v;
@@ -649,6 +850,7 @@ export class FieldServiceMeetingsService {
     // Snapshot taken BEFORE the mutations below — the entity is edited in
     // place, so reading it afterwards would compare a value with itself.
     const before = {
+      weekStartDate: entity.weekStartDate,
       dayOfWeek: entity.dayOfWeek,
       startTime: entity.startTime,
       address: entity.address,
@@ -661,6 +863,7 @@ export class FieldServiceMeetingsService {
       serviceOverseerPublisherId: entity.serviceOverseerPublisherId,
       serviceOverseerAssistantId: entity.serviceOverseerAssistantId,
     };
+    entity.weekStartDate = weekStartDate;
     if (dto.dayOfWeek !== undefined) entity.dayOfWeek = dto.dayOfWeek;
     if (dto.startTime !== undefined) entity.startTime = dto.startTime;
     if (dto.address !== undefined) entity.address = dto.address;
@@ -695,6 +898,7 @@ export class FieldServiceMeetingsService {
       subjectId: saved.conductorPublisherId ?? prevConductorId,
       before,
       after: {
+        weekStartDate: saved.weekStartDate,
         dayOfWeek: saved.dayOfWeek,
         startTime: saved.startTime,
         address: saved.address,
@@ -708,6 +912,7 @@ export class FieldServiceMeetingsService {
         serviceOverseerAssistantId: saved.serviceOverseerAssistantId,
       },
       fields: [
+        'weekStartDate',
         'dayOfWeek',
         'startTime',
         'address',
@@ -773,6 +978,134 @@ export class FieldServiceMeetingsService {
         );
       }
     }
+    // The day, the hour or the place moved: news for everyone going.
+    const now: Where = {
+      date: meetingDateISO(saved),
+      time: saved.startTime,
+      address: saved.address,
+    };
+    if (
+      saved.publishedAt !== null &&
+      (now.date !== was.date ||
+        now.time !== was.time ||
+        now.address !== was.address)
+    ) {
+      // Told already, in their own words: a conductor or assistant just put
+      // on («you conduct …») or just taken off («you no longer …»).
+      const toldAlready = new Set<string>();
+      if (prevConductorId !== saved.conductorPublisherId) {
+        if (prevConductorId) toldAlready.add(prevConductorId);
+        if (saved.conductorPublisherId) {
+          toldAlready.add(saved.conductorPublisherId);
+        }
+      }
+      if (prevAssistantId !== saved.serviceOverseerAssistantId) {
+        if (prevAssistantId) toldAlready.add(prevAssistantId);
+        if (saved.serviceOverseerAssistantId) {
+          toldAlready.add(saved.serviceOverseerAssistantId);
+        }
+      }
+      await this.notifyChange(congregationId, saved, {
+        kind: 'moved',
+        was,
+        now,
+        toAssigned: dto.notifyConductor !== false,
+        toAudience: dto.notifyAudience !== false,
+        skipPublishers: toldAlready,
+      });
+    }
+    return saved;
+  }
+
+  /**
+   * Call an announced meeting off. It stays in the schedule, crossed out with
+   * its reason, so nobody is left to wonder whether they missed it; those
+   * assigned to it are told, and — unless asked not to — everyone it
+   * concerns. A draft was never announced: it is deleted, not cancelled.
+   */
+  async cancel(
+    congregationId: string,
+    id: string,
+    dto: CancelFieldServiceMeetingDto,
+  ): Promise<FieldServiceMeeting> {
+    const entity = await this.repo.findOne({ where: { id, congregationId } });
+    if (!entity) {
+      throw new NotFoundException('Field service meeting not found');
+    }
+    await this.assertNotHeld(congregationId, meetingDateISO(entity), entity.id);
+    if (entity.publishedAt === null) {
+      throw new ConflictException(
+        refusal(
+          'FS_DRAFT_NOT_CANCELLABLE',
+          'A draft was never announced; delete it instead of cancelling it.',
+        ),
+      );
+    }
+    if (entity.cancelledAt) {
+      throw new ConflictException(
+        refusal(
+          'FS_ALREADY_CANCELLED',
+          'This field service meeting is already cancelled.',
+        ),
+      );
+    }
+    entity.cancelledAt = new Date();
+    entity.cancelReason = cleanNotice(dto.reason);
+    const saved = await this.repo.save(entity);
+    await this.auditLog.logUpdate({
+      tenantId: congregationId,
+      entityType: 'field_service_meeting',
+      entityId: saved.id,
+      subjectId: saved.conductorPublisherId,
+      before: { cancelled: false, cancelReason: null },
+      after: { cancelled: true, cancelReason: saved.cancelReason },
+      fields: ['cancelled', 'cancelReason'],
+    });
+    await this.notifyChange(congregationId, saved, {
+      kind: 'cancelled',
+      toAssigned: true,
+      toAudience: dto.notifyAudience !== false,
+    });
+    return saved;
+  }
+
+  /** Bring a cancelled meeting back — the same meeting, told the same way. */
+  async restore(
+    congregationId: string,
+    id: string,
+    dto: RestoreFieldServiceMeetingDto,
+  ): Promise<FieldServiceMeeting> {
+    const entity = await this.repo.findOne({ where: { id, congregationId } });
+    if (!entity) {
+      throw new NotFoundException('Field service meeting not found');
+    }
+    await this.assertNotHeld(congregationId, meetingDateISO(entity), entity.id);
+    if (!entity.cancelledAt) {
+      throw new ConflictException(
+        refusal(
+          'FS_NOT_CANCELLED',
+          'This field service meeting is not cancelled.',
+        ),
+      );
+    }
+    const reason = entity.cancelReason;
+    entity.cancelledAt = null;
+    entity.cancelReason = null;
+    const saved = await this.repo.save(entity);
+    await this.auditLog.logUpdate({
+      tenantId: congregationId,
+      entityType: 'field_service_meeting',
+      entityId: saved.id,
+      subjectId: saved.conductorPublisherId,
+      before: { cancelled: true, cancelReason: reason },
+      after: { cancelled: false, cancelReason: null },
+      fields: ['cancelled', 'cancelReason'],
+    });
+    await this.notifyChange(congregationId, saved, {
+      kind: 'restored',
+      toAssigned: true,
+      toAudience: dto.notifyAudience !== false,
+    });
     return saved;
   }
 
@@ -797,33 +1130,19 @@ export class FieldServiceMeetingsService {
         draft: entity.publishedAt === null,
       },
     });
-    // A draft nobody was told about is not «cancelled» for anybody.
-    if (entity.publishedAt === null) return;
-    if (entity.conductorPublisherId) {
-      await this.notifyConductor(
-        congregationId,
-        entity,
-        'cancelled',
-        entity.conductorPublisherId,
-      );
-    }
-    // The overseer's assistant is told too. He was going to that group on that
-    // day, and cancelling the evening in silence leaves him to arrive for a
-    // meeting that no longer exists. He was told when he was appointed and
-    // when he was removed; being told when the whole thing is called off is
-    // the same courtesy.
-    if (
-      entity.serviceOverseerVisit &&
-      entity.serviceOverseerAssistantId &&
-      entity.serviceOverseerAssistantId !== entity.conductorPublisherId
-    ) {
-      await this.notifyConductor(
-        congregationId,
-        entity,
-        'cancelled',
-        entity.serviceOverseerAssistantId,
-      );
-    }
+    // A draft nobody was told about is not «cancelled» for anybody; a
+    // meeting cancelled before it was deleted has been told already.
+    if (entity.publishedAt === null || entity.cancelledAt) return;
+    // Deleting an announced meeting calls it off for everyone who was going:
+    // the conductor, on a visit the overseer and his assistant, and the group
+    // or the congregation it was for. Until 13 October 2026 only the
+    // conductor and the assistant heard; the overseer's own visit and the
+    // whole group vanished from their screens without a word.
+    await this.notifyChange(congregationId, entity, {
+      kind: 'cancelled',
+      toAssigned: true,
+      toAudience: true,
+    });
   }
 
   /**
@@ -1014,7 +1333,10 @@ export class FieldServiceMeetingsService {
    * the soonest upcoming one. Helps spread the load fairly.
    */
   async conductorStats(congregationId: string): Promise<ConductorStat[]> {
-    const meetings = await this.repo.find({ where: { congregationId } });
+    // A cancelled meeting was nobody's turn.
+    const meetings = await this.repo.find({
+      where: { congregationId, cancelledAt: IsNull() },
+    });
     const today = await this.clock.todayFor(congregationId);
     const map = new Map<
       string,
@@ -1047,7 +1369,10 @@ export class FieldServiceMeetingsService {
    * UI flag "this topic was already used on …" when a topic is re-entered.
    */
   async topicHistory(congregationId: string): Promise<TopicHistoryEntry[]> {
-    const meetings = await this.repo.find({ where: { congregationId } });
+    // A topic of a cancelled meeting was never given.
+    const meetings = await this.repo.find({
+      where: { congregationId, cancelledAt: IsNull() },
+    });
     const map = new Map<string, TopicHistoryEntry>();
     for (const m of meetings) {
       const topic = (m.topic ?? '').trim();

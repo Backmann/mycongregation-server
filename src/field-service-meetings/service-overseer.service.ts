@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 
@@ -114,8 +114,13 @@ export class ServiceOverseerService {
         where: { congregationId },
         order: { name: 'ASC' },
       }),
+      // A cancelled visit was not made, and is not planned either.
       this.meetings.find({
-        where: { congregationId, serviceOverseerVisit: true },
+        where: {
+          congregationId,
+          serviceOverseerVisit: true,
+          cancelledAt: IsNull(),
+        },
       }),
     ]);
 
