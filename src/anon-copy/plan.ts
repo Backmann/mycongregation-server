@@ -200,7 +200,8 @@ export const PLAN: Record<string, TablePlan> = {
       service_group_id service_overseer_visit service_overseer_publisher_id
       service_overseer_assistant_id published_at`),
     { address: 'label:Адрес', source_url: 'url' },
-    remove('topic'),
+    // Free text, like the theme: a notice may name a brother's flat.
+    remove('topic notice'),
   ),
   field_service_template_slots: table(
     copy(`id congregation_id position ordinal ordinals last_only day_of_week

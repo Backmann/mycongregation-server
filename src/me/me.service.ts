@@ -82,6 +82,8 @@ export interface MyAssignmentItem {
    * going with. Neither should have to ask somebody else who else is coming.
    */
   visitWithName?: string;
+  /** The meeting's notice for everyone — «зал на ремонте…». */
+  notice?: string | null;
   /** CO-visit lunch: organizer note shown as a task instruction. */
   note?: string;
 }
@@ -766,6 +768,7 @@ export class MeService {
           ? groupNameById.get(f.serviceGroupId)
           : undefined,
         visitWithName: peerId ? peerNameById.get(peerId) : undefined,
+        notice: f.notice ?? null,
       });
     }
 

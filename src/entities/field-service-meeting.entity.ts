@@ -78,6 +78,15 @@ export class FieldServiceMeeting {
   })
   sourceUrl!: string | null;
 
+  /**
+   * A short word for everyone — «зал на ремонте, собираемся у входа в парк».
+   * Not the theme: the theme says what the meeting is about and is folded
+   * away; the notice says what is DIFFERENT this time and is drawn in amber
+   * wherever the meeting is drawn (13 October 2026).
+   */
+  @Column({ type: 'text', nullable: true })
+  notice!: string | null;
+
   @Column({
     type: 'boolean',
     default: false,

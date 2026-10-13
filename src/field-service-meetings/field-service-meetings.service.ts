@@ -74,6 +74,12 @@ const PUSH_TEXTS: Record<
   },
 };
 
+/** The notice as stored: trimmed, and absent rather than blank. */
+function cleanNotice(raw: string | null | undefined): string | null {
+  const t = (raw ?? '').trim();
+  return t.length > 0 ? t : null;
+}
+
 /** ISO YYYY-MM-DD -> DD.MM.YYYY. */
 function fmtDate(iso: string): string {
   return `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}`;
@@ -84,6 +90,23 @@ const LOCALE: Record<SupportedLanguage, string> = {
   en: 'en-GB',
   de: 'de-DE',
 };
+
+/** The notice for everyone, in the reader's language. */
+const NOTICE_TEXTS: Record<SupportedLanguage, { title: string; body: string }> =
+  {
+    ru: {
+      title: 'Встреча для проповеди — примечание',
+      body: '{day}, {time}: {notice}',
+    },
+    en: {
+      title: 'Field service meeting — notice',
+      body: '{day}, {time}: {notice}',
+    },
+    de: {
+      title: 'Predigtdienstzusammenkunft — Hinweis',
+      body: '{day}, {time}: {notice}',
+    },
+  };
 
 /** «Сб 7 нояб.» in the reader's language. */
 function fmtDayShort(iso: string, lang: SupportedLanguage): string {
@@ -349,6 +372,64 @@ export class FieldServiceMeetingsService {
   }
 
   /**
+   * Whom a meeting concerns: a group's own — that group; the congregation's
+   * and «по группам» — everyone. The same rule the app draws the meeting by.
+   */
+  private async audienceUserIds(
+    congregationId: string,
+    meeting: FieldServiceMeeting,
+  ): Promise<string[]> {
+    const people = await this.publishersRepo.find({
+      where: meeting.serviceGroupId
+        ? { congregationId, serviceGroupId: meeting.serviceGroupId }
+        : { congregationId },
+      select: { id: true, userId: true },
+    });
+    return people.map((p) => p.userId).filter((id): id is string => !!id);
+  }
+
+  /**
+   * «Сб 7 нояб., 10:30: зал на ремонте — собираемся у входа в парк», to
+   * everyone the meeting concerns. The one message in this section that
+   * goes beyond the men assigned — because the notice is ABOUT the reader's
+   * own Saturday, not about the schedule in general. Keyed by meeting and
+   * day, so an evening of rewording is one message per person.
+   */
+  private async notifyNotice(
+    congregationId: string,
+    meeting: FieldServiceMeeting,
+  ): Promise<void> {
+    try {
+      const userIds = await this.audienceUserIds(congregationId, meeting);
+      if (userIds.length === 0 || !meeting.notice) return;
+      const date = meetingDateISO(meeting);
+      const notice = meeting.notice;
+      await this.notifications.notify({
+        tenantId: congregationId,
+        userIds,
+        text: (lang) => ({
+          title: NOTICE_TEXTS[lang].title,
+          body: NOTICE_TEXTS[lang].body
+            .replace('{day}', fmtDayShort(date, lang))
+            .replace('{time}', meeting.startTime)
+            .replace('{notice}', notice),
+        }),
+        kind: 'field_service_notice',
+        key: `field_service_notice:${meeting.id}:${await this.clock.todayFor(congregationId)}`,
+        data: {
+          type: 'field_service_meeting',
+          meetingId: meeting.id,
+          date,
+        },
+      });
+    } catch (e) {
+      this.logger.warn(
+        `notice push failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  /**
    * `drafts` — include the meetings not yet announced. The controller passes
    * it only for a reader who may plan AND asked for them: an app that does
    * not know what a draft is never sees one, so a phone with last month's
@@ -425,6 +506,7 @@ export class FieldServiceMeetingsService {
       conductorPublisherId: dto.conductorPublisherId ?? null,
       topic: dto.topic ?? null,
       sourceUrl: dto.sourceUrl ?? null,
+      notice: cleanNotice(dto.notice),
       isGeneral: dto.isGeneral ?? false,
       serviceGroupId: dto.serviceGroupId ?? null,
       serviceOverseerVisit: dto.serviceOverseerVisit ?? false,
@@ -454,10 +536,16 @@ export class FieldServiceMeetingsService {
         address: saved.address,
         conductorPublisherId: saved.conductorPublisherId,
         topic: saved.topic,
+        notice: saved.notice,
         isGeneral: saved.isGeneral,
         draft: saved.publishedAt === null,
       },
     });
+    // A notice written on a meeting announced at once is news for everyone
+    // it concerns; a draft's notice goes out with the month.
+    if (saved.notice && saved.publishedAt !== null) {
+      await this.notifyNotice(congregationId, saved);
+    }
     if (saved.conductorPublisherId && tell) {
       await this.notifyConductor(
         congregationId,
@@ -541,6 +629,7 @@ export class FieldServiceMeetingsService {
       address: entity.address,
       conductorPublisherId: entity.conductorPublisherId,
       topic: entity.topic,
+      notice: entity.notice,
       isGeneral: entity.isGeneral,
       serviceGroupId: entity.serviceGroupId,
       serviceOverseerVisit: entity.serviceOverseerVisit,
@@ -555,6 +644,7 @@ export class FieldServiceMeetingsService {
     }
     if (dto.topic !== undefined) entity.topic = dto.topic ?? null;
     if (dto.sourceUrl !== undefined) entity.sourceUrl = dto.sourceUrl ?? null;
+    if (dto.notice !== undefined) entity.notice = cleanNotice(dto.notice);
     if (dto.isGeneral !== undefined) entity.isGeneral = dto.isGeneral;
     if (dto.serviceGroupId !== undefined) {
       entity.serviceGroupId = dto.serviceGroupId ?? null;
@@ -585,6 +675,7 @@ export class FieldServiceMeetingsService {
         address: saved.address,
         conductorPublisherId: saved.conductorPublisherId,
         topic: saved.topic,
+        notice: saved.notice,
         isGeneral: saved.isGeneral,
         serviceGroupId: saved.serviceGroupId,
         serviceOverseerVisit: saved.serviceOverseerVisit,
@@ -597,6 +688,7 @@ export class FieldServiceMeetingsService {
         'address',
         'conductorPublisherId',
         'topic',
+        'notice',
         'isGeneral',
         'serviceGroupId',
         'serviceOverseerVisit',
@@ -627,6 +719,16 @@ export class FieldServiceMeetingsService {
           saved.serviceOverseerAssistantId,
         );
       }
+    }
+    // A notice written or changed on an announced meeting goes to everyone
+    // the meeting concerns. Cleared — nothing: «as usual» needs no message.
+    // The draft is silent here as everywhere; its notice goes with the month.
+    if (
+      saved.publishedAt !== null &&
+      saved.notice &&
+      saved.notice !== before.notice
+    ) {
+      await this.notifyNotice(congregationId, saved);
     }
     if (tell && prevConductorId !== saved.conductorPublisherId) {
       if (prevConductorId) {
@@ -769,6 +871,11 @@ export class FieldServiceMeetingsService {
       },
       fields: ['publishedAt', 'published'],
     });
+    // A notice written while the month was a draft was told to nobody; the
+    // announcement is when it reaches the people it concerns.
+    for (const m of drafts) {
+      if (m.notice) await this.notifyNotice(congregationId, m);
+    }
 
     // Who hears what: one list of lines per person.
     type Line = {

@@ -43,6 +43,12 @@ export class UpdateFieldServiceMeetingDto {
   @MaxLength(2000)
   topic?: string | null;
 
+  /** A short word for everyone about what is different this time. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  notice?: string | null;
+
   @IsOptional()
   @IsString()
   @MaxLength(2000)

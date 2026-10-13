@@ -55,7 +55,12 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
   ) {
     return 'assignments';
   }
-  if (kind === 'field_service_meeting' || kind.startsWith('cart')) {
+  if (
+    kind === 'field_service_meeting' ||
+    // The notice for everyone the meeting concerns — his own Saturday.
+    kind === 'field_service_notice' ||
+    kind.startsWith('cart')
+  ) {
     return 'ministry';
   }
   if (kind.startsWith('cleaning')) return 'cleaning';
