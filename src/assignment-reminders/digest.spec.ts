@@ -311,9 +311,9 @@ describe('the digest as it is read', () => {
       );
 
       const alone = writeDigest([line('reminder', 1, cleaning)], 'de')!;
-      expect(alone.title).toBe('Morgen hast du');
+      expect(alone.title).toBe('Morgen haben Sie');
       expect(alone.body).toBe(
-        'Do 22. Oktober, Zusammenkunft unter der Woche: Reinigung nach der Zusammenkunft (eure Gruppe)',
+        'Do 22. Oktober, Zusammenkunft unter der Woche: Reinigung nach der Zusammenkunft (Ihre Gruppe)',
       );
     });
 
@@ -420,7 +420,7 @@ describe('the digest as it is read', () => {
 
   it('speaks German and English too', () => {
     expect(writeDigest([line('new', 14)], 'de')!.title).toBe(
-      'Dir wurde zugeteilt',
+      'Ihnen wurde zugeteilt',
     );
     expect(writeDigest([line('reminder', 1)], 'en')!.title).toBe(
       'Tomorrow you have',

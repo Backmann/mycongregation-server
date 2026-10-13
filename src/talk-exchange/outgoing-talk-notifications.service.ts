@@ -79,9 +79,9 @@ const STR: Record<
   },
   de: {
     title: {
-      assigned: 'Du hast einen Vortrag in einer anderen Versammlung',
-      changed: 'Dein Vortrag in einer anderen Versammlung hat sich geändert',
-      cancelled: 'Dein Vortrag in einer anderen Versammlung entfällt',
+      assigned: 'Sie haben einen Vortrag in einer anderen Versammlung',
+      changed: 'Ihr Vortrag in einer anderen Versammlung hat sich geändert',
+      cancelled: 'Ihr Vortrag in einer anderen Versammlung entfällt',
     },
     tentative: 'vorläufig',
     cancelledTail: 'keine Vorbereitung nötig',

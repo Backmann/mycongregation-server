@@ -84,7 +84,7 @@ const STR: Record<
     withArea: (area, when) => (when ? `${area} · ${when}` : area),
   },
   de: {
-    assigned: 'Dir wurde eine Aufgabe übertragen',
+    assigned: 'Ihnen wurde eine Aufgabe übertragen',
     agendaReady: 'Die Tagesordnung ist fertig',
     meetingTomorrow: 'Morgen ist die Ältestenzusammenkunft',
     tomorrow: 'Eine Aufgabe ist morgen fällig',

@@ -339,20 +339,21 @@ const WORDS: Record<SupportedLanguage, Words> = {
                 ? 'in 3 weeks'
                 : `in ${d} days`,
   },
+  // «Sie», as the app speaks German (decision of 28 September 2026).
   de: {
-    assigned: 'Dir wurde zugeteilt',
-    tomorrow: 'Morgen hast du',
-    upcoming: 'Deine nächsten Aufgaben',
+    assigned: 'Ihnen wurde zugeteilt',
+    tomorrow: 'Morgen haben Sie',
+    upcoming: 'Ihre nächsten Aufgaben',
     cancelledTitle: 'Aufgabe entfällt',
     newPrefix: 'Neu: ',
     cancelledPrefix: 'Entfällt: ',
     cancelledTail: 'keine Vorbereitung nötig',
     assistant: 'Partner',
     part: 'ein Programmpunkt',
-    conducting: 'Zusammenkunft für den Predigtdienst — du leitest',
-    cleaning: 'Reinigung nach der Zusammenkunft (eure Gruppe)',
-    talkAt: (c) => `dein Vortrag in ${c}`,
-    talkAway: 'dein Vortrag in einer anderen Versammlung',
+    conducting: 'Zusammenkunft für den Predigtdienst — Sie leiten',
+    cleaning: 'Reinigung nach der Zusammenkunft (Ihre Gruppe)',
+    talkAt: (c) => `Ihr Vortrag in ${c}`,
+    talkAway: 'Ihr Vortrag in einer anderen Versammlung',
     when: (d) =>
       d <= 0
         ? 'heute'

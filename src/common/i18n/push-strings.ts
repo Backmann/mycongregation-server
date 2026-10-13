@@ -283,23 +283,23 @@ export const PUSH_STRINGS: Record<
           : `Das Programm wurde geändert: ${meeting}, ${range}. Bitte Zuteilungen prüfen.`,
     },
     myAssignment: {
-      title: 'Du hast eine Aufgabe',
+      title: 'Sie haben eine Aufgabe',
       body: ({ meeting, range, parts }) => `${meeting}, ${range}: ${parts}`,
       count: ({ meeting, range, n }) => `${meeting}, ${range}: ${n} Aufgabe(n)`,
     },
     myAssignmentChanged: {
-      title: 'Deine Aufgabe hat sich geändert',
+      title: 'Ihre Aufgabe hat sich geändert',
       body: ({ meeting, range, parts }) => `${meeting}, ${range}: ${parts}`,
       count: ({ meeting, range, n }) =>
         `${meeting}, ${range}: ${n} Änderung(en)`,
     },
     memorialPublished: {
       title: 'Programm des Gedächtnismahls',
-      body: ({ day, parts }) => `${day} — du hast: ${parts}`,
+      body: ({ day, parts }) => `${day} — Sie haben: ${parts}`,
     },
     memorialTomorrow: {
       title: 'Morgen ist das Gedächtnismahl',
-      body: ({ day, parts }) => `${day} — du hast: ${parts}`,
+      body: ({ day, parts }) => `${day} — Sie haben: ${parts}`,
     },
   },
 };

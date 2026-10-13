@@ -123,7 +123,7 @@ describe("the group's week of cleaning", () => {
     ]);
     // The same, to the other member of the group, in HIS language.
     expect(w.to('u-c')[0].body).toBe(
-      'Mi 7. Oktober, Zusammenkunft unter der Woche: Reinigung nach der Zusammenkunft (eure Gruppe)',
+      'Mi 7. Oktober, Zusammenkunft unter der Woche: Reinigung nach der Zusammenkunft (Ihre Gruppe)',
     );
     // Another group hears nothing.
     expect(w.to('u-b')).toEqual([]);

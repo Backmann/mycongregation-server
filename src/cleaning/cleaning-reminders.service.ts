@@ -80,14 +80,14 @@ const STR: Record<
   de: {
     afterTitle: 'Reinigung nach der Zusammenkunft',
     afterBody:
-      'Eure Gruppe reinigt heute den Saal nach der Zusammenkunft. Danke für euren Einsatz!',
+      'Ihre Gruppe reinigt heute den Saal nach der Zusammenkunft. Danke für Ihren Einsatz!',
     weeklyTitle: 'Wöchentliche Reinigung',
     weeklyBody: (w) =>
-      `Eure Gruppe macht diese Woche die wöchentliche Reinigung. Fenster: ${w}. Stimmt einen Tag ab.`,
+      `Ihre Gruppe macht diese Woche die wöchentliche Reinigung. Fenster: ${w}. Bitte stimmen Sie einen Tag ab.`,
     weeklyBodyNoWindows:
-      'Eure Gruppe macht diese Woche die wöchentliche Reinigung. Stimmt einen Tag ab.',
+      'Ihre Gruppe macht diese Woche die wöchentliche Reinigung. Bitte stimmen Sie einen Tag ab.',
     plannedTitle: 'Wöchentliche Reinigung heute',
-    plannedBody: 'Eure Gruppe reinigt in 2 Stunden den Saal.',
+    plannedBody: 'Ihre Gruppe reinigt in 2 Stunden den Saal.',
     generalTitle: 'Grundreinigung heute',
     generalBody:
       'In 2 Stunden beginnt die Grundreinigung des Saals. Die ganze Versammlung ist eingeladen!',

@@ -91,7 +91,7 @@ describe('a talk arranged for one of ours', () => {
     await w.service.announce(C, 'tx1', facts({ publisherId: 'p-b' }), null);
 
     expect(w.to('u-b')[0].title).toBe(
-      'Du hast einen Vortrag in einer anderen Versammlung',
+      'Sie haben einen Vortrag in einer anderen Versammlung',
     );
     expect(w.to('u-b')[0].body).toBe(
       'So 18. Oktober, 10:00 · Dortmund-Russisch · №15 «Делайте добро всем»',
@@ -212,7 +212,7 @@ describe('an arrangement that changes', () => {
     await w.service.announce(C, 'tx1', facts({ publisherId: 'p-b' }), facts());
 
     expect(w.to('u-b')[0].title).toBe(
-      'Du hast einen Vortrag in einer anderen Versammlung',
+      'Sie haben einen Vortrag in einer anderen Versammlung',
     );
     expect(w.to('u-a')).toEqual([
       expect.objectContaining({

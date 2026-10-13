@@ -286,7 +286,7 @@ describe('the report reminder', () => {
       // Not «2026 г..»: the year's own «г.» ran into the full stop.
       ru: 'Вы ещё не подали отчёт за сентябрь 2026.',
       en: 'You have not handed in your report for September 2026.',
-      de: 'Du hast den Bericht für September 2026 noch nicht abgegeben.',
+      de: 'Sie haben den Bericht für September 2026 noch nicht abgegeben.',
     });
   });
 });
@@ -316,7 +316,7 @@ describe('an elder task', () => {
     expect(w.titles()).toEqual({
       ru: 'Вам поручена задача',
       en: 'A task has been given to you',
-      de: 'Dir wurde eine Aufgabe übertragen',
+      de: 'Ihnen wurde eine Aufgabe übertragen',
     });
     expect(w.bodies()).toEqual({
       ru: 'Объявления · Чт 8 октября · 19:00',

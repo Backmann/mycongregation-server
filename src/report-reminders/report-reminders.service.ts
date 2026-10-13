@@ -124,8 +124,8 @@ const STR: Record<
     publisherOpening: (m) =>
       `${m} ist zu Ende — der Bericht kann abgegeben werden.`,
     publisherReminder: (m) =>
-      `Du hast den Bericht für ${m} noch nicht abgegeben.`,
-    overseerTitle: 'Fehlende Berichte in deiner Gruppe',
+      `Sie haben den Bericht für ${m} noch nicht abgegeben.`,
+    overseerTitle: 'Fehlende Berichte in Ihrer Gruppe',
     overseerBody: (g, m, names) =>
       `Gruppe \u00ab${g}\u00bb, ${m}: nicht abgegeben — ${names}.`,
     secretaryTitle: 'Fehlende Berichte in der Versammlung',

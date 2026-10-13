@@ -134,7 +134,7 @@ interface Strings {
 const NOTICE_WHY: Record<Lang, string> = {
   ru: 'Письмо пришло потому, что ни на одном вашем устройстве не включены уведомления приложения. Включите их на главном экране приложения, и письма прекратятся.',
   en: 'This came as a letter because notifications are not turned on for any of your devices. Turn them on from the home screen of the app and the letters will stop.',
-  de: 'Diese Nachricht kam als E-Mail, weil auf keinem deiner Geräte Benachrichtigungen der App eingeschaltet sind. Schalte sie auf der Startseite der App ein, dann hören die E-Mails auf.',
+  de: 'Diese Nachricht kam als E-Mail, weil auf keinem Ihrer Geräte Benachrichtigungen der App eingeschaltet sind. Schalten Sie sie auf der Startseite der App ein, dann hören die E-Mails auf.',
 };
 
 const STRINGS: Record<Lang, Strings> = {
