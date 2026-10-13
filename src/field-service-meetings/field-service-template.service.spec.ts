@@ -476,7 +476,11 @@ describe('FieldServiceTemplateService.replaceSlots — the two shapes', () => {
       ],
     } as never);
     expect(
-      written.map((w) => [w.isGeneral, w.serviceGroupId, w.address]),
+      (written as Record<string, unknown>[]).map((w) => [
+        w.isGeneral,
+        w.serviceGroupId,
+        w.address,
+      ]),
     ).toEqual([
       [true, null, 'Зал'],
       [false, null, null],
