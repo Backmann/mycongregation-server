@@ -78,6 +78,15 @@ export class TemplateSlotDto {
   @IsUUID()
   serviceGroupId?: string | null;
 
+  /**
+   * Without a group: the congregation's own meeting (true) or the groups
+   * each on their own (false). Omitted — as every app before 13 October
+   * 2026 omits it — a group-less slot is the general one, as it always was.
+   */
+  @IsOptional()
+  @IsBoolean()
+  isGeneral?: boolean;
+
   @IsOptional()
   @IsIn(CONDUCTOR_RULES)
   conductorRule?: ConductorRule;

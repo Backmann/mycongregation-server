@@ -60,9 +60,16 @@ export class FieldServiceTemplateSlot {
   @Column({ type: 'varchar', length: 255, nullable: true })
   address!: string | null;
 
-  /** Whose meeting. Null: for the whole congregation. */
+  /** Whose meeting. Null: for the whole congregation, or the groups on their own. */
   @Column({ type: 'uuid', nullable: true })
   serviceGroupId!: string | null;
+
+  /**
+   * With no group: the congregation's own meeting (true) or the groups each
+   * on their own (false, «по группам»). With a group it is always false.
+   */
+  @Column({ type: 'boolean', default: false })
+  isGeneral!: boolean;
 
   @ManyToOne(() => ServiceGroup, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'service_group_id' })

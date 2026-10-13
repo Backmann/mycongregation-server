@@ -204,7 +204,7 @@ export const PLAN: Record<string, TablePlan> = {
   ),
   field_service_template_slots: table(
     copy(`id congregation_id position ordinal ordinals last_only day_of_week
-      start_time service_group_id conductor_rule created_at updated_at`),
+      start_time service_group_id is_general conductor_rule created_at updated_at`),
     { address: 'label:Адрес' },
   ),
   /** Three timestamps per month: nothing about a person. */

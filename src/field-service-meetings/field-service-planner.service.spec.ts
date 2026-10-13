@@ -94,6 +94,7 @@ type Slot = {
   startTime: string;
   address: string | null;
   serviceGroupId: string | null;
+  isGeneral: boolean;
   conductorRule: 'group_overseer' | 'rotation' | 'none';
 };
 const slot = (p: Partial<Slot> & { id: string }): Slot => ({
@@ -105,6 +106,8 @@ const slot = (p: Partial<Slot> & { id: string }): Slot => ({
   startTime: '10:30',
   address: 'Hall',
   serviceGroupId: null,
+  // As the migration reads the slots it found: no group means the general one.
+  isGeneral: p.serviceGroupId == null,
   conductorRule: 'rotation',
   ...p,
 });
@@ -659,6 +662,20 @@ describe('prepare', () => {
       count: 4,
       skipped: { assembly: 2 },
     });
+  });
+
+  it('a «by groups» slot becomes a meeting of no group that is not the general one', async () => {
+    const { planner, meetingRepo } = build({
+      slots: [slot({ id: 's-open', isGeneral: false, address: 'Зал' })],
+    });
+    await planner.prepare(CONG, 2026, 11);
+    const rows = meetingRepo.save.mock.calls[0][0] as Record<string, unknown>[];
+    expect(rows.length).toBeGreaterThan(0);
+    expect(
+      rows.every((r) => r.serviceGroupId === null && r.isGeneral === false),
+    ).toBe(true);
+    const nov = await planner.preview(CONG, 2026, 11);
+    expect(nov.rows.every((r) => r.isGeneral === false)).toBe(true);
   });
 
   it('nothing to make: nothing written, nothing journalled', async () => {

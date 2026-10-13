@@ -93,6 +93,7 @@ export interface TemplateSlotView {
   startTime: string;
   address: string | null;
   serviceGroupId: string | null;
+  isGeneral: boolean;
   conductorRule: ConductorRule;
 }
 
@@ -149,8 +150,12 @@ export class FieldServiceTemplateService {
         'No such service group in this congregation.',
       );
     }
+    // Three kinds: a group's own; the congregation's (general); the groups
+    // each on their own (no group, not general). An app that says nothing
+    // means the general one — that is what a group-less slot always was.
+    const isGeneral = serviceGroupId ? false : (s.isGeneral ?? true);
     const address = s.address?.trim() ? s.address.trim() : null;
-    if (!address && !serviceGroupId) {
+    if (!address && isGeneral) {
       throw new BadRequestException(
         'A meeting for the whole congregation must say where it is held.',
       );
@@ -165,6 +170,7 @@ export class FieldServiceTemplateService {
       startTime: s.startTime,
       address,
       serviceGroupId,
+      isGeneral,
       conductorRule: s.conductorRule ?? 'none',
     };
   }
@@ -215,6 +221,7 @@ export class FieldServiceTemplateService {
         startTime: r.startTime,
         address: r.address,
         serviceGroupId: r.serviceGroupId,
+        isGeneral: r.isGeneral,
         conductorRule: r.conductorRule,
       }));
     await this.auditLog.logUpdate({
@@ -327,6 +334,7 @@ export class FieldServiceTemplateService {
       startTime: string;
       address: string;
       serviceGroupId: string | null;
+      isGeneral: boolean;
     }[] = [];
     let past = 0;
     let y = dto.startYear;
@@ -344,6 +352,7 @@ export class FieldServiceTemplateService {
             startTime: slot.startTime,
             address: FieldServiceTemplateService.placeOf(slot, groups),
             serviceGroupId: slot.serviceGroupId,
+            isGeneral: slot.isGeneral,
           });
         }
       }
@@ -409,7 +418,7 @@ export class FieldServiceTemplateService {
           conductorPublisherId: null,
           topic: null,
           sourceUrl: null,
-          isGeneral: false,
+          isGeneral: s.isGeneral,
           serviceGroupId: s.serviceGroupId,
           // The old generator announces at once, as it always did: the app
           // that calls it shows the month the moment it returns.

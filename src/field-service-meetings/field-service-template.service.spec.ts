@@ -456,4 +456,31 @@ describe('FieldServiceTemplateService.replaceSlots — the two shapes', () => {
     ).rejects.toThrow(/No such service group/);
     expect(written).toEqual([]);
   });
+
+  it('three kinds: no group means the general one unless the slot says «by groups», which needs no place', async () => {
+    const { service, written } = make([{ id: 'g-1' }]);
+    await service.replaceSlots('cong-1', {
+      slots: [
+        // The old shape and the new one without the flag: the general meeting.
+        { ordinal: 1, dayOfWeek: 6, startTime: '10:30', address: 'Зал' },
+        // By groups: each at its own place, so no address is fine.
+        { ordinals: [2], dayOfWeek: 6, startTime: '10:30', isGeneral: false },
+        // A group's own: never general, whatever the flag says.
+        {
+          ordinals: [3],
+          dayOfWeek: 6,
+          startTime: '10:00',
+          serviceGroupId: 'g-1',
+          isGeneral: true,
+        },
+      ],
+    } as never);
+    expect(
+      written.map((w) => [w.isGeneral, w.serviceGroupId, w.address]),
+    ).toEqual([
+      [true, null, 'Зал'],
+      [false, null, null],
+      [false, 'g-1', null],
+    ]);
+  });
 });

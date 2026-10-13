@@ -77,6 +77,8 @@ export interface PlannedRow {
   startTime: string;
   address: string;
   serviceGroupId: string | null;
+  /** Without a group: the congregation's own (true) or the groups' on their own. */
+  isGeneral: boolean;
   groupName: string | null;
   conductorRule: ConductorRule;
   status: PlannedStatus;
@@ -521,6 +523,7 @@ export class FieldServicePlannerService {
         startTime: slot.startTime,
         address,
         serviceGroupId: slot.serviceGroupId,
+        isGeneral: slot.isGeneral,
         groupName: group?.name ?? null,
         conductorRule: slot.conductorRule,
         status: 'create',
@@ -639,7 +642,7 @@ export class FieldServicePlannerService {
           conductorPublisherId: r.conductor?.publisherId ?? null,
           topic: null,
           sourceUrl: null,
-          isGeneral: r.serviceGroupId === null,
+          isGeneral: r.isGeneral,
           serviceGroupId: r.serviceGroupId,
           publishedAt: null,
         }),
