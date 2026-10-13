@@ -1,3 +1,5 @@
+import { ProgrammeFreezeService } from '../assignments/programme-freeze.service';
+import { openProgramme } from '../common/testing/open-programme';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { NotFoundException } from '@nestjs/common';
@@ -96,6 +98,8 @@ describe('AssignmentsService draft visibility', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         AssignmentsService,
+        // Every meeting open: these specs test something else (see open-programme).
+        { provide: ProgrammeFreezeService, useValue: openProgramme() },
         {
           provide: AuditLogService,
           useValue: {
@@ -405,6 +409,8 @@ describe('AssignmentsService treasures <-> opening-prayer link', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         AssignmentsService,
+        // Every meeting open: these specs test something else (see open-programme).
+        { provide: ProgrammeFreezeService, useValue: openProgramme() },
         {
           provide: AuditLogService,
           useValue: {

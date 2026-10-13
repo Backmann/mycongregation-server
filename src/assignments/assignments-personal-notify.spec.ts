@@ -1,3 +1,5 @@
+import { ProgrammeFreezeService } from '../assignments/programme-freeze.service';
+import { openProgramme } from '../common/testing/open-programme';
 jest.mock('expo-server-sdk', () => {
   class MockExpo {
     static isExpoPushToken() {
@@ -65,6 +67,8 @@ describe('AssignmentsService — telling each assignee their own parts', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         AssignmentsService,
+        // Every meeting open: these specs test something else (see open-programme).
+        { provide: ProgrammeFreezeService, useValue: openProgramme() },
         { provide: getRepositoryToken(Assignment), useValue: parts.repo },
         {
           provide: getRepositoryToken(Responsibility),

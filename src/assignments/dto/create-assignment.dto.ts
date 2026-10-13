@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsInt,
@@ -75,4 +76,13 @@ export class CreateAssignmentDto {
   @IsString()
   @MaxLength(255)
   speakerCongregation?: string;
+
+  /**
+   * A correction of a programme that has become the record (a week after
+   * its meeting). Honoured only for an administrator or the coordinator of
+   * the body of elders; anyone else is refused, the flag or not.
+   */
+  @IsOptional()
+  @IsBoolean()
+  retroactive?: boolean;
 }

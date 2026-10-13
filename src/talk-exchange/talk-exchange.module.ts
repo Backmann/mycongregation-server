@@ -18,6 +18,7 @@ import { User } from '../entities/user.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { CongregationClockModule } from '../common/congregation-clock.module';
+import { ProgrammeFreezeModule } from '../assignments/programme-freeze.module';
 
 @Module({
   imports: [
@@ -37,6 +38,9 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
     AuditLogModule,
     NotificationsModule,
     CongregationClockModule,
+    // The programme's freeze: the journal stops writing into a week that is
+    // already the record.
+    ProgrammeFreezeModule,
   ],
   controllers: [TalkExchangeController],
   providers: [

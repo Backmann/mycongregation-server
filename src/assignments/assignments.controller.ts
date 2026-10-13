@@ -19,6 +19,8 @@ import { SwapPublicTalkDto } from './dto/swap-public-talk.dto';
 import { QueryAssignmentDto } from './dto/query-assignment.dto';
 import { BulkCreateAssignmentDto } from './dto/bulk-create-assignment.dto';
 import { PublishAssignmentsDto } from './dto/publish-assignments.dto';
+import { RestoreAssignmentDto } from './dto/restore-assignment.dto';
+import { ProgrammeLocksQueryDto } from './dto/programme-locks-query.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -43,6 +45,22 @@ export class AssignmentsController {
     return this.service.listPublishedWeeks(congregationId);
   }
 
+  /**
+   * How the week's meetings stand: the day each was held, the last day its
+   * programme may change, and whether it is already the record — plus
+   * whether this reader may correct it afterwards (13 October 2026). The
+   * screens draw from this rather than counting days themselves, so the app
+   * and the server can never disagree about a week.
+   */
+  @Get('locks')
+  locks(
+    @TenantId() congregationId: string,
+    @Query() query: ProgrammeLocksQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.locksOfWeek(congregationId, query.weekStart, user);
+  }
+
   @Get(':id')
   getById(
     @TenantId() congregationId: string,
@@ -54,8 +72,12 @@ export class AssignmentsController {
 
   @Post()
   @UseGuards(AssignmentSectionGuard)
-  create(@TenantId() congregationId: string, @Body() dto: CreateAssignmentDto) {
-    return this.service.create(congregationId, dto);
+  create(
+    @TenantId() congregationId: string,
+    @Body() dto: CreateAssignmentDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.create(congregationId, dto, user);
   }
 
   @Post('bulk')
@@ -63,8 +85,12 @@ export class AssignmentsController {
   bulkCreate(
     @TenantId() congregationId: string,
     @Body() dto: BulkCreateAssignmentDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.bulkCreate(congregationId, dto.assignments);
+    return this.service.bulkCreate(congregationId, dto.assignments, {
+      retroactive: dto.retroactive,
+      user,
+    });
   }
 
   @Post('publish')
@@ -133,8 +159,9 @@ export class AssignmentsController {
     @TenantId() congregationId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateAssignmentDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.update(congregationId, id, dto);
+    return this.service.update(congregationId, id, dto, user);
   }
 
   @Delete(':id')
@@ -143,8 +170,14 @@ export class AssignmentsController {
   remove(
     @TenantId() congregationId: string,
     @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    /** «1» — a correction after the fact (DELETE carries no body). */
+    @Query('retroactive') retroactive?: string,
   ) {
-    return this.service.remove(congregationId, id);
+    return this.service.remove(congregationId, id, {
+      retroactive: retroactive === '1',
+      user,
+    });
   }
 
   @Post(':id/restore')
@@ -152,7 +185,12 @@ export class AssignmentsController {
   restore(
     @TenantId() congregationId: string,
     @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: RestoreAssignmentDto,
   ) {
-    return this.service.restore(congregationId, id);
+    return this.service.restore(congregationId, id, {
+      retroactive: body?.retroactive === true,
+      user,
+    });
   }
 }

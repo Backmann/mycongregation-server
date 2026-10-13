@@ -26,6 +26,7 @@ import {
 } from '../special-events/co-visit-template.service';
 import { mendPlan } from '../special-events/co-visit-held';
 import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
+import { ProgrammeFreezeService } from '../assignments/programme-freeze.service';
 
 /**
  * A part nobody has filled — the import may rewrite its title.
@@ -63,6 +64,8 @@ export class MwbImportService {
     private readonly meetingAttendance: MeetingAttendanceService,
     private readonly coVisitTemplate: CoVisitTemplateService,
     private readonly talkExchange: TalkExchangeService,
+    /** The programme's freeze: a week already the record is not loaded into. */
+    private readonly freeze: ProgrammeFreezeService,
   ) {}
 
   /**
@@ -191,7 +194,7 @@ export class MwbImportService {
         result,
       );
       result.weeks.push(summary);
-      if (!summary.notHeld) result.weeksImported++;
+      if (!summary.notHeld && !summary.frozen) result.weeksImported++;
     }
 
     this.logger.log(
@@ -261,6 +264,29 @@ export class MwbImportService {
         weekStartDate,
         meeting: weekEventType === EventType.WEEKEND ? 'weekend' : 'midweek',
         parts: parts.length,
+      });
+      return summary;
+    }
+    // A week already the record is not loaded into (13 October 2026): an
+    // old workbook loaded again used to fill its empty parts a year later.
+    // Said out loud, like the meeting not held above.
+    const lock = await this.freeze.lockOf(congregationId, {
+      weekStartDate,
+      eventType: weekEventType,
+    });
+    if (lock.frozen) {
+      summary.skipped = parts.length;
+      summary.frozen = true;
+      overall.partsSkipped += parts.length;
+      overall.warnings.push(
+        `Week ${weekStartDate}: its ${weekEventType} meeting was held more than a week ago and its programme is part of the record, so ${parts.length} part(s) were not imported.`,
+      );
+      overall.notices.push({
+        code: 'week_frozen',
+        weekStartDate,
+        meeting: weekEventType === EventType.WEEKEND ? 'weekend' : 'midweek',
+        parts: parts.length,
+        editableUntil: lock.editableUntil,
       });
       return summary;
     }

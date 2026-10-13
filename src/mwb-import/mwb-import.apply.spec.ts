@@ -1,3 +1,5 @@
+import { ProgrammeFreezeService } from '../assignments/programme-freeze.service';
+import { openProgramme } from '../common/testing/open-programme';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { MwbImportService } from './mwb-import.service';
@@ -49,6 +51,8 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         MwbImportService,
+        // Every meeting open: these specs test something else (see open-programme).
+        { provide: ProgrammeFreezeService, useValue: openProgramme() },
         { provide: getRepositoryToken(Assignment), useValue: repo },
         {
           // Offers the circuit-visit template to the week; nothing to offer here.
@@ -232,6 +236,8 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
       const moduleRef = await Test.createTestingModule({
         providers: [
           MwbImportService,
+          // Every meeting open: these specs test something else (see open-programme).
+          { provide: ProgrammeFreezeService, useValue: openProgramme() },
           { provide: getRepositoryToken(Assignment), useValue: repo },
           {
             // Offers the circuit-visit template to the week; nothing to offer here.

@@ -3,6 +3,8 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
+  IsOptional,
   ValidateNested,
 } from 'class-validator';
 import { CreateAssignmentDto } from './create-assignment.dto';
@@ -14,4 +16,9 @@ export class BulkCreateAssignmentDto {
   @ValidateNested({ each: true })
   @Type(() => CreateAssignmentDto)
   assignments!: CreateAssignmentDto[];
+
+  /** A correction after the fact — see CreateAssignmentDto.retroactive. */
+  @IsOptional()
+  @IsBoolean()
+  retroactive?: boolean;
 }

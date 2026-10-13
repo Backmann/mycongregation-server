@@ -1,3 +1,5 @@
+import { ProgrammeFreezeService } from '../assignments/programme-freeze.service';
+import { openProgramme } from '../common/testing/open-programme';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
@@ -49,6 +51,8 @@ describe('AssignmentsService — journal sync coverage and public-talk swap', ()
     const moduleRef = await Test.createTestingModule({
       providers: [
         AssignmentsService,
+        // Every meeting open: these specs test something else (see open-programme).
+        { provide: ProgrammeFreezeService, useValue: openProgramme() },
         {
           provide: AuditLogService,
           useValue: {

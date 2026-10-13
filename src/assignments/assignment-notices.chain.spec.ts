@@ -1,5 +1,6 @@
 jest.mock('expo-server-sdk', () => ({ Expo: class {} }));
 
+import { openProgramme } from '../common/testing/open-programme';
 import { AssignmentsService } from './assignments.service';
 import { AssignmentRemindersService } from '../assignment-reminders/assignment-reminders.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -178,6 +179,7 @@ function world(
     {} as any,
     clockStub('Europe/Berlin'),
     {} as any,
+    openProgramme(),
     reminders,
   );
 

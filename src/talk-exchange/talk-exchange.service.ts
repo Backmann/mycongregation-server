@@ -8,8 +8,10 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ProgrammeFreezeService } from '../assignments/programme-freeze.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { Between, IsNull, MoreThanOrEqual, In, Not, Repository } from 'typeorm';
 import { TalkExchange } from '../entities/talk-exchange.entity';
@@ -62,7 +64,14 @@ function speakerFullName(s: {
   return [s.firstName, s.lastName].filter(Boolean).join(' ');
 }
 
-export type TalkExchangeResult = TalkExchange & { programConflict?: boolean };
+export type TalkExchangeResult = TalkExchange & {
+  programConflict?: boolean;
+  /**
+   * The week's programme is already the record (a week after the meeting):
+   * the entry was saved, the programme was not touched (13 October 2026).
+   */
+  programmeFrozen?: boolean;
+};
 
 /**
  * The fields of a talk-exchange entry worth remembering in the journal — who
@@ -169,7 +178,30 @@ export class TalkExchangeService {
     /** For the circuit visits: whose name in the slot is the overseer's. */
     @InjectRepository(SpecialEvent)
     private readonly eventRepo: Repository<SpecialEvent>,
+    /**
+     * The programme's freeze (13 October 2026). Optional only because a few
+     * specs build this service from its prototype; the module always
+     * provides it, and the «wiring» test in programme-freeze.spec.ts holds
+     * the module to that.
+     */
+    @Optional()
+    private readonly freeze?: ProgrammeFreezeService,
   ) {}
+
+  /**
+   * May the journal write into this week's weekend programme? Not once it
+   * is the record: the journal keeps its own history, the programme its own.
+   */
+  private async programmeOpen(
+    tenantId: string,
+    weekStartDate: string,
+  ): Promise<boolean> {
+    if (!this.freeze) return true;
+    return !(await this.freeze.isFrozen(tenantId, {
+      weekStartDate,
+      eventType: 'weekend',
+    }));
+  }
 
   private static readonly MANAGER_RESPONSIBILITIES = [
     ResponsibilityType.PUBLIC_TALK_COORDINATOR,
@@ -692,6 +724,7 @@ export class TalkExchangeService {
       },
     });
     if (!slot || !slot.visitingSpeakerId) return;
+    if (!(await this.programmeOpen(tenantId, weekStartDate))) return;
     // A name still in the slot is somebody's — a guest entered since. One of
     // ours beneath the visit carries no card: the link was the overseer's.
     if (slot.speakerName?.trim()) return;
@@ -813,6 +846,8 @@ export class TalkExchangeService {
       },
     });
     if (!slot) return;
+    // The record stays as it was: the journal says what happened.
+    if (!(await this.programmeOpen(tenantId, slot.weekStartDate))) return;
 
     // A local brother in the slot used to stop this outright, on the reasoning
     // that he was not ours to wipe. That is right when SOMEONE ELSE put him
@@ -922,6 +957,14 @@ export class TalkExchangeService {
         ? !slot.publisherId && slot.speakerName === name
         : !slot.publisherId && !slot.speakerName?.trim();
     const alreadyThis = talkSame && speakerSame;
+    // Already as the entry says: nothing to write, nothing to tell.
+    if (alreadyThis) return entry;
+    // A week already the record keeps its programme; the entry is saved and
+    // the coordinator told so (13 October 2026). Asked only now, when the
+    // programme WOULD change — not on every save of an old entry's notes.
+    if (!(await this.programmeOpen(tenantId, weekStartDate))) {
+      return { ...entry, programmeFrozen: true };
+    }
 
     // A slot that holds only this very talk — the theme put there before the
     // speaker was known — is not somebody else's decision: the speaker joins it
@@ -1225,6 +1268,10 @@ export class TalkExchangeService {
     if (!slot) {
       throw new NotFoundException('That week has no public-talk slot');
     }
+    // Замена переписывает программу недели — нельзя, если она уже запись.
+    await this.freeze?.assertWritable(tenantId, [
+      { weekStartDate: dto.weekStartDate, eventType: 'weekend' },
+    ]);
     // Снимок до правки: снимается здесь, пока слот ещё не тронут.
     const slotWas = { ...slot } as Assignment;
 
@@ -1434,6 +1481,10 @@ export class TalkExchangeService {
 
     const weekStartDate = mondayOf(closed.date);
     const weekEnd = addDaysISO(weekStartDate, 6);
+    // Отмена замены тоже переписывает программу недели.
+    await this.freeze?.assertWritable(tenantId, [
+      { weekStartDate, eventType: 'weekend' },
+    ]);
 
     // Запись, которая сейчас занимает неделю: её завела замена.
     const live = await this.repo.findOne({
@@ -1685,8 +1736,12 @@ export class TalkExchangeService {
         ? slot.visitingSpeakerId !== visitingSpeakerId
         : !slot.visitingSpeakerId)
     ) {
-      slot.visitingSpeakerId = visitingSpeakerId;
-      await this.assignmentRepo.save(slot!);
+      // The link is bookkeeping, but it is the programme's row: left as
+      // it is once the week is the record.
+      if (await this.programmeOpen(tenantId, weekStartDate)) {
+        slot.visitingSpeakerId = visitingSpeakerId;
+        await this.assignmentRepo.save(slot!);
+      }
     }
 
     if (existing) {

@@ -1,4 +1,5 @@
 import {
+  Optional,
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -8,6 +9,7 @@ import { In, MoreThan, Repository } from 'typeorm';
 import { AuditLog } from '../entities/audit-log.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { ProgrammeFreezeService } from '../assignments/programme-freeze.service';
 import { AssignmentsService } from '../assignments/assignments.service';
 import { LocalNeedsService } from '../local-needs/local-needs.service';
 import { AbsencesService } from '../absences/absences.service';
@@ -73,6 +75,13 @@ export class AuditRevertService {
     private readonly specialEvents: SpecialEventsService,
     private readonly pioneerSchool: PioneerSchoolService,
     private readonly coVisitItems: CoVisitItemsService,
+    /**
+     * The programme's freeze: a part whose meeting is already the record is
+     * said to be not revertable before anyone presses «Вернуть». Optional
+     * and last, because the spec builds this service positionally.
+     */
+    @Optional()
+    private readonly freeze?: ProgrammeFreezeService,
   ) {}
 
   /**
@@ -336,6 +345,30 @@ export class AuditRevertService {
         fields: [],
         changedAfter: 0,
       };
+    }
+
+    // A part of a programme that is already the record: «Вернуть» would be
+    // refused when pressed — so it is said here, before (13 October 2026).
+    if (log.entityType === 'assignment' && this.freeze) {
+      const row = await this.assignmentsRepo.findOne({
+        where: { id: log.entityId, congregationId: tenantId },
+        withDeleted: true,
+        select: ['id', 'weekStartDate', 'eventType'],
+      });
+      if (
+        row &&
+        (await this.freeze.isFrozen(tenantId, {
+          weekStartDate: row.weekStartDate,
+          eventType: row.eventType,
+        }))
+      ) {
+        return {
+          supported: false,
+          reason: 'programmeFrozen',
+          fields: [],
+          changedAfter: 0,
+        };
+      }
     }
 
     const changedAfter = await this.logRepo.count({

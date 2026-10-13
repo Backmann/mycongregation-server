@@ -50,6 +50,8 @@ import { DutiesService } from '../duties/duties.service';
 import { LocalNeedsService } from '../local-needs/local-needs.service';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { CoVisitTemplateService } from '../special-events/co-visit-template.service';
+import { ProgrammeFreezeService } from './programme-freeze.service';
+import type { AuthenticatedUser as FreezeUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
 
 const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
@@ -130,6 +132,12 @@ export class AssignmentsService {
     private readonly clock: CongregationClock,
     /** The circuit-visit template, offered to a week made by hand. Last, as above. */
     private readonly coVisitTemplate: CoVisitTemplateService,
+    /**
+     * The programme becomes the record a week after its meeting (13 October
+     * 2026): every write here asks it first. Before the optional reminders,
+     * which TypeScript requires to stay last.
+     */
+    private readonly freeze: ProgrammeFreezeService,
     /**
      * What each person has been told, and the word when a part is taken away.
      * Last and optional, for the reason above: a spec that builds this service
@@ -302,6 +310,40 @@ export class AssignmentsService {
     return weeks;
   }
 
+  /** How a week's meetings stand — see AssignmentsController.locks. */
+  async locksOfWeek(
+    congregationId: string,
+    weekStart: string,
+    user: FreezeUser,
+  ): Promise<{
+    weekStartDate: string;
+    meetings: Record<
+      'midweek' | 'weekend' | 'memorial',
+      {
+        meetingDate: string;
+        editableUntil: string;
+        held: boolean;
+        frozen: boolean;
+      }
+    >;
+    mayFixAfterwards: boolean;
+  }> {
+    const week = weekStart.slice(0, 10);
+    const kinds = ['midweek', 'weekend', 'memorial'] as const;
+    const locks = await this.freeze.locks(
+      congregationId,
+      kinds.map((eventType) => ({ weekStartDate: week, eventType })),
+    );
+    const meetings = Object.fromEntries(
+      kinds.map((k) => [k, locks.get(`${week}|${k}`)!]),
+    ) as Record<(typeof kinds)[number], ReturnType<typeof locks.get> & object>;
+    return {
+      weekStartDate: week,
+      meetings,
+      mayFixAfterwards: await this.freeze.mayFixAfterwards(user),
+    };
+  }
+
   async getById(
     congregationId: string,
     id: string,
@@ -327,9 +369,16 @@ export class AssignmentsService {
   async create(
     congregationId: string,
     dto: CreateAssignmentDto,
+    user?: FreezeUser,
   ): Promise<Assignment> {
+    const { retroactive: askedRetro, ...fields } = dto;
+    const { retroactive } = await this.freeze.assertWritable(
+      congregationId,
+      [{ weekStartDate: fields.weekStartDate, eventType: fields.eventType }],
+      { retroactive: askedRetro, user },
+    );
     const assignment = this.repo.create({
-      ...dto,
+      ...fields,
       congregationId,
     });
     const saved = await this.repo.save(assignment);
@@ -342,8 +391,11 @@ export class AssignmentsService {
         weekStartDate: saved.weekStartDate,
         partKey: saved.partKey,
         publisherId: saved.publisherId ?? null,
+        ...(retroactive ? { retroactive: true } : {}),
       },
     });
+    // A correction after the fact is the row and nothing else.
+    if (retroactive) return saved;
     // Keep the "К нам" journal in sync when the weekend public-talk slot is
     // created directly with a speaker (not only via update).
     if (saved.partKey === PUBLIC_TALK_PART_KEY) {
@@ -364,8 +416,19 @@ export class AssignmentsService {
   async bulkCreate(
     congregationId: string,
     dtos: CreateAssignmentDto[],
+    opts: { retroactive?: boolean; user?: FreezeUser } = {},
   ): Promise<Assignment[]> {
-    const entities = dtos.map((dto) =>
+    // Every meeting of the batch is asked BEFORE anything is written: a
+    // batch over an open week and a frozen one writes nothing, not half.
+    const { retroactive } = await this.freeze.assertWritable(
+      congregationId,
+      dtos.map((d) => ({
+        weekStartDate: d.weekStartDate,
+        eventType: d.eventType,
+      })),
+      opts,
+    );
+    const entities = dtos.map(({ retroactive: _r, ...dto }) =>
       this.repo.create({ ...dto, congregationId }),
     );
     const saved = await this.repo.save(entities);
@@ -382,9 +445,11 @@ export class AssignmentsService {
           bulk: true,
           count: saved.length,
           weeks: [...new Set(saved.map((a) => a.weekStartDate))].sort(),
+          ...(retroactive ? { retroactive: true } : {}),
         },
       });
     }
+    if (retroactive) return saved;
     const talkWeeks = new Set(
       saved
         .filter((a) => a.partKey === PUBLIC_TALK_PART_KEY)
@@ -406,18 +471,45 @@ export class AssignmentsService {
   async update(
     congregationId: string,
     id: string,
-    dto: UpdateAssignmentDto,
+    rawDto: UpdateAssignmentDto,
+    user?: FreezeUser,
   ): Promise<Assignment> {
+    const { retroactive: askedRetro, ...dto } = rawDto;
     const existing = await this.getById(congregationId, id);
     if (existing.deletedAt) {
       throw new NotFoundException(
         `Assignment ${id} is removed; restore it before updating`,
       );
     }
+    // The meeting it belongs to — and, when the row is moved, the one it
+    // goes to: neither may be the record.
+    const from = {
+      weekStartDate: existing.weekStartDate,
+      eventType: existing.eventType,
+    };
+    const to = {
+      weekStartDate: dto.weekStartDate ?? existing.weekStartDate,
+      eventType: dto.eventType ?? existing.eventType,
+    };
+    // A correction after the fact puts a row right where it stands; moving
+    // it to another week or meeting is a new plan, not a correction — so a
+    // move touching a frozen meeting is refused even when asked as a fix.
+    const moves =
+      to.weekStartDate.slice(0, 10) !== from.weekStartDate.slice(0, 10) ||
+      to.eventType !== from.eventType;
+    const { retroactive } = await this.freeze.assertWritable(
+      congregationId,
+      [from, to],
+      { retroactive: moves ? false : askedRetro, user },
+    );
+    const lock = await this.freeze.lockOf(congregationId, to);
     const prevPublisherId = existing.publisherId;
     // If a published assignment's assignee / partner / invited speaker changes,
     // flag it so the scheduler can notify the congregation of the change.
+    // Not for a meeting already held: who stood in yesterday is put right,
+    // not announced (13 October 2026).
     const changed =
+      !lock.held &&
       existing.status === AssignmentStatus.PUBLISHED &&
       ((dto.publisherId !== undefined &&
         dto.publisherId !== existing.publisherId) ||
@@ -443,7 +535,7 @@ export class AssignmentsService {
     if (dto.publicTalkId) existing.specialTalk = false;
     if (changed) existing.changedSincePublish = true;
     const saved = await this.repo.save(existing);
-    if (partTitleReplaced) {
+    if (partTitleReplaced && !retroactive) {
       await this.localNeeds.releaseAssignment(congregationId, id);
     }
     await this.auditLog.logUpdate({
@@ -451,15 +543,26 @@ export class AssignmentsService {
       entityType: 'assignment',
       entityId: saved.id,
       subjectId: saved.publisherId ?? prevPublisherId ?? null,
-      before: beforeSnapshot,
+      before: { ...beforeSnapshot, retroactive: false },
       after: {
         publisherId: saved.publisherId ?? null,
         assistantPublisherId: saved.assistantPublisherId ?? null,
         speakerName: saved.speakerName ?? null,
         status: saved.status,
+        // Marked in the journal: corrected after it became the record.
+        retroactive,
       },
-      fields: ['publisherId', 'assistantPublisherId', 'speakerName', 'status'],
+      fields: [
+        'publisherId',
+        'assistantPublisherId',
+        'speakerName',
+        'status',
+        'retroactive',
+      ],
     });
+    // A correction after the fact is the row and nothing else: the talk
+    // journal, the prayer, the microphone keep their own record.
+    if (retroactive) return saved;
     // Keep the "К нам" journal in sync with the weekend public-talk slot.
     if (saved.partKey === PUBLIC_TALK_PART_KEY) {
       await this.talkExchange.syncProgramToJournal(
@@ -467,6 +570,10 @@ export class AssignmentsService {
         saved.weekStartDate,
       );
     }
+    // The planning helpers are for meetings still ahead. On one already
+    // held they would rewrite a neighbouring part — and the microphone in
+    // the duties, which are frozen from the day after (13 October 2026).
+    if (lock.held) return saved;
     // Congregation rule: chairman -> concluding/opening prayer auto-fill.
     const ruleWarnings = await this.applyChairmanPrayerRule(
       congregationId,
@@ -783,11 +890,25 @@ export class AssignmentsService {
     return { source, target };
   }
 
-  async remove(congregationId: string, id: string): Promise<void> {
+  async remove(
+    congregationId: string,
+    id: string,
+    opts: { retroactive?: boolean; user?: FreezeUser } = {},
+  ): Promise<void> {
     const existing = await this.getById(congregationId, id);
     if (existing.deletedAt) {
       return;
     }
+    const { retroactive } = await this.freeze.assertWritable(
+      congregationId,
+      [
+        {
+          weekStartDate: existing.weekStartDate,
+          eventType: existing.eventType,
+        },
+      ],
+      opts,
+    );
     await this.repo.softDelete({
       id,
       congregationId,
@@ -801,8 +922,10 @@ export class AssignmentsService {
       detail: {
         weekStartDate: existing.weekStartDate,
         partKey: existing.partKey,
+        ...(retroactive ? { retroactive: true } : {}),
       },
     });
+    if (retroactive) return;
     // Same for a local-needs topic placed in this part: the part is gone, so
     // the topic was not used, and it belongs back in the plan.
     await this.localNeeds.releaseAssignment(congregationId, id);
@@ -816,7 +939,11 @@ export class AssignmentsService {
     }
   }
 
-  async restore(congregationId: string, id: string): Promise<Assignment> {
+  async restore(
+    congregationId: string,
+    id: string,
+    opts: { retroactive?: boolean; user?: FreezeUser } = {},
+  ): Promise<Assignment> {
     const existing = await this.repo.findOne({
       where: {
         id,
@@ -828,12 +955,22 @@ export class AssignmentsService {
     if (!existing) {
       throw new NotFoundException(`Removed assignment ${id} not found`);
     }
+    const { retroactive } = await this.freeze.assertWritable(
+      congregationId,
+      [
+        {
+          weekStartDate: existing.weekStartDate,
+          eventType: existing.eventType,
+        },
+      ],
+      opts,
+    );
     await this.repo.restore({
       id,
       congregationId,
     });
     const restored = await this.getById(congregationId, id);
-    if (restored.partKey === PUBLIC_TALK_PART_KEY) {
+    if (!retroactive && restored.partKey === PUBLIC_TALK_PART_KEY) {
       await this.talkExchange.syncProgramToJournal(
         congregationId,
         restored.weekStartDate,
@@ -854,6 +991,15 @@ export class AssignmentsService {
     notify = true,
   ): Promise<{ published: number }> {
     const kind = String(eventType);
+    // A meeting already held is published for the record, quietly: telling
+    // people now that they «have a part» on a day gone is noise.
+    if (notify) {
+      const lock = await this.freeze.lockOf(congregationId, {
+        weekStartDate,
+        eventType: kind,
+      });
+      if (lock.held) notify = false;
+    }
     const isMeeting = kind === 'midweek' || kind === 'weekend';
     // What this press makes known, read BEFORE anything is flipped: the drafts
     // it publishes and the edits it covers. Those people — and nobody else —
@@ -927,6 +1073,14 @@ export class AssignmentsService {
     if (!this.reminders || (kind !== 'midweek' && kind !== 'weekend')) {
       return { meetingDate: null, rows: [], canWait: true, nextWord: null };
     }
+    // Nobody is to hear about a meeting already held.
+    const lock = await this.freeze.lockOf(congregationId, {
+      weekStartDate,
+      eventType: kind,
+    });
+    if (lock.held) {
+      return { meetingDate: null, rows: [], canWait: true, nextWord: null };
+    }
     return this.reminders.pendingNotice(congregationId, weekStartDate, kind);
   }
 
@@ -940,6 +1094,24 @@ export class AssignmentsService {
     weekStartDate: string,
     eventType: EventType,
   ): Promise<{ notified: number }> {
+    // Nothing about a meeting already held is news (13 October 2026).
+    const lock = await this.freeze.lockOf(congregationId, {
+      weekStartDate,
+      eventType: String(eventType),
+    });
+    if (lock.held) {
+      // The flags are put away too, so nothing about it waits to be sent.
+      await this.repo
+        .createQueryBuilder()
+        .update(Assignment)
+        .set({ changedSincePublish: false })
+        .where('congregationId = :congregationId', { congregationId })
+        .andWhere('weekStartDate = :weekStartDate', { weekStartDate })
+        .andWhere('eventType = :eventType', { eventType })
+        .andWhere('changedSincePublish = true')
+        .execute();
+      return { notified: 0 };
+    }
     const changedRows = await this.repo.find({
       where: {
         congregationId,

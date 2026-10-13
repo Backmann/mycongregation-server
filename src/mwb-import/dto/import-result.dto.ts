@@ -10,6 +10,12 @@ export interface WeekImportSummary {
    * the week was applied. `skipped` then counts every part that came in.
    */
   notHeld?: boolean;
+  /**
+   * Set when the week's programme is already the record — its meeting was
+   * held more than a week ago — so nothing of it was applied (13 October
+   * 2026). `skipped` then counts every part that came in.
+   */
+  frozen?: boolean;
 }
 
 /**
@@ -32,6 +38,18 @@ export type ImportNotice =
       meeting: 'midweek' | 'weekend';
       /** How many parts came in for the week and were left out. */
       parts: number;
+    }
+  | {
+      /**
+       * The week's programme is already the record (its meeting was held
+       * more than a week ago), so its parts were not applied.
+       */
+      code: 'week_frozen';
+      weekStartDate: string;
+      meeting: 'midweek' | 'weekend';
+      parts: number;
+      /** The last day it could still have been changed. */
+      editableUntil: string;
     }
   | {
       /** A part with no recognised kind — left out. */

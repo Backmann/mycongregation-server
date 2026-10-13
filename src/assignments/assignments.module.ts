@@ -17,6 +17,7 @@ import { AuditLogModule } from '../audit-log/audit-log.module';
 import { AssignmentSectionGuard } from '../common/guards/assignment-section.guard';
 import { AssignmentsService } from './assignments.service';
 import { AssignmentsController } from './assignments.controller';
+import { ProgrammeFreezeModule } from './programme-freeze.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { AssignmentsController } from './assignments.controller';
     CongregationClockModule,
     AuditLogModule,
     CoVisitTemplateModule,
+    ProgrammeFreezeModule,
   ],
   controllers: [AssignmentsController],
   providers: [AssignmentsService, AssignmentSectionGuard],

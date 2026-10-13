@@ -1,3 +1,4 @@
+import { ProgrammeFreezeModule } from '../assignments/programme-freeze.module';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditLog } from '../entities/audit-log.entity';
@@ -30,6 +31,7 @@ import { AuditRevertController } from './audit-revert.controller';
   imports: [
     TypeOrmModule.forFeature([AuditLog, Responsibility, Assignment]),
     AssignmentsModule,
+    ProgrammeFreezeModule,
     LocalNeedsModule,
     AbsencesModule,
     HallsModule,

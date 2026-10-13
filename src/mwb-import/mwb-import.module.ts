@@ -6,6 +6,7 @@ import { MwbImportController } from './mwb-import.controller';
 import { MwbImportService } from './mwb-import.service';
 import { CoVisitTemplateModule } from '../special-events/co-visit-template.module';
 import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
+import { ProgrammeFreezeModule } from '../assignments/programme-freeze.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
     MeetingAttendanceModule,
     CoVisitTemplateModule,
     TalkExchangeModule,
+    ProgrammeFreezeModule,
   ],
   controllers: [MwbImportController],
   providers: [MwbImportService],
