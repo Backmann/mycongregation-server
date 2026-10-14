@@ -47,6 +47,7 @@ import { CircuitOverseerModule } from './circuit-overseer/circuit-overseer.modul
 import { TasksModule } from './tasks/tasks.module';
 import { DutiesModule } from './duties/duties.module';
 import { MeetingAttendanceModule } from './meeting-attendance/meeting-attendance.module';
+import { ConductRunsModule } from './conduct-runs/conduct-runs.module';
 import { AnnualReportModule } from './annual-report/annual-report.module';
 import { FieldServiceMeetingsModule } from './field-service-meetings/field-service-meetings.module';
 import { CoVisitItemsModule } from './co-visit-items/co-visit-items.module';
@@ -133,6 +134,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     TasksModule,
     DutiesModule,
     MeetingAttendanceModule,
+    ConductRunsModule,
     AnnualReportModule,
     FieldServiceMeetingsModule,
     CoVisitItemsModule,

@@ -83,6 +83,8 @@ export const PLAN: Record<string, TablePlan> = {
   /** Addresses of real devices. */
   push_tokens: 'skip',
   push_receipts: 'skip',
+  /** How a meeting ran: kept seven days, a view of people against the clock. */
+  conduct_runs: 'skip',
   web_push_subscriptions: 'skip',
   /** Texts of notifications, with names. */
   notification_outbox: 'skip',

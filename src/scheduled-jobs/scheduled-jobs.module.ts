@@ -14,6 +14,7 @@ import { SpecialEventsModule } from '../special-events/special-events.module';
 import { TasksModule } from '../tasks/tasks.module';
 import { FieldServiceMeetingsModule } from '../field-service-meetings/field-service-meetings.module';
 import { UsersModule } from '../users/users.module';
+import { ConductRunsModule } from '../conduct-runs/conduct-runs.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { UsersModule } from '../users/users.module';
     AnnualReportModule,
     ServiceReportsModule,
     UsersModule,
+    ConductRunsModule,
   ],
   controllers: [AdminController],
   providers: [ScheduledJobsService],

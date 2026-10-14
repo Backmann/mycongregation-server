@@ -15,6 +15,7 @@ import { EventNotificationsService } from '../special-events/event-notifications
 import { AnnualSentService } from '../annual-report/annual-sent.service';
 import { MonthlySentService } from '../service-reports/monthly-sent.service';
 import { UsersService } from '../users/users.service';
+import { ConductRunsService } from '../conduct-runs/conduct-runs.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -36,6 +37,7 @@ export class ScheduledJobsService {
     private readonly monthlySent: MonthlySentService,
     private readonly assignmentReminders: AssignmentRemindersService,
     private readonly users: UsersService,
+    private readonly conductRuns: ConductRunsService,
   ) {}
 
   /**
@@ -388,6 +390,28 @@ export class ScheduledJobsService {
     } catch (err: any) {
       this.logger.error(
         '[AuditLogCleanup] daily cleanup failed',
+        err?.stack ?? err?.message ?? String(err),
+      );
+    }
+  }
+
+  /**
+   * Cron — how a midweek meeting ran is kept SEVEN DAYS, then deleted
+   * (Lionel, 14 October 2026; entities/conduct-run.entity.ts). Runs at
+   * 03:50 UTC, after the other nightly jobs. Reading checks the age too, so a
+   * night this does not run stretches nothing.
+   */
+  @Cron('50 3 * * *', {
+    name: 'conduct-run-cleanup',
+    timeZone: 'UTC',
+  })
+  async handleConductRunCleanup(): Promise<void> {
+    try {
+      const deleted = await this.conductRuns.deleteExpired();
+      this.logger.log(`[ConductRunCleanup] done — deleted=${deleted}`);
+    } catch (err: any) {
+      this.logger.error(
+        '[ConductRunCleanup] daily cleanup failed',
         err?.stack ?? err?.message ?? String(err),
       );
     }
