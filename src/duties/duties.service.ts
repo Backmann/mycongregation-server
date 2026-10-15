@@ -389,8 +389,7 @@ export class DutiesService {
       rows.push({ ...base, dutyType, slotIndex: 0, sortOrder: ++order });
     }
     // The timekeeper runs conduct mode, which is the midweek meeting's only.
-    // A week generated before it existed gains the row the next time the
-    // sheet is opened: the insert below skips what is there.
+    // Sheets made before it existed got the row from migration 1903.
     if (dto.eventType === EventType.MIDWEEK) {
       for (const dutyType of MIDWEEK_ONLY_DUTIES) {
         rows.push({ ...base, dutyType, slotIndex: 0, sortOrder: ++order });
