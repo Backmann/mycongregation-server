@@ -29,8 +29,10 @@ export class ConductRunsController {
     return { run: await this.service.find(user, week) };
   }
 
+  // No role here: the timekeeper who ends the meeting may be any brother the
+  // duties name, a publisher too. The service checks the week's programme
+  // and duties.
   @Put()
-  @Roles(UserRole.ADMIN, UserRole.ELDER, UserRole.MINISTERIAL_SERVANT)
   save(@CurrentUser() user: AuthenticatedUser, @Body() dto: SaveConductRunDto) {
     return this.service.save(user, dto);
   }

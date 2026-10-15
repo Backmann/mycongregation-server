@@ -201,6 +201,7 @@ const DUTY_NAMES: Record<SupportedLanguage, Record<string, string>> = {
     zoom: 'Видеосвязь (Zoom)',
     stage: 'Сцена',
     ventilation: 'Проветривание',
+    timekeeper: 'Ведущий времени',
     custom: 'Обязанность',
   },
   en: {
@@ -211,6 +212,7 @@ const DUTY_NAMES: Record<SupportedLanguage, Record<string, string>> = {
     zoom: 'Video conferencing (Zoom)',
     stage: 'Stage',
     ventilation: 'Ventilation',
+    timekeeper: 'Timekeeper',
     custom: 'Duty',
   },
   de: {
@@ -221,6 +223,7 @@ const DUTY_NAMES: Record<SupportedLanguage, Record<string, string>> = {
     zoom: 'Videokonferenz (Zoom)',
     stage: 'Bühne',
     ventilation: 'Lüftung',
+    timekeeper: 'Zeitnehmer',
     custom: 'Aufgabe',
   },
 };

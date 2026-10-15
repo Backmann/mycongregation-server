@@ -39,8 +39,15 @@ const dto = {
   plannedSec: 6300,
 };
 
+const KEEPER_USER = 'user-keeper';
+const KEEPER_PUB = 'pub-keeper';
+
 function build(
-  opts: { chair?: string | null; stored?: Record<string, unknown> | null } = {},
+  opts: {
+    chair?: string | null;
+    keeper?: string | null;
+    stored?: Record<string, unknown> | null;
+  } = {},
 ) {
   const chair = opts.chair === undefined ? CHAIR_PUB : opts.chair;
   const runs = {
@@ -54,20 +61,44 @@ function build(
   };
   const publishers = {
     findOne: jest.fn(async ({ where }: { where: { id: string } }) =>
-      where.id === CHAIR_PUB ? { id: CHAIR_PUB, userId: CHAIR_USER } : null,
+      where.id === CHAIR_PUB
+        ? { id: CHAIR_PUB, userId: CHAIR_USER }
+        : where.id === KEEPER_PUB
+          ? { id: KEEPER_PUB, userId: KEEPER_USER }
+          : null,
     ),
+  };
+  const duties = {
+    findOne: jest
+      .fn()
+      .mockResolvedValue(opts.keeper ? { publisherId: opts.keeper } : null),
   };
   return {
     service: new ConductRunsService(
       runs as never,
       assignments as never,
       publishers as never,
+      duties as never,
     ),
     runs,
   };
 }
 
 describe('saving how the meeting ran', () => {
+  it('the timekeeper of that week saves it too — his device ends the meeting', async () => {
+    const { service, runs } = build({ keeper: KEEPER_PUB });
+    await service.save(user(UserRole.PUBLISHER, KEEPER_USER), dto as never);
+    expect(runs.save).toHaveBeenCalled();
+  });
+
+  it('a publisher who is neither chairman nor timekeeper is refused', async () => {
+    const { service, runs } = build({ keeper: KEEPER_PUB });
+    await expect(
+      service.save(user(UserRole.PUBLISHER, 'user-other'), dto as never),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(runs.save).not.toHaveBeenCalled();
+  });
+
   it('the chairman of that week saves it, stamped now', async () => {
     const { service, runs } = build();
     const now = new Date('2026-10-14T19:45:00Z');

@@ -16,6 +16,7 @@ import { AnnualSentService } from '../annual-report/annual-sent.service';
 import { MonthlySentService } from '../service-reports/monthly-sent.service';
 import { UsersService } from '../users/users.service';
 import { ConductRunsService } from '../conduct-runs/conduct-runs.service';
+import { ConductLiveService } from '../conduct-live/conduct-live.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -38,6 +39,7 @@ export class ScheduledJobsService {
     private readonly assignmentReminders: AssignmentRemindersService,
     private readonly users: UsersService,
     private readonly conductRuns: ConductRunsService,
+    private readonly conductLive: ConductLiveService,
   ) {}
 
   /**
@@ -408,7 +410,11 @@ export class ScheduledJobsService {
   async handleConductRunCleanup(): Promise<void> {
     try {
       const deleted = await this.conductRuns.deleteExpired();
-      this.logger.log(`[ConductRunCleanup] done — deleted=${deleted}`);
+      // The meeting as it ran live is kept a day — gone with the same pass.
+      const live = await this.conductLive.deleteExpired();
+      this.logger.log(
+        `[ConductRunCleanup] done — deleted=${deleted} live=${live}`,
+      );
     } catch (err: any) {
       this.logger.error(
         '[ConductRunCleanup] daily cleanup failed',

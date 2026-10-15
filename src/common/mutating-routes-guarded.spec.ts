@@ -15,6 +15,8 @@ const CHECKED_IN_SERVICE: Record<string, string> = {
   absences: 'service: a person for himself, planners for others',
   auth: 'sign-in, reset and one\u2019s own account — public or self by design',
   'auxiliary-pioneers': 'service: self-application, managers for others',
+  'conduct-live': 'service: chairman, timekeeper or admin of that week',
+  'conduct-runs': 'service: chairman, timekeeper or admin of that week',
   'cart-slots':
     'the self-service routes (request, my-assignment); the rest carry @RequireResponsibility',
   cleaning: 'the group plans its own day; the service checks the group',

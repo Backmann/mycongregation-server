@@ -8,6 +8,8 @@ import { IsNull, LessThan, Repository } from 'typeorm';
 import { ConductRun } from '../entities/conduct-run.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Publisher } from '../entities/publisher.entity';
+import { Duty } from '../entities/duty.entity';
+import { DutyType } from '../common/enums/duty-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { EventType } from '../common/enums/event-type.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -22,8 +24,10 @@ const KEEP_MS = CONDUCT_RUN_KEEP_DAYS * 24 * 60 * 60 * 1000;
  * The chairman's run of a midweek meeting, kept seven days
  * (entities/conduct-run.entity.ts).
  *
- * WHO WRITES: the chairman named in that week's programme, and an admin —
- * the same two the conduct screen opens for. Nobody else ran the meeting.
+ * WHO WRITES: the chairman named in that week's programme, the timekeeper
+ * named in that meeting's duties (15 October 2026: he runs the screen while
+ * the chairman watches, and his device is the one that ends the meeting), and
+ * an admin. Nobody else ran the meeting.
  *
  * WHO READS: the chairman of that week, the elders and an admin. It is a view
  * of people's parts against the clock; a publisher has no task that needs it.
@@ -37,7 +41,26 @@ export class ConductRunsService {
     private readonly assignments: Repository<Assignment>,
     @InjectRepository(Publisher)
     private readonly publishers: Repository<Publisher>,
+    @InjectRepository(Duty)
+    private readonly duties: Repository<Duty>,
   ) {}
+
+  /** Whether this account is the timekeeper named for that week's midweek meeting. */
+  async isTimekeeper(user: AuthenticatedUser, week: string): Promise<boolean> {
+    const duty = await this.duties.findOne({
+      where: {
+        congregationId: user.congregationId,
+        weekStartDate: week,
+        eventType: EventType.MIDWEEK,
+        dutyType: DutyType.TIMEKEEPER,
+      },
+    });
+    if (!duty?.publisherId) return false;
+    const mine = await this.publishers.findOne({
+      where: { id: duty.publisherId, congregationId: user.congregationId },
+    });
+    return !!mine && mine.userId === user.id;
+  }
 
   /** The Monday, or a refusal. */
   private monday(value: string): string {
@@ -79,11 +102,15 @@ export class ConductRunsService {
     now = new Date(),
   ): Promise<ConductRun> {
     const week = this.monday(dto.weekStartDate);
-    if (user.role !== UserRole.ADMIN && !(await this.isChairman(user, week))) {
+    if (
+      user.role !== UserRole.ADMIN &&
+      !(await this.isChairman(user, week)) &&
+      !(await this.isTimekeeper(user, week))
+    ) {
       throw new ForbiddenException(
         refusal(
           'CONDUCT_RUN_FORBIDDEN',
-          'Only the chairman of that week saves how the meeting ran.',
+          'Only the chairman or the timekeeper of that week saves how the meeting ran.',
         ),
       );
     }
