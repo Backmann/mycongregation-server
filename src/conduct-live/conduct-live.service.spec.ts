@@ -113,40 +113,53 @@ describe('who may watch the meeting as it runs', () => {
 
   it('a ministerial servant by his card watches, though his account is a publisher', async () => {
     const { service } = build({ row: {} });
-    const v = await service.find(
+    const { live: v, roles } = await service.find(
       user(UserRole.PUBLISHER, MS_CARD_USER),
       WEEK,
       NOW,
     );
+    expect(roles).toMatchObject({ mayRun: false, hasTimekeeper: true });
     expect(v?.controllerName).toBe('Фогт Маркус');
     expect(v?.mine).toBe(false);
   });
 
   it('an elder watches', async () => {
     const { service } = build({ row: {} });
-    expect(await service.find(user(UserRole.ELDER), WEEK, NOW)).not.toBeNull();
+    expect(
+      (await service.find(user(UserRole.ELDER), WEEK, NOW)).live,
+    ).not.toBeNull();
   });
 
   it('no meeting running → null, not a refusal', async () => {
     const { service } = build({ row: null });
-    expect(await service.find(user(UserRole.ELDER), WEEK, NOW)).toBeNull();
+    expect(
+      (await service.find(user(UserRole.ELDER), WEEK, NOW)).live,
+    ).toBeNull();
   });
 
   it('a row older than a day is no longer the meeting → null', async () => {
     const { service } = build({
       row: { updatedAt: new Date(NOW.getTime() - CONDUCT_LIVE_KEEP_MS - 1000) },
     });
-    expect(await service.find(user(UserRole.ELDER), WEEK, NOW)).toBeNull();
+    expect(
+      (await service.find(user(UserRole.ELDER), WEEK, NOW)).live,
+    ).toBeNull();
   });
 
   it("the controller's asking is his sign of life", async () => {
     const { service, live } = build({ row: {} });
-    const v = await service.find(
+    const { live: v, roles } = await service.find(
       user(UserRole.PUBLISHER, KEEPER_USER),
       WEEK,
       NOW,
     );
     expect(v?.mine).toBe(true);
+    expect(roles).toMatchObject({
+      mayRun: true,
+      isTimekeeper: true,
+      isChairman: false,
+      timekeeperName: 'Фогт Маркус',
+    });
     expect(live.update).toHaveBeenCalledWith(
       { id: 'live-1' },
       expect.objectContaining({ controllerSeenAt: NOW }),
@@ -155,12 +168,32 @@ describe('who may watch the meeting as it runs', () => {
 
   it("the chairman's asking is his, for the timekeeper to see", async () => {
     const { service, live } = build({ row: {} });
-    const v = await service.find(user(UserRole.ELDER, CHAIR_USER), WEEK, NOW);
+    const { live: v, roles } = await service.find(
+      user(UserRole.ELDER, CHAIR_USER),
+      WEEK,
+      NOW,
+    );
+    expect(roles.isChairman).toBe(true);
     expect(v?.chairmanSeenAt).toBe(NOW.toISOString());
     expect(live.update).toHaveBeenCalledWith(
       { id: 'live-1' },
       expect.objectContaining({ chairmanSeenAt: NOW }),
     );
+  });
+});
+
+it('without a timekeeper named, the chairman learns he runs it himself', async () => {
+  const { service } = build({ row: null, keeper: false });
+  const { roles } = await service.find(
+    user(UserRole.ELDER, CHAIR_USER),
+    WEEK,
+    NOW,
+  );
+  expect(roles).toMatchObject({
+    mayRun: true,
+    isChairman: true,
+    hasTimekeeper: false,
+    timekeeperName: null,
   });
 });
 

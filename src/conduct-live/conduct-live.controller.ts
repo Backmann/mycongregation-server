@@ -33,8 +33,8 @@ export class ConductLiveController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('week') week: string,
   ) {
-    const live = await this.service.find(user, week);
-    return { live, serverNow: new Date().toISOString() };
+    const { live, roles } = await this.service.find(user, week);
+    return { live, roles, serverNow: new Date().toISOString() };
   }
 
   @Put()

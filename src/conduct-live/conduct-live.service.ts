@@ -36,6 +36,19 @@ export interface ConductLiveView {
 }
 
 /**
+ * Who the asker is for this meeting — so the screen knows, without reading
+ * the duties itself, whether he may run it and whether a timekeeper is named
+ * (the chairman then opens watching, not running).
+ */
+export interface ConductLiveRoles {
+  mayRun: boolean;
+  isChairman: boolean;
+  isTimekeeper: boolean;
+  hasTimekeeper: boolean;
+  timekeeperName: string | null;
+}
+
+/**
  * A midweek meeting while it runs (entities/conduct-live.entity.ts).
  *
  * WHO RUNS IT: the chairman of that week, the timekeeper named for that
@@ -214,42 +227,67 @@ export class ConductLiveService {
   }
 
   /**
-   * The meeting as it runs, or null. Asking is also the asker's sign of life:
-   * the controller's and the chairman's — saved without touching updatedAt,
-   * which says when the MEETING last changed.
+   * The meeting as it runs (or null), and who the asker is for it. Asking is
+   * also the asker's sign of life: the controller's and the chairman's —
+   * saved without touching updatedAt, which says when the MEETING last
+   * changed.
    */
   async find(
     user: AuthenticatedUser,
     weekStartDate: string,
     now = new Date(),
-  ): Promise<ConductLiveView | null> {
+  ): Promise<{ live: ConductLiveView | null; roles: ConductLiveRoles }> {
     const week = this.monday(weekStartDate);
-    if (!(await this.mayRun(user, week)) && !(await this.isAppointed(user))) {
-      throw this.forbidden();
-    }
+    const [chair, keeperDuty] = await Promise.all([
+      this.chairmanUser(user.congregationId, week),
+      this.duties.findOne({
+        where: {
+          congregationId: user.congregationId,
+          weekStartDate: week,
+          eventType: EventType.MIDWEEK,
+          dutyType: DutyType.TIMEKEEPER,
+        },
+      }),
+    ]);
+    const keeper = await this.userOfPublisher(
+      user.congregationId,
+      keeperDuty?.publisherId,
+    );
+    const isChairman = !!chair && chair === user.id;
+    const isTimekeeper = !!keeper && keeper === user.id;
+    const mayRun = user.role === UserRole.ADMIN || isChairman || isTimekeeper;
+    if (!mayRun && !(await this.isAppointed(user))) throw this.forbidden();
+    const roles: ConductLiveRoles = {
+      mayRun,
+      isChairman,
+      isTimekeeper,
+      hasTimekeeper: !!keeperDuty?.publisherId,
+      timekeeperName: keeper
+        ? await this.nameOf(user.congregationId, keeper)
+        : null,
+    };
+
     const row = await this.findRow(user.congregationId, week);
-    if (!row) return null;
     if (
-      now.getTime() - new Date(row.updatedAt).getTime() >
-      CONDUCT_LIVE_KEEP_MS
-    )
-      return null;
+      !row ||
+      now.getTime() - new Date(row.updatedAt).getTime() > CONDUCT_LIVE_KEEP_MS
+    ) {
+      return { live: null, roles };
+    }
     if (row.controllerUserId === user.id) {
       await this.live.update({ id: row.id }, {
         controllerSeenAt: now,
         updatedAt: () => '"updated_at"',
       } as never);
       row.controllerSeenAt = now;
-    } else if (
-      (await this.chairmanUser(user.congregationId, week)) === user.id
-    ) {
+    } else if (isChairman) {
       await this.live.update({ id: row.id }, {
         chairmanSeenAt: now,
         updatedAt: () => '"updated_at"',
       } as never);
       row.chairmanSeenAt = now;
     }
-    return this.view(row, user);
+    return { live: await this.view(row, user), roles };
   }
 
   private checkState(state: unknown): Record<string, unknown> {
