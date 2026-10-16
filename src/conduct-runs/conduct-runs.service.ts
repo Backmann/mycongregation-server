@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
@@ -15,6 +16,7 @@ import { EventType } from '../common/enums/event-type.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
 import { isAppointedBrother } from '../common/appointed-brother';
+import { MeetingDayService } from './meeting-day.service';
 import { SaveConductRunDto } from './dto/save-conduct-run.dto';
 
 /** How long a run may be read and kept — Lionel, 14 October 2026. */
@@ -47,6 +49,7 @@ export class ConductRunsService {
     private readonly publishers: Repository<Publisher>,
     @InjectRepository(Duty)
     private readonly duties: Repository<Duty>,
+    private readonly meetingDay: MeetingDayService,
   ) {}
 
   /** Whether this account is the timekeeper named for that week's midweek meeting. */
@@ -133,6 +136,18 @@ export class ConductRunsService {
         eventType: EventType.MIDWEEK,
       },
     });
+    // AFTER THE MEETING'S DAY A RESULT IS NOT REPLACED (16 October 2026). A
+    // result may still ARRIVE late — a phone that had no signal in the hall
+    // sends it when it has one — but one already kept is the meeting's, and
+    // a run finished days later on some device is not.
+    if (existing && (await this.meetingDay.isOver(user.congregationId, week))) {
+      throw new ConflictException(
+        refusal(
+          'CONDUCT_RESULT_KEPT',
+          'The result of this meeting is kept already; after its day it is not replaced.',
+        ),
+      );
+    }
     const row =
       existing ??
       this.runs.create({

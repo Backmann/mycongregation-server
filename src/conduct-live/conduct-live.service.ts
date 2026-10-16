@@ -16,6 +16,7 @@ import { DutyType } from '../common/enums/duty-type.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
 import { isAppointedBrother } from '../common/appointed-brother';
+import { MeetingDayService } from '../conduct-runs/meeting-day.service';
 
 /** How long a live row is kept — a day; the meeting is long over by then. */
 export const CONDUCT_LIVE_KEEP_MS = 24 * 60 * 60 * 1000;
@@ -80,6 +81,7 @@ export class ConductLiveService {
     private readonly publishers: Repository<Publisher>,
     @InjectRepository(Duty)
     private readonly duties: Repository<Duty>,
+    private readonly meetingDay: MeetingDayService,
   ) {}
 
   /** The Monday, or a refusal. */
@@ -156,6 +158,18 @@ export class ConductLiveService {
   /** An appointed brother: by his role, or by his own card. */
   private isAppointed(user: AuthenticatedUser): Promise<boolean> {
     return isAppointedBrother(user, this.publishers);
+  }
+
+  /** A meeting whose day has passed is not run any more (16 October 2026). */
+  private async refuseIfOver(congregationId: string, week: string) {
+    if (await this.meetingDay.isOver(congregationId, week)) {
+      throw new ConflictException(
+        refusal(
+          'CONDUCT_MEETING_OVER',
+          'This meeting is over; it is not run again after its day.',
+        ),
+      );
+    }
   }
 
   private forbidden(): ForbiddenException {
@@ -250,6 +264,12 @@ export class ConductLiveService {
         : null,
     };
 
+    // After the meeting's day there is no meeting «as it runs» to show — only
+    // its result (conduct-runs). A row left from a run started after the
+    // day is not shown to anybody (16 October 2026).
+    if (await this.meetingDay.isOver(user.congregationId, week)) {
+      return { live: null, roles };
+    }
     const row = await this.findRow(user.congregationId, week);
     if (
       !row ||
@@ -307,6 +327,7 @@ export class ConductLiveService {
     const week = this.monday(weekStartDate);
     const state = this.checkState(stateIn);
     if (!(await this.mayRun(user, week))) throw this.forbidden();
+    await this.refuseIfOver(user.congregationId, week);
     const row = await this.findRow(user.congregationId, week);
     if (!row) {
       const created = await this.live.save(
@@ -358,6 +379,7 @@ export class ConductLiveService {
   ): Promise<ConductLiveView> {
     const week = this.monday(weekStartDate);
     if (!(await this.mayRun(user, week))) throw this.forbidden();
+    await this.refuseIfOver(user.congregationId, week);
     const row = await this.findRow(user.congregationId, week);
     if (!row) {
       return this.write(user, week, 0, stateIn ?? {}, now);

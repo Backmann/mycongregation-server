@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import {
   ConductRunsService,
   CONDUCT_RUN_KEEP_DAYS,
@@ -48,6 +52,7 @@ function build(
     chair?: string | null;
     keeper?: string | null;
     stored?: Record<string, unknown> | null;
+    over?: boolean;
   } = {},
 ) {
   const chair = opts.chair === undefined ? CHAIR_PUB : opts.chair;
@@ -84,6 +89,7 @@ function build(
       assignments as never,
       publishers as never,
       duties as never,
+      { isOver: jest.fn(async () => opts.over === true) } as never,
     ),
     runs,
   };
@@ -167,6 +173,27 @@ describe('saving how the meeting ran', () => {
     expect(runs.create).not.toHaveBeenCalled();
     expect(saved.id).toBe('r1');
     expect(saved.savedAt).toEqual(now);
+  });
+});
+
+describe("after the meeting's day (16 October 2026)", () => {
+  it('a result kept already is not replaced — the 9:16:38 run of 16 October', async () => {
+    const stored = { id: 'r1', weekStartDate: WEEK, totalSec: 6331 };
+    const { service, runs } = build({ stored, over: true });
+    const err = await service
+      .save(user(UserRole.ELDER, CHAIR_USER), dto)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({
+      code: 'CONDUCT_RESULT_KEPT',
+    });
+    expect(runs.save).not.toHaveBeenCalled();
+  });
+
+  it('a result arriving late, with none kept, is still taken — the hall had no signal', async () => {
+    const { service, runs } = build({ stored: null, over: true });
+    await service.save(user(UserRole.ELDER, CHAIR_USER), dto);
+    expect(runs.save).toHaveBeenCalled();
   });
 });
 

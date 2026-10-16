@@ -1,3 +1,6 @@
+import { WeekRulesModule } from '../common/week-rules.module';
+import { CongregationClockModule } from '../common/congregation-clock.module';
+import { MeetingDayService } from './meeting-day.service';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConductRun } from '../entities/conduct-run.entity';
@@ -10,9 +13,11 @@ import { ConductRunsService } from './conduct-runs.service';
 @Module({
   imports: [
     TypeOrmModule.forFeature([ConductRun, Assignment, Publisher, Duty]),
+    WeekRulesModule,
+    CongregationClockModule,
   ],
   controllers: [ConductRunsController],
-  providers: [ConductRunsService],
+  providers: [ConductRunsService, MeetingDayService],
   exports: [ConductRunsService],
 })
 export class ConductRunsModule {}

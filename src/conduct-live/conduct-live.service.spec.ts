@@ -41,7 +41,9 @@ type Row = Record<string, unknown> & {
   updatedAt: Date;
 };
 
-function build(opts: { row?: Partial<Row> | null; keeper?: boolean } = {}) {
+function build(
+  opts: { row?: Partial<Row> | null; keeper?: boolean; over?: boolean } = {},
+) {
   let row: Row | null = opts.row
     ? ({
         id: 'live-1',
@@ -93,6 +95,7 @@ function build(opts: { row?: Partial<Row> | null; keeper?: boolean } = {}) {
     assignments as never,
     publishers as never,
     duties as never,
+    { isOver: jest.fn(async () => opts.over === true) } as never,
   );
   return {
     service,
@@ -338,6 +341,47 @@ describe('running it — one hand at a time', () => {
     await expect(
       service.write(user(UserRole.ADMIN), '2026-10-21', 0, STATE, NOW),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe("after the meeting's day (16 October 2026)", () => {
+  it('nothing is shown as running — a row left behind is not the meeting', async () => {
+    const { service, live } = build({ row: {}, over: true });
+    const { live: v, roles } = await service.find(
+      user(UserRole.ELDER, CHAIR_USER),
+      WEEK,
+      NOW,
+    );
+    expect(v).toBeNull();
+    expect(roles.isChairman).toBe(true);
+    expect(live.update).not.toHaveBeenCalled();
+  });
+
+  it('a tap is refused, even from the controller with the right epoch', async () => {
+    const { service, live } = build({
+      row: { controllerUserId: KEEPER_USER, epoch: 1 },
+      over: true,
+    });
+    const err = await service
+      .write(user(UserRole.PUBLISHER, KEEPER_USER), WEEK, 1, STATE, NOW)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({
+      code: 'CONDUCT_MEETING_OVER',
+    });
+    expect(live.save).not.toHaveBeenCalled();
+  });
+
+  it('… and so is a take-over, and a first start', async () => {
+    const a = build({ row: {}, over: true });
+    await expect(
+      a.service.take(user(UserRole.ELDER, CHAIR_USER), WEEK, undefined, NOW),
+    ).rejects.toBeInstanceOf(ConflictException);
+    const b = build({ row: null, over: true });
+    await expect(
+      b.service.write(user(UserRole.ELDER, CHAIR_USER), WEEK, 0, STATE, NOW),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(b.live.save).not.toHaveBeenCalled();
   });
 });
 
