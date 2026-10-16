@@ -7,10 +7,11 @@ import { SaveConductRunDto } from './dto/save-conduct-run.dto';
 
 /**
  * How a midweek meeting ran — saved by whoever ran it when he finishes, read
- * by the appointed brothers for seven days. Who may do which is decided in
- * the service, against that week's programme and the reader's card — no role
- * here: a ministerial servant whose account is a publisher's reads it by his
- * card, which a role guard cannot see.
+ * for seven days by the admins, the counsel brother and the Life and
+ * Ministry overseer. Who may do which is decided in the service, against
+ * that week's programme and the reader's responsibilities — no role here:
+ * the counsel brother is known by his responsibility, which a role guard
+ * cannot see.
  */
 @Controller('conduct-runs')
 @UseGuards(RolesGuard)

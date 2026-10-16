@@ -15,7 +15,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import { EventType } from '../common/enums/event-type.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
-import { isAppointedBrother } from '../common/appointed-brother';
+import { isConductOverseer } from '../common/conduct-overseer';
 import { MeetingDayService } from './meeting-day.service';
 import { SaveConductRunDto } from './dto/save-conduct-run.dto';
 
@@ -32,11 +32,10 @@ const KEEP_MS = CONDUCT_RUN_KEEP_DAYS * 24 * 60 * 60 * 1000;
  * the chairman watches, and his device is the one that ends the meeting), and
  * an admin. Nobody else ran the meeting.
  *
- * WHO READS: every appointed brother — the elders AND the ministerial
- * servants, by the role of the account or by the card (Lionel, 15 October
- * 2026: «итог 7 дней видят все назначенные братья») — the chairman of that
- * week, and an admin. It is a view of people's parts against the clock; a
- * publisher has no task that needs it.
+ * WHO READS: the admins, the brother who gives counsel and the overseer of
+ * the Life and Ministry meeting (common/conduct-overseer.ts — Lionel,
+ * 16 October 2026). Not the chairman afterwards: he sees the result on his
+ * own screen when the meeting ends.
  */
 @Injectable()
 export class ConductRunsService {
@@ -174,14 +173,11 @@ export class ConductRunsService {
     now = new Date(),
   ): Promise<ConductRun | null> {
     const week = this.monday(weekStartDate);
-    const reader =
-      (await isAppointedBrother(user, this.publishers)) ||
-      (await this.isChairman(user, week));
-    if (!reader) {
+    if (!(await isConductOverseer(user, this.publishers))) {
       throw new ForbiddenException(
         refusal(
           'CONDUCT_RESULT_FORBIDDEN',
-          'How a meeting ran is seen by its chairman and the appointed brothers.',
+          'How a meeting ran is seen by the admins, the counsel brother and the Life and Ministry overseer.',
         ),
       );
     }
