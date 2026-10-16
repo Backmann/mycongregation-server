@@ -41,6 +41,11 @@ export interface ConductRunSegment {
   actualSec: number;
   /** After a student part: the seconds until the next part began (counsel). */
   counselSec: number | null;
+  /**
+   * When the part began, seconds from the meeting's start (16 October 2026)
+   * — where the pauses between parts fell. Absent in results saved before.
+   */
+  startSec?: number | null;
 }
 
 @Entity('conduct_runs')
@@ -79,6 +84,10 @@ export class ConductRun {
   /** The programme's minutes for the whole meeting, in seconds. */
   @Column({ type: 'integer', name: 'planned_sec' })
   plannedSec!: number;
+
+  /** When the first part began (16 October 2026); null in older results. */
+  @Column({ type: 'timestamptz', name: 'started_at', nullable: true })
+  startedAt!: Date | null;
 
   @Column({ type: 'uuid', name: 'saved_by', nullable: true })
   savedBy!: string | null;

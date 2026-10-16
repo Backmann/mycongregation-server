@@ -125,7 +125,19 @@ describe('saving how the meeting ran', () => {
     expect(runs.save).toHaveBeenCalled();
     expect(saved.savedAt).toEqual(now);
     expect(saved.weekStartDate).toBe(WEEK);
-    expect(saved.segments[0]).toEqual(dto.segments[0]);
+    expect(saved.segments[0]).toEqual({ ...dto.segments[0], startSec: null });
+    expect(saved.startedAt).toBeNull(); // an older app sends no start
+  });
+
+  it('when each part began, and the meeting, are kept (16 October 2026)', async () => {
+    const { service } = build();
+    const saved = await service.save(user(UserRole.ELDER, CHAIR_USER), {
+      ...dto,
+      startedAt: '2026-10-14T17:00:40.000Z',
+      segments: [{ ...dto.segments[0], startSec: 1712 }],
+    } as never);
+    expect(saved.segments[0].startSec).toBe(1712);
+    expect(saved.startedAt).toEqual(new Date('2026-10-14T17:00:40.000Z'));
   });
 
   it('an admin may too', async () => {
