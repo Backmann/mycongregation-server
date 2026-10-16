@@ -89,4 +89,13 @@ export class CreateFieldServiceMeetingDto {
   @IsOptional()
   @IsBoolean()
   draft?: boolean;
+
+  /**
+   * The planner saw the conflicts (16 October 2026) — the same meeting
+   * already there, or the conductor already conducting that day — and saves
+   * anyway. Without it such a save is refused with FS_CONFLICT and the list.
+   */
+  @IsOptional()
+  @IsBoolean()
+  confirmConflicts?: boolean;
 }

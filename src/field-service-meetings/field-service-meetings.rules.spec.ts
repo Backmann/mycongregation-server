@@ -46,6 +46,8 @@ function build(
   ];
   const groups = opts.groups ?? ['g-1'];
   const repo = {
+    // What stands on the same day (conflict check, 16 October 2026).
+    find: jest.fn(async () => []),
     create: jest.fn((v: unknown) => v),
     save: jest.fn(async (v: Record<string, unknown>) => ({ id: 'new', ...v })),
     findOne: jest.fn(async () => (opts.row ? { ...opts.row } : null)),

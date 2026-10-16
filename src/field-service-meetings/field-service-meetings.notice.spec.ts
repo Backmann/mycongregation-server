@@ -36,6 +36,8 @@ function build(rows: Row[] = []) {
     getMany: jest.fn(async () => rows.map((r) => ({ ...r }))),
   };
   const repo = {
+    // What stands on the same day (conflict check, 16 October 2026).
+    find: jest.fn(async () => []),
     create: jest.fn((v: unknown) => v),
     save: jest.fn(async (v: Record<string, unknown>) => ({
       id: 'new',

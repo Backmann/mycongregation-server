@@ -225,6 +225,43 @@ describe('preparing the month on its own', () => {
     expect(b.planner.prepare).not.toHaveBeenCalled();
   });
 
+  it('a meeting moved in from October, or a cancelled one, does not count as «prepared» (16 October 2026)', async () => {
+    const { pass, planner } = build({
+      months: {
+        '2026-11': [
+          {
+            id: 'moved',
+            publishedAt: new Date(),
+            weekStartDate: '2026-11-02',
+            dayOfWeek: 6,
+            movedFromDate: '2026-10-31',
+          },
+          {
+            id: 'off',
+            publishedAt: new Date(),
+            weekStartDate: '2026-11-09',
+            dayOfWeek: 6,
+            cancelledAt: new Date(),
+          },
+        ] as any,
+      },
+    });
+    await pass(settings(), '2026-10-01');
+    expect(planner.prepare).toHaveBeenCalledWith(CONG, 2026, 11, true);
+  });
+
+  it('a meeting moved WITHIN the month still counts as prepared by hand', async () => {
+    const { pass, planner } = build({
+      months: {
+        '2026-11': [
+          { id: 'm', publishedAt: null, movedFromDate: '2026-11-07' },
+        ] as any,
+      },
+    });
+    await pass(settings(), '2026-10-01');
+    expect(planner.prepare).not.toHaveBeenCalled();
+  });
+
   it('conductors are left empty when the switch says so', async () => {
     const { pass, planner } = build();
     await pass(settings({ autoPickConductors: false }), '2026-10-01');

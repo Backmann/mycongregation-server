@@ -155,6 +155,16 @@ export class FieldServiceMeeting {
   @Column({ type: 'text', nullable: true })
   cancelReason!: string | null;
 
+  /**
+   * The date this announced meeting was on before its last move (16 October
+   * 2026), so both days can say so: «перенесена с сб 24 окт.» on the new one
+   * and «перенесена на сб 31 окт.» on the old. Moved back to that date, it
+   * is cleared. Null for a meeting never moved, and for drafts — nobody knew
+   * their date yet.
+   */
+  @Column({ type: 'date', nullable: true })
+  movedFromDate!: string | null;
+
   // ---- Timestamps ----
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

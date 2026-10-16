@@ -256,7 +256,18 @@ export class FieldServiceAutomationService {
         today >= prepareFromISO(year, month, settings.prepareLead)
       ) {
         run.preparedAt = now;
-        if (monthMeetings.length === 0) {
+        // «The month holds no meeting yet» counts only what was PLANNED for
+        // it (16 October 2026): a meeting moved in from another month, or a
+        // cancelled one, does not mean the month was prepared — one Saturday
+        // moved into an empty month used to stop it being prepared at all.
+        const planned = monthMeetings.filter(
+          (m) =>
+            !m.cancelledAt &&
+            !(
+              m.movedFromDate && !m.movedFromDate.startsWith(first.slice(0, 7))
+            ),
+        );
+        if (planned.length === 0) {
           const made = await this.planner.prepare(
             cong,
             year,

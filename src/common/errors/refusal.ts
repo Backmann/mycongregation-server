@@ -31,6 +31,8 @@ export const REFUSAL_CODES = [
   // ---- field-service meetings ----
   'FS_PAST_LOCKED',
   'FS_CANCELLED',
+  'FS_DAY_TAKEN',
+  'FS_CONFLICT',
   'FS_DRAFT_NOT_CANCELLABLE',
   'FS_ALREADY_CANCELLED',
   'FS_NOT_CANCELLED',

@@ -28,7 +28,7 @@ const CARD = {
 
 type Row = Record<string, unknown> & { id: string };
 
-function build(rows: Row[] = []) {
+function build(rows: Row[] = [], planner?: { dayTaken: jest.Mock }) {
   const qb: any = {
     where: jest.fn(() => qb),
     andWhere: jest.fn(() => qb),
@@ -49,6 +49,17 @@ function build(rows: Row[] = []) {
     delete: jest.fn(async () => ({ affected: 1 })),
     update: jest.fn(async () => ({ affected: 1 })),
     createQueryBuilder: jest.fn(() => qb),
+    // What stands on a day — the conflict check (16 October 2026).
+    find: jest.fn(async ({ where }: any) =>
+      rows
+        .filter(
+          (r) =>
+            r.weekStartDate === where.weekStartDate &&
+            r.dayOfWeek === where.dayOfWeek &&
+            !r.cancelledAt,
+        )
+        .map((r) => ({ ...r })),
+    ),
   };
   // Two in group g-1, one in g-2, one with no login at all.
   const cards: Record<string, unknown>[] = [
@@ -102,6 +113,7 @@ function build(rows: Row[] = []) {
     clockStub(),
     groupsRepo as any,
     resp as any,
+    planner as any,
   );
   return { svc, repo, audit, notify, qb };
 }
@@ -430,5 +442,169 @@ describe('the list', () => {
     } as any);
     const where2 = asked.qb.andWhere.mock.calls.map((c: any[]) => c[0]);
     expect(where2).not.toContain('m.cancelledAt IS NULL');
+  });
+});
+
+describe('the calendar and what already stands there (16 October 2026)', () => {
+  const free = () => ({ dayTaken: jest.fn(async () => null) });
+
+  it('refuses moving onto an assembly day, by the rule the preparation follows', async () => {
+    const planner = {
+      dayTaken: jest.fn(async (_c: string, d: string) =>
+        d === '2026-10-24'
+          ? { kind: 'assembly', title: 'Kreiskongress' }
+          : null,
+      ),
+    };
+    const { svc, repo } = build([row('m1', {})], planner);
+    expect(
+      await refusedWith(
+        svc.update(CONG, 'm1', { weekStartDate: '2026-10-19' } as any),
+      ),
+    ).toBe('FS_DAY_TAKEN');
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('refuses making one there by hand, too', async () => {
+    const planner = {
+      dayTaken: jest.fn(async () => ({ kind: 'co_visit', title: null })),
+    };
+    const { svc } = build([], planner);
+    expect(
+      await refusedWith(
+        svc.create(CONG, {
+          weekStartDate: '2026-10-19',
+          dayOfWeek: 6,
+          startTime: '10:30',
+          address: 'Hall',
+          isGeneral: true,
+        } as any),
+      ),
+    ).toBe('FS_DAY_TAKEN');
+  });
+
+  it('a meeting already standing in such a week stays editable — only a NEW day is asked', async () => {
+    const planner = {
+      dayTaken: jest.fn(async () => ({ kind: 'co_visit', title: null })),
+    };
+    const { svc, repo } = build([row('m1', {})], planner);
+    await svc.update(CONG, 'm1', { topic: 'Ruth' } as any);
+    expect(planner.dayTaken).not.toHaveBeenCalled();
+    expect(repo.save).toHaveBeenCalled();
+  });
+
+  it('the same meeting on that day already — refused with the list, saved when confirmed', async () => {
+    const rows = [
+      row('m1', { isGeneral: true }),
+      row('m2', { isGeneral: true, weekStartDate: '2026-10-19' }),
+    ];
+    const { svc, repo } = build(rows, free());
+    let response: any;
+    try {
+      await svc.update(CONG, 'm1', { weekStartDate: '2026-10-19' } as any);
+    } catch (e: any) {
+      response = e.getResponse();
+    }
+    expect(response.code).toBe('FS_CONFLICT');
+    expect(response.conflicts).toEqual([{ kind: 'duplicate', time: '10:30' }]);
+    expect(repo.save).not.toHaveBeenCalled();
+    await svc.update(CONG, 'm1', {
+      weekStartDate: '2026-10-19',
+      confirmConflicts: true,
+    } as any);
+    expect(repo.save).toHaveBeenCalled();
+  });
+
+  it('another audience at the same hour is no conflict; a cancelled meeting clashes with nothing', async () => {
+    const rows = [
+      row('m1', { isGeneral: true }),
+      row('g', { serviceGroupId: 'g-1', weekStartDate: '2026-10-19' }),
+      row('off', {
+        isGeneral: true,
+        weekStartDate: '2026-10-19',
+        cancelledAt: new Date(),
+      }),
+    ];
+    const { svc, repo } = build(rows, free());
+    await svc.update(CONG, 'm1', { weekStartDate: '2026-10-19' } as any);
+    expect(repo.save).toHaveBeenCalled();
+  });
+
+  it('the conductor already conducting that day — another hour — is a conflict', async () => {
+    const rows = [
+      row('m1', { isGeneral: true, conductorPublisherId: 'p-a' }),
+      row('other', {
+        serviceGroupId: 'g-1',
+        startTime: '14:00',
+        conductorPublisherId: 'p-a',
+        weekStartDate: '2026-10-19',
+      }),
+    ];
+    const { svc } = build(rows, free());
+    let response: any;
+    try {
+      await svc.update(CONG, 'm1', { weekStartDate: '2026-10-19' } as any);
+    } catch (e: any) {
+      response = e.getResponse();
+    }
+    expect(response.conflicts).toEqual([
+      { kind: 'conductor_busy', time: '14:00' },
+    ]);
+  });
+
+  it('a change that moves nothing that could clash is not checked', async () => {
+    const rows = [
+      row('m1', { isGeneral: true }),
+      row('twin', { isGeneral: true }),
+    ];
+    const { svc, repo } = build(rows, free());
+    await svc.update(CONG, 'm1', { topic: 'Ruth' } as any);
+    expect(repo.save).toHaveBeenCalled();
+  });
+});
+
+describe('where a moved meeting was (16 October 2026)', () => {
+  const saved = (repo: { save: jest.Mock }) =>
+    repo.save.mock.calls[repo.save.mock.calls.length - 1][0];
+
+  it('an announced meeting remembers its last date', async () => {
+    const { svc, repo } = build([row('m1', { isGeneral: true })]);
+    await svc.update(CONG, 'm1', { weekStartDate: '2026-10-19' } as any);
+    expect(saved(repo).movedFromDate).toBe('2026-10-17');
+  });
+
+  it('moved again: the date people knew last; moved back: no trace', async () => {
+    const { svc, repo } = build([
+      row('m1', {
+        isGeneral: true,
+        weekStartDate: '2026-10-19',
+        movedFromDate: '2026-10-17',
+      }),
+    ]);
+    await svc.update(CONG, 'm1', { weekStartDate: '2026-10-26' } as any);
+    expect(saved(repo).movedFromDate).toBe('2026-10-24');
+    const b = build([
+      row('m1', {
+        isGeneral: true,
+        weekStartDate: '2026-10-19',
+        movedFromDate: '2026-10-17',
+      }),
+    ]);
+    await b.svc.update(CONG, 'm1', { weekStartDate: '2026-10-12' } as any);
+    expect(saved(b.repo).movedFromDate).toBeNull();
+  });
+
+  it('a draft keeps no trace — nobody knew its date', async () => {
+    const { svc, repo } = build([
+      row('m1', { isGeneral: true, publishedAt: null }),
+    ]);
+    await svc.update(CONG, 'm1', { weekStartDate: '2026-10-19' } as any);
+    expect(saved(repo).movedFromDate ?? null).toBeNull();
+  });
+
+  it('a change of hour or place is no move', async () => {
+    const { svc, repo } = build([row('m1', { isGeneral: true })]);
+    await svc.update(CONG, 'm1', { startTime: '11:00' } as any);
+    expect(saved(repo).movedFromDate ?? null).toBeNull();
   });
 });

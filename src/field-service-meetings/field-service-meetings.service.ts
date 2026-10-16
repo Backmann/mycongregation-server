@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Optional,
   ConflictException,
   Injectable,
   Logger,
@@ -21,6 +22,7 @@ import {
   RestoreFieldServiceMeetingDto,
 } from './dto/cancel-field-service-meeting.dto';
 import { Publisher } from '../entities/publisher.entity';
+import { FieldServicePlannerService } from './field-service-planner.service';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -225,7 +227,86 @@ export class FieldServiceMeetingsService {
     private readonly groupsRepo: Repository<ServiceGroup>,
     @InjectRepository(Responsibility)
     private readonly responsibilitiesRepo: Repository<Responsibility>,
+    // Optional so the many specs that build this service by hand need not
+    // carry it; Nest always provides it (same module).
+    @Optional() private readonly planner?: FieldServicePlannerService,
   ) {}
+
+  /**
+   * A day the calendar takes away — an assembly, a convention, the circuit
+   * overseer's week — refuses a meeting put or moved there by hand
+   * (16 October 2026), by the same rule the month's preparation follows.
+   */
+  private async assertDayFree(
+    congregationId: string,
+    date: string,
+  ): Promise<void> {
+    const taken = await this.planner?.dayTaken(congregationId, date);
+    if (!taken) return;
+    throw new ConflictException(
+      refusal(
+        'FS_DAY_TAKEN',
+        "That day belongs to an assembly, a convention or the circuit overseer's visit.",
+        { kind: taken.kind, title: taken.title },
+      ),
+    );
+  }
+
+  /**
+   * What already stands on that day and would clash (16 October 2026): the
+   * same meeting — same hour, same audience — or the conductor already
+   * conducting another meeting that day. Cancelled meetings clash with
+   * nothing. Refused with the list unless the planner confirms.
+   */
+  private async assertNoConflicts(
+    congregationId: string,
+    m: {
+      id: string | null;
+      weekStartDate: string;
+      dayOfWeek: number;
+      startTime: string;
+      isGeneral: boolean;
+      serviceGroupId: string | null;
+      conductorPublisherId: string | null;
+    },
+    confirmed: boolean | undefined,
+  ): Promise<void> {
+    if (confirmed) return;
+    const same = (
+      await this.repo.find({
+        where: {
+          congregationId,
+          weekStartDate: m.weekStartDate,
+          dayOfWeek: m.dayOfWeek,
+          cancelledAt: IsNull(),
+        },
+      })
+    ).filter((o) => o.id !== m.id);
+    const audience = (x: {
+      isGeneral: boolean;
+      serviceGroupId: string | null;
+    }) => (x.isGeneral ? 'general' : (x.serviceGroupId ?? 'groups'));
+    const conflicts: { kind: 'duplicate' | 'conductor_busy'; time: string }[] =
+      [];
+    for (const o of same) {
+      if (o.startTime === m.startTime && audience(o) === audience(m)) {
+        conflicts.push({ kind: 'duplicate', time: o.startTime });
+      } else if (
+        m.conductorPublisherId &&
+        o.conductorPublisherId === m.conductorPublisherId
+      ) {
+        conflicts.push({ kind: 'conductor_busy', time: o.startTime });
+      }
+    }
+    if (conflicts.length === 0) return;
+    throw new ConflictException(
+      refusal(
+        'FS_CONFLICT',
+        'The same meeting is there already, or the conductor conducts another that day.',
+        { conflicts },
+      ),
+    );
+  }
 
   /**
    * May this person see a DRAFT — the same people who may write one: an
@@ -700,6 +781,23 @@ export class FieldServiceMeetingsService {
       serviceOverseerPublisherId: dto.serviceOverseerPublisherId ?? null,
       serviceOverseerAssistantId: dto.serviceOverseerAssistantId ?? null,
     });
+    await this.assertDayFree(
+      congregationId,
+      addDaysISO(weekStartDate, dto.dayOfWeek - 1),
+    );
+    await this.assertNoConflicts(
+      congregationId,
+      {
+        id: null,
+        weekStartDate,
+        dayOfWeek: dto.dayOfWeek,
+        startTime: dto.startTime,
+        isGeneral: dto.isGeneral ?? false,
+        serviceGroupId: dto.serviceGroupId ?? null,
+        conductorPublisherId: dto.conductorPublisherId ?? null,
+      },
+      dto.confirmConflicts,
+    );
     const entity = this.repo.create({
       congregationId,
       weekStartDate,
@@ -818,6 +916,9 @@ export class FieldServiceMeetingsService {
     const newDate = addDaysISO(weekStartDate, dayOfWeek - 1);
     if (newDate !== was.date) {
       await this.assertNotHeld(congregationId, newDate, entity.id);
+      // Only a NEW day is asked: a meeting already standing in such a week
+      // stays editable, or a mistake there could never be corrected.
+      await this.assertDayFree(congregationId, newDate);
     }
     const pick = <T>(v: T | undefined, cur: T): T =>
       v === undefined ? cur : v;
@@ -845,6 +946,29 @@ export class FieldServiceMeetingsService {
       },
       entity,
     );
+    // The day, the hour, the audience or the conductor changed: does it now
+    // clash with what already stands there?
+    const next = {
+      id: entity.id,
+      weekStartDate,
+      dayOfWeek,
+      startTime: pick(dto.startTime, entity.startTime),
+      isGeneral: pick(dto.isGeneral, entity.isGeneral),
+      serviceGroupId: pick(dto.serviceGroupId, entity.serviceGroupId),
+      conductorPublisherId: pick(
+        dto.conductorPublisherId,
+        entity.conductorPublisherId,
+      ),
+    };
+    if (
+      newDate !== was.date ||
+      next.startTime !== entity.startTime ||
+      next.isGeneral !== entity.isGeneral ||
+      next.serviceGroupId !== entity.serviceGroupId ||
+      next.conductorPublisherId !== entity.conductorPublisherId
+    ) {
+      await this.assertNoConflicts(congregationId, next, dto.confirmConflicts);
+    }
     const prevConductorId = entity.conductorPublisherId;
     const prevAssistantId = entity.serviceOverseerAssistantId;
     // Snapshot taken BEFORE the mutations below — the entity is edited in
@@ -863,6 +987,11 @@ export class FieldServiceMeetingsService {
       serviceOverseerPublisherId: entity.serviceOverseerPublisherId,
       serviceOverseerAssistantId: entity.serviceOverseerAssistantId,
     };
+    // WHERE IT WAS (16 October 2026): an announced meeting that moves keeps
+    // its last date, so both days can say so. Back to that date — no trace.
+    if (newDate !== was.date && entity.publishedAt !== null) {
+      entity.movedFromDate = entity.movedFromDate === newDate ? null : was.date;
+    }
     entity.weekStartDate = weekStartDate;
     if (dto.dayOfWeek !== undefined) entity.dayOfWeek = dto.dayOfWeek;
     if (dto.startTime !== undefined) entity.startTime = dto.startTime;
