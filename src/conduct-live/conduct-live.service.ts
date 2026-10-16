@@ -15,7 +15,8 @@ import { EventType } from '../common/enums/event-type.enum';
 import { DutyType } from '../common/enums/duty-type.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
-import { isAppointedBrother } from '../common/appointed-brother';
+import { isConductOverseer } from '../common/conduct-overseer';
+import { MeetingDayService } from '../conduct-runs/meeting-day.service';
 
 /** How long a live row is kept — a day; the meeting is long over by then. */
 export const CONDUCT_LIVE_KEEP_MS = 24 * 60 * 60 * 1000;
@@ -56,10 +57,11 @@ export interface ConductLiveRoles {
  * The first to start becomes the controller; any of the three may take over
  * (`take`), and from then on only the new one's writes are accepted.
  *
- * WHO WATCHES: those three, and every appointed brother — an elder or a
- * ministerial servant by role or by his card (Lionel: «каждый назначенный
- * брат тоже может смотреть как идёт live, если захочет»). It shows who has
- * which part and how long it is taking; a publisher has no task that needs it.
+ * WHO WATCHES: those three, and those who oversee how the meeting runs —
+ * the admins, the counsel brother and the Life and Ministry overseer
+ * (common/conduct-overseer.ts; Lionel, 16 October 2026 — on 15 October it
+ * was every appointed brother). It shows who has which part and how long it
+ * is taking; nobody else has a task that needs it.
  *
  * EVERY ANSWER CARRIES THE SERVER'S TIME. The devices' clocks disagree by
  * seconds; times in the state are server time, and each device corrects by
@@ -80,6 +82,7 @@ export class ConductLiveService {
     private readonly publishers: Repository<Publisher>,
     @InjectRepository(Duty)
     private readonly duties: Repository<Duty>,
+    private readonly meetingDay: MeetingDayService,
   ) {}
 
   /** The Monday, or a refusal. */
@@ -153,16 +156,28 @@ export class ConductLiveService {
     return chair === user.id || keeper === user.id;
   }
 
-  /** An appointed brother: by his role, or by his own card. */
-  private isAppointed(user: AuthenticatedUser): Promise<boolean> {
-    return isAppointedBrother(user, this.publishers);
+  /** Who oversees how the meeting runs (common/conduct-overseer.ts). */
+  private isOverseer(user: AuthenticatedUser): Promise<boolean> {
+    return isConductOverseer(user, this.publishers);
+  }
+
+  /** A meeting whose day has passed is not run any more (16 October 2026). */
+  private async refuseIfOver(congregationId: string, week: string) {
+    if (await this.meetingDay.isOver(congregationId, week)) {
+      throw new ConflictException(
+        refusal(
+          'CONDUCT_MEETING_OVER',
+          'This meeting is over; it is not run again after its day.',
+        ),
+      );
+    }
   }
 
   private forbidden(): ForbiddenException {
     return new ForbiddenException(
       refusal(
         'CONDUCT_LIVE_FORBIDDEN',
-        'The meeting as it runs is watched by appointed brothers and run by its chairman or timekeeper.',
+        'The meeting as it runs is watched by the admins, the counsel brother and the Life and Ministry overseer, and run by its chairman or timekeeper.',
       ),
     );
   }
@@ -239,7 +254,7 @@ export class ConductLiveService {
     const isChairman = !!chair && chair === user.id;
     const isTimekeeper = !!keeper && keeper === user.id;
     const mayRun = user.role === UserRole.ADMIN || isChairman || isTimekeeper;
-    if (!mayRun && !(await this.isAppointed(user))) throw this.forbidden();
+    if (!mayRun && !(await this.isOverseer(user))) throw this.forbidden();
     const roles: ConductLiveRoles = {
       mayRun,
       isChairman,
@@ -250,6 +265,12 @@ export class ConductLiveService {
         : null,
     };
 
+    // After the meeting's day there is no meeting «as it runs» to show — only
+    // its result (conduct-runs). A row left from a run started after the
+    // day is not shown to anybody (16 October 2026).
+    if (await this.meetingDay.isOver(user.congregationId, week)) {
+      return { live: null, roles };
+    }
     const row = await this.findRow(user.congregationId, week);
     if (
       !row ||
@@ -307,6 +328,7 @@ export class ConductLiveService {
     const week = this.monday(weekStartDate);
     const state = this.checkState(stateIn);
     if (!(await this.mayRun(user, week))) throw this.forbidden();
+    await this.refuseIfOver(user.congregationId, week);
     const row = await this.findRow(user.congregationId, week);
     if (!row) {
       const created = await this.live.save(
@@ -358,6 +380,7 @@ export class ConductLiveService {
   ): Promise<ConductLiveView> {
     const week = this.monday(weekStartDate);
     if (!(await this.mayRun(user, week))) throw this.forbidden();
+    await this.refuseIfOver(user.congregationId, week);
     const row = await this.findRow(user.congregationId, week);
     if (!row) {
       return this.write(user, week, 0, stateIn ?? {}, now);

@@ -20,7 +20,8 @@ const CHAIR_USER = 'user-chair';
 const CHAIR_PUB = 'pub-chair';
 const KEEPER_USER = 'user-keeper';
 const KEEPER_PUB = 'pub-keeper';
-const MS_CARD_USER = 'user-ms-card'; // a ministerial servant by his card only
+const ADVISER_USER = 'user-adviser'; // the brother who gives counsel
+const LMO_USER = 'user-lmo'; // the Life and Ministry overseer
 
 const user = (role: UserRole, id = 'user-x') =>
   ({
@@ -41,7 +42,9 @@ type Row = Record<string, unknown> & {
   updatedAt: Date;
 };
 
-function build(opts: { row?: Partial<Row> | null; keeper?: boolean } = {}) {
+function build(
+  opts: { row?: Partial<Row> | null; keeper?: boolean; over?: boolean } = {},
+) {
   let row: Row | null = opts.row
     ? ({
         id: 'live-1',
@@ -80,19 +83,24 @@ function build(opts: { row?: Partial<Row> | null; keeper?: boolean } = {}) {
       if (where.id === CHAIR_PUB) return { id: CHAIR_PUB, userId: CHAIR_USER };
       if (where.id === KEEPER_PUB)
         return { id: KEEPER_PUB, userId: KEEPER_USER };
-      if ('appointment' in where) {
-        return where.userId === MS_CARD_USER ? { id: 'pub-ms' } : null;
-      }
       if (where.userId === KEEPER_USER) return { displayName: 'Фогт Маркус' };
       if (where.userId === CHAIR_USER) return { displayName: 'Шмидт Пауль' };
       return null;
     }),
+    // Responsibilities: who oversees how the meeting runs.
+    manager: {
+      count: jest.fn(
+        async (_e: unknown, { where }: { where: { userId: string } }) =>
+          where.userId === ADVISER_USER || where.userId === LMO_USER ? 1 : 0,
+      ),
+    },
   };
   const service = new ConductLiveService(
     live as never,
     assignments as never,
     publishers as never,
     duties as never,
+    { isOver: jest.fn(async () => opts.over === true) } as never,
   );
   return {
     service,
@@ -104,17 +112,17 @@ function build(opts: { row?: Partial<Row> | null; keeper?: boolean } = {}) {
 }
 
 describe('who may watch the meeting as it runs', () => {
-  it('a publisher who is neither appointed nor running it is refused', async () => {
+  it('a publisher who neither runs it nor oversees it is refused', async () => {
     const { service } = build({ row: {} });
     await expect(
       service.find(user(UserRole.PUBLISHER, 'user-pub'), WEEK, NOW),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('a ministerial servant by his card watches, though his account is a publisher', async () => {
+  it('the counsel brother watches (16 October 2026)', async () => {
     const { service } = build({ row: {} });
     const { live: v, roles } = await service.find(
-      user(UserRole.PUBLISHER, MS_CARD_USER),
+      user(UserRole.ELDER, ADVISER_USER),
       WEEK,
       NOW,
     );
@@ -123,17 +131,30 @@ describe('who may watch the meeting as it runs', () => {
     expect(v?.mine).toBe(false);
   });
 
-  it('an elder watches', async () => {
+  it('the Life and Ministry overseer watches, and an admin', async () => {
     const { service } = build({ row: {} });
     expect(
-      (await service.find(user(UserRole.ELDER), WEEK, NOW)).live,
+      (await service.find(user(UserRole.ELDER, LMO_USER), WEEK, NOW)).live,
     ).not.toBeNull();
+    expect(
+      (await service.find(user(UserRole.ADMIN), WEEK, NOW)).live,
+    ).not.toBeNull();
+  });
+
+  it('an elder or a ministerial servant without those responsibilities is refused', async () => {
+    const { service } = build({ row: {} });
+    await expect(
+      service.find(user(UserRole.ELDER, 'user-elder'), WEEK, NOW),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.find(user(UserRole.MINISTERIAL_SERVANT, 'user-ms'), WEEK, NOW),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('no meeting running → null, not a refusal', async () => {
     const { service } = build({ row: null });
     expect(
-      (await service.find(user(UserRole.ELDER), WEEK, NOW)).live,
+      (await service.find(user(UserRole.ADMIN), WEEK, NOW)).live,
     ).toBeNull();
   });
 
@@ -142,7 +163,7 @@ describe('who may watch the meeting as it runs', () => {
       row: { updatedAt: new Date(NOW.getTime() - CONDUCT_LIVE_KEEP_MS - 1000) },
     });
     expect(
-      (await service.find(user(UserRole.ELDER), WEEK, NOW)).live,
+      (await service.find(user(UserRole.ADMIN), WEEK, NOW)).live,
     ).toBeNull();
   });
 
@@ -308,12 +329,7 @@ describe('running it — one hand at a time', () => {
   it('a watcher may not take it over', async () => {
     const { service } = build({ row: {} });
     await expect(
-      service.take(
-        user(UserRole.PUBLISHER, MS_CARD_USER),
-        WEEK,
-        undefined,
-        NOW,
-      ),
+      service.take(user(UserRole.ELDER, ADVISER_USER), WEEK, undefined, NOW),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -338,6 +354,47 @@ describe('running it — one hand at a time', () => {
     await expect(
       service.write(user(UserRole.ADMIN), '2026-10-21', 0, STATE, NOW),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe("after the meeting's day (16 October 2026)", () => {
+  it('nothing is shown as running — a row left behind is not the meeting', async () => {
+    const { service, live } = build({ row: {}, over: true });
+    const { live: v, roles } = await service.find(
+      user(UserRole.ELDER, CHAIR_USER),
+      WEEK,
+      NOW,
+    );
+    expect(v).toBeNull();
+    expect(roles.isChairman).toBe(true);
+    expect(live.update).not.toHaveBeenCalled();
+  });
+
+  it('a tap is refused, even from the controller with the right epoch', async () => {
+    const { service, live } = build({
+      row: { controllerUserId: KEEPER_USER, epoch: 1 },
+      over: true,
+    });
+    const err = await service
+      .write(user(UserRole.PUBLISHER, KEEPER_USER), WEEK, 1, STATE, NOW)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({
+      code: 'CONDUCT_MEETING_OVER',
+    });
+    expect(live.save).not.toHaveBeenCalled();
+  });
+
+  it('… and so is a take-over, and a first start', async () => {
+    const a = build({ row: {}, over: true });
+    await expect(
+      a.service.take(user(UserRole.ELDER, CHAIR_USER), WEEK, undefined, NOW),
+    ).rejects.toBeInstanceOf(ConflictException);
+    const b = build({ row: null, over: true });
+    await expect(
+      b.service.write(user(UserRole.ELDER, CHAIR_USER), WEEK, 0, STATE, NOW),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(b.live.save).not.toHaveBeenCalled();
   });
 });
 

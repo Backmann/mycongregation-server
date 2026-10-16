@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import {
   ConductRunsService,
   CONDUCT_RUN_KEEP_DAYS,
@@ -41,13 +45,15 @@ const dto = {
 
 const KEEPER_USER = 'user-keeper';
 const KEEPER_PUB = 'pub-keeper';
-const MS_CARD_USER = 'user-ms-card'; // a ministerial servant by his card only
+const ADVISER_USER = 'user-adviser'; // the brother who gives counsel
+const LMO_USER = 'user-lmo'; // the Life and Ministry overseer
 
 function build(
   opts: {
     chair?: string | null;
     keeper?: string | null;
     stored?: Record<string, unknown> | null;
+    over?: boolean;
   } = {},
 ) {
   const chair = opts.chair === undefined ? CHAIR_PUB : opts.chair;
@@ -62,16 +68,19 @@ function build(
   };
   const publishers = {
     findOne: jest.fn(async ({ where }: { where: Record<string, unknown> }) =>
-      'appointment' in where
-        ? where.userId === MS_CARD_USER
-          ? { id: 'pub-ms' }
-          : null
-        : where.id === CHAIR_PUB
-          ? { id: CHAIR_PUB, userId: CHAIR_USER }
-          : where.id === KEEPER_PUB
-            ? { id: KEEPER_PUB, userId: KEEPER_USER }
-            : null,
+      where.id === CHAIR_PUB
+        ? { id: CHAIR_PUB, userId: CHAIR_USER }
+        : where.id === KEEPER_PUB
+          ? { id: KEEPER_PUB, userId: KEEPER_USER }
+          : null,
     ),
+    // Responsibilities: who oversees how the meeting runs.
+    manager: {
+      count: jest.fn(
+        async (_e: unknown, { where }: { where: { userId: string } }) =>
+          where.userId === ADVISER_USER || where.userId === LMO_USER ? 1 : 0,
+      ),
+    },
   };
   const duties = {
     findOne: jest
@@ -84,6 +93,7 @@ function build(
       assignments as never,
       publishers as never,
       duties as never,
+      { isOver: jest.fn(async () => opts.over === true) } as never,
     ),
     runs,
   };
@@ -170,52 +180,71 @@ describe('saving how the meeting ran', () => {
   });
 });
 
+describe("after the meeting's day (16 October 2026)", () => {
+  it('a result kept already is not replaced — the 9:16:38 run of 16 October', async () => {
+    const stored = { id: 'r1', weekStartDate: WEEK, totalSec: 6331 };
+    const { service, runs } = build({ stored, over: true });
+    const err = await service
+      .save(user(UserRole.ELDER, CHAIR_USER), dto)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({
+      code: 'CONDUCT_RESULT_KEPT',
+    });
+    expect(runs.save).not.toHaveBeenCalled();
+  });
+
+  it('a result arriving late, with none kept, is still taken — the hall had no signal', async () => {
+    const { service, runs } = build({ stored: null, over: true });
+    await service.save(user(UserRole.ELDER, CHAIR_USER), dto);
+    expect(runs.save).toHaveBeenCalled();
+  });
+});
+
 describe('reading how the meeting ran', () => {
   const savedAt = new Date('2026-10-14T19:45:00Z');
   const stored = { id: 'r1', weekStartDate: WEEK, savedAt, segments: [] };
   const day = 24 * 60 * 60 * 1000;
 
-  it('the elders read it', async () => {
+  it('the counsel brother reads it (16 October 2026)', async () => {
     const { service } = build({ stored });
     expect(
       await service.find(
-        user(UserRole.ELDER),
+        user(UserRole.ELDER, ADVISER_USER),
         WEEK,
         new Date(savedAt.getTime() + day),
       ),
     ).toBe(stored);
   });
 
-  it('the chairman reads it, even when he is no elder', async () => {
+  it('the Life and Ministry overseer reads it, and an admin', async () => {
     const { service } = build({ stored });
     expect(
-      await service.find(
-        user(UserRole.MINISTERIAL_SERVANT, CHAIR_USER),
-        WEEK,
-        savedAt,
-      ),
+      await service.find(user(UserRole.ELDER, LMO_USER), WEEK, savedAt),
     ).toBe(stored);
+    expect(await service.find(user(UserRole.ADMIN), WEEK, savedAt)).toBe(
+      stored,
+    );
   });
 
-  it('a ministerial servant reads it — by his role', async () => {
-    const { service } = build({ stored });
-    expect(
-      await service.find(user(UserRole.MINISTERIAL_SERVANT), WEEK, savedAt),
-    ).toBe(stored);
-  });
-
-  it('… or by his card, though his account is a publisher', async () => {
-    const { service } = build({ stored });
-    expect(
-      await service.find(user(UserRole.PUBLISHER, MS_CARD_USER), WEEK, savedAt),
-    ).toBe(stored);
-  });
-
-  it('a publisher who is not appointed and did not chair may not', async () => {
+  it('the chairman does not — he saw it on his own screen when it ended', async () => {
     const { service } = build({ stored });
     await expect(
-      service.find(user(UserRole.PUBLISHER), WEEK),
+      service.find(user(UserRole.ELDER, CHAIR_USER), WEEK, savedAt),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('nor an elder, a ministerial servant or a publisher without those responsibilities', async () => {
+    const { service } = build({ stored });
+    for (const role of [
+      UserRole.ELDER,
+      UserRole.MINISTERIAL_SERVANT,
+      UserRole.PUBLISHER,
+    ]) {
+      await expect(
+        service.find(user(role), WEEK, savedAt),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    }
   });
 
   it(`after ${CONDUCT_RUN_KEEP_DAYS} days it is gone, even before the night's deletion`, async () => {
@@ -239,7 +268,7 @@ describe('reading how the meeting ran', () => {
 
   it('no run is null, not an error', async () => {
     const { service } = build({ stored: null });
-    expect(await service.find(user(UserRole.ELDER), WEEK)).toBeNull();
+    expect(await service.find(user(UserRole.ADMIN), WEEK)).toBeNull();
   });
 });
 

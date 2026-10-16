@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
@@ -14,7 +15,8 @@ import { UserRole } from '../common/enums/user-role.enum';
 import { EventType } from '../common/enums/event-type.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
-import { isAppointedBrother } from '../common/appointed-brother';
+import { isConductOverseer } from '../common/conduct-overseer';
+import { MeetingDayService } from './meeting-day.service';
 import { SaveConductRunDto } from './dto/save-conduct-run.dto';
 
 /** How long a run may be read and kept — Lionel, 14 October 2026. */
@@ -30,11 +32,10 @@ const KEEP_MS = CONDUCT_RUN_KEEP_DAYS * 24 * 60 * 60 * 1000;
  * the chairman watches, and his device is the one that ends the meeting), and
  * an admin. Nobody else ran the meeting.
  *
- * WHO READS: every appointed brother — the elders AND the ministerial
- * servants, by the role of the account or by the card (Lionel, 15 October
- * 2026: «итог 7 дней видят все назначенные братья») — the chairman of that
- * week, and an admin. It is a view of people's parts against the clock; a
- * publisher has no task that needs it.
+ * WHO READS: the admins, the brother who gives counsel and the overseer of
+ * the Life and Ministry meeting (common/conduct-overseer.ts — Lionel,
+ * 16 October 2026). Not the chairman afterwards: he sees the result on his
+ * own screen when the meeting ends.
  */
 @Injectable()
 export class ConductRunsService {
@@ -47,6 +48,7 @@ export class ConductRunsService {
     private readonly publishers: Repository<Publisher>,
     @InjectRepository(Duty)
     private readonly duties: Repository<Duty>,
+    private readonly meetingDay: MeetingDayService,
   ) {}
 
   /** Whether this account is the timekeeper named for that week's midweek meeting. */
@@ -133,6 +135,18 @@ export class ConductRunsService {
         eventType: EventType.MIDWEEK,
       },
     });
+    // AFTER THE MEETING'S DAY A RESULT IS NOT REPLACED (16 October 2026). A
+    // result may still ARRIVE late — a phone that had no signal in the hall
+    // sends it when it has one — but one already kept is the meeting's, and
+    // a run finished days later on some device is not.
+    if (existing && (await this.meetingDay.isOver(user.congregationId, week))) {
+      throw new ConflictException(
+        refusal(
+          'CONDUCT_RESULT_KEPT',
+          'The result of this meeting is kept already; after its day it is not replaced.',
+        ),
+      );
+    }
     const row =
       existing ??
       this.runs.create({
@@ -159,14 +173,11 @@ export class ConductRunsService {
     now = new Date(),
   ): Promise<ConductRun | null> {
     const week = this.monday(weekStartDate);
-    const reader =
-      (await isAppointedBrother(user, this.publishers)) ||
-      (await this.isChairman(user, week));
-    if (!reader) {
+    if (!(await isConductOverseer(user, this.publishers))) {
       throw new ForbiddenException(
         refusal(
           'CONDUCT_RESULT_FORBIDDEN',
-          'How a meeting ran is seen by its chairman and the appointed brothers.',
+          'How a meeting ran is seen by the admins, the counsel brother and the Life and Ministry overseer.',
         ),
       );
     }
