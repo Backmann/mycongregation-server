@@ -129,6 +129,8 @@ describe('FieldServiceMeetingsService', () => {
 
   it('create() defaults optional fields to null and stamps the tenant id', async () => {
     const repo = {
+      // What stands on the same day (conflict check, 16 October 2026).
+      find: jest.fn(async () => []),
       create: jest.fn((v: unknown) => v),
       save: jest.fn(async (v: Record<string, unknown>) => ({
         ...v,
@@ -195,6 +197,8 @@ describe('FieldServiceMeetingsService', () => {
       topic: 'old',
     } as any;
     const repo = {
+      // What stands on the same day (conflict check, 16 October 2026).
+      find: jest.fn(async () => []),
       findOne: jest.fn(async () => row),
       save: jest.fn(async (v: unknown) => v),
     } as any;
@@ -221,6 +225,8 @@ describe('FieldServiceMeetingsService', () => {
 
   it('remove() throws NotFound when the row is missing for this tenant', async () => {
     const repo = {
+      // What stands on the same day (conflict check, 16 October 2026).
+      find: jest.fn(async () => []),
       findOne: jest.fn(async () => null),
       delete: jest.fn(),
     } as any;
@@ -280,6 +286,8 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
 
   it('notifies the conductor when assigned on create', async () => {
     const repo = {
+      // What stands on the same day (conflict check, 16 October 2026).
+      find: jest.fn(async () => []),
       create: jest.fn((x: unknown) => x),
       save: jest.fn(async (x: any) => ({ ...meetingRow, ...x })),
     } as any;
@@ -323,6 +331,8 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
       address: 'Старый адрес',
     };
     const repo = {
+      // What stands on the same day (conflict check, 16 October 2026).
+      find: jest.fn(async () => []),
       findOne: jest.fn().mockResolvedValue({ ...existing }),
       save: jest.fn(async (x: any) => x),
     } as any;
@@ -360,6 +370,8 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
 
   it('records a deletion with enough to recognise which meeting went', async () => {
     const repo = {
+      // What stands on the same day (conflict check, 16 October 2026).
+      find: jest.fn(async () => []),
       findOne: jest.fn().mockResolvedValue({ ...meetingRow, id: 'm9' }),
       delete: jest.fn().mockResolvedValue({}),
     } as any;
@@ -390,6 +402,8 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
 
   it('stays silent when notifyConductor=false', async () => {
     const repo = {
+      // What stands on the same day (conflict check, 16 October 2026).
+      find: jest.fn(async () => []),
       create: jest.fn((x: unknown) => x),
       save: jest.fn(async (x: any) => ({ ...meetingRow, ...x })),
     } as any;
@@ -421,6 +435,8 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
   it('notifies both the old and the new conductor on change', async () => {
     const existing = { ...meetingRow, conductorPublisherId: 'p-old' };
     const repo = {
+      // What stands on the same day (conflict check, 16 October 2026).
+      find: jest.fn(async () => []),
       findOne: jest.fn(async () => existing),
       save: jest.fn(async (x: any) => x),
     } as any;
@@ -456,6 +472,8 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
   it('notifies the conductor when the meeting is removed', async () => {
     const existing = { ...meetingRow, conductorPublisherId: 'p1' };
     const repo = {
+      // What stands on the same day (conflict check, 16 October 2026).
+      find: jest.fn(async () => []),
       findOne: jest.fn(async () => existing),
       delete: jest.fn(async () => ({ affected: 1 })),
     } as any;
@@ -480,6 +498,8 @@ describe('FieldServiceMeetingsService conductor pushes', () => {
 
   it('skips the push silently when the publisher has no login', async () => {
     const repo = {
+      // What stands on the same day (conflict check, 16 October 2026).
+      find: jest.fn(async () => []),
       create: jest.fn((x: unknown) => x),
       save: jest.fn(async (x: any) => ({ ...meetingRow, ...x })),
     } as any;

@@ -425,6 +425,26 @@ export class FieldServicePlannerService {
   }
 
   /**
+   * What takes a single day away from field service, by the same rule the
+   * month's preparation follows (16 October 2026): an assembly or a
+   * convention on that day, or the week of the circuit overseer's visit —
+   * each only when the congregation's settings say so. A meeting put or
+   * moved there by hand is refused; until now only preparation knew.
+   */
+  async dayTaken(
+    congregationId: string,
+    date: string,
+  ): Promise<{ kind: 'assembly' | 'co_visit'; title: string | null } | null> {
+    const [y, m] = date.split('-').map(Number);
+    const cal = await this.calendar(congregationId, y, m);
+    const assembly = cal.assemblyOn(date);
+    if (assembly) return { kind: 'assembly', title: assembly.title ?? null };
+    const visit = cal.visitOn(date);
+    if (visit) return { kind: 'co_visit', title: visit.title ?? null };
+    return null;
+  }
+
+  /**
    * The month as it will be — every slot's date with what happens to it.
    * Nothing is written. `pickConductors: false` leaves every conductor empty.
    */
