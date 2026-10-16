@@ -7,7 +7,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 
 /**
  * How a midweek meeting ran — kept seven days, for the chairman of that week
- * and the elders (Lionel, 14 October 2026).
+ * and the appointed brothers (Lionel, 14 and 15 October 2026).
  */
 const TENANT = 'cong-1';
 const WEEK = '2026-10-12'; // a Monday
@@ -39,8 +39,16 @@ const dto = {
   plannedSec: 6300,
 };
 
+const KEEPER_USER = 'user-keeper';
+const KEEPER_PUB = 'pub-keeper';
+const MS_CARD_USER = 'user-ms-card'; // a ministerial servant by his card only
+
 function build(
-  opts: { chair?: string | null; stored?: Record<string, unknown> | null } = {},
+  opts: {
+    chair?: string | null;
+    keeper?: string | null;
+    stored?: Record<string, unknown> | null;
+  } = {},
 ) {
   const chair = opts.chair === undefined ? CHAIR_PUB : opts.chair;
   const runs = {
@@ -53,21 +61,49 @@ function build(
     findOne: jest.fn().mockResolvedValue(chair ? { publisherId: chair } : null),
   };
   const publishers = {
-    findOne: jest.fn(async ({ where }: { where: { id: string } }) =>
-      where.id === CHAIR_PUB ? { id: CHAIR_PUB, userId: CHAIR_USER } : null,
+    findOne: jest.fn(async ({ where }: { where: Record<string, unknown> }) =>
+      'appointment' in where
+        ? where.userId === MS_CARD_USER
+          ? { id: 'pub-ms' }
+          : null
+        : where.id === CHAIR_PUB
+          ? { id: CHAIR_PUB, userId: CHAIR_USER }
+          : where.id === KEEPER_PUB
+            ? { id: KEEPER_PUB, userId: KEEPER_USER }
+            : null,
     ),
+  };
+  const duties = {
+    findOne: jest
+      .fn()
+      .mockResolvedValue(opts.keeper ? { publisherId: opts.keeper } : null),
   };
   return {
     service: new ConductRunsService(
       runs as never,
       assignments as never,
       publishers as never,
+      duties as never,
     ),
     runs,
   };
 }
 
 describe('saving how the meeting ran', () => {
+  it('the timekeeper of that week saves it too — his device ends the meeting', async () => {
+    const { service, runs } = build({ keeper: KEEPER_PUB });
+    await service.save(user(UserRole.PUBLISHER, KEEPER_USER), dto as never);
+    expect(runs.save).toHaveBeenCalled();
+  });
+
+  it('a publisher who is neither chairman nor timekeeper is refused', async () => {
+    const { service, runs } = build({ keeper: KEEPER_PUB });
+    await expect(
+      service.save(user(UserRole.PUBLISHER, 'user-other'), dto as never),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(runs.save).not.toHaveBeenCalled();
+  });
+
   it('the chairman of that week saves it, stamped now', async () => {
     const { service, runs } = build();
     const now = new Date('2026-10-14T19:45:00Z');
@@ -161,11 +197,22 @@ describe('reading how the meeting ran', () => {
     ).toBe(stored);
   });
 
-  it('a ministerial servant who did not chair, and a publisher, may not', async () => {
+  it('a ministerial servant reads it — by his role', async () => {
     const { service } = build({ stored });
-    await expect(
-      service.find(user(UserRole.MINISTERIAL_SERVANT), WEEK),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(
+      await service.find(user(UserRole.MINISTERIAL_SERVANT), WEEK, savedAt),
+    ).toBe(stored);
+  });
+
+  it('… or by his card, though his account is a publisher', async () => {
+    const { service } = build({ stored });
+    expect(
+      await service.find(user(UserRole.PUBLISHER, MS_CARD_USER), WEEK, savedAt),
+    ).toBe(stored);
+  });
+
+  it('a publisher who is not appointed and did not chair may not', async () => {
+    const { service } = build({ stored });
     await expect(
       service.find(user(UserRole.PUBLISHER), WEEK),
     ).rejects.toBeInstanceOf(ForbiddenException);

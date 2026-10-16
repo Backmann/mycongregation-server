@@ -27,6 +27,7 @@ describe('ScheduledJobsService', () => {
   let pushNotificationsService: jest.Mocked<PushNotificationsService>;
   let auditLogService: { cleanupOldAuditLogs: jest.Mock };
   let conductRuns: { deleteExpired: jest.Mock };
+  let conductLive: { deleteExpired: jest.Mock };
 
   beforeEach(() => {
     publishersService = {
@@ -56,6 +57,7 @@ describe('ScheduledJobsService', () => {
     monthlySent = { nightly: jest.fn(async () => 0) };
     users = { forgetDeadSessions: jest.fn(async () => 0) };
     conductRuns = { deleteExpired: jest.fn(async () => 0) };
+    conductLive = { deleteExpired: jest.fn(async () => 0) };
     service = new ScheduledJobsService(
       publishersService as any,
       pushNotificationsService,
@@ -85,6 +87,8 @@ describe('ScheduledJobsService', () => {
       users as never,
       // How a midweek meeting ran, deleted after seven days.
       conductRuns as never,
+      // The meeting as it ran live, deleted after a day.
+      conductLive as never,
     );
   });
 
@@ -92,6 +96,11 @@ describe('ScheduledJobsService', () => {
     it('asks the conduct-runs service, once', async () => {
       await service.handleConductRunCleanup();
       expect(conductRuns.deleteExpired).toHaveBeenCalledTimes(1);
+    });
+
+    it('takes the live rows older than a day with it', async () => {
+      await service.handleConductRunCleanup();
+      expect(conductLive.deleteExpired).toHaveBeenCalledTimes(1);
     });
 
     it('a failure is logged and goes no further — the next job still runs', async () => {

@@ -16,6 +16,7 @@ import { EventType } from '../common/enums/event-type.enum';
 import {
   DutyType,
   SINGLE_SLOT_DUTIES_AFTER_MIC,
+  MIDWEEK_ONLY_DUTIES,
   MEMORIAL_DUTIES,
   SINGLE_SLOT_DUTIES_BEFORE_MIC,
 } from '../common/enums/duty-type.enum';
@@ -386,6 +387,13 @@ export class DutiesService {
     }
     for (const dutyType of SINGLE_SLOT_DUTIES_AFTER_MIC) {
       rows.push({ ...base, dutyType, slotIndex: 0, sortOrder: ++order });
+    }
+    // The timekeeper runs conduct mode, which is the midweek meeting's only.
+    // Sheets made before it existed got the row from migration 1903.
+    if (dto.eventType === EventType.MIDWEEK) {
+      for (const dutyType of MIDWEEK_ONLY_DUTIES) {
+        rows.push({ ...base, dutyType, slotIndex: 0, sortOrder: ++order });
+      }
     }
 
     await this.repo

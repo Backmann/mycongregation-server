@@ -85,6 +85,8 @@ export const PLAN: Record<string, TablePlan> = {
   push_receipts: 'skip',
   /** How a meeting ran: kept seven days, a view of people against the clock. */
   conduct_runs: 'skip',
+  /** The meeting while it runs: lives a day, of no use to a test. */
+  conduct_live: 'skip',
   web_push_subscriptions: 'skip',
   /** Texts of notifications, with names. */
   notification_outbox: 'skip',

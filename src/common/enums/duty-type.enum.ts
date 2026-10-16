@@ -20,6 +20,12 @@ export enum DutyType {
   ZOOM = 'zoom',
   STAGE = 'stage',
   VENTILATION = 'ventilation',
+  /**
+   * Ведущий времени — the brother in the hall who taps through conduct mode
+   * while the chairman only watches (15 October 2026). Midweek only, and
+   * optional: a congregation that does not use it simply leaves it empty.
+   */
+  TIMEKEEPER = 'timekeeper',
   CUSTOM = 'custom',
 }
 
@@ -39,6 +45,16 @@ export const SINGLE_SLOT_DUTIES_AFTER_MIC: DutyType[] = [
   DutyType.STAGE,
   DutyType.VENTILATION,
 ];
+
+/** Generated for the MIDWEEK meeting only, after all the others. */
+export const MIDWEEK_ONLY_DUTIES: DutyType[] = [DutyType.TIMEKEEPER];
+
+/**
+ * Places a congregation may or may not use at all. They are not counted in
+ * «assigned of total»: a congregation that never names a timekeeper would
+ * otherwise read «8 of 9» every week for a place it does not have.
+ */
+export const OPTIONAL_DUTIES = new Set<DutyType>([DutyType.TIMEKEEPER]);
 
 /**
  * The duties of the Memorial evening — a STARTING POINT, not a rule.

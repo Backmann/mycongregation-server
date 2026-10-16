@@ -179,7 +179,7 @@ describe('DutiesService', () => {
     await service.generateWeek('c1', gen);
     expect(qb.insert).toHaveBeenCalled();
     const rows = qb.values.mock.calls[0][0] as Array<{ dutyType: DutyType }>;
-    expect(rows).toHaveLength(2 + 3 + 4); // before + mics + after
+    expect(rows).toHaveLength(2 + 3 + 4 + 1); // before + mics + after + timekeeper (midweek only)
     expect(rows.filter((r) => r.dutyType === DutyType.MICROPHONE)).toHaveLength(
       3,
     );
@@ -189,7 +189,7 @@ describe('DutiesService', () => {
     meetingRepo.find.mockResolvedValue([]);
     await service.generateWeek('c1', gen);
     const rows = qb.values.mock.calls[0][0] as unknown[];
-    expect(rows).toHaveLength(2 + 2 + 4);
+    expect(rows).toHaveLength(2 + 2 + 4 + 1); // + timekeeper (midweek only)
   });
 
   const duty: Duty = {

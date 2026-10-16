@@ -8,6 +8,7 @@ import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 import { MeetingKind, WeekSettingsVersion } from '../common/week-rules';
 import {
   SINGLE_SLOT_DUTIES_AFTER_MIC,
+  OPTIONAL_DUTIES,
   SINGLE_SLOT_DUTIES_BEFORE_MIC,
 } from '../common/enums/duty-type.enum';
 import { WeekRulesService } from '../common/week-rules.service';
@@ -235,9 +236,12 @@ function countDuties(
   if (rows.length === 0) {
     return { created: false, assigned: 0, total: placesFromSettings(version) };
   }
+  // A place the congregation may not use at all (the timekeeper) is not a
+  // place it is short of.
+  const counted = rows.filter((d) => !OPTIONAL_DUTIES.has(d.dutyType));
   return {
     created: true,
-    assigned: rows.filter((d) => d.publisherId).length,
-    total: rows.length,
+    assigned: counted.filter((d) => d.publisherId).length,
+    total: counted.length,
   };
 }
