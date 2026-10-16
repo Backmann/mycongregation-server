@@ -47,6 +47,16 @@ export class ConductRunSegmentDto {
   @Min(0)
   @Max(60 * 60)
   counselSec?: number | null;
+
+  /**
+   * When the part began, seconds from the meeting's start (16 October 2026):
+   * where the pauses between parts fell. Absent from older apps.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(6 * 60 * 60)
+  startSec?: number | null;
 }
 
 export class SaveConductRunDto {
@@ -71,4 +81,9 @@ export class SaveConductRunDto {
   @Min(0)
   @Max(6 * 60 * 60)
   plannedSec!: number;
+
+  /** When the first part began (16 October 2026). Absent from older apps. */
+  @IsOptional()
+  @IsISO8601()
+  startedAt?: string | null;
 }

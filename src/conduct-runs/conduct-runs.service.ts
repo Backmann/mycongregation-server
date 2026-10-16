@@ -127,6 +127,7 @@ export class ConductRunsService {
       plannedSec: s.plannedSec,
       actualSec: s.actualSec,
       counselSec: s.counselSec ?? null,
+      startSec: s.startSec ?? null,
     }));
     const existing = await this.runs.findOne({
       where: {
@@ -157,6 +158,7 @@ export class ConductRunsService {
     row.segments = segments;
     row.totalSec = dto.totalSec;
     row.plannedSec = dto.plannedSec;
+    row.startedAt = dto.startedAt ? new Date(dto.startedAt) : null;
     row.savedBy = user.id;
     row.savedAt = now;
     return this.runs.save(row);
