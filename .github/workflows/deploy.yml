@@ -8,6 +8,8 @@ on:
   # deploy (decided 15 October 2026).
   pull_request:
     branches: [main]
+    # "edited": a title changed after the checks ran is checked again.
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
 concurrency:
@@ -19,9 +21,41 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # GIT IS STRICTLY ENGLISH (Lionel, 16 October 2026). The pull request's
+      # title becomes the merge commit's message, so it is checked with every
+      # commit message. Cyrillic anywhere in them makes the check red; the
+      # screen's own words are named in English (or by their i18n key).
+      - name: Commit messages and the pull request title are in English
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: ${{ github.event.pull_request.title }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          {
+            printf 'PR title\t%s\n' "$TITLE"
+            gh api --paginate "repos/$REPO/pulls/$PR/commits" \
+              --jq '.[] | "\(.sha[0:7])\t\(.commit.message | gsub("\n"; " ⏎ "))"'
+          } > "$RUNNER_TEMP/messages.txt"
+          python3 - "$RUNNER_TEMP/messages.txt" <<'PY'
+          import re, sys
+          bad = [l.rstrip('\n') for l in open(sys.argv[1], encoding='utf-8')
+                 if re.search('[\\u0400-\\u04FF]', l)]
+          for l in bad:
+              print(f"::error::Not English: {l[:300]}")
+          if bad:
+              sys.exit(1)
+          print("OK: the title and every commit message are in English.")
+          PY
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
