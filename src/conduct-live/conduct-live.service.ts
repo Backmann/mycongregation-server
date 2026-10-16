@@ -5,7 +5,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, LessThan, Repository } from 'typeorm';
+import { IsNull, LessThan, Repository } from 'typeorm';
 import { ConductLive } from '../entities/conduct-live.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Publisher } from '../entities/publisher.entity';
@@ -13,9 +13,9 @@ import { Duty } from '../entities/duty.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { EventType } from '../common/enums/event-type.enum';
 import { DutyType } from '../common/enums/duty-type.enum';
-import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
+import { isAppointedBrother } from '../common/appointed-brother';
 
 /** How long a live row is kept — a day; the meeting is long over by then. */
 export const CONDUCT_LIVE_KEEP_MS = 24 * 60 * 60 * 1000;
@@ -154,25 +154,8 @@ export class ConductLiveService {
   }
 
   /** An appointed brother: by his role, or by his own card. */
-  private async isAppointed(user: AuthenticatedUser): Promise<boolean> {
-    if (
-      user.role === UserRole.ADMIN ||
-      user.role === UserRole.ELDER ||
-      user.role === UserRole.MINISTERIAL_SERVANT
-    ) {
-      return true;
-    }
-    const mine = await this.publishers.findOne({
-      where: {
-        congregationId: user.congregationId,
-        userId: user.id,
-        appointment: In([
-          PublisherAppointment.ELDER,
-          PublisherAppointment.MINISTERIAL_SERVANT,
-        ]),
-      },
-    });
-    return !!mine;
+  private isAppointed(user: AuthenticatedUser): Promise<boolean> {
+    return isAppointedBrother(user, this.publishers);
   }
 
   private forbidden(): ForbiddenException {

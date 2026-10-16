@@ -14,6 +14,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import { EventType } from '../common/enums/event-type.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
+import { isAppointedBrother } from '../common/appointed-brother';
 import { SaveConductRunDto } from './dto/save-conduct-run.dto';
 
 /** How long a run may be read and kept — Lionel, 14 October 2026. */
@@ -29,8 +30,11 @@ const KEEP_MS = CONDUCT_RUN_KEEP_DAYS * 24 * 60 * 60 * 1000;
  * the chairman watches, and his device is the one that ends the meeting), and
  * an admin. Nobody else ran the meeting.
  *
- * WHO READS: the chairman of that week, the elders and an admin. It is a view
- * of people's parts against the clock; a publisher has no task that needs it.
+ * WHO READS: every appointed brother — the elders AND the ministerial
+ * servants, by the role of the account or by the card (Lionel, 15 October
+ * 2026: «итог 7 дней видят все назначенные братья») — the chairman of that
+ * week, and an admin. It is a view of people's parts against the clock; a
+ * publisher has no task that needs it.
  */
 @Injectable()
 export class ConductRunsService {
@@ -156,14 +160,13 @@ export class ConductRunsService {
   ): Promise<ConductRun | null> {
     const week = this.monday(weekStartDate);
     const reader =
-      user.role === UserRole.ADMIN ||
-      user.role === UserRole.ELDER ||
+      (await isAppointedBrother(user, this.publishers)) ||
       (await this.isChairman(user, week));
     if (!reader) {
       throw new ForbiddenException(
         refusal(
           'CONDUCT_RESULT_FORBIDDEN',
-          'How a meeting ran is seen by its chairman and the elders.',
+          'How a meeting ran is seen by its chairman and the appointed brothers.',
         ),
       );
     }

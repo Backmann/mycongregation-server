@@ -1,18 +1,16 @@
 import { Body, Controller, Get, Put, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { UserRole } from '../common/enums/user-role.enum';
 import { ConductRunsService } from './conduct-runs.service';
 import { SaveConductRunDto } from './dto/save-conduct-run.dto';
 
 /**
- * How a midweek meeting ran — saved by its chairman when he finishes, read by
- * him and the elders for seven days. Who may do which is decided in the
- * service, against that week's programme; the roles below only keep a
- * publisher's request from reaching it (the chairman is an elder or, where
- * there are few, a ministerial servant).
+ * How a midweek meeting ran — saved by whoever ran it when he finishes, read
+ * by the appointed brothers for seven days. Who may do which is decided in
+ * the service, against that week's programme and the reader's card — no role
+ * here: a ministerial servant whose account is a publisher's reads it by his
+ * card, which a role guard cannot see.
  */
 @Controller('conduct-runs')
 @UseGuards(RolesGuard)
@@ -20,7 +18,6 @@ export class ConductRunsController {
   constructor(private readonly service: ConductRunsService) {}
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.ELDER, UserRole.MINISTERIAL_SERVANT)
   async find(
     @CurrentUser() user: AuthenticatedUser,
     @Query('week') week: string,
