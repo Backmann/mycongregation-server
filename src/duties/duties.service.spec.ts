@@ -179,17 +179,30 @@ describe('DutiesService', () => {
     await service.generateWeek('c1', gen);
     expect(qb.insert).toHaveBeenCalled();
     const rows = qb.values.mock.calls[0][0] as Array<{ dutyType: DutyType }>;
-    expect(rows).toHaveLength(2 + 3 + 4 + 1); // before + mics + after + timekeeper (midweek only)
+    expect(rows).toHaveLength(2 + 3 + 4 + 1); // before + mics + after + timekeeper
     expect(rows.filter((r) => r.dutyType === DutyType.MICROPHONE)).toHaveLength(
       3,
     );
+  });
+
+  it('the weekend sheet gets the timekeeper too (18 October 2026)', async () => {
+    meetingRepo.find.mockResolvedValue([{ microphoneSlots: 2 }]);
+    await service.generateWeek('c1', {
+      ...gen,
+      eventType: 'weekend' as EventType,
+    });
+    const rows = qb.values.mock.calls[0][0] as Array<{ dutyType: DutyType }>;
+    expect(rows.filter((r) => r.dutyType === DutyType.TIMEKEEPER)).toHaveLength(
+      1,
+    );
+    expect(rows).toHaveLength(2 + 2 + 4 + 1);
   });
 
   it('generateWeek defaults to 2 mics when there is no meeting settings', async () => {
     meetingRepo.find.mockResolvedValue([]);
     await service.generateWeek('c1', gen);
     const rows = qb.values.mock.calls[0][0] as unknown[];
-    expect(rows).toHaveLength(2 + 2 + 4 + 1); // + timekeeper (midweek only)
+    expect(rows).toHaveLength(2 + 2 + 4 + 1); // + timekeeper
   });
 
   const duty: Duty = {

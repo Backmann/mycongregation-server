@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, LessThan, Repository } from 'typeorm';
 import { ConductLive } from '../entities/conduct-live.entity';
+import { MAIN_ROOM } from '../entities/conduct-room';
 import { Assignment } from '../entities/assignment.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Duty } from '../entities/duty.entity';
@@ -16,6 +17,7 @@ import { DutyType } from '../common/enums/duty-type.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
 import { isConductOverseer } from '../common/conduct-overseer';
+import { CHAIRMAN_PART_KEY, type ConductKind } from '../common/conduct-kind';
 import { MeetingDayService } from '../conduct-runs/meeting-day.service';
 
 /** How long a live row is kept — a day; the meeting is long over by then. */
@@ -113,33 +115,35 @@ export class ConductLiveService {
     return p?.userId ?? null;
   }
 
-  /** The chairman's account for that week, or null. */
+  /** The chairman's account for that week's meeting of this kind, or null. */
   async chairmanUser(
     congregationId: string,
     week: string,
+    kind: ConductKind = EventType.MIDWEEK,
   ): Promise<string | null> {
     const chair = await this.assignments.findOne({
       where: {
         congregationId,
         weekStartDate: week,
-        eventType: EventType.MIDWEEK,
-        partKey: 'midweek_chairman',
+        eventType: kind,
+        partKey: CHAIRMAN_PART_KEY[kind],
         deletedAt: IsNull(),
       },
     });
     return this.userOfPublisher(congregationId, chair?.publisherId);
   }
 
-  /** The timekeeper's account for that week's midweek meeting, or null. */
+  /** The timekeeper's account for that week's meeting of this kind, or null. */
   async timekeeperUser(
     congregationId: string,
     week: string,
+    kind: ConductKind = EventType.MIDWEEK,
   ): Promise<string | null> {
     const duty = await this.duties.findOne({
       where: {
         congregationId,
         weekStartDate: week,
-        eventType: EventType.MIDWEEK,
+        eventType: kind,
         dutyType: DutyType.TIMEKEEPER,
       },
     });
@@ -147,23 +151,34 @@ export class ConductLiveService {
   }
 
   /** Chairman, timekeeper, admin — the hands that may run the meeting. */
-  async mayRun(user: AuthenticatedUser, week: string): Promise<boolean> {
+  async mayRun(
+    user: AuthenticatedUser,
+    week: string,
+    kind: ConductKind = EventType.MIDWEEK,
+  ): Promise<boolean> {
     if (user.role === UserRole.ADMIN) return true;
     const [chair, keeper] = await Promise.all([
-      this.chairmanUser(user.congregationId, week),
-      this.timekeeperUser(user.congregationId, week),
+      this.chairmanUser(user.congregationId, week, kind),
+      this.timekeeperUser(user.congregationId, week, kind),
     ]);
     return chair === user.id || keeper === user.id;
   }
 
   /** Who oversees how the meeting runs (common/conduct-overseer.ts). */
-  private isOverseer(user: AuthenticatedUser): Promise<boolean> {
-    return isConductOverseer(user, this.publishers);
+  private isOverseer(
+    user: AuthenticatedUser,
+    kind: ConductKind,
+  ): Promise<boolean> {
+    return isConductOverseer(user, this.publishers, kind);
   }
 
   /** A meeting whose day has passed is not run any more (16 October 2026). */
-  private async refuseIfOver(congregationId: string, week: string) {
-    if (await this.meetingDay.isOver(congregationId, week)) {
+  private async refuseIfOver(
+    congregationId: string,
+    week: string,
+    kind: ConductKind,
+  ) {
+    if (await this.meetingDay.isOver(congregationId, week, kind)) {
       throw new ConflictException(
         refusal(
           'CONDUCT_MEETING_OVER',
@@ -177,7 +192,7 @@ export class ConductLiveService {
     return new ForbiddenException(
       refusal(
         'CONDUCT_LIVE_FORBIDDEN',
-        'The meeting as it runs is watched by the admins, the counsel brother and the Life and Ministry overseer, and run by its chairman or timekeeper.',
+        'The meeting as it runs is watched by those who oversee how it runs, and run by its chairman or timekeeper.',
       ),
     );
   }
@@ -214,12 +229,13 @@ export class ConductLiveService {
     };
   }
 
-  private findRow(congregationId: string, week: string) {
+  private findRow(congregationId: string, week: string, kind: ConductKind) {
     return this.live.findOne({
       where: {
         congregationId,
         weekStartDate: week,
-        eventType: EventType.MIDWEEK,
+        eventType: kind,
+        room: MAIN_ROOM,
       },
     });
   }
@@ -234,15 +250,16 @@ export class ConductLiveService {
     user: AuthenticatedUser,
     weekStartDate: string,
     now = new Date(),
+    kind: ConductKind = EventType.MIDWEEK,
   ): Promise<{ live: ConductLiveView | null; roles: ConductLiveRoles }> {
     const week = this.monday(weekStartDate);
     const [chair, keeperDuty] = await Promise.all([
-      this.chairmanUser(user.congregationId, week),
+      this.chairmanUser(user.congregationId, week, kind),
       this.duties.findOne({
         where: {
           congregationId: user.congregationId,
           weekStartDate: week,
-          eventType: EventType.MIDWEEK,
+          eventType: kind,
           dutyType: DutyType.TIMEKEEPER,
         },
       }),
@@ -254,7 +271,7 @@ export class ConductLiveService {
     const isChairman = !!chair && chair === user.id;
     const isTimekeeper = !!keeper && keeper === user.id;
     const mayRun = user.role === UserRole.ADMIN || isChairman || isTimekeeper;
-    if (!mayRun && !(await this.isOverseer(user))) throw this.forbidden();
+    if (!mayRun && !(await this.isOverseer(user, kind))) throw this.forbidden();
     const roles: ConductLiveRoles = {
       mayRun,
       isChairman,
@@ -268,10 +285,10 @@ export class ConductLiveService {
     // After the meeting's day there is no meeting «as it runs» to show — only
     // its result (conduct-runs). A row left from a run started after the
     // day is not shown to anybody (16 October 2026).
-    if (await this.meetingDay.isOver(user.congregationId, week)) {
+    if (await this.meetingDay.isOver(user.congregationId, week, kind)) {
       return { live: null, roles };
     }
-    const row = await this.findRow(user.congregationId, week);
+    const row = await this.findRow(user.congregationId, week, kind);
     if (
       !row ||
       now.getTime() - new Date(row.updatedAt).getTime() > CONDUCT_LIVE_KEEP_MS
@@ -324,18 +341,20 @@ export class ConductLiveService {
     epoch: number,
     stateIn: unknown,
     now = new Date(),
+    kind: ConductKind = EventType.MIDWEEK,
   ): Promise<ConductLiveView> {
     const week = this.monday(weekStartDate);
     const state = this.checkState(stateIn);
-    if (!(await this.mayRun(user, week))) throw this.forbidden();
-    await this.refuseIfOver(user.congregationId, week);
-    const row = await this.findRow(user.congregationId, week);
+    if (!(await this.mayRun(user, week, kind))) throw this.forbidden();
+    await this.refuseIfOver(user.congregationId, week, kind);
+    const row = await this.findRow(user.congregationId, week, kind);
     if (!row) {
       const created = await this.live.save(
         this.live.create({
           congregationId: user.congregationId,
           weekStartDate: week,
-          eventType: EventType.MIDWEEK,
+          eventType: kind,
+          room: MAIN_ROOM,
           state,
           epoch: 1,
           controllerUserId: user.id,
@@ -377,13 +396,14 @@ export class ConductLiveService {
     weekStartDate: string,
     stateIn: unknown,
     now = new Date(),
+    kind: ConductKind = EventType.MIDWEEK,
   ): Promise<ConductLiveView> {
     const week = this.monday(weekStartDate);
-    if (!(await this.mayRun(user, week))) throw this.forbidden();
-    await this.refuseIfOver(user.congregationId, week);
-    const row = await this.findRow(user.congregationId, week);
+    if (!(await this.mayRun(user, week, kind))) throw this.forbidden();
+    await this.refuseIfOver(user.congregationId, week, kind);
+    const row = await this.findRow(user.congregationId, week, kind);
     if (!row) {
-      return this.write(user, week, 0, stateIn ?? {}, now);
+      return this.write(user, week, 0, stateIn ?? {}, now, kind);
     }
     row.epoch += 1;
     row.controllerUserId = user.id;

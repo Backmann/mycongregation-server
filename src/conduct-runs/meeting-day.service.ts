@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { WeekRulesService } from '../common/week-rules.service';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { EventType } from '../common/enums/event-type.enum';
+import type { ConductKind } from '../common/conduct-kind';
 
 /**
  * WHETHER A WEEK'S MIDWEEK MEETING IS OVER — its day has passed in the
@@ -30,14 +32,29 @@ export class MeetingDayService {
     congregationId: string,
     week: string,
   ): Promise<string | null> {
-    const ctx = await this.weekRules.contextOf(congregationId);
-    const rules = this.weekRules.rulesFrom(ctx, week);
-    return rules.meetings.find((m) => m.kind === 'midweek')?.date ?? null;
+    return this.meetingDate(congregationId, week, EventType.MIDWEEK);
   }
 
-  /** True once the day of that week's midweek meeting has passed. */
-  async isOver(congregationId: string, week: string): Promise<boolean> {
-    const date = await this.midweekDate(congregationId, week);
+  /** That week's meeting of this kind, its date — or null when none is held. */
+  async meetingDate(
+    congregationId: string,
+    week: string,
+    kind: ConductKind,
+  ): Promise<string | null> {
+    const ctx = await this.weekRules.contextOf(congregationId);
+    const rules = this.weekRules.rulesFrom(ctx, week);
+    return (
+      rules.meetings.find((m) => (m.kind as string) === kind)?.date ?? null
+    );
+  }
+
+  /** True once the day of that week's meeting (midweek unless said) has passed. */
+  async isOver(
+    congregationId: string,
+    week: string,
+    kind: ConductKind = EventType.MIDWEEK,
+  ): Promise<boolean> {
+    const date = await this.meetingDate(congregationId, week, kind);
     if (!date) return false;
     return date < (await this.clock.todayFor(congregationId));
   }

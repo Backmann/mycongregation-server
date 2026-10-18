@@ -22,8 +22,9 @@ export enum DutyType {
   VENTILATION = 'ventilation',
   /**
    * Ведущий времени — the brother in the hall who taps through conduct mode
-   * while the chairman only watches (15 October 2026). Midweek only, and
-   * optional: a congregation that does not use it simply leaves it empty.
+   * while the chairman only watches (15 October 2026). Midweek and, since
+   * 18 October 2026, weekend; optional: a congregation that does not use it
+   * simply leaves it empty.
    */
   TIMEKEEPER = 'timekeeper',
   CUSTOM = 'custom',
@@ -46,8 +47,12 @@ export const SINGLE_SLOT_DUTIES_AFTER_MIC: DutyType[] = [
   DutyType.VENTILATION,
 ];
 
-/** Generated for the MIDWEEK meeting only, after all the others. */
-export const MIDWEEK_ONLY_DUTIES: DutyType[] = [DutyType.TIMEKEEPER];
+/**
+ * Generated for the two ordinary meetings, after all the others — not for
+ * the Memorial (18 October 2026: the weekend meeting is run in conduct mode
+ * too; before, the midweek one only).
+ */
+export const MEETING_RUN_DUTIES: DutyType[] = [DutyType.TIMEKEEPER];
 
 /**
  * Places a congregation may or may not use at all. They are not counted in

@@ -13,6 +13,12 @@ import { Duty } from '../entities/duty.entity';
 import { DutyType } from '../common/enums/duty-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { EventType } from '../common/enums/event-type.enum';
+import {
+  CHAIRMAN_PART_KEY,
+  conductKind,
+  type ConductKind,
+} from '../common/conduct-kind';
+import { MAIN_ROOM } from '../entities/conduct-room';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
 import { isConductOverseer } from '../common/conduct-overseer';
@@ -52,12 +58,16 @@ export class ConductRunsService {
   ) {}
 
   /** Whether this account is the timekeeper named for that week's midweek meeting. */
-  async isTimekeeper(user: AuthenticatedUser, week: string): Promise<boolean> {
+  async isTimekeeper(
+    user: AuthenticatedUser,
+    week: string,
+    kind: ConductKind = EventType.MIDWEEK,
+  ): Promise<boolean> {
     const duty = await this.duties.findOne({
       where: {
         congregationId: user.congregationId,
         weekStartDate: week,
-        eventType: EventType.MIDWEEK,
+        eventType: kind,
         dutyType: DutyType.TIMEKEEPER,
       },
     });
@@ -85,13 +95,17 @@ export class ConductRunsService {
   }
 
   /** Whether this account is the chairman named for that week's midweek meeting. */
-  async isChairman(user: AuthenticatedUser, week: string): Promise<boolean> {
+  async isChairman(
+    user: AuthenticatedUser,
+    week: string,
+    kind: ConductKind = EventType.MIDWEEK,
+  ): Promise<boolean> {
     const chair = await this.assignments.findOne({
       where: {
         congregationId: user.congregationId,
         weekStartDate: week,
-        eventType: EventType.MIDWEEK,
-        partKey: 'midweek_chairman',
+        eventType: kind,
+        partKey: CHAIRMAN_PART_KEY[kind],
         deletedAt: IsNull(),
       },
     });
@@ -108,10 +122,11 @@ export class ConductRunsService {
     now = new Date(),
   ): Promise<ConductRun> {
     const week = this.monday(dto.weekStartDate);
+    const kind = conductKind(dto.eventType);
     if (
       user.role !== UserRole.ADMIN &&
-      !(await this.isChairman(user, week)) &&
-      !(await this.isTimekeeper(user, week))
+      !(await this.isChairman(user, week, kind)) &&
+      !(await this.isTimekeeper(user, week, kind))
     ) {
       throw new ForbiddenException(
         refusal(
@@ -133,14 +148,18 @@ export class ConductRunsService {
       where: {
         congregationId: user.congregationId,
         weekStartDate: week,
-        eventType: EventType.MIDWEEK,
+        eventType: kind,
+        room: MAIN_ROOM,
       },
     });
     // AFTER THE MEETING'S DAY A RESULT IS NOT REPLACED (16 October 2026). A
     // result may still ARRIVE late — a phone that had no signal in the hall
     // sends it when it has one — but one already kept is the meeting's, and
     // a run finished days later on some device is not.
-    if (existing && (await this.meetingDay.isOver(user.congregationId, week))) {
+    if (
+      existing &&
+      (await this.meetingDay.isOver(user.congregationId, week, kind))
+    ) {
       throw new ConflictException(
         refusal(
           'CONDUCT_RESULT_KEPT',
@@ -153,7 +172,8 @@ export class ConductRunsService {
       this.runs.create({
         congregationId: user.congregationId,
         weekStartDate: week,
-        eventType: EventType.MIDWEEK,
+        eventType: kind,
+        room: MAIN_ROOM,
       });
     row.segments = segments;
     row.totalSec = dto.totalSec;
@@ -173,13 +193,14 @@ export class ConductRunsService {
     user: AuthenticatedUser,
     weekStartDate: string,
     now = new Date(),
+    kind: ConductKind = EventType.MIDWEEK,
   ): Promise<ConductRun | null> {
     const week = this.monday(weekStartDate);
-    if (!(await isConductOverseer(user, this.publishers))) {
+    if (!(await isConductOverseer(user, this.publishers, kind))) {
       throw new ForbiddenException(
         refusal(
           'CONDUCT_RESULT_FORBIDDEN',
-          'How a meeting ran is seen by the admins, the counsel brother and the Life and Ministry overseer.',
+          'How a meeting ran is seen by those who oversee how it runs.',
         ),
       );
     }
@@ -187,7 +208,8 @@ export class ConductRunsService {
       where: {
         congregationId: user.congregationId,
         weekStartDate: week,
-        eventType: EventType.MIDWEEK,
+        eventType: kind,
+        room: MAIN_ROOM,
       },
     });
     if (!run) return null;

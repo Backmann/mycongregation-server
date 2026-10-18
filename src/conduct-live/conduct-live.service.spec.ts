@@ -22,6 +22,9 @@ const KEEPER_USER = 'user-keeper';
 const KEEPER_PUB = 'pub-keeper';
 const ADVISER_USER = 'user-adviser'; // the brother who gives counsel
 const LMO_USER = 'user-lmo'; // the Life and Ministry overseer
+const WT_USER = 'user-wt'; // the Watchtower study conductor
+const WEEKEND_CHAIR_USER = 'user-weekend-chair';
+const WEEKEND_CHAIR_PUB = 'pub-weekend-chair';
 
 const user = (role: UserRole, id = 'user-x') =>
   ({
@@ -71,7 +74,11 @@ function build(
     delete: jest.fn(async () => ({ affected: 2 })),
   };
   const assignments = {
-    findOne: jest.fn(async () => ({ publisherId: CHAIR_PUB })),
+    findOne: jest.fn(async ({ where }: { where: Record<string, unknown> }) =>
+      where.partKey === 'weekend_chairman'
+        ? { publisherId: WEEKEND_CHAIR_PUB }
+        : { publisherId: CHAIR_PUB },
+    ),
   };
   const duties = {
     findOne: jest.fn(async () =>
@@ -81,6 +88,8 @@ function build(
   const publishers = {
     findOne: jest.fn(async ({ where }: { where: Record<string, unknown> }) => {
       if (where.id === CHAIR_PUB) return { id: CHAIR_PUB, userId: CHAIR_USER };
+      if (where.id === WEEKEND_CHAIR_PUB)
+        return { id: WEEKEND_CHAIR_PUB, userId: WEEKEND_CHAIR_USER };
       if (where.id === KEEPER_PUB)
         return { id: KEEPER_PUB, userId: KEEPER_USER };
       if (where.userId === KEEPER_USER) return { displayName: 'Фогт Маркус' };
@@ -90,8 +99,18 @@ function build(
     // Responsibilities: who oversees how the meeting runs.
     manager: {
       count: jest.fn(
-        async (_e: unknown, { where }: { where: { userId: string } }) =>
-          where.userId === ADVISER_USER || where.userId === LMO_USER ? 1 : 0,
+        async (
+          _e: unknown,
+          { where }: { where: { userId: string; type: { _value: string[] } } },
+        ) => {
+          const held: Record<string, string> = {
+            [ADVISER_USER]: 'adviser',
+            [LMO_USER]: 'life_ministry_overseer',
+            [WT_USER]: 'wt_study_conductor',
+          };
+          const t = held[where.userId];
+          return t && where.type._value.includes(t) ? 1 : 0;
+        },
       ),
     },
   };
@@ -403,5 +422,79 @@ describe('a day later it is gone', () => {
     const { service, live } = build();
     expect(await service.deleteExpired(NOW)).toBe(2);
     expect(live.delete).toHaveBeenCalled();
+  });
+});
+
+describe('the weekend meeting (18 October 2026)', () => {
+  it('its chairman is the weekend chairman, not the midweek one', async () => {
+    const { service } = build({ row: {} });
+    const weekend = await service.find(
+      user(UserRole.ELDER, WEEKEND_CHAIR_USER),
+      WEEK,
+      NOW,
+      'weekend' as never,
+    );
+    expect(weekend.roles).toMatchObject({ isChairman: true, mayRun: true });
+    await expect(
+      service.find(user(UserRole.ELDER, WEEKEND_CHAIR_USER), WEEK, NOW),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('the Watchtower conductor watches it, the Life and Ministry overseer does not', async () => {
+    const { service } = build({ row: {} });
+    expect(
+      (
+        await service.find(
+          user(UserRole.ELDER, WT_USER),
+          WEEK,
+          NOW,
+          'weekend' as never,
+        )
+      ).live,
+    ).not.toBeNull();
+    await expect(
+      service.find(
+        user(UserRole.ELDER, LMO_USER),
+        WEEK,
+        NOW,
+        'weekend' as never,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    // …and the other way round on the midweek meeting.
+    await expect(
+      service.find(user(UserRole.ELDER, WT_USER), WEEK, NOW),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('the counsel brother watches both', async () => {
+    const { service } = build({ row: {} });
+    expect(
+      (
+        await service.find(
+          user(UserRole.ELDER, ADVISER_USER),
+          WEEK,
+          NOW,
+          'weekend' as never,
+        )
+      ).live,
+    ).not.toBeNull();
+  });
+
+  it('a row is written for the weekend meeting, in the main room', async () => {
+    const { service, live } = build({ row: null });
+    await service.write(
+      user(UserRole.ADMIN),
+      WEEK,
+      0,
+      STATE,
+      NOW,
+      'weekend' as never,
+    );
+    expect(live.findOne).toHaveBeenCalledWith({
+      where: expect.objectContaining({ eventType: 'weekend', room: 'main' }),
+    });
+    expect(live.create).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'weekend', room: 'main' }),
+    );
   });
 });
