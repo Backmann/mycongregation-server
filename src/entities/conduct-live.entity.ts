@@ -68,6 +68,22 @@ export class ConductLive {
   @Column({ type: 'uuid', name: 'controller_user_id' })
   controllerUserId!: string;
 
+  /**
+   * WHICH DEVICE of that account taps (18 October 2026). The same brother
+   * opened the meeting on his iPad and then on his phone; both were «his»,
+   * both were heard, and the phone's old run overwrote the iPad's. Now one
+   * device of the account runs it and the other watches until «Взять
+   * ведение». Null — a row written by an app from before; then any device of
+   * the account is heard, and the first that names itself is bound.
+   */
+  @Column({
+    type: 'varchar',
+    length: 64,
+    name: 'controller_device_id',
+    nullable: true,
+  })
+  controllerDeviceId!: string | null;
+
   /** The controller's device last asked — its sign of life. */
   @Column({ type: 'timestamptz', name: 'controller_seen_at' })
   controllerSeenAt!: Date;

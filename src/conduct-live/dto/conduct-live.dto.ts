@@ -1,5 +1,6 @@
 import {
   IsIn,
+  Matches,
   IsInt,
   IsISO8601,
   IsObject,
@@ -7,6 +8,9 @@ import {
   Max,
   Min,
 } from 'class-validator';
+
+/** A device's own id, as the app makes it (lib/device-id.ts). */
+export const DEVICE_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 
 /** A tap of the one who runs the meeting: its whole run, as the screen keeps it. */
 export class WriteConductLiveDto {
@@ -27,6 +31,11 @@ export class WriteConductLiveDto {
   @IsOptional()
   @IsIn(['midweek', 'weekend'])
   eventType?: 'midweek' | 'weekend';
+
+  /** The device that taps (18 October 2026); none — an app from before. */
+  @IsOptional()
+  @Matches(DEVICE_ID_RE)
+  deviceId?: string;
 }
 
 /** Take the meeting over — optionally with the taker's own run. */
@@ -42,4 +51,9 @@ export class TakeConductLiveDto {
   @IsOptional()
   @IsIn(['midweek', 'weekend'])
   eventType?: 'midweek' | 'weekend';
+
+  /** The device that taps (18 October 2026); none — an app from before. */
+  @IsOptional()
+  @Matches(DEVICE_ID_RE)
+  deviceId?: string;
 }

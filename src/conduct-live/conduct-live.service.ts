@@ -31,8 +31,13 @@ export interface ConductLiveView {
   state: Record<string, unknown>;
   controllerUserId: string;
   controllerName: string | null;
-  /** Whether the asking account is the one whose taps count. */
+  /** Whether the asking DEVICE is the one whose taps count. */
   mine: boolean;
+  /**
+   * The asking account runs it — on another of its devices (18 October
+   * 2026): this one watches and says «вы ведёте время на другом устройстве».
+   */
+  mineElsewhere: boolean;
   controllerSeenAt: string;
   chairmanSeenAt: string | null;
   updatedAt: string;
@@ -58,6 +63,8 @@ export interface ConductLiveRoles {
  * meeting (duty «Ведущий времени»), and an admin — one of them at a time.
  * The first to start becomes the controller; any of the three may take over
  * (`take`), and from then on only the new one's writes are accepted.
+ * One DEVICE of that account, too (18 October 2026): the account's other
+ * devices watch until they take over (entities/conduct-live.entity.ts).
  *
  * WHO WATCHES: those three, and those who oversee how the meeting runs —
  * the admins, the counsel brother and the Life and Ministry overseer
@@ -207,10 +214,30 @@ export class ConductLiveService {
     return p?.displayName ?? null;
   }
 
+  /**
+   * Whether this account on this device is the hand whose taps count. A row
+   * from an app before devices (no device on it), or an app that names none,
+   * is the account's on any device — as it was until 18 October 2026.
+   */
+  private isHand(
+    row: ConductLive,
+    user: AuthenticatedUser,
+    deviceId: string | null,
+  ): boolean {
+    if (row.controllerUserId !== user.id) return false;
+    return (
+      !row.controllerDeviceId ||
+      !deviceId ||
+      row.controllerDeviceId === deviceId
+    );
+  }
+
   private async view(
     row: ConductLive,
     user: AuthenticatedUser,
+    deviceId: string | null = null,
   ): Promise<ConductLiveView> {
+    const mine = this.isHand(row, user, deviceId);
     return {
       weekStartDate: row.weekStartDate,
       epoch: row.epoch,
@@ -220,7 +247,8 @@ export class ConductLiveService {
         row.congregationId,
         row.controllerUserId,
       ),
-      mine: row.controllerUserId === user.id,
+      mine,
+      mineElsewhere: !mine && row.controllerUserId === user.id,
       controllerSeenAt: new Date(row.controllerSeenAt).toISOString(),
       chairmanSeenAt: row.chairmanSeenAt
         ? new Date(row.chairmanSeenAt).toISOString()
@@ -251,6 +279,7 @@ export class ConductLiveService {
     weekStartDate: string,
     now = new Date(),
     kind: ConductKind = EventType.MIDWEEK,
+    deviceId: string | null = null,
   ): Promise<{ live: ConductLiveView | null; roles: ConductLiveRoles }> {
     const week = this.monday(weekStartDate);
     const [chair, keeperDuty] = await Promise.all([
@@ -295,7 +324,9 @@ export class ConductLiveService {
     ) {
       return { live: null, roles };
     }
-    if (row.controllerUserId === user.id) {
+    // Only the device that taps is the controller's sign of life: the same
+    // account watching on its phone must not hide that the iPad went quiet.
+    if (this.isHand(row, user, deviceId)) {
       await this.live.update({ id: row.id }, {
         controllerSeenAt: now,
         updatedAt: () => '"updated_at"',
@@ -308,7 +339,7 @@ export class ConductLiveService {
       } as never);
       row.chairmanSeenAt = now;
     }
-    return { live: await this.view(row, user), roles };
+    return { live: await this.view(row, user, deviceId), roles };
   }
 
   private checkState(state: unknown): Record<string, unknown> {
@@ -342,6 +373,7 @@ export class ConductLiveService {
     stateIn: unknown,
     now = new Date(),
     kind: ConductKind = EventType.MIDWEEK,
+    deviceId: string | null = null,
   ): Promise<ConductLiveView> {
     const week = this.monday(weekStartDate);
     const state = this.checkState(stateIn);
@@ -358,13 +390,14 @@ export class ConductLiveService {
           state,
           epoch: 1,
           controllerUserId: user.id,
+          controllerDeviceId: deviceId,
           controllerSeenAt: now,
           chairmanSeenAt: null,
         }),
       );
-      return this.view(created, user);
+      return this.view(created, user, deviceId);
     }
-    if (row.controllerUserId !== user.id || row.epoch !== epoch) {
+    if (!this.isHand(row, user, deviceId) || row.epoch !== epoch) {
       throw new ConflictException(
         refusal(
           'CONDUCT_LIVE_NOT_YOURS',
@@ -381,8 +414,10 @@ export class ConductLiveService {
     }
     row.state = state;
     row.controllerSeenAt = now;
+    // A row from an app before devices is bound to the first that names itself.
+    if (!row.controllerDeviceId && deviceId) row.controllerDeviceId = deviceId;
     const saved = await this.live.save(row);
-    return this.view(saved, user);
+    return this.view(saved, user, deviceId);
   }
 
   /**
@@ -397,21 +432,23 @@ export class ConductLiveService {
     stateIn: unknown,
     now = new Date(),
     kind: ConductKind = EventType.MIDWEEK,
+    deviceId: string | null = null,
   ): Promise<ConductLiveView> {
     const week = this.monday(weekStartDate);
     if (!(await this.mayRun(user, week, kind))) throw this.forbidden();
     await this.refuseIfOver(user.congregationId, week, kind);
     const row = await this.findRow(user.congregationId, week, kind);
     if (!row) {
-      return this.write(user, week, 0, stateIn ?? {}, now, kind);
+      return this.write(user, week, 0, stateIn ?? {}, now, kind, deviceId);
     }
     row.epoch += 1;
     row.controllerUserId = user.id;
+    row.controllerDeviceId = deviceId;
     row.controllerSeenAt = now;
     if (stateIn !== undefined && stateIn !== null)
       row.state = this.checkState(stateIn);
     const saved = await this.live.save(row);
-    return this.view(saved, user);
+    return this.view(saved, user, deviceId);
   }
 
   /** Every live row older than a day, in every congregation. Returns how many. */
