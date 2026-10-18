@@ -16,7 +16,10 @@ import { EventType } from '../common/enums/event-type.enum';
 import { DutyType } from '../common/enums/duty-type.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
-import { isConductOverseer } from '../common/conduct-overseer';
+import {
+  isCongregationElder,
+  isConductOverseer,
+} from '../common/conduct-overseer';
 import { CHAIRMAN_PART_KEY, type ConductKind } from '../common/conduct-kind';
 import { MeetingDayService } from '../conduct-runs/meeting-day.service';
 
@@ -66,7 +69,8 @@ export interface ConductLiveRoles {
  * One DEVICE of that account, too (18 October 2026): the account's other
  * devices watch until they take over (entities/conduct-live.entity.ts).
  *
- * WHO WATCHES: those three, and those who oversee how the meeting runs —
+ * WHO WATCHES: those three, every elder (18 October 2026), and those who
+ * oversee how the meeting runs —
  * the admins, the counsel brother and the Life and Ministry overseer
  * (common/conduct-overseer.ts; Lionel, 16 October 2026 — on 15 October it
  * was every appointed brother). It shows who has which part and how long it
@@ -300,7 +304,12 @@ export class ConductLiveService {
     const isChairman = !!chair && chair === user.id;
     const isTimekeeper = !!keeper && keeper === user.id;
     const mayRun = user.role === UserRole.ADMIN || isChairman || isTimekeeper;
-    if (!mayRun && !(await this.isOverseer(user, kind))) throw this.forbidden();
+    if (
+      !mayRun &&
+      !(await this.isOverseer(user, kind)) &&
+      !(await isCongregationElder(user, this.publishers))
+    )
+      throw this.forbidden();
     const roles: ConductLiveRoles = {
       mayRun,
       isChairman,

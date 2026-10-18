@@ -6,6 +6,7 @@ import { ResponsibilityType } from './enums/responsibility-type.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { EventType } from './enums/event-type.enum';
 import type { ConductKind } from './conduct-kind';
+import { PublisherAppointment } from './enums/publisher-appointment.enum';
 
 /**
  * WHO OVERSEES HOW THE MIDWEEK MEETING RUNS (Lionel, 16 October 2026): the
@@ -58,4 +59,24 @@ export async function isConductOverseer(
     },
   });
   return held > 0;
+}
+
+/**
+ * WHO MAY WATCH THE MEETING AS IT RUNS (Lionel, 18 October 2026): besides
+ * the hands that run it and those who oversee it, every elder of the
+ * congregation — «Идёт встреча» on his home screen, and the screen itself.
+ * Only watching: the result stays with the overseers (isConductOverseer);
+ * a ministerial servant with no task in the meeting does not watch.
+ */
+export async function isCongregationElder(
+  user: AuthenticatedUser,
+  publishers: Repository<Publisher>,
+): Promise<boolean> {
+  // The account's role, as the tasks of the elders go by it — or the card's
+  // appointment, should an account's role not have been changed with it.
+  if (user.role === UserRole.ELDER) return true;
+  const card = await publishers.findOne({
+    where: { congregationId: user.congregationId, userId: user.id },
+  });
+  return card?.appointment === PublisherAppointment.ELDER;
 }
