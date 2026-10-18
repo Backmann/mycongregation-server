@@ -13,6 +13,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { ConductLiveService } from './conduct-live.service';
 import { conductKind } from '../common/conduct-kind';
 import {
+  DEVICE_ID_RE,
   TakeConductLiveDto,
   WriteConductLiveDto,
 } from './dto/conduct-live.dto';
@@ -24,6 +25,11 @@ import {
  *
  * Every answer carries `serverNow`, the clock the run's times are kept in.
  */
+/** A device id from the query; anything else is no device (an app from before). */
+function deviceOf(value: string | undefined): string | null {
+  return value && DEVICE_ID_RE.test(value) ? value : null;
+}
+
 @Controller('conduct-live')
 @UseGuards(RolesGuard)
 export class ConductLiveController {
@@ -34,12 +40,14 @@ export class ConductLiveController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('week') week: string,
     @Query('kind') kind?: string,
+    @Query('device') device?: string,
   ) {
     const { live, roles } = await this.service.find(
       user,
       week,
       new Date(),
       conductKind(kind),
+      deviceOf(device),
     );
     return { live, roles, serverNow: new Date().toISOString() };
   }
@@ -56,6 +64,7 @@ export class ConductLiveController {
       dto.state,
       new Date(),
       conductKind(dto.eventType),
+      dto.deviceId ?? null,
     );
     return { live, serverNow: new Date().toISOString() };
   }
@@ -71,6 +80,7 @@ export class ConductLiveController {
       dto.state,
       new Date(),
       conductKind(dto.eventType),
+      dto.deviceId ?? null,
     );
     return { live, serverNow: new Date().toISOString() };
   }

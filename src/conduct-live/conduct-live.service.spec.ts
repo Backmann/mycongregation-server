@@ -8,6 +8,7 @@ import {
   CONDUCT_LIVE_KEEP_MS,
 } from './conduct-live.service';
 import { UserRole } from '../common/enums/user-role.enum';
+import { EventType } from '../common/enums/event-type.enum';
 
 /**
  * A midweek meeting while it runs: run by one hand at a time — chairman,
@@ -24,6 +25,8 @@ const ADVISER_USER = 'user-adviser'; // the brother who gives counsel
 const LMO_USER = 'user-lmo'; // the Life and Ministry overseer
 const WT_USER = 'user-wt'; // the Watchtower study conductor
 const WEEKEND_CHAIR_USER = 'user-weekend-chair';
+const ELDER_USER = 'user-elder'; // an elder with no task in this meeting
+const SERVANT_USER = 'user-servant'; // a ministerial servant
 const WEEKEND_CHAIR_PUB = 'pub-weekend-chair';
 
 const user = (role: UserRole, id = 'user-x') =>
@@ -94,6 +97,10 @@ function build(
         return { id: KEEPER_PUB, userId: KEEPER_USER };
       if (where.userId === KEEPER_USER) return { displayName: 'Фогт Маркус' };
       if (where.userId === CHAIR_USER) return { displayName: 'Шмидт Пауль' };
+      if (where.userId === ELDER_USER)
+        return { displayName: 'Келлер Давид', appointment: 'elder' };
+      if (where.userId === SERVANT_USER)
+        return { displayName: 'Ланг Тимо', appointment: 'ministerial_servant' };
       return null;
     }),
     // Responsibilities: who oversees how the meeting runs.
@@ -160,11 +167,11 @@ describe('who may watch the meeting as it runs', () => {
     ).not.toBeNull();
   });
 
-  it('an elder or a ministerial servant without those responsibilities is refused', async () => {
+  it('a ministerial servant without those responsibilities is refused (an elder watches since 18 October 2026)', async () => {
     const { service } = build({ row: {} });
-    await expect(
-      service.find(user(UserRole.ELDER, 'user-elder'), WEEK, NOW),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(
+      (await service.find(user(UserRole.ELDER, 'user-elder'), WEEK, NOW)).live,
+    ).not.toBeNull();
     await expect(
       service.find(user(UserRole.MINISTERIAL_SERVANT, 'user-ms'), WEEK, NOW),
     ).rejects.toBeInstanceOf(ForbiddenException);
@@ -426,17 +433,23 @@ describe('a day later it is gone', () => {
 });
 
 describe('the weekend meeting (18 October 2026)', () => {
+  // A ministerial servant's account here: an elder watches every meeting
+  // (18 October 2026), and these are about the roles of the meeting itself.
   it('its chairman is the weekend chairman, not the midweek one', async () => {
     const { service } = build({ row: {} });
     const weekend = await service.find(
-      user(UserRole.ELDER, WEEKEND_CHAIR_USER),
+      user(UserRole.MINISTERIAL_SERVANT, WEEKEND_CHAIR_USER),
       WEEK,
       NOW,
       'weekend' as never,
     );
     expect(weekend.roles).toMatchObject({ isChairman: true, mayRun: true });
     await expect(
-      service.find(user(UserRole.ELDER, WEEKEND_CHAIR_USER), WEEK, NOW),
+      service.find(
+        user(UserRole.MINISTERIAL_SERVANT, WEEKEND_CHAIR_USER),
+        WEEK,
+        NOW,
+      ),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -445,7 +458,7 @@ describe('the weekend meeting (18 October 2026)', () => {
     expect(
       (
         await service.find(
-          user(UserRole.ELDER, WT_USER),
+          user(UserRole.MINISTERIAL_SERVANT, WT_USER),
           WEEK,
           NOW,
           'weekend' as never,
@@ -454,7 +467,7 @@ describe('the weekend meeting (18 October 2026)', () => {
     ).not.toBeNull();
     await expect(
       service.find(
-        user(UserRole.ELDER, LMO_USER),
+        user(UserRole.MINISTERIAL_SERVANT, LMO_USER),
         WEEK,
         NOW,
         'weekend' as never,
@@ -462,7 +475,7 @@ describe('the weekend meeting (18 October 2026)', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
     // …and the other way round on the midweek meeting.
     await expect(
-      service.find(user(UserRole.ELDER, WT_USER), WEEK, NOW),
+      service.find(user(UserRole.MINISTERIAL_SERVANT, WT_USER), WEEK, NOW),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -471,7 +484,7 @@ describe('the weekend meeting (18 October 2026)', () => {
     expect(
       (
         await service.find(
-          user(UserRole.ELDER, ADVISER_USER),
+          user(UserRole.MINISTERIAL_SERVANT, ADVISER_USER),
           WEEK,
           NOW,
           'weekend' as never,
@@ -496,5 +509,165 @@ describe('the weekend meeting (18 October 2026)', () => {
     expect(live.create).toHaveBeenCalledWith(
       expect.objectContaining({ eventType: 'weekend', room: 'main' }),
     );
+  });
+});
+
+/**
+ * 18 October 2026: the timekeeper ran the weekend meeting on his iPad, then
+ * opened it on his phone too. Both devices were «his», both were heard, and
+ * the phone sent its own old run over the iPad's. Now one device of the
+ * account taps; the other watches until «Взять ведение».
+ */
+describe('one device of the account taps', () => {
+  const IPAD = 'device-ipad-0001';
+  const PHONE = 'device-phone-0001';
+  const keeper = () => user(UserRole.PUBLISHER, KEEPER_USER);
+
+  it('the first write binds the row to the device that made it', async () => {
+    const b = build({ row: null });
+    const v = await b.service.write(
+      keeper(),
+      WEEK,
+      0,
+      STATE,
+      NOW,
+      EventType.MIDWEEK,
+      IPAD,
+    );
+    expect(b.row?.controllerDeviceId).toBe(IPAD);
+    expect(v.mine).toBe(true);
+    expect(v.mineElsewhere).toBe(false);
+  });
+
+  it('the same account on another device watches: not mine, mine elsewhere', async () => {
+    const b = build({ row: { controllerDeviceId: IPAD } });
+    const { live } = await b.service.find(
+      keeper(),
+      WEEK,
+      NOW,
+      EventType.MIDWEEK,
+      PHONE,
+    );
+    expect(live?.mine).toBe(false);
+    expect(live?.mineElsewhere).toBe(true);
+    // …and its asking is no sign of life of the iPad.
+    expect(b.live.update).not.toHaveBeenCalled();
+  });
+
+  it('the device that taps is still the controller, and its asking is its sign of life', async () => {
+    const b = build({ row: { controllerDeviceId: IPAD } });
+    const { live } = await b.service.find(
+      keeper(),
+      WEEK,
+      NOW,
+      EventType.MIDWEEK,
+      IPAD,
+    );
+    expect(live?.mine).toBe(true);
+    expect(b.live.update).toHaveBeenCalled();
+  });
+
+  it('a write from the other device is refused, the run on the server stays', async () => {
+    const b = build({ row: { controllerDeviceId: IPAD } });
+    await expect(
+      b.service.write(
+        keeper(),
+        WEEK,
+        1,
+        { index: 1 },
+        NOW,
+        EventType.MIDWEEK,
+        PHONE,
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(b.row?.state).toEqual(STATE);
+  });
+
+  it('«Взять ведение» on the phone moves the taps to it; the iPad is refused after', async () => {
+    const b = build({ row: { controllerDeviceId: IPAD, epoch: 1 } });
+    const v = await b.service.take(
+      keeper(),
+      WEEK,
+      undefined,
+      NOW,
+      EventType.MIDWEEK,
+      PHONE,
+    );
+    expect(v.mine).toBe(true);
+    expect(v.epoch).toBe(2);
+    expect(b.row?.controllerDeviceId).toBe(PHONE);
+    await expect(
+      b.service.write(
+        keeper(),
+        WEEK,
+        2,
+        { index: 9 },
+        NOW,
+        EventType.MIDWEEK,
+        IPAD,
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('a row from an app before devices is heard from any device and bound to the first that names itself', async () => {
+    const b = build({ row: { controllerDeviceId: null } });
+    const v = await b.service.write(
+      keeper(),
+      WEEK,
+      1,
+      { index: 4 },
+      NOW,
+      EventType.MIDWEEK,
+      PHONE,
+    );
+    expect(v.mine).toBe(true);
+    expect(b.row?.controllerDeviceId).toBe(PHONE);
+  });
+
+  it('an app that names no device is heard as before', async () => {
+    const b = build({ row: { controllerDeviceId: IPAD } });
+    const v = await b.service.write(
+      keeper(),
+      WEEK,
+      1,
+      { index: 4 },
+      NOW,
+      EventType.MIDWEEK,
+      null,
+    );
+    expect(v.mine).toBe(true);
+    expect(b.row?.controllerDeviceId).toBe(IPAD);
+  });
+});
+
+/** Lionel, 18 October 2026: every elder may see that the meeting runs. */
+describe('the elders watch the meeting as it runs', () => {
+  it('an elder with no task in it watches', async () => {
+    const { service } = build({ row: {} });
+    const { live, roles } = await service.find(
+      user(UserRole.PUBLISHER, ELDER_USER),
+      WEEK,
+      NOW,
+    );
+    expect(live?.mine).toBe(false);
+    expect(roles.mayRun).toBe(false);
+  });
+
+  it('a ministerial servant with no task in it does not', async () => {
+    const { service } = build({ row: {} });
+    await expect(
+      service.find(user(UserRole.PUBLISHER, SERVANT_USER), WEEK, NOW),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('watching is all: an elder cannot write or take over', async () => {
+    const { service } = build({ row: {} });
+    const elder = user(UserRole.PUBLISHER, ELDER_USER);
+    await expect(
+      service.write(elder, WEEK, 1, STATE, NOW),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.take(elder, WEEK, undefined, NOW),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
