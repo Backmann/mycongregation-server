@@ -4,6 +4,8 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { UserRole } from './enums/user-role.enum';
 import { ResponsibilityType } from './enums/responsibility-type.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { EventType } from './enums/event-type.enum';
+import type { ConductKind } from './conduct-kind';
 
 /**
  * WHO OVERSEES HOW THE MIDWEEK MEETING RUNS (Lionel, 16 October 2026): the
@@ -21,16 +23,38 @@ export const CONDUCT_OVERSEER_RESPONSIBILITIES: ResponsibilityType[] = [
   ResponsibilityType.LIFE_MINISTRY_OVERSEER,
 ];
 
+/**
+ * THE WEEKEND MEETING (Lionel, 18 October 2026): the coordinator of the body
+ * of elders and his assistant, the Watchtower study conductor and his
+ * assistants, the counsel brother — and the admins, as always.
+ */
+export const WEEKEND_CONDUCT_OVERSEER_RESPONSIBILITIES: ResponsibilityType[] = [
+  ResponsibilityType.BODY_COORDINATOR,
+  ResponsibilityType.BODY_COORDINATOR_ASSISTANT,
+  ResponsibilityType.WT_STUDY_CONDUCTOR,
+  ResponsibilityType.WT_STUDY_CONDUCTOR_BACKUP,
+  ResponsibilityType.ADVISER,
+];
+
+export function conductOverseerResponsibilities(
+  kind: ConductKind,
+): ResponsibilityType[] {
+  return kind === EventType.WEEKEND
+    ? WEEKEND_CONDUCT_OVERSEER_RESPONSIBILITIES
+    : CONDUCT_OVERSEER_RESPONSIBILITIES;
+}
+
 export async function isConductOverseer(
   user: AuthenticatedUser,
   publishers: Repository<Publisher>,
+  kind: ConductKind = EventType.MIDWEEK,
 ): Promise<boolean> {
   if (user.role === UserRole.ADMIN) return true;
   const held = await publishers.manager.count(Responsibility, {
     where: {
       congregationId: user.congregationId,
       userId: user.id,
-      type: In(CONDUCT_OVERSEER_RESPONSIBILITIES),
+      type: In(conductOverseerResponsibilities(kind)),
     },
   });
   return held > 0;

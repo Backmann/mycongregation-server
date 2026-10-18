@@ -11,6 +11,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { ConductLiveService } from './conduct-live.service';
+import { conductKind } from '../common/conduct-kind';
 import {
   TakeConductLiveDto,
   WriteConductLiveDto,
@@ -32,8 +33,14 @@ export class ConductLiveController {
   async find(
     @CurrentUser() user: AuthenticatedUser,
     @Query('week') week: string,
+    @Query('kind') kind?: string,
   ) {
-    const { live, roles } = await this.service.find(user, week);
+    const { live, roles } = await this.service.find(
+      user,
+      week,
+      new Date(),
+      conductKind(kind),
+    );
     return { live, roles, serverNow: new Date().toISOString() };
   }
 
@@ -47,6 +54,8 @@ export class ConductLiveController {
       dto.weekStartDate,
       dto.epoch,
       dto.state,
+      new Date(),
+      conductKind(dto.eventType),
     );
     return { live, serverNow: new Date().toISOString() };
   }
@@ -56,7 +65,13 @@ export class ConductLiveController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: TakeConductLiveDto,
   ) {
-    const live = await this.service.take(user, dto.weekStartDate, dto.state);
+    const live = await this.service.take(
+      user,
+      dto.weekStartDate,
+      dto.state,
+      new Date(),
+      conductKind(dto.eventType),
+    );
     return { live, serverNow: new Date().toISOString() };
   }
 }

@@ -30,7 +30,7 @@ import { Congregation } from './congregation.entity';
  * corrects its clock by the `serverNow` each answer carries.
  */
 @Entity('conduct_live')
-@Unique(['congregationId', 'weekStartDate', 'eventType'])
+@Unique(['congregationId', 'weekStartDate', 'eventType', 'room'])
 @Index(['updatedAt'])
 export class ConductLive {
   @PrimaryGeneratedColumn('uuid')
@@ -54,6 +54,10 @@ export class ConductLive {
     default: 'midweek',
   })
   eventType!: string;
+
+  /** The room: «main» — see entities/conduct-room.ts. */
+  @Column({ type: 'varchar', length: 16, default: 'main' })
+  room!: string;
 
   @Column({ type: 'jsonb' })
   state!: Record<string, unknown>;

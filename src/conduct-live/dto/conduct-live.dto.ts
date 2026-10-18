@@ -1,4 +1,5 @@
 import {
+  IsIn,
   IsInt,
   IsISO8601,
   IsObject,
@@ -21,6 +22,11 @@ export class WriteConductLiveDto {
 
   @IsObject()
   state!: Record<string, unknown>;
+
+  /** Which meeting (18 October 2026); none — the midweek one, as before. */
+  @IsOptional()
+  @IsIn(['midweek', 'weekend'])
+  eventType?: 'midweek' | 'weekend';
 }
 
 /** Take the meeting over — optionally with the taker's own run. */
@@ -31,4 +37,9 @@ export class TakeConductLiveDto {
   @IsOptional()
   @IsObject()
   state?: Record<string, unknown>;
+
+  /** Which meeting (18 October 2026); none — the midweek one, as before. */
+  @IsOptional()
+  @IsIn(['midweek', 'weekend'])
+  eventType?: 'midweek' | 'weekend';
 }

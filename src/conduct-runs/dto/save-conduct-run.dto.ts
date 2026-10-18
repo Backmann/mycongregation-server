@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsIn,
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
@@ -86,4 +87,9 @@ export class SaveConductRunDto {
   @IsOptional()
   @IsISO8601()
   startedAt?: string | null;
+
+  /** Which meeting (18 October 2026); none — the midweek one, as before. */
+  @IsOptional()
+  @IsIn(['midweek', 'weekend'])
+  eventType?: 'midweek' | 'weekend';
 }

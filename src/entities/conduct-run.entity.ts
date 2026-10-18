@@ -49,7 +49,7 @@ export interface ConductRunSegment {
 }
 
 @Entity('conduct_runs')
-@Unique(['congregationId', 'weekStartDate', 'eventType'])
+@Unique(['congregationId', 'weekStartDate', 'eventType', 'room'])
 @Index(['savedAt'])
 export class ConductRun {
   @PrimaryGeneratedColumn('uuid')
@@ -73,6 +73,10 @@ export class ConductRun {
     default: 'midweek',
   })
   eventType!: string;
+
+  /** The room: «main» — see entities/conduct-room.ts. */
+  @Column({ type: 'varchar', length: 16, default: 'main' })
+  room!: string;
 
   @Column({ type: 'jsonb' })
   segments!: ConductRunSegment[];

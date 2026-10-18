@@ -34,4 +34,17 @@ describe('MeetingDayService', () => {
     expect(await svc.isOver('c1', week)).toBe(false);
     expect(await svc.midweekDate('c1', week)).toBeNull();
   });
+
+  it('the weekend meeting has a day of its own (18 October 2026)', async () => {
+    // Monday after Wednesday's meeting: the midweek one is over, Sunday's not.
+    const svc = build(held, '2026-10-15');
+    expect(await svc.isOver('c1', week, 'weekend' as never)).toBe(false);
+    expect(await svc.isOver('c1', week)).toBe(true);
+    expect(
+      await build(held, '2026-10-19').isOver('c1', week, 'weekend' as never),
+    ).toBe(true);
+    expect(await svc.meetingDate('c1', week, 'weekend' as never)).toBe(
+      '2026-10-18',
+    );
+  });
 });

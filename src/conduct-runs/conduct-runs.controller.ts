@@ -4,6 +4,7 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { RolesGuard } from '../common/guards/roles.guard';
 import { ConductRunsService } from './conduct-runs.service';
 import { SaveConductRunDto } from './dto/save-conduct-run.dto';
+import { conductKind } from '../common/conduct-kind';
 
 /**
  * How a midweek meeting ran — saved by whoever ran it when he finishes, read
@@ -22,9 +23,12 @@ export class ConductRunsController {
   async find(
     @CurrentUser() user: AuthenticatedUser,
     @Query('week') week: string,
+    @Query('kind') kind?: string,
   ) {
     // An object, never a bare null: «no run» is an answer, not an empty body.
-    return { run: await this.service.find(user, week) };
+    return {
+      run: await this.service.find(user, week, new Date(), conductKind(kind)),
+    };
   }
 
   // No role here: the timekeeper who ends the meeting may be any brother the
