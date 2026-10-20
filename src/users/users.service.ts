@@ -608,6 +608,8 @@ export class UsersService {
         congregationId: true,
         email: true,
         loginName: true,
+        // A stage screen is named by it — in its own header, via /auth/me.
+        displayLabel: true,
         role: true,
         isActive: true,
         isOwner: true,

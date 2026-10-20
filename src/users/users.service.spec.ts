@@ -459,6 +459,16 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
       expect(repo.update).not.toHaveBeenCalled();
     });
 
+    it('is read with its name — the header of the screen asks /auth/me for it', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        userFixture({ role: UserRole.STAGE }),
+      );
+      await service.findByIdInCongregation('u-1', CONG);
+      expect(
+        (repo.findOne as jest.Mock).mock.calls[0][0].select.displayLabel,
+      ).toBe(true);
+    });
+
     it('is not linked to a publisher card', async () => {
       (repo.findOne as jest.Mock).mockResolvedValue(
         userFixture({ role: UserRole.STAGE }),
