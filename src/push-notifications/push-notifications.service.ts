@@ -22,6 +22,23 @@ import { webDeviceKind } from '../web-push/device-kind';
 import { refusal } from '../common/errors/refusal';
 
 /**
+ * The Android channel the app creates for news about a PERSON (a status
+ * change): its lock-screen visibility is PRIVATE, so a locked phone shows
+ * only that something came, not what. The app reports it has made it in
+ * `deviceInfo.channels` when it registers its token; a phone that has not
+ * (an app older than 20 October 2026) is sent the old text, without a name,
+ * and no channel: a message for a channel the phone lacks may not be shown.
+ */
+export const PEOPLE_CHANNEL = 'people';
+
+export function hasPeopleChannel(
+  deviceInfo: Record<string, any> | null | undefined,
+): boolean {
+  const channels = deviceInfo?.channels;
+  return Array.isArray(channels) && channels.includes(PEOPLE_CHANNEL);
+}
+
+/**
  * Where one person was reached by one send.
  *
  * `no_device` is not a failure of ours: the person has neither a phone token
@@ -194,12 +211,20 @@ export class PushNotificationsService {
       );
     }
 
-    // Group tokens by recipient language; unknown defaults to DEFAULT_LANGUAGE.
-    const tokensByLang = new Map<SupportedLanguage, string[]>();
+    // Group tokens by recipient language (unknown → DEFAULT_LANGUAGE) and by
+    // whether the phone has the channel whose content its lock screen hides:
+    // only there is the publisher named (common/i18n/push-strings.ts).
+    const tokensByGroup = new Map<
+      string,
+      { lang: SupportedLanguage; hidden: boolean; tokens: string[] }
+    >();
     for (const t of tokens) {
       const lang = langByUserId.get(t.userId) ?? DEFAULT_LANGUAGE;
-      if (!tokensByLang.has(lang)) tokensByLang.set(lang, []);
-      tokensByLang.get(lang)!.push(t.token);
+      const hidden = hasPeopleChannel(t.deviceInfo);
+      const key = `${lang}:${hidden}`;
+      if (!tokensByGroup.has(key))
+        tokensByGroup.set(key, { lang, hidden, tokens: [] });
+      tokensByGroup.get(key)!.tokens.push(t.token);
     }
 
     // No name here either. Nothing reads it — neither the service worker nor
@@ -224,7 +249,7 @@ export class PushNotificationsService {
     // Per-language batch send + persist successful tickets for later receipt
     // checking (the cron in ScheduledJobsService will fetch receipts and act
     // on errors like DeviceNotRegistered).
-    for (const [lang, langTokens] of tokensByLang) {
+    for (const { lang, hidden, tokens: langTokens } of tokensByGroup.values()) {
       const strings = PUSH_STRINGS[lang].statusChange;
       const results = await this.sendBatch(
         langTokens,
@@ -232,8 +257,10 @@ export class PushNotificationsService {
         strings.body({
           before: translateStatus(before, lang),
           after: translateStatus(after, lang),
+          name: hidden ? publisher.displayName : undefined,
         }),
         data,
+        hidden ? PEOPLE_CHANNEL : undefined,
       );
 
       const receipts: PendingReceipt[] = [];
@@ -265,30 +292,25 @@ export class PushNotificationsService {
 
     // === Web Push (PWA) delivery — in parallel with Expo, same payload model ===
     if (webSubs.length > 0) {
-      const subsByLang = new Map<SupportedLanguage, WebPushSubscription[]>();
-      for (const sub of webSubs) {
-        const lang = langByUserId.get(sub.userId) ?? DEFAULT_LANGUAGE;
-        if (!subsByLang.has(lang)) subsByLang.set(lang, []);
-        subsByLang.get(lang)!.push(sub);
-      }
-
-      for (const [lang, langSubs] of subsByLang) {
-        const strings = PUSH_STRINGS[lang].statusChange;
-        const payload = {
-          title: strings.title,
-          body: strings.body({
-            before: translateStatus(before, lang),
-            after: translateStatus(after, lang),
-          }),
-          data,
-        };
-
-        await Promise.all(
-          langSubs.map((sub) =>
-            this.webPushService.sendToSubscription(sub, payload),
-          ),
-        );
-      }
+      // An iPhone/iPad hides the preview on its locked screen unless its owner
+      // chose otherwise, and a computer has no lock screen that shows it; a
+      // browser on an Android phone has neither, and is told no name.
+      await Promise.all(
+        webSubs.map((sub) => {
+          const lang = langByUserId.get(sub.userId) ?? DEFAULT_LANGUAGE;
+          const strings = PUSH_STRINGS[lang].statusChange;
+          const named = webDeviceKind(sub) !== 'android';
+          return this.webPushService.sendToSubscription(sub, {
+            title: strings.title,
+            body: strings.body({
+              before: translateStatus(before, lang),
+              after: translateStatus(after, lang),
+              name: named ? publisher.displayName : undefined,
+            }),
+            data,
+          });
+        }),
+      );
     }
   }
 
@@ -493,6 +515,7 @@ export class PushNotificationsService {
     title: string,
     body: string,
     data: Record<string, any>,
+    channelId?: string,
   ): Promise<SendBatchResult[]> {
     const results: SendBatchResult[] = [];
 
@@ -519,6 +542,7 @@ export class PushNotificationsService {
       title,
       body,
       data,
+      ...(channelId ? { channelId } : {}),
     }));
 
     const chunks = this.expo.chunkPushNotifications(messages);
