@@ -3,6 +3,7 @@ import { Throttle } from '@nestjs/throttler';
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -28,6 +29,9 @@ import {
   ResendInviteDto,
 } from './dto/reset-password.dto';
 import { Public } from './decorators/public.decorator';
+import { StageAllowed } from '../common/stage';
+import { StageUnlockDto } from './dto/stage-unlock.dto';
+import { refusal } from '../common/errors/refusal';
 import { CurrentUser } from './decorators/current-user.decorator';
 import type { AuthenticatedUser } from './decorators/current-user.decorator';
 import {
@@ -229,6 +233,7 @@ export class AuthController {
   }
 
   @Get('me')
+  @StageAllowed()
   async me(@CurrentUser() user: AuthenticatedUser) {
     const account = await this.usersService.findByIdInCongregation(
       user.id,
@@ -237,9 +242,32 @@ export class AuthController {
     return meUser(user, account);
   }
 
+  // The stage screen too: its language is all it changes (UpdateMeDto).
   @Patch('me')
+  @StageAllowed()
   updateMe(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateMeDto) {
     return this.authService.updateMe(user.id, dto);
+  }
+
+  /**
+   * The stage screen's menu opens with its digits (common/stage.ts). Asked
+   * of the server, not checked on the device, and few tries a minute: four
+   * digits are guessed in minutes by a patient child otherwise.
+   */
+  @Post('stage/unlock')
+  @StageAllowed()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  async stageUnlock(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: StageUnlockDto,
+  ): Promise<{ ok: true }> {
+    if (!(await this.usersService.stagePinMatches(user.id, dto.pin))) {
+      throw new ForbiddenException(
+        refusal('STAGE_PIN_WRONG', 'These are not the digits of this screen.'),
+      );
+    }
+    return { ok: true };
   }
 
   /**

@@ -15,6 +15,7 @@ import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { TasksService } from '../tasks/tasks.service';
+import { StageAllowed } from '../common/stage';
 
 /**
  * Aggregated "my" views for the signed-in member. Open to any authenticated
@@ -69,6 +70,8 @@ export class MeController {
     return this.service.confirmMyContacts(tenantId, user.id);
   }
 
+  // The stage screen reads this (common/stage.ts).
+  @StageAllowed()
   @Get('publisher')
   myPublisher(
     @TenantId() tenantId: string,

@@ -40,6 +40,7 @@ import {
   settleLoginName,
 } from './login-name';
 import { refusal } from '../common/errors/refusal';
+import { STAGE_PIN_RE } from '../common/stage';
 
 /**
  * Public projection of a User — excludes sensitive fields (passwordHash)
@@ -54,6 +55,8 @@ export interface PublicUser {
    * «я забыл имя входа» is one question to an elder rather than a dead end.
    */
   loginName: string | null;
+  /** A stage screen's own name (role STAGE); null for a person. */
+  displayLabel: string | null;
   role: UserRole;
   isActive: boolean;
   uiLanguage: string;
@@ -186,6 +189,7 @@ function toPublicUser(
     id: u.id,
     email: u.email,
     loginName: u.loginName ?? null,
+    displayLabel: u.displayLabel ?? null,
     role: u.role,
     isActive: u.isActive,
     uiLanguage: u.uiLanguage,
@@ -604,6 +608,8 @@ export class UsersService {
         congregationId: true,
         email: true,
         loginName: true,
+        // A stage screen is named by it — in its own header, via /auth/me.
+        displayLabel: true,
         role: true,
         isActive: true,
         isOwner: true,
@@ -639,6 +645,14 @@ export class UsersService {
       where: { id: userId, congregationId },
     });
     if (!user) throw new NotFoundException('User not found');
+    if (user.role === UserRole.STAGE && publisherId) {
+      throw new BadRequestException(
+        refusal(
+          'STAGE_ACCOUNT_FIXED',
+          'A stage screen is no person: it has no publisher card.',
+        ),
+      );
+    }
 
     const previous = await this.publishersRepo.findOne({
       where: { congregationId, userId },
@@ -695,6 +709,10 @@ export class UsersService {
     actorUserId: string,
   ): Promise<CreatedUser> {
     const email = dto.email?.trim().toLowerCase() || null;
+    // The screen on the stage (common/stage.ts): a name, a password to sign
+    // in with, the digits for its menu — and no card, no address, no letter.
+    const stage = dto.role === UserRole.STAGE;
+    if (stage) this.checkStageAccount(dto);
 
     // The address may now repeat: a couple with one mailbox, a parent reading
     // a child's letters. Identity moved to the login name, and THAT is what is
@@ -714,7 +732,9 @@ export class UsersService {
 
     const user = this.usersRepo.create({
       congregationId,
-      email,
+      email: stage ? null : email,
+      displayLabel: stage ? dto.displayLabel!.trim() : null,
+      stagePinHash: stage ? await this.hashPassword(dto.stagePin!) : null,
       // The elder's correction wins when he made one — he is looking at the
       // person's own spelling of their name, which transliteration cannot
       // know. Otherwise the name is built from the card as usual.
@@ -793,6 +813,114 @@ export class UsersService {
     return { ...toPublicUser(user), invitation };
   }
 
+  /** A stage screen as it must be made: refused otherwise, before anything is saved. */
+  private checkStageAccount(dto: CreateUserDto): void {
+    const fields: { field: string; rules: string[] }[] = [];
+    if (!dto.displayLabel?.trim())
+      fields.push({ field: 'displayLabel', rules: ['isNotEmpty'] });
+    if (!dto.loginName?.trim())
+      fields.push({ field: 'loginName', rules: ['isNotEmpty'] });
+    if (!dto.password)
+      fields.push({ field: 'password', rules: ['isNotEmpty'] });
+    if (fields.length) {
+      throw new BadRequestException(
+        refusal(
+          'INVALID_FIELD',
+          'A stage screen needs a name, a login name and a password.',
+          { fields },
+        ),
+      );
+    }
+    if (!dto.stagePin || !STAGE_PIN_RE.test(dto.stagePin)) {
+      throw new BadRequestException(
+        refusal(
+          'STAGE_PIN_INVALID',
+          'The stage screen needs 4 to 8 digits for its menu.',
+        ),
+      );
+    }
+    if (dto.publisherId) {
+      throw new BadRequestException(
+        refusal(
+          'STAGE_ACCOUNT_FIXED',
+          'A stage screen is no person: it has no publisher card.',
+        ),
+      );
+    }
+  }
+
+  /**
+   * A stage screen's name and the digits of its menu, changed by an
+   * administrator. Only for role STAGE.
+   */
+  async updateStageByAdmin(
+    targetId: string,
+    input: { displayLabel?: string; stagePin?: string },
+    congregationId: string,
+    actorUserId: string,
+  ): Promise<PublicUser> {
+    const user = await this.findByIdInCongregation(targetId, congregationId);
+    if (user.role !== UserRole.STAGE) {
+      throw new BadRequestException(
+        refusal(
+          'STAGE_ACCOUNT_FIXED',
+          'Only a stage screen has a stage name and menu digits.',
+        ),
+      );
+    }
+    const patch: Partial<User> = {};
+    const changed: string[] = [];
+    if (input.displayLabel !== undefined) {
+      const label = input.displayLabel.trim();
+      if (!label) {
+        throw new BadRequestException(
+          refusal('INVALID_FIELD', 'The name may not be empty.', {
+            fields: [{ field: 'displayLabel', rules: ['isNotEmpty'] }],
+          }),
+        );
+      }
+      patch.displayLabel = label;
+      changed.push('displayLabel');
+    }
+    if (input.stagePin !== undefined) {
+      if (!STAGE_PIN_RE.test(input.stagePin)) {
+        throw new BadRequestException(
+          refusal(
+            'STAGE_PIN_INVALID',
+            'The stage screen needs 4 to 8 digits for its menu.',
+          ),
+        );
+      }
+      patch.stagePinHash = await this.hashPassword(input.stagePin);
+      changed.push('stagePin');
+    }
+    if (changed.length === 0) return toPublicUser(user);
+    await this.usersRepo.update(targetId, patch);
+    // The digits themselves never enter the journal — only that they changed.
+    await this.auditLog.logRawUpdate({
+      tenantId: congregationId,
+      entityType: 'user',
+      entityId: targetId,
+      actorUserId,
+      changedFields: changed,
+      before: { displayLabel: user.displayLabel },
+      after: { displayLabel: patch.displayLabel ?? user.displayLabel },
+    });
+    return toPublicUser({ ...user, ...patch } as User);
+  }
+
+  /** Whether these are the digits of this stage screen's menu. */
+  async stagePinMatches(userId: string, pin: string): Promise<boolean> {
+    if (!STAGE_PIN_RE.test(pin)) return false;
+    const row = await this.usersRepo
+      .createQueryBuilder('user')
+      .addSelect('user.stagePinHash')
+      .where('user.id = :id', { id: userId })
+      .getOne();
+    if (!row || row.role !== UserRole.STAGE || !row.stagePinHash) return false;
+    return passwordMatches(pin, row.stagePinHash);
+  }
+
   async updateRoleByAdmin(
     targetId: string,
     newRole: UserRole,
@@ -814,6 +942,17 @@ export class UsersService {
     const oldRole = user.role;
     if (oldRole === newRole) {
       return toPublicUser(user);
+    }
+    // A stage screen stays one, and a person never becomes one: the guard
+    // that keeps it to its screen would then shut a person out, or let a
+    // screen in (common/stage.ts).
+    if (oldRole === UserRole.STAGE || newRole === UserRole.STAGE) {
+      throw new BadRequestException(
+        refusal(
+          'STAGE_ACCOUNT_FIXED',
+          'A stage screen cannot change its role, nor can a person become one.',
+        ),
+      );
     }
 
     if (
@@ -1312,7 +1451,11 @@ export class UsersService {
     actorUserId?: string,
   ): Promise<void> {
     const user = await this.findByIdInCongregation(targetId, congregationId);
-    if (user.role === UserRole.ADMIN || user.role === newRole) {
+    if (
+      user.role === UserRole.ADMIN ||
+      user.role === UserRole.STAGE ||
+      user.role === newRole
+    ) {
       return;
     }
     await this.usersRepo.update(targetId, { role: newRole });

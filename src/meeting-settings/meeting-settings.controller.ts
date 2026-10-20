@@ -18,12 +18,15 @@ import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UserRole } from '../common/enums/user-role.enum';
+import { StageAllowed } from '../common/stage';
 
 @Controller('meeting-settings')
 @UseGuards(RolesGuard)
 export class MeetingSettingsController {
   constructor(private readonly service: MeetingSettingsService) {}
 
+  // The stage screen reads this (common/stage.ts).
+  @StageAllowed()
   @Get()
   overview(@TenantId() tenantId: string) {
     return this.service.overview(tenantId);

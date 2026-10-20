@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
+import { UpdateStageDto } from './dto/update-stage.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { ChangeLoginNameDto } from './dto/change-login-name.dto';
 import { LinkPublisherDto } from './dto/link-publisher.dto';
@@ -89,6 +90,22 @@ export class UsersController {
     return this.usersService.changeLoginNameByAdmin(
       id,
       dto.loginName,
+      congregationId,
+      current.id,
+    );
+  }
+
+  /** A stage screen's name and the digits of its menu (common/stage.ts). */
+  @Patch(':id/stage')
+  updateStage(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateStageDto,
+    @TenantId() congregationId: string,
+    @CurrentUser() current: AuthenticatedUser,
+  ) {
+    return this.usersService.updateStageByAdmin(
+      id,
+      dto,
       congregationId,
       current.id,
     );

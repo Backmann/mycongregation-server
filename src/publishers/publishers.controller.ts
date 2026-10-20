@@ -34,6 +34,7 @@ import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { refusal } from '../common/errors/refusal';
+import { StageAllowed } from '../common/stage';
 
 @Controller('publishers')
 @UseGuards(RolesGuard)
@@ -122,6 +123,8 @@ export class PublishersController {
    * schedules. Open to any authenticated member — these names appear on the
    * posted schedules anyway. Must stay above the ':id' route.
    */
+  // The stage screen reads this (common/stage.ts).
+  @StageAllowed()
   @Get('roster')
   roster(@TenantId() tenantId: string) {
     return this.publishersService.roster(tenantId);

@@ -17,6 +17,7 @@ import {
   TakeConductLiveDto,
   WriteConductLiveDto,
 } from './dto/conduct-live.dto';
+import { StageAllowed } from '../common/stage';
 
 /**
  * A midweek meeting while it runs. Who may read, write and take over is
@@ -35,6 +36,8 @@ function deviceOf(value: string | undefined): string | null {
 export class ConductLiveController {
   constructor(private readonly service: ConductLiveService) {}
 
+  // The stage screen reads this (common/stage.ts).
+  @StageAllowed()
   @Get()
   async find(
     @CurrentUser() user: AuthenticatedUser,

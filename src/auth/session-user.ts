@@ -23,6 +23,8 @@ export function signInUser(user: User) {
     email: user.email,
     // The one thing a person needs to sign in again on another day.
     loginName: user.loginName,
+    // A stage screen's own name (role STAGE): people have their card's.
+    displayLabel: user.displayLabel ?? null,
     role: user.role,
     congregationId: user.congregationId,
     canViewPrivateData: user.canViewPrivateData,
@@ -44,6 +46,7 @@ export function meUser(session: AuthenticatedUser, account: User) {
   return {
     ...rest,
     loginName: account.loginName,
+    displayLabel: account.displayLabel ?? null,
     canViewPrivateData: account.canViewPrivateData,
     canManageBackups: isOwner === true,
   };

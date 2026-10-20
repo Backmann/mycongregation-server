@@ -24,6 +24,11 @@ export const REFUSAL_CODES = [
   'INVALID_FIELD',
   'NEEDS_RESPONSIBILITY',
   'NEEDS_ROLE',
+  // ---- the screen on the stage (common/stage.ts) ----
+  'STAGE_SCREEN_ONLY',
+  'STAGE_PIN_WRONG',
+  'STAGE_PIN_INVALID',
+  'STAGE_ACCOUNT_FIXED',
   'NO_SUCH_GROUP',
   'NO_SUCH_PUBLISHER',
   'SPAN_INVALID',

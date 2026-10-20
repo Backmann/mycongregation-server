@@ -108,6 +108,24 @@ own second device), after «Взять ведение» by the chairman, and in
 - The number is sized to fit its column on one line; every other label is
   written out in full, never cut short (19 Oct).
 
+### 4a. The stage screen account (20 Oct)
+
+The laptop at the lectern does not sign in as the chairman (he changes every
+week, and his account would stay open on a shared device). It has an account
+of its own, role `stage`, made by an administrator in User management with a
+name («Экран сцены · Зал Царства Hamm»), a login name, a password and 4–8
+digits for its menu.
+
+- **Server:** `auth/guards/jwt-auth.guard.ts` refuses a `stage` account every
+  handler not marked `@StageAllowed()` (`common/stage.ts`) with
+  `STAGE_SCREEN_ONLY`. The marked list is pinned in `common/stage.spec.ts`:
+  me, the week's programme, the roster names, meeting settings, special
+  events, the live meeting (read), and `POST auth/stage/unlock`.
+- **Live:** it watches (`conduct-live.service.ts find`), never runs.
+- **Menu:** the digits are checked by the server (5 tries a minute), never
+  on the device. No card, no address, no notifications; its role cannot be
+  changed and no person can be given it (`STAGE_ACCOUNT_FIXED`).
+
 ## 5. The weekend meeting (18–19 Oct)
 
 `buildWeekendRunOrder` in `lib/run-order.ts`; who is shown, `runView` in
