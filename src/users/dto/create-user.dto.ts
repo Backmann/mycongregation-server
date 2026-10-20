@@ -71,4 +71,16 @@ export class CreateUserDto {
   @IsOptional()
   @IsUUID()
   publisherId?: string;
+
+  /** A stage screen's name (role STAGE only): «Экран сцены · Зал Царства Hamm». */
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  displayLabel?: string;
+
+  /** The digits that open a stage screen's menu (role STAGE only). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(8)
+  stagePin?: string;
 }

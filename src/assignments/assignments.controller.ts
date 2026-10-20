@@ -25,11 +25,14 @@ import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { AssignmentSectionGuard } from '../common/guards/assignment-section.guard';
+import { StageAllowed } from '../common/stage';
 
 @Controller('assignments')
 export class AssignmentsController {
   constructor(private readonly service: AssignmentsService) {}
 
+  // The stage screen reads this (common/stage.ts).
+  @StageAllowed()
   @Get()
   list(
     @TenantId() congregationId: string,

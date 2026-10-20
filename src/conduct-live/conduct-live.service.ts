@@ -304,8 +304,10 @@ export class ConductLiveService {
     const isChairman = !!chair && chair === user.id;
     const isTimekeeper = !!keeper && keeper === user.id;
     const mayRun = user.role === UserRole.ADMIN || isChairman || isTimekeeper;
+    // The screen on the stage watches (common/stage.ts); it never runs.
     if (
       !mayRun &&
+      user.role !== UserRole.STAGE &&
       !(await this.isOverseer(user, kind)) &&
       !(await isCongregationElder(user, this.publishers))
     )

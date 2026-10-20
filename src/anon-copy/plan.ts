@@ -116,10 +116,10 @@ export const PLAN: Record<string, TablePlan> = {
       is_owner hide_presence client_platform client_kind client_os
       client_app_version client_seen_at invite_code_attempts push_state
       push_state_at reminder_ladder last_failed_login_at
-      last_failed_login_reason`),
+      last_failed_login_reason display_label`),
     { email: 'email', login_name: 'login' },
     remove(`password_hash reset_token_hash reset_token_expires_at
-      invite_code_hash invite_code_expires_at`),
+      invite_code_hash invite_code_expires_at stage_pin_hash`),
   ),
   visiting_speakers: table(
     copy(`id congregation_id external_congregation_id talk_numbers created_at

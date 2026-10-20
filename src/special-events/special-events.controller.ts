@@ -25,6 +25,7 @@ import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
+import { StageAllowed } from '../common/stage';
 
 /**
  * Congregation special events (assemblies, conventions, the Memorial, circuit
@@ -37,6 +38,8 @@ import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 export class SpecialEventsController {
   constructor(private readonly service: SpecialEventsService) {}
 
+  // The stage screen reads this (common/stage.ts).
+  @StageAllowed()
   @Get()
   list(
     @TenantId() tenantId: string,

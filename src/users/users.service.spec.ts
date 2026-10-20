@@ -391,6 +391,137 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
   // createUserByAdmin
   // ---------------------------------------------------------------------------
 
+  // The screen on the stage (20 October 2026, common/stage.ts).
+  describe('a stage screen', () => {
+    const stage = {
+      role: UserRole.STAGE,
+      displayLabel: 'Экран сцены · Зал Царства Hamm',
+      loginName: 'scena.hamm',
+      password: 'longenough1',
+      stagePin: '2468',
+    };
+
+    it('is made with its name, no address and its digits hashed', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(null);
+      const invite = jest.spyOn(service, 'sendInvitation');
+      await service.createUserByAdmin(
+        { ...stage, email: 'x@y.org' } as never,
+        CONG,
+        'actor-1',
+      );
+      const made = (repo.create as jest.Mock).mock.calls[0][0];
+      expect(made.role).toBe(UserRole.STAGE);
+      expect(made.displayLabel).toBe('Экран сцены · Зал Царства Hamm');
+      expect(made.email).toBeNull();
+      expect(made.stagePinHash).toBeTruthy();
+      expect(made.stagePinHash).not.toContain('2468');
+      expect(invite).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['no name', { displayLabel: '' }, 'INVALID_FIELD'],
+      ['no password', { password: undefined }, 'INVALID_FIELD'],
+      ['three digits', { stagePin: '123' }, 'STAGE_PIN_INVALID'],
+      ['letters', { stagePin: '12ab' }, 'STAGE_PIN_INVALID'],
+      [
+        'a publisher card',
+        { publisherId: '9d0b1a3e-0000-4000-8000-000000000001' },
+        'STAGE_ACCOUNT_FIXED',
+      ],
+    ])('is refused with %s', async (_what, over, code) => {
+      await expect(
+        service.createUserByAdmin(
+          { ...stage, ...over } as never,
+          CONG,
+          'actor-1',
+        ),
+      ).rejects.toMatchObject({ response: expect.objectContaining({ code }) });
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
+    it('never changes role, and nobody becomes one', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        userFixture({ role: UserRole.STAGE }),
+      );
+      await expect(
+        service.updateRoleByAdmin('u-1', UserRole.ADMIN, CONG, ADMIN_ID),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'STAGE_ACCOUNT_FIXED' }),
+      });
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        userFixture({ role: UserRole.PUBLISHER }),
+      );
+      await expect(
+        service.updateRoleByAdmin('u-1', UserRole.STAGE, CONG, ADMIN_ID),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'STAGE_ACCOUNT_FIXED' }),
+      });
+      expect(repo.update).not.toHaveBeenCalled();
+    });
+
+    it('is not linked to a publisher card', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        userFixture({ role: UserRole.STAGE }),
+      );
+      await expect(
+        service.linkPublisher('u-1', 'p-1', CONG, ADMIN_ID),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'STAGE_ACCOUNT_FIXED' }),
+      });
+    });
+
+    it('opens its menu with its own digits only', async () => {
+      const hash = await (
+        service as unknown as { hashPassword: (p: string) => Promise<string> }
+      ).hashPassword('2468');
+      (repo.createQueryBuilder as jest.Mock).mockReturnValue({
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getOne: jest
+          .fn()
+          .mockResolvedValue(
+            userFixture({ role: UserRole.STAGE, stagePinHash: hash }),
+          ),
+      });
+      expect(await service.stagePinMatches('u-1', '2468')).toBe(true);
+      expect(await service.stagePinMatches('u-1', '2469')).toBe(false);
+      expect(await service.stagePinMatches('u-1', 'abc')).toBe(false);
+    });
+
+    it('a person has no menu digits, whatever is typed', async () => {
+      const hash = await (
+        service as unknown as { hashPassword: (p: string) => Promise<string> }
+      ).hashPassword('2468');
+      (repo.createQueryBuilder as jest.Mock).mockReturnValue({
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getOne: jest
+          .fn()
+          .mockResolvedValue(
+            userFixture({ role: UserRole.ELDER, stagePinHash: hash }),
+          ),
+      });
+      expect(await service.stagePinMatches('u-1', '2468')).toBe(false);
+    });
+
+    it('changes its digits without writing them anywhere', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        userFixture({ role: UserRole.STAGE, displayLabel: 'Сцена' }),
+      );
+      await service.updateStageByAdmin(
+        'u-1',
+        { stagePin: '97531' },
+        CONG,
+        ADMIN_ID,
+      );
+      const patch = (repo.update as jest.Mock).mock.calls[0][1];
+      expect(patch.stagePinHash).toBeTruthy();
+      expect(
+        JSON.stringify((audit.logRawUpdate as jest.Mock).mock.calls),
+      ).not.toContain('97531');
+    });
+  });
+
   describe('createUserByAdmin', () => {
     it('invites a login created without a password', async () => {
       // An account with neither a password nor an invitation can never be

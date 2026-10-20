@@ -57,6 +57,19 @@ export class User {
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;
   /**
+   * A stage screen's own name — «Экран сцены · Зал Царства Hamm». People are
+   * named by their publisher card; a stage screen has none (20 October 2026).
+   */
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  displayLabel!: string | null;
+  /**
+   * The digits that open a stage screen's menu (check the screen, sign out),
+   * known to the few brothers who set it up — so a child tapping the laptop
+   * gets nowhere. Hashed like a password; only for role STAGE.
+   */
+  @Column({ type: 'varchar', length: 255, select: false, nullable: true })
+  stagePinHash!: string | null;
+  /**
    * Whether this user may view publishers' private data (contacts, notes,
    * personal dates, removal details). Admins and elders always can; for any
    * other role this flag, set by an admin, grants the same visibility.
