@@ -5,6 +5,7 @@ import { PushToken } from '../entities/push-token.entity';
 import { PushReceipt } from '../entities/push-receipt.entity';
 import type { WebPushService } from '../web-push/web-push.service';
 import { User } from '../entities/user.entity';
+import { PUSH_STRINGS } from '../common/i18n/push-strings';
 import { UserRole } from '../common/enums/user-role.enum';
 
 jest.mock('expo-server-sdk', () => {
@@ -138,39 +139,139 @@ describe('PushNotificationsService', () => {
       ).resolves.toBeUndefined();
     });
 
-    // The recipients are narrow and right — the overseer of that person's
-    // group, the secretary, the admins — but a push lands on a LOCK SCREEN,
-    // and a phone lies on a table where a wife, a child or a visitor sees it.
-    // The transition is enough to say "worth opening"; who it concerns is
-    // inside the app, behind the login.
-    it('names nobody: neither the text nor the payload carries the publisher', async () => {
-      pushTokenRepo.find.mockResolvedValue([]);
-      (webPushService.getSubscriptionsByTenant as jest.Mock).mockResolvedValue([
-        {
-          id: 'sub-1',
-          userId: 'u-overseer',
-          endpoint: 'https://x',
+    // A push lands on a LOCK SCREEN, where a wife, a child or a visitor sees
+    // it. The elders asked to be told WHO (20 October 2026), so the name is
+    // said only where the locked screen hides it: the app's own «people»
+    // channel, an iPhone/iPad, a computer. The `data` never carries it.
+    describe('the name, and where it is said', () => {
+      const pub = { id: 'pub-1', displayName: 'Müller Paul' };
+      const expoSent = () =>
+        (
+          (service as any).expo.sendPushNotificationsAsync as jest.Mock
+        ).mock.calls.flatMap((c: any[]) => c[0]);
+      const webSent = () =>
+        (webPushService.sendToSubscription as jest.Mock).mock.calls.map(
+          (c: any[]) => ({ endpoint: c[0].endpoint, payload: c[1] }),
+        );
+
+      it('names the publisher on a phone whose app made the hidden channel, on that channel', async () => {
+        pushTokenRepo.find.mockResolvedValue([
+          {
+            token: 'ExponentPushToken[new]',
+            userId: 'u1',
+            deviceInfo: { platform: 'android', channels: ['people'] },
+          } as any,
+        ]);
+        userRepo.findBy.mockResolvedValue([
+          { id: 'u1', uiLanguage: 'ru' } as any,
+        ]);
+
+        await service.sendStatusChange('cong-1', pub, 'active', 'irregular');
+
+        const [m] = expoSent();
+        expect(m.body).toBe('Müller Paul: Активный → Нерегулярный');
+        expect(m.channelId).toBe('people');
+        expect(JSON.stringify(m.data)).not.toContain('Müller');
+        expect(m.data.publisherId).toBe('pub-1');
+      });
+
+      it('keeps the old nameless text, and no channel, for a phone whose app has not made it', async () => {
+        pushTokenRepo.find.mockResolvedValue([
+          {
+            token: 'ExponentPushToken[old]',
+            userId: 'u1',
+            deviceInfo: { platform: 'android', osVersion: '34' },
+          } as any,
+          {
+            token: 'ExponentPushToken[bare]',
+            userId: 'u2',
+            deviceInfo: null,
+          } as any,
+        ]);
+
+        await service.sendStatusChange('cong-1', pub, 'active', 'inactive');
+
+        const sent = expoSent();
+        expect(sent).toHaveLength(2);
+        for (const m of sent) {
+          expect(JSON.stringify(m)).not.toContain('Müller');
+          expect(m.channelId).toBeUndefined();
+          expect(m.body).toBe('Активный → Неактивный');
+        }
+      });
+
+      it('sends each phone its own text when both kinds are among the recipients', async () => {
+        pushTokenRepo.find.mockResolvedValue([
+          {
+            token: 'ExponentPushToken[new]',
+            userId: 'u1',
+            deviceInfo: { channels: ['people'] },
+          } as any,
+          {
+            token: 'ExponentPushToken[old]',
+            userId: 'u2',
+            deviceInfo: {},
+          } as any,
+        ]);
+
+        await service.sendStatusChange('cong-1', pub, 'irregular', 'active');
+
+        const byTo = new Map(expoSent().map((m: any) => [m.to, m]));
+        expect(byTo.get('ExponentPushToken[new]').body).toBe(
+          'Müller Paul: Нерегулярный → Активный',
+        );
+        expect(byTo.get('ExponentPushToken[old]').body).toBe(
+          'Нерегулярный → Активный',
+        );
+      });
+
+      it('names the publisher in a browser on an iPhone/iPad or a computer, not on an Android phone', async () => {
+        pushTokenRepo.find.mockResolvedValue([]);
+        const sub = (endpoint: string, deviceKind: string) => ({
+          id: endpoint,
+          userId: 'u-' + endpoint,
+          endpoint,
           p256dh: 'k',
           auth: 'a',
-        },
-      ]);
+          deviceKind,
+        });
+        (
+          webPushService.getSubscriptionsByTenant as jest.Mock
+        ).mockResolvedValue([
+          sub('ipad', 'ios'),
+          sub('pc', 'desktop'),
+          sub('droid', 'android'),
+        ]);
 
-      await service.sendStatusChange(
-        'cong-1',
-        { id: 'pub-1', displayName: 'Müller Paul' },
-        'active',
-        'irregular',
-      );
+        await service.sendStatusChange('cong-1', pub, 'active', 'irregular');
 
-      const call = (webPushService.sendToSubscription as jest.Mock).mock
-        .calls[0];
-      const payload = call[1];
-      const printed = JSON.stringify(payload);
-      expect(printed).not.toContain('Müller');
-      expect(printed).not.toContain('Paul');
-      // Still useful: the id to open, and the transition that says it matters.
-      expect(payload.data.publisherId).toBe('pub-1');
-      expect(payload.body).toContain('\u2192');
+        const byEndpoint = new Map(
+          webSent().map((w) => [w.endpoint, w.payload]),
+        );
+        expect(byEndpoint.get('ipad').body).toBe(
+          'Müller Paul: Активный → Нерегулярный',
+        );
+        expect(byEndpoint.get('pc').body).toBe(
+          'Müller Paul: Активный → Нерегулярный',
+        );
+        expect(byEndpoint.get('droid').body).toBe('Активный → Нерегулярный');
+        for (const w of webSent()) {
+          expect(JSON.stringify(w.payload.data)).not.toContain('Müller');
+        }
+      });
+
+      it('says it in each language', async () => {
+        expect(
+          PUSH_STRINGS.de.statusChange.body({
+            before: 'Aktiv',
+            after: 'Inaktiv',
+            name: 'Müller Paul',
+          }),
+        ).toBe('Müller Paul: Aktiv → Inaktiv');
+        expect(
+          PUSH_STRINGS.ru.statusChange.body({ before: 'А', after: 'Б' }),
+        ).toBe('А → Б');
+      });
     });
 
     it('queries by congregationId and triggers the Expo SDK when recipients exist', async () => {

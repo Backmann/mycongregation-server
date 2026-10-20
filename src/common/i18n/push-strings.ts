@@ -23,21 +23,31 @@ export function translateStatus(
  * `docs/architecture/internationalization.md` Layer A.
  */
 /**
- * A status change is announced WITHOUT the publisher's name.
+ * WHO a status change is about — named, but only where the lock screen keeps it.
  *
- * The recipients are narrow and right — the overseer of that person's service
- * group, the secretary, the admins — but a push lands on a LOCK SCREEN, and a
- * phone lies on a table where a wife, a child or a visitor sees it. «Иванов
- * Пётр: активный → нерегулярный» is not a thing to leave lying in the open
- * about a brother.
+ * Until 20 October 2026 the change was announced without a name: a push lands
+ * on a LOCK SCREEN, and a phone lies on a table where a wife, a child or a
+ * visitor sees it. «Иванов Пётр: активный → нерегулярный» is not a thing to
+ * leave lying in the open about a brother. But the elders who receive it
+ * said the bare «Активный → Нерегулярный» made them open the app only to
+ * learn who it was («удобнее было бы, кто именно стал неактивным»).
  *
- * The transition itself stays: it tells the reader this is a decline worth
- * opening, and it names nobody. Who it concerns is inside the app, behind the
- * login, on the screen this notification leads to.
+ * So the name is said where the locked screen hides it, and only there:
+ *
+ *   - the Android app, which puts these on its own channel whose content the
+ *     lock screen conceals («people», created by the app — a phone whose app
+ *     has not created it yet gets the old text, without the name);
+ *   - an iPhone or iPad (Home Screen app), whose lock screen shows no preview
+ *     unless its owner turned that on;
+ *   - a computer.
+ *
+ * A browser on an Android phone has no such channel, and keeps the old text.
+ * The `data` never carries the name: nothing reads it there.
  */
 type PushTemplate = {
   title: string;
-  body: (params: { before: string; after: string }) => string;
+  /** `name` only where the lock screen keeps it hidden (see above). */
+  body: (params: { before: string; after: string; name?: string }) => string;
 };
 
 type SchedulePublishedTemplate = {
@@ -192,7 +202,8 @@ export const PUSH_STRINGS: Record<
   en: {
     statusChange: {
       title: 'Status changed',
-      body: ({ before, after }) => `${before} → ${after}`,
+      body: ({ before, after, name }) =>
+        name ? `${name}: ${before} → ${after}` : `${before} → ${after}`,
     },
     schedulePublished: {
       title: 'Programme updated',
@@ -230,7 +241,8 @@ export const PUSH_STRINGS: Record<
   ru: {
     statusChange: {
       title: 'Статус изменён',
-      body: ({ before, after }) => `${before} → ${after}`,
+      body: ({ before, after, name }) =>
+        name ? `${name}: ${before} → ${after}` : `${before} → ${after}`,
     },
     schedulePublished: {
       title: 'Программа обновлена',
@@ -268,7 +280,8 @@ export const PUSH_STRINGS: Record<
   de: {
     statusChange: {
       title: 'Status geändert',
-      body: ({ before, after }) => `${before} → ${after}`,
+      body: ({ before, after, name }) =>
+        name ? `${name}: ${before} → ${after}` : `${before} → ${after}`,
     },
     schedulePublished: {
       title: 'Programm aktualisiert',
