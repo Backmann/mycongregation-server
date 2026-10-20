@@ -104,7 +104,7 @@ export class AuditLogService {
     for (const f of opts.fields) {
       const a = opts.before[f];
       const b = opts.after[f];
-      if (a !== b) {
+      if (!sameValue(a, b)) {
         const name = f as string;
         changed.push(name);
         beforeChanged[name] = a ?? null;
@@ -393,4 +393,23 @@ export class AuditLogService {
     const result = await this.auditRepo.delete({ createdAt: LessThan(cutoff) });
     return result.affected ?? 0;
   }
+}
+
+/**
+ * Whether a field kept its value. `!==` is right for words and numbers, but
+ * a list or a date is a fresh object after every save: a speaker's talk
+ * numbers were journalled as «changed» each time his card was saved, even
+ * untouched (found 20 October 2026). Those are compared by what they hold.
+ */
+export function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if ((a === null || a === undefined) && (b === null || b === undefined)) {
+    return true;
+  }
+  if (a instanceof Date && b instanceof Date)
+    return a.getTime() === b.getTime();
+  if (typeof a === 'object' && typeof b === 'object' && a && b) {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+  return false;
 }
