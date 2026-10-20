@@ -144,6 +144,31 @@ describe('AuditLogService', () => {
       expect(call.changedFields).toEqual(['a']);
       expect(JSON.parse(call.beforeJson)).toEqual({ a: 1 });
     });
+
+    // A list or a date is a new object after every save; saving a speaker's
+    // card untouched journalled his talk numbers as «changed» (20 October 2026).
+    it('compares lists and dates by what they hold, not by identity', async () => {
+      await service.logUpdate({
+        tenantId: 'cong-1',
+        entityType: 'visiting_speaker',
+        entityId: 's-1',
+        before: { talkNumbers: [12, 54], at: new Date('2026-10-01T10:00:00Z') },
+        after: { talkNumbers: [12, 54], at: new Date('2026-10-01T10:00:00Z') },
+        fields: ['talkNumbers', 'at'],
+      });
+      expect(auditRepo.create).not.toHaveBeenCalled();
+
+      await service.logUpdate({
+        tenantId: 'cong-1',
+        entityType: 'visiting_speaker',
+        entityId: 's-1',
+        before: { talkNumbers: [12, 54] },
+        after: { talkNumbers: [12, 54, 88] },
+        fields: ['talkNumbers'],
+      });
+      const call = (auditRepo.create as jest.Mock).mock.calls[0][0];
+      expect(call.changedFields).toEqual(['talkNumbers']);
+    });
   });
 
   describe('findForEntity', () => {
