@@ -194,7 +194,7 @@ export class NotificationsService {
   ) {}
 
   /** Wall-clock hour and minute for an instant in an IANA timezone. */
-  private static localHourMinute(
+  static localHourMinute(
     at: Date,
     timezone: string,
   ): { hour: number; minute: number } {

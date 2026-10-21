@@ -94,6 +94,8 @@ export const PLAN: Record<string, TablePlan> = {
   inbox_seen: 'skip',
   /** «Told about the assignment» marks — of no use to a test. */
   assignment_notices: 'skip',
+  /** When a meeting's edits were said, and to whom — a copy starts afresh. */
+  programme_notices: 'skip',
   /** The copy carries the name of the last migration instead. */
   migrations: 'skip',
 
