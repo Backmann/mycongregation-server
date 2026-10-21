@@ -18,6 +18,9 @@ import { AssignmentSectionGuard } from '../common/guards/assignment-section.guar
 import { AssignmentsService } from './assignments.service';
 import { AssignmentsController } from './assignments.controller';
 import { ProgrammeFreezeModule } from './programme-freeze.module';
+import { ProgrammeNotice } from '../entities/programme-notice.entity';
+import { WeekRulesModule } from '../common/week-rules.module';
+import { ProgrammeNoticeService } from './programme-notice.service';
 
 @Module({
   imports: [
@@ -27,6 +30,7 @@ import { ProgrammeFreezeModule } from './programme-freeze.module';
       Publisher,
       Congregation,
       SpecialEvent,
+      ProgrammeNotice,
     ]),
     PushNotificationsModule,
     NotificationsModule,
@@ -39,9 +43,14 @@ import { ProgrammeFreezeModule } from './programme-freeze.module';
     AuditLogModule,
     CoVisitTemplateModule,
     ProgrammeFreezeModule,
+    WeekRulesModule,
   ],
   controllers: [AssignmentsController],
-  providers: [AssignmentsService, AssignmentSectionGuard],
-  exports: [AssignmentsService],
+  providers: [
+    AssignmentsService,
+    ProgrammeNoticeService,
+    AssignmentSectionGuard,
+  ],
+  exports: [AssignmentsService, ProgrammeNoticeService],
 })
 export class AssignmentsModule {}

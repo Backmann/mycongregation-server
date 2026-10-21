@@ -16,6 +16,7 @@ import { FieldServiceMeetingsModule } from '../field-service-meetings/field-serv
 import { UsersModule } from '../users/users.module';
 import { ConductRunsModule } from '../conduct-runs/conduct-runs.module';
 import { ConductLiveModule } from '../conduct-live/conduct-live.module';
+import { AssignmentsModule } from '../assignments/assignments.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { ConductLiveModule } from '../conduct-live/conduct-live.module';
     UsersModule,
     ConductRunsModule,
     ConductLiveModule,
+    AssignmentsModule,
   ],
   controllers: [AdminController],
   providers: [ScheduledJobsService],

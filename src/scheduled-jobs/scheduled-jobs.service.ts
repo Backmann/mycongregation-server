@@ -17,6 +17,7 @@ import { MonthlySentService } from '../service-reports/monthly-sent.service';
 import { UsersService } from '../users/users.service';
 import { ConductRunsService } from '../conduct-runs/conduct-runs.service';
 import { ConductLiveService } from '../conduct-live/conduct-live.service';
+import { ProgrammeNoticeService } from '../assignments/programme-notice.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -40,7 +41,25 @@ export class ScheduledJobsService {
     private readonly users: UsersService,
     private readonly conductRuns: ConductRunsService,
     private readonly conductLive: ConductLiveService,
+    private readonly programmeNotices: ProgrammeNoticeService,
   ) {}
+
+  /**
+   * Edits of a published meeting — every minute: ten minutes after the last
+   * edit (one minute when the meeting is near), at 18:00 when held for the
+   * evening, never at night (assignments/programme-notice.service.ts).
+   */
+  @Cron('* * * * *', {
+    name: 'programme-notices',
+    timeZone: 'UTC',
+  })
+  async handleProgrammeNotices(): Promise<void> {
+    try {
+      await this.programmeNotices.runDue();
+    } catch (err) {
+      this.logger.error('[ProgrammeNotices] pass failed', err as Error);
+    }
+  }
 
   /**
    * Duties given or taken away — every 5 minutes, once the coordinator has

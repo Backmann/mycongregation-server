@@ -26,10 +26,14 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { AssignmentSectionGuard } from '../common/guards/assignment-section.guard';
 import { StageAllowed } from '../common/stage';
+import { ProgrammeNoticeService } from './programme-notice.service';
 
 @Controller('assignments')
 export class AssignmentsController {
-  constructor(private readonly service: AssignmentsService) {}
+  constructor(
+    private readonly service: AssignmentsService,
+    private readonly notices: ProgrammeNoticeService,
+  ) {}
 
   // The stage screen reads this (common/stage.ts).
   @StageAllowed()
@@ -129,17 +133,55 @@ export class AssignmentsController {
     );
   }
 
+  /**
+   * «Отправить сейчас». Older apps call it from their «Уведомить» window; it
+   * goes through the same door as the automatic sending, so the card's
+   * «Сообщено в …» line is right whichever way it was said.
+   */
   @Post('notify-changes')
   @UseGuards(AssignmentSectionGuard)
   notifyChanges(
     @TenantId() congregationId: string,
     @Body() dto: PublishAssignmentsDto,
   ) {
-    return this.service.notifyChanges(
+    return this.notices.sendNow({
       congregationId,
-      dto.weekStartDate,
-      dto.eventType,
-    );
+      weekStartDate: dto.weekStartDate.slice(0, 10),
+      eventType: dto.eventType,
+    });
+  }
+
+  /**
+   * The line on a published meeting's card: when its changes go out by
+   * themselves and to whom, or when they went. Names people — same guard.
+   */
+  @Post('notice-status')
+  @HttpCode(200)
+  @UseGuards(AssignmentSectionGuard)
+  noticeStatus(
+    @TenantId() congregationId: string,
+    @Body() dto: PublishAssignmentsDto,
+  ) {
+    return this.notices.status({
+      congregationId,
+      weekStartDate: dto.weekStartDate.slice(0, 10),
+      eventType: dto.eventType,
+    });
+  }
+
+  /** «Отправить вечером»: hold the changes for 18:00. */
+  @Post('notice-later')
+  @HttpCode(200)
+  @UseGuards(AssignmentSectionGuard)
+  noticeLater(
+    @TenantId() congregationId: string,
+    @Body() dto: PublishAssignmentsDto,
+  ) {
+    return this.notices.later({
+      congregationId,
+      weekStartDate: dto.weekStartDate.slice(0, 10),
+      eventType: dto.eventType,
+    });
   }
 
   /**

@@ -89,6 +89,8 @@ describe('ScheduledJobsService', () => {
       conductRuns as never,
       // The meeting as it ran live, deleted after a day.
       conductLive as never,
+      // Edits of a published meeting, said by themselves.
+      { runDue: jest.fn(async () => 0) } as never,
     );
   });
 
