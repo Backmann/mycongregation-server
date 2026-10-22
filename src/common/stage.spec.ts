@@ -33,6 +33,7 @@ const ALLOWED = [
   'MeController.myPublisher',
   'MeetingSettingsController.overview',
   'PublishersController.roster',
+  'SongsController.list',
   'SpecialEventsController.list',
 ];
 
