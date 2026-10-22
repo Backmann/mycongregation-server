@@ -850,6 +850,28 @@ export class PublishersService {
   }
 
   /**
+   * The service groups whose overseer or assistant the user's own card is —
+   * those whose inactive members he may see (publicRosterPage).
+   */
+  async overseenServiceGroupIds(
+    tenantId: string,
+    userId: string,
+  ): Promise<Set<string>> {
+    const me = await this.publishersRepo.findOne({
+      where: { congregationId: tenantId, userId },
+    });
+    if (!me) return new Set();
+    const groups = await this.publishersRepo.manager.find(ServiceGroup, {
+      where: [
+        { congregationId: tenantId, overseerPublisherId: me.id },
+        { congregationId: tenantId, assistantPublisherId: me.id },
+      ],
+      select: { id: true },
+    });
+    return new Set(groups.map((g) => g.id));
+  }
+
+  /**
    * Whether the user holds ANY responsibility in the congregation. Planners
    * (schedule/duty/cleaning editors — possibly ministerial servants, not
    * elders) need the full name roster for their pickers. Queried through the

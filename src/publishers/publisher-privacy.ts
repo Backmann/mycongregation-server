@@ -126,8 +126,21 @@ export function redactPrivateFields<T extends object>(publisher: T): T {
  */
 export function publicRosterPage<
   P extends { data: T[]; total: number },
-  T extends { appointment?: unknown; status?: unknown },
->(page: P): P {
+  T extends {
+    appointment?: unknown;
+    status?: unknown;
+    serviceGroupId?: unknown;
+  },
+>(
+  page: P,
+  /**
+   * Groups whose INACTIVE members stay in: the groups the reader oversees or
+   * assists (Lionel, 22 October 2026 — «ответственные за группу и его
+   * помощник могут видеть неактивных, но остальные возвещатели не могут»).
+   * They already see those people in the group's reports.
+   */
+  keepInactiveIn: ReadonlySet<string> = new Set(),
+): P {
   /**
    * Неактивные — тоже не для общего списка.
    *
@@ -143,7 +156,9 @@ export function publicRosterPage<
   const visible = page.data.filter(
     (p) =>
       p.appointment !== PublisherAppointment.STUDENT &&
-      p.status !== PublisherStatus.INACTIVE,
+      (p.status !== PublisherStatus.INACTIVE ||
+        (typeof p.serviceGroupId === 'string' &&
+          keepInactiveIn.has(p.serviceGroupId))),
   );
   return {
     ...page,

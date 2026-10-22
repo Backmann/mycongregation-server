@@ -41,6 +41,7 @@ describe('PublishersController.findAll — directory scoping', () => {
       resolvePrivateAccess: jest.fn(async () => false),
       holdsAnyResponsibility: jest.fn(async () => true),
       findOwnServiceGroupId: jest.fn(),
+      overseenServiceGroupIds: jest.fn(async () => new Set<string>()),
       findAll,
     });
     const query: Record<string, unknown> = {};
@@ -69,6 +70,7 @@ describe('PublishersController.findAll — directory scoping', () => {
       resolvePrivateAccess: jest.fn(async () => false),
       holdsAnyResponsibility: jest.fn(async () => false),
       findOwnServiceGroupId: jest.fn(async () => 'group-7'),
+      overseenServiceGroupIds: jest.fn(async () => new Set<string>()),
       findAll,
     });
     const query: Record<string, unknown> = { includeRemoved: true };
@@ -98,6 +100,7 @@ describe('PublishersController.findAll — directory scoping', () => {
       resolvePrivateAccess: jest.fn(async () => false),
       holdsAnyResponsibility: jest.fn(async () => false),
       findOwnServiceGroupId: jest.fn(async () => null),
+      overseenServiceGroupIds: jest.fn(async () => new Set<string>()),
       findAll,
     });
     const res = await controller.findAll(TENANT, USER, {} as never);

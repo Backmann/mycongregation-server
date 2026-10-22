@@ -102,7 +102,7 @@ const STR: Record<
     publisherReminder: (m) => `Вы ещё не подали отчёт за ${m}.`,
     overseerTitle: 'Несданные отчёты в группе',
     overseerBody: (g, m, names) => `Группа «${g}», ${m}: не сдали — ${names}.`,
-    secretaryTitle: 'Несданные отчёты по общине',
+    secretaryTitle: 'Несданные отчёты по собранию',
     secretaryBody: (m, count, lines) =>
       `За ${m} не сдали (${count}):\n${lines}`,
     ungrouped: 'Без группы',
