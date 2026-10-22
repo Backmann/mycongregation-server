@@ -160,7 +160,10 @@ describe('MeService.myAssignments (outgoing talks)', () => {
     find: async () => [],
   });
 
-  it('includes an outgoing public talk with host hall details', async () => {
+  const serviceWith = async (
+    row: Record<string, unknown>,
+    talk: { id: string; number: number; title: string } | null,
+  ) => {
     const publishersRepo = {
       findOne: jest
         .fn()
@@ -173,8 +176,9 @@ describe('MeService.myAssignments (outgoing talks)', () => {
             date: '2030-01-06',
             publisherId: 'pub-1',
             hostCongregationId: 'ext-1',
-            publicTalkId: 'talk-1',
+            publicTalkId: talk ? talk.id : null,
             direction: 'outgoing',
+            ...row,
           },
         ]),
     };
@@ -188,9 +192,7 @@ describe('MeService.myAssignments (outgoing talks)', () => {
       }),
     };
     const publicTalksRepo = {
-      findOne: jest
-        .fn()
-        .mockResolvedValue({ id: 'talk-1', number: 42, title: 'Hope' }),
+      findOne: jest.fn().mockResolvedValue(talk),
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -240,8 +242,14 @@ describe('MeService.myAssignments (outgoing talks)', () => {
         },
       ],
     }).compile();
-    const service = moduleRef.get(MeService);
+    return moduleRef.get(MeService);
+  };
 
+  it('includes an outgoing public talk with host hall details', async () => {
+    const service = await serviceWith(
+      {},
+      { id: 'talk-1', number: 42, title: 'Hope' },
+    );
     const res = await service.myAssignments('cong-1', 'user-1');
     const out = res.items.find((i) => i.kind === 'outgoing_talk');
     expect(out).toBeDefined();
@@ -250,6 +258,27 @@ describe('MeService.myAssignments (outgoing talks)', () => {
     expect(out?.time).toBe('10:00');
     expect(out?.mapUrl).toBe('https://maps.example/ahlen');
     expect(out?.congregationName).toBe('Ahlen');
+  });
+
+  // A special talk has its own theme and no number (22 October 2026): the
+  // label used to fall back to the hall's name, said twice on Home.
+  it('names a special talk by its theme, not by the hall', async () => {
+    const service = await serviceWith(
+      { specialTheme: '  Serve with joy  ' },
+      null,
+    );
+    const res = await service.myAssignments('cong-1', 'user-1');
+    const out = res.items.find((i) => i.kind === 'outgoing_talk');
+    expect(out?.label).toBe('Serve with joy');
+    expect(out?.congregationName).toBe('Ahlen');
+  });
+
+  it('falls back to the hall when there is neither a talk nor a theme', async () => {
+    const service = await serviceWith({}, null);
+    const res = await service.myAssignments('cong-1', 'user-1');
+    expect(res.items.find((i) => i.kind === 'outgoing_talk')?.label).toBe(
+      'Ahlen',
+    );
   });
 });
 
