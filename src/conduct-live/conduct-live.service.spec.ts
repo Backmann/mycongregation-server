@@ -671,3 +671,46 @@ describe('the elders watch the meeting as it runs', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
+
+describe('ConductLiveService.programmeStamp', () => {
+  // A brother put in at the last minute reaches every watching screen at the
+  // next ask (22 October 2026): the answer says when the programme changed.
+  const make = (stamp: string | null) => {
+    const calls: Record<string, unknown[]> = {};
+    const qb: Record<string, (...a: unknown[]) => unknown> = {};
+    for (const m of ['withDeleted', 'select', 'where', 'andWhere']) {
+      qb[m] = (...a: unknown[]) => {
+        (calls[m] ??= []).push(a);
+        return qb;
+      };
+    }
+    qb.getRawOne = async () => ({ stamp });
+    const service = new ConductLiveService(
+      {} as never,
+      { createQueryBuilder: () => qb } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    return { service, calls };
+  };
+
+  it('is the newest change of the meeting, removals counted', async () => {
+    const { service, calls } = make('2026-10-21 19:42:00+02');
+    const at = await service.programmeStamp(
+      'c1',
+      '2026-10-19',
+      'midweek' as never,
+    );
+    expect(at).toBe('2026-10-21T17:42:00.000Z');
+    expect(calls.withDeleted).toHaveLength(1);
+    expect(JSON.stringify(calls.andWhere)).toContain('2026-10-19');
+  });
+
+  it('is null for a meeting with no programme', async () => {
+    const { service } = make(null);
+    expect(
+      await service.programmeStamp('c1', '2026-10-19', 'weekend' as never),
+    ).toBeNull();
+  });
+});

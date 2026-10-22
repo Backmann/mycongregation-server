@@ -98,6 +98,32 @@ export class ConductLiveService {
     private readonly meetingDay: MeetingDayService,
   ) {}
 
+  /**
+   * When the meeting's programme last changed (22 October 2026): the newest
+   * edit, removal included, of its rows. Every watching screen asks every two
+   * seconds anyway; with this in the answer a brother put in at the last
+   * minute is on every screen at the next ask, instead of whenever the screen
+   * happened to read the programme again.
+   */
+  async programmeStamp(
+    congregationId: string,
+    weekStartDate: string,
+    kind: ConductKind,
+  ): Promise<string | null> {
+    const row = await this.assignments
+      .createQueryBuilder('a')
+      .withDeleted()
+      .select('greatest(max(a.updated_at), max(a.deleted_at))', 'stamp')
+      .where('a.congregation_id = :congregationId', { congregationId })
+      .andWhere('a.week_start_date = :week', {
+        week: this.monday(weekStartDate),
+      })
+      .andWhere('a.event_type = :kind', { kind })
+      .getRawOne<{ stamp: Date | string | null }>();
+    const stamp = row?.stamp ?? null;
+    return stamp ? new Date(stamp).toISOString() : null;
+  }
+
   /** The Monday, or a refusal. */
   private monday(value: string): string {
     const day = (value ?? '').slice(0, 10);
