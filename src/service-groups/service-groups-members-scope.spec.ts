@@ -44,6 +44,9 @@ function makeSvc(pubOver: Partial<Record<string, any>> = {}) {
   const publishersService = {
     resolvePrivateAccess: jest.fn(async () => pubOver.privileged ?? false),
     findOwnServiceGroupId: jest.fn(async () => pubOver.ownGroup ?? null),
+    overseenServiceGroupIds: jest.fn(
+      async () => new Set<string>(pubOver.oversees ?? []),
+    ),
     findOne: jest.fn(async () => null),
     findAll: jest.fn(async () => ({
       data: pubOver.rows ?? [
@@ -169,6 +172,60 @@ describe('ServiceGroupsService.findPublishers — scoping', () => {
     )) as unknown as { data: Record<string, unknown>[]; total: number };
     expect(res.data.map((p) => p.id)).toEqual(['p1']);
     expect(res.total).toBe(1);
+  });
+
+  // Lionel, 22 October 2026: the group's overseer and his assistant see its
+  // inactive members; an ordinary member does not.
+  it('shows the inactive to the overseer of the group, not to a member', async () => {
+    const rows = [
+      {
+        id: 'p1',
+        displayName: 'A',
+        appointment: 'publisher',
+        status: 'active',
+        serviceGroupId: 'g1',
+      },
+      {
+        id: 'p2',
+        displayName: 'I',
+        appointment: 'publisher',
+        status: 'inactive',
+        serviceGroupId: 'g1',
+      },
+      {
+        id: 'p3',
+        displayName: 'S',
+        appointment: 'student',
+        status: 'inactive',
+        serviceGroupId: 'g1',
+      },
+    ];
+    const asMember = makeSvc({ ownGroup: 'g1', rows });
+    const m = (await asMember.svc.findPublishers(
+      TENANT,
+      'g1',
+      {} as any,
+      member,
+    )) as unknown as {
+      data: Record<string, unknown>[];
+      total: number;
+    };
+    expect(m.data.map((p) => p.id)).toEqual(['p1']);
+    expect(m.total).toBe(1);
+    const asOverseer = makeSvc({ ownGroup: 'g1', rows, oversees: ['g1'] });
+    const o = (await asOverseer.svc.findPublishers(
+      TENANT,
+      'g1',
+      {} as any,
+      member,
+    )) as unknown as {
+      data: Record<string, unknown>[];
+      total: number;
+    };
+    expect(o.data.map((p) => p.id)).toEqual(['p1', 'p2']);
+    expect(o.total).toBe(2);
+    // Still the roster view: no contacts for him either.
+    expect(o.data[1].mobilePhone).toBeUndefined();
   });
 
   it('keeps students visible to privileged callers', async () => {

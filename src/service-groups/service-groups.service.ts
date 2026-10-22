@@ -365,7 +365,10 @@ export class ServiceGroupsService {
       serviceGroupId: id,
     });
     if (privileged) return result;
-    return publicRosterPage(result);
+    return publicRosterPage(
+      result,
+      await this.publishersService.overseenServiceGroupIds(tenantId, user.id),
+    );
   }
 
   /** Add (or move) publishers into this group. Tenant- and existence-checked. */

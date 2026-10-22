@@ -115,7 +115,10 @@ export class PublishersController {
     if (privileged) {
       return result;
     }
-    return publicRosterPage(result);
+    return publicRosterPage(
+      result,
+      await this.publishersService.overseenServiceGroupIds(tenantId, user.id),
+    );
   }
 
   /**
