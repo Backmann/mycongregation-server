@@ -17,11 +17,15 @@ import { BulkImportDto } from './dto/bulk-import.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UserRole } from '../common/enums/user-role.enum';
+import { StageAllowed } from '../common/stage';
 
 @Controller('songs')
 export class SongsController {
   constructor(private readonly service: SongsService) {}
 
+  // The stage screen names the song being sung (22 October 2026):
+  // the catalog is the same for every congregation and holds no person.
+  @StageAllowed()
   @Get()
   list(
     @Query('search') search?: string,
