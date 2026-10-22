@@ -52,7 +52,18 @@ export class ConductLiveController {
       conductKind(kind),
       deviceOf(device),
     );
-    return { live, roles, serverNow: new Date().toISOString() };
+    // Asked only once find has let the asker in.
+    const programmeStamp = await this.service.programmeStamp(
+      user.congregationId,
+      week,
+      conductKind(kind),
+    );
+    return {
+      live,
+      roles,
+      programmeStamp,
+      serverNow: new Date().toISOString(),
+    };
   }
 
   @Put()
