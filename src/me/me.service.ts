@@ -799,7 +799,12 @@ export class MeService {
         sortDate: e.date,
         date: e.date,
         time: host?.meetingTime ?? undefined,
-        label: talk ? `№${talk.number}. ${talk.title}` : (host?.name ?? ''),
+        // A special talk has a theme of its own and no number; before 22
+        // October 2026 it fell back to the hall's name, so Home said the
+        // congregation twice and the theme nowhere.
+        label: talk
+          ? `№${talk.number}. ${talk.title}`
+          : e.specialTheme?.trim() || (host?.name ?? ''),
         location: host?.address ?? undefined,
         mapUrl: host?.mapUrl ?? undefined,
         congregationName: host?.name ?? undefined,
