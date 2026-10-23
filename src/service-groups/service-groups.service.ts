@@ -21,6 +21,7 @@ import {
 } from '../publishers/publisher-privacy';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
+import { Gender } from '../common/enums/gender.enum';
 
 type ResolvedPublisher = Awaited<ReturnType<PublishersService['findOne']>>;
 
@@ -228,10 +229,10 @@ export class ServiceGroupsService {
     dto: CreateServiceGroupDto,
   ): Promise<ServiceGroupWithLeaders> {
     if (dto.overseerPublisherId) {
-      await this.ensurePublisherInTenant(tenantId, dto.overseerPublisherId);
+      await this.ensureLeader(tenantId, dto.overseerPublisherId);
     }
     if (dto.assistantPublisherId) {
-      await this.ensurePublisherInTenant(tenantId, dto.assistantPublisherId);
+      await this.ensureLeader(tenantId, dto.assistantPublisherId);
     }
     const group = this.serviceGroupsRepo.create({
       ...dto,
@@ -258,11 +259,19 @@ export class ServiceGroupsService {
     dto: UpdateServiceGroupDto,
   ): Promise<ServiceGroupWithLeaders> {
     const group = await this.findEntity(tenantId, id);
-    if (dto.overseerPublisherId) {
-      await this.ensurePublisherInTenant(tenantId, dto.overseerPublisherId);
+    // Only a NEW choice is judged: a group saved for its name keeps whoever
+    // it already had, so an old record never blocks an unrelated edit.
+    if (
+      dto.overseerPublisherId &&
+      dto.overseerPublisherId !== group.overseerPublisherId
+    ) {
+      await this.ensureLeader(tenantId, dto.overseerPublisherId);
     }
-    if (dto.assistantPublisherId) {
-      await this.ensurePublisherInTenant(tenantId, dto.assistantPublisherId);
+    if (
+      dto.assistantPublisherId &&
+      dto.assistantPublisherId !== group.assistantPublisherId
+    ) {
+      await this.ensureLeader(tenantId, dto.assistantPublisherId);
     }
     // Snapshot before the in-place assign, or both sides would match.
     const before = {
@@ -408,6 +417,27 @@ export class ServiceGroupsService {
     );
     if (ids.length > 0) {
       await this.publishersService.setServiceGroupBulk(tenantId, ids, group.id);
+    }
+  }
+
+  /**
+   * The overseer of a group and his assistant are brothers (23 October 2026).
+   * The picker offered the whole roster, sisters included, and the server
+   * took whomever it was given; the walk in German and English found a
+   * sister offered as «Gruppenverantwortliche».
+   */
+  private async ensureLeader(
+    tenantId: string,
+    publisherId: string,
+  ): Promise<void> {
+    const p = await this.publishersService.findOne(tenantId, publisherId);
+    if (p.gender !== Gender.BROTHER) {
+      throw new BadRequestException(
+        refusal(
+          'GROUP_LEADER_SISTER',
+          'The group overseer and his assistant are brothers.',
+        ),
+      );
     }
   }
 

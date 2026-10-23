@@ -1,11 +1,19 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { In, Repository } from 'typeorm';
 import { Responsibility } from '../entities/responsibility.entity';
 import { User } from '../entities/user.entity';
 import { Publisher } from '../entities/publisher.entity';
-import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
+import {
+  ResponsibilityType,
+  pairedWith,
+} from '../common/enums/responsibility-type.enum';
+import { refusal } from '../common/errors/refusal';
 import { AssignResponsibilityDto } from './dto/assign-responsibility.dto';
 
 /**
@@ -178,6 +186,24 @@ export class ResponsibilitiesService {
     if (existing) {
       // Already assigned to this person — assignment is idempotent.
       return existing;
+    }
+
+    // A duty and its own assistant are two men: the same brother in both
+    // would be standing in for himself (23 October 2026).
+    const pair = pairedWith(dto.type);
+    if (pair) {
+      const holdsPair = await this.responsibilitiesRepo.findOne({
+        where: { congregationId: tenantId, type: pair, userId: dto.userId },
+      });
+      if (holdsPair) {
+        throw new ConflictException(
+          refusal(
+            'RESPONSIBILITY_OWN_ASSISTANT',
+            'A brother cannot hold a responsibility and be its own assistant.',
+            { type: dto.type, holds: pair },
+          ),
+        );
+      }
     }
 
     // Anybody else holding it steps down first — unless several may hold it.

@@ -171,6 +171,8 @@ export const REFUSAL_CODES = [
   'SCHEDULE_VERSION_IN_FORCE',
   'GROUP_ALREADY_REMOVED',
   'GROUP_NOT_REMOVED',
+  'RESPONSIBILITY_OWN_ASSISTANT',
+  'GROUP_LEADER_SISTER',
   // ---- elsewhere, coded before this list existed ----
   'ABSENCE_FROM_TRIP',
   'ALREADY_MERGED',
