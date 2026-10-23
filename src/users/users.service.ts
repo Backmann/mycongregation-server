@@ -1,3 +1,4 @@
+import { deriveRoleFromAppointment } from '../publishers/derive-role';
 import {
   BadRequestException,
   ConflictException,
@@ -654,8 +655,16 @@ export class UsersService {
       );
     }
 
+    /**
+     * The card this sign-in belongs to now — a DEPARTED card too (23 October
+     * 2026). A card marked departed keeps its link, and the link is unique
+     * over every card, removed ones included. Looking only at present cards
+     * missed it, so moving such a sign-in to another card broke the
+     * uniqueness rule and the server answered 500.
+     */
     const previous = await this.publishersRepo.findOne({
       where: { congregationId, userId },
+      withDeleted: true,
     });
 
     let next: Publisher | null = null;
@@ -683,6 +692,15 @@ export class UsersService {
     if (next) {
       next.userId = userId;
       await this.publishersRepo.save(next);
+      // The role follows the card it now answers for, as it does when the
+      // card's appointment is edited; linking skipped it, so an elder's
+      // sign-in moved to a publisher's card stayed an elder's.
+      await this.syncRoleFromAppointment(
+        userId,
+        deriveRoleFromAppointment(next.appointment),
+        congregationId,
+        actorUserId,
+      );
     }
 
     await this.auditLog.logUpdate({
@@ -695,8 +713,10 @@ export class UsersService {
       fields: ['publisherId'],
     });
 
+    const current =
+      (await this.usersRepo.findOne({ where: { id: userId } })) ?? user;
     return toPublicUser(
-      user,
+      current,
       next ? next.appointment : null,
       Date.now(),
       next ? next.id : null,

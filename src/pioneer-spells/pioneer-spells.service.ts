@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { refusal } from '../common/errors/refusal';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { PioneerSpell } from '../entities/pioneer-spell.entity';
@@ -103,6 +104,13 @@ export class PioneerSpellsService {
 
     const startsAt = monthStart(pioneerSince ?? todayIso);
 
+    // A change of kind that would start at or before the open spell's own
+    // start would end that spell before it began — and then the whole past
+    // reads as the new kind (23 October 2026: a regular pioneer since 2024
+    // turned special for every month since 2024, in S-1, S-21 and the
+    // pioneer year). Refused here as the last line; the card refuses first.
+    this.assertKindChangeDate(open, pioneerType, startsAt);
+
     // Newly a pioneer, or a kind that is not the open spell's kind: the old
     // spell ends and a new one begins. Changing from regular to special is two
     // spells, not one amended — those are different appointments.
@@ -138,5 +146,84 @@ export class PioneerSpellsService {
     }
 
     return {};
+  }
+
+  /**
+   * Would changing the card to this kind, from this month, end the open
+   * spell before it began? Asked by the card BEFORE it saves — the spell
+   * sync afterwards only logs its failures, so a refusal there would leave
+   * the card changed and the history silently wrong.
+   */
+  async assertCardChange(opts: {
+    congregationId: string;
+    publisherId: string;
+    pioneerType: PioneerType;
+    pioneerSince: string | null;
+    todayIso: string;
+  }): Promise<void> {
+    if (!PERMANENT.includes(opts.pioneerType)) return;
+    const open = await this.repo.findOne({
+      where: {
+        congregationId: opts.congregationId,
+        publisherId: opts.publisherId,
+        endMonth: IsNull(),
+      },
+      order: { startMonth: 'DESC' },
+    });
+    this.assertKindChangeDate(
+      open,
+      opts.pioneerType,
+      monthStart(opts.pioneerSince ?? opts.todayIso),
+    );
+  }
+
+  private assertKindChangeDate(
+    open: PioneerSpell | null,
+    pioneerType: PioneerType,
+    startsAt: string,
+  ): void {
+    if (!open || open.pioneerType === pioneerType) return;
+    if (startsAt > open.startMonth.slice(0, 10)) return;
+    throw new BadRequestException(
+      refusal(
+        'PIONEER_KIND_CHANGE_DATE',
+        'A new kind of pioneering starts after the current one began; to say the kind was wrong all along, correct it instead.',
+        {
+          currentSince: open.startMonth.slice(0, 10),
+          currentKind: open.pioneerType,
+        },
+      ),
+    );
+  }
+
+  /**
+   * «The kind was written down wrong» — the open spell keeps its months and
+   * takes the right kind, nothing is split (23 October 2026). The same
+   * distinction the date already has: correcting is not a second
+   * appointment. Only between the permanent kinds.
+   */
+  async correctOpenKind(opts: {
+    congregationId: string;
+    publisherId: string;
+    pioneerType: PioneerType;
+  }): Promise<PioneerSpell> {
+    const open = await this.repo.findOne({
+      where: {
+        congregationId: opts.congregationId,
+        publisherId: opts.publisherId,
+        endMonth: IsNull(),
+      },
+      order: { startMonth: 'DESC' },
+    });
+    if (!open || !PERMANENT.includes(opts.pioneerType)) {
+      throw new BadRequestException(
+        refusal(
+          'PIONEER_KIND_CORRECTION_INVALID',
+          'Only the kind of an open regular, special or missionary spell can be corrected.',
+        ),
+      );
+    }
+    open.pioneerType = opts.pioneerType;
+    return this.repo.save(open);
   }
 }

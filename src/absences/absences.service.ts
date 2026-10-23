@@ -300,6 +300,20 @@ export class AbsencesService {
      * приложение всё равно вернёт его при следующем сохранении поездки.
      * Отменять надо поездку, и это делает координатор речей.
      */
+    /**
+     * Nor one written by the pioneer service school (23 October 2026): the
+     * duty in the school is the decision, the absence follows it. Deleting it
+     * here hid the row from the school, whose next sync then tried to write a
+     * second one, met the unique index and failed on every assignment after.
+     */
+    if (found.pioneerSchoolDutyId) {
+      throw new BadRequestException(
+        refusal(
+          'ABSENCE_FROM_SCHOOL',
+          'This absence comes from the pioneer service school. Change the assignment in the school instead.',
+        ),
+      );
+    }
     if (found.talkExchangeId) {
       throw new BadRequestException({
         code: 'ABSENCE_FROM_TRIP',

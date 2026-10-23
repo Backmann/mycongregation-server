@@ -175,6 +175,9 @@ export const REFUSAL_CODES = [
   'GROUP_LEADER_SISTER',
   // ---- elsewhere, coded before this list existed ----
   'ABSENCE_FROM_TRIP',
+  'ABSENCE_FROM_SCHOOL',
+  'PIONEER_KIND_CHANGE_DATE',
+  'PIONEER_KIND_CORRECTION_INVALID',
   'ALREADY_MERGED',
   'NOT_A_MISSED_VISIT',
   'NOT_MERGED_HERE',
