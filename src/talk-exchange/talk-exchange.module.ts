@@ -18,6 +18,7 @@ import { User } from '../entities/user.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { TalkAttentionService } from './talk-attention.service';
+import { TalkConsistencyService } from './talk-consistency.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { CongregationClockModule } from '../common/congregation-clock.module';
 import { ProgrammeFreezeModule } from '../assignments/programme-freeze.module';
@@ -51,7 +52,8 @@ import { ProgrammeFreezeModule } from '../assignments/programme-freeze.module';
     SpecialTalkNotificationsService,
     OutgoingTalkNotificationsService,
     TalkAttentionService,
+    TalkConsistencyService,
   ],
-  exports: [TalkExchangeService, TalkAttentionService],
+  exports: [TalkExchangeService, TalkAttentionService, TalkConsistencyService],
 })
 export class TalkExchangeModule {}
