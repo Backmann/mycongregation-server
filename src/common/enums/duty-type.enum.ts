@@ -75,19 +75,49 @@ export const OPTIONAL_DUTIES = new Set<DutyType>([DutyType.TIMEKEEPER]);
  * the three at the parking is then ordinary work on a row rather than editing
  * inside a field.
  */
-export const MEMORIAL_DUTIES: {
-  label: string;
-  count: number;
-  notes?: string;
-}[] = [
-  { label: 'Главный зал', count: 1 },
-  { label: 'Фойе', count: 1 },
-  { label: 'Микрофон', count: 1 },
-  { label: 'Аппаратура', count: 1 },
-  { label: 'Zoom', count: 1 },
-  { label: 'Стоянка', count: 1, notes: 'Светоотражающие жилетки' },
-  { label: 'Левый ряд', count: 1 },
-  { label: 'Средний ряд', count: 1 },
-  { label: 'Правый ряд', count: 1 },
-  { label: 'Маленький зал', count: 1 },
-];
+export const MEMORIAL_DUTIES_BY_LANGUAGE: Record<
+  'ru' | 'de' | 'en',
+  { label: string; count: number; notes?: string }[]
+> = {
+  ru: [
+    { label: 'Главный зал', count: 1 },
+    { label: 'Фойе', count: 1 },
+    { label: 'Микрофон', count: 1 },
+    { label: 'Аппаратура', count: 1 },
+    { label: 'Zoom', count: 1 },
+    { label: 'Стоянка', count: 1, notes: 'Светоотражающие жилетки' },
+    { label: 'Левый ряд', count: 1 },
+    { label: 'Средний ряд', count: 1 },
+    { label: 'Правый ряд', count: 1 },
+    { label: 'Маленький зал', count: 1 },
+  ],
+  // The first sheet in the congregation's own language (23 October 2026):
+  // a German congregation was given Russian places to rename.
+  de: [
+    { label: 'Hauptsaal', count: 1 },
+    { label: 'Foyer', count: 1 },
+    { label: 'Mikrofon', count: 1 },
+    { label: 'Technik', count: 1 },
+    { label: 'Zoom', count: 1 },
+    { label: 'Parkplatz', count: 1, notes: 'Warnwesten' },
+    { label: 'Linke Reihe', count: 1 },
+    { label: 'Mittlere Reihe', count: 1 },
+    { label: 'Rechte Reihe', count: 1 },
+    { label: 'Kleiner Saal', count: 1 },
+  ],
+  en: [
+    { label: 'Main hall', count: 1 },
+    { label: 'Foyer', count: 1 },
+    { label: 'Microphone', count: 1 },
+    { label: 'Sound', count: 1 },
+    { label: 'Zoom', count: 1 },
+    { label: 'Parking', count: 1, notes: 'Reflective vests' },
+    { label: 'Left section', count: 1 },
+    { label: 'Center section', count: 1 },
+    { label: 'Right section', count: 1 },
+    { label: 'Small hall', count: 1 },
+  ],
+};
+
+/** The Russian sheet, as before — kept under its old name for its readers. */
+export const MEMORIAL_DUTIES = MEMORIAL_DUTIES_BY_LANGUAGE.ru;

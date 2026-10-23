@@ -165,8 +165,8 @@ export class ExternalCongregationsService {
         entityType: 'external_congregation',
         entityId: saved.id,
         changedFields: ['contactPhone'],
-        before: { contactPhone: '<скрыто>' },
-        after: { contactPhone: '<скрыто>' },
+        before: { contactPhone: '•••' },
+        after: { contactPhone: '•••' },
       });
     }
     return saved;

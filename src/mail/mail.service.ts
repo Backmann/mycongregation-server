@@ -65,6 +65,12 @@ interface Strings {
   loginNameLead: string;
   /** Says plainly that this, and not the address, is what to type. */
   loginNameHint: string;
+  /**
+   * The same without «the address works too» — for the letter telling a
+   * shared mailbox that the address no longer signs anybody in (23 October
+   * 2026: the letter said both in two paragraphs).
+   */
+  loginNameHintShared: string;
   footerAuto: string;
   invite: Message;
   reset: Message;
@@ -133,7 +139,7 @@ interface Strings {
 /** Why a notification came as a letter, and how to make the letters stop. */
 const NOTICE_WHY: Record<Lang, string> = {
   ru: 'Письмо пришло потому, что ни на одном вашем устройстве не включены уведомления приложения. Включите их на главном экране приложения, и письма прекратятся.',
-  en: 'This came as a letter because notifications are not turned on for any of your devices. Turn them on from the home screen of the app and the letters will stop.',
+  en: 'You received this by email because notifications are not turned on on any of your devices. Turn them on from the home screen of the app and these emails will stop.',
   de: 'Diese Nachricht kam als E-Mail, weil auf keinem Ihrer Geräte Benachrichtigungen der App eingeschaltet sind. Schalten Sie sie auf der Startseite der App ein, dann hören die E-Mails auf.',
 };
 
@@ -161,6 +167,7 @@ const STRINGS: Record<Lang, Strings> = {
     loginNameLead: 'Ваше имя для входа:',
     loginNameHint:
       'Этим именем вы входите в приложение — запишите его. Адрес почты тоже подойдёт, если этим ящиком пользуетесь только вы.',
+    loginNameHintShared: 'Этим именем вы входите в приложение — запишите его.',
     newestLetter:
       'Если таких писем несколько — берите код из самого нового: прежние уже не работают.',
     installButton: 'Как установить',
@@ -235,9 +242,9 @@ const STRINGS: Record<Lang, Strings> = {
     step1NoApp:
       'Not installed yet? Open the page below on your phone — it shows what your device needs: on Android, how to install the app; on an iPhone, how to add the icon to the Home Screen. On a computer the app is the website mycongregation.org.',
     step2Invite:
-      'Step 2. On the sign-in screen tap «Were you invited?» and enter the code',
+      'Step 2. On the sign-in screen tap “Were you invited?” and enter the code',
     step2Reset:
-      'Step 2. On the sign-in screen tap «Forgot password?», then «I have a code», and enter it',
+      'Step 2. On the sign-in screen tap “Forgot password?”, then “I have a code”, and enter it',
     thenInvite: 'Then choose a password — and you are in.',
     thenReset: 'Then choose a new password — and you are in.',
     codeValidDay: 'The code is valid for one day.',
@@ -251,9 +258,11 @@ const STRINGS: Record<Lang, Strings> = {
     greetingNamed: 'Hello, {{name}}!',
     loginNameLead: 'Your name for signing in:',
     loginNameHint:
-      'This is the name you sign in with — do write it down. Your e-mail address works too, if you are the only one using that mailbox.',
+      'This is the name you sign in with — please write it down. Your email address works too, if you are the only one using that mailbox.',
+    loginNameHintShared:
+      'This is the name you sign in with — please write it down.',
     newestLetter:
-      'If several such letters arrived, take the code from the newest — earlier ones no longer work.',
+      'If you received several of these emails, use the code from the newest one — earlier codes no longer work.',
     installButton: 'How to install',
     codeValid: 'The code is valid until',
     months: [
@@ -295,7 +304,7 @@ const STRINGS: Record<Lang, Strings> = {
       button: 'Open the app',
       validity: '',
       ignore:
-        'If you agreed to nothing of the sort and do not know why this letter arrived, contact the congregation administrator.',
+        'If nothing like this was arranged with you and you do not know why this email arrived, contact the congregation administrator.',
     },
     shared: {
       subject: 'How you sign in from now on — mycongregation.org',
@@ -306,7 +315,7 @@ const STRINGS: Record<Lang, Strings> = {
       button: 'Open the app',
       validity: '',
       ignore:
-        'If this letter makes no sense to you, ask the congregation administrator — they will help.',
+        'If this email makes no sense to you, ask the congregation administrator — they will help.',
     },
     reset: {
       subject: 'Password reset — mycongregation.org',
@@ -325,9 +334,9 @@ const STRINGS: Record<Lang, Strings> = {
     step1NoApp:
       'Noch nicht installiert? Öffnen Sie die Seite unten auf Ihrem Telefon – sie zeigt, was Ihr Gerät braucht: auf Android die Installation der App, auf dem iPhone, wie Sie das Symbol zum Home-Bildschirm hinzufügen. Am Computer ist die App die Website mycongregation.org.',
     step2Invite:
-      'Schritt 2. Tippen Sie auf dem Anmeldebildschirm auf «Wurden Sie eingeladen?» und geben Sie den Code ein',
+      'Schritt 2. Tippen Sie auf dem Anmeldebildschirm auf „Wurden Sie eingeladen?“ und geben Sie den Code ein',
     step2Reset:
-      'Schritt 2. Tippen Sie auf dem Anmeldebildschirm auf «Passwort vergessen?», dann auf «Ich habe einen Code», und geben Sie ihn ein',
+      'Schritt 2. Tippen Sie auf dem Anmeldebildschirm auf „Passwort vergessen?“, dann auf „Ich habe einen Code“ und geben Sie ihn ein',
     thenInvite: 'Danach wählen Sie ein Passwort – und Sie sind drin.',
     thenReset: 'Danach wählen Sie ein neues Passwort – und Sie sind drin.',
     codeValidDay: 'Der Code ist einen Tag gültig.',
@@ -342,6 +351,8 @@ const STRINGS: Record<Lang, Strings> = {
     loginNameLead: 'Ihr Name für die Anmeldung:',
     loginNameHint:
       'Mit diesem Namen melden Sie sich in der App an – bitte notieren Sie ihn. Ihre E-Mail-Adresse funktioniert ebenfalls, wenn nur Sie dieses Postfach nutzen.',
+    loginNameHintShared:
+      'Mit diesem Namen melden Sie sich in der App an – bitte notieren Sie ihn.',
     newestLetter:
       'Falls mehrere solche E-Mails angekommen sind: Nehmen Sie den Code aus der neuesten – frühere funktionieren nicht mehr.',
     installButton: 'So wird installiert',
@@ -386,7 +397,7 @@ const STRINGS: Record<Lang, Strings> = {
       button: 'App öffnen',
       validity: '',
       ignore:
-        'Wenn nichts dergleichen abgesprochen war und Sie nicht wissen, warum dieser Brief kam, wenden Sie sich an den Versammlungsadministrator.',
+        'Wenn nichts dergleichen abgesprochen war und Sie nicht wissen, warum diese E-Mail kam, wenden Sie sich an den Versammlungsadministrator.',
     },
     shared: {
       subject: 'So melden Sie sich künftig an — mycongregation.org',
@@ -397,7 +408,7 @@ const STRINGS: Record<Lang, Strings> = {
       button: 'App öffnen',
       validity: '',
       ignore:
-        'Wenn Sie mit diesem Brief nichts anfangen können, fragen Sie den Versammlungsadministrator — er hilft Ihnen weiter.',
+        'Wenn Sie mit dieser E-Mail nichts anfangen können, fragen Sie den Versammlungsadministrator — er hilft Ihnen weiter.',
     },
     reset: {
       subject: 'Passwort zurücksetzen — mycongregation.org',
@@ -466,7 +477,14 @@ export class MailService {
    */
   private until(lang: Strings, when?: Date): string {
     if (!when) return '';
-    return `${when.getDate()} ${lang.months[when.getMonth()]}`;
+    const day = when.getDate();
+    const month = lang.months[when.getMonth()];
+    // Each language's own order (23 October 2026): «6 ноября»,
+    // «6. November», «November 6» — German said «26 Oktober», English
+    // «26 October».
+    if (lang === STRINGS.de) return `${day}. ${month}`;
+    if (lang === STRINGS.en) return `${month} ${day}`;
+    return `${day} ${month}`;
   }
 
   /** The outer shell every letter shares: logo, title, body, footer. */
@@ -790,7 +808,9 @@ ${link ? `<p style="${small}word-break:break-all;text-align:center;margin:0 0 14
     lang: string,
     extra: LetterExtras = {},
   ): Promise<void> {
-    const s = STRINGS[lang as Lang] ?? STRINGS.ru;
+    const base = STRINGS[lang as Lang] ?? STRINGS.ru;
+    // Here the address no longer signs anybody in: the hint must not say it does.
+    const s: Strings = { ...base, loginNameHint: base.loginNameHintShared };
     const m = s.shared;
     const link = 'https://mycongregation.org/app/';
     try {

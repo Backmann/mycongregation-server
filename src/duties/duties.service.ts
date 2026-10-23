@@ -11,13 +11,17 @@ import { Duty } from '../entities/duty.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Congregation } from '../entities/congregation.entity';
+import {
+  coerceLanguage,
+  type SupportedLanguage,
+} from '../common/i18n/supported-languages';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { EventType } from '../common/enums/event-type.enum';
 import {
   DutyType,
   SINGLE_SLOT_DUTIES_AFTER_MIC,
   MEETING_RUN_DUTIES,
-  MEMORIAL_DUTIES,
+  MEMORIAL_DUTIES_BY_LANGUAGE,
   SINGLE_SLOT_DUTIES_BEFORE_MIC,
 } from '../common/enums/duty-type.enum';
 import { QueryDutiesDto } from './dto/query-duties.dto';
@@ -332,7 +336,9 @@ export class DutiesService {
       const places =
         previous.length > 0
           ? previous
-          : MEMORIAL_DUTIES.map((p) => ({
+          : MEMORIAL_DUTIES_BY_LANGUAGE[
+              await this.congregationLanguage(congregationId)
+            ].map((p) => ({
               label: p.label,
               count: p.count,
               notes: p.notes ?? null,
@@ -671,6 +677,17 @@ export class DutiesService {
    * Gathered into places rather than rows: how many stand at each is part of
    * what the congregation decided, so three at the parking stay three.
    */
+  /** The congregation's own language, for the words it is given to start with. */
+  private async congregationLanguage(
+    congregationId: string,
+  ): Promise<SupportedLanguage> {
+    const c = await this.congregationRepo.findOne({
+      where: { id: congregationId },
+      select: { id: true, language: true },
+    });
+    return coerceLanguage(c?.language);
+  }
+
   private async previousMemorialDuties(
     congregationId: string,
     weekStartDate: string,

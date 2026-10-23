@@ -522,7 +522,7 @@ describe('DutiesService.generateWeek — the Memorial evening', () => {
    */
   const WEEK = '2027-03-22'; // Monday; the Memorial falls on it
 
-  function build(memorial: unknown, previous: any[] = []) {
+  function build(memorial: unknown, previous: any[] = [], language = 'ru') {
     const qb: any = {
       insert: jest.fn().mockReturnThis(),
       into: jest.fn().mockReturnThis(),
@@ -563,7 +563,7 @@ describe('DutiesService.generateWeek — the Memorial evening', () => {
       {
         findOne: jest
           .fn()
-          .mockResolvedValue({ assignmentAutomationEnabled: false }),
+          .mockResolvedValue({ assignmentAutomationEnabled: false, language }),
       } as any,
       {
         find: jest.fn(async (opts: any) => {
@@ -601,6 +601,19 @@ describe('DutiesService.generateWeek — the Memorial evening', () => {
     expect(labels).toContain('Левый ряд');
     // Nothing from the ordinary meeting's list.
     expect(rows.every((r: any) => r.dutyType === 'custom')).toBe(true);
+  });
+
+  it('a German congregation gets its first sheet in German (23 October 2026)', async () => {
+    const { svc, qb } = build(memorialEvent, [], 'de');
+    await svc.generateWeek('c1', {
+      weekStartDate: WEEK,
+      eventType: 'memorial' as any,
+    });
+    const labels = (qb.values as jest.Mock).mock.calls[0][0].map(
+      (r: any) => r.customLabel,
+    );
+    expect(labels).toContain('Hauptsaal');
+    expect(labels).not.toContain('Главный зал');
   });
 
   it('starts with ONE brother to a place', async () => {

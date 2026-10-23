@@ -238,8 +238,8 @@ export class VisitingSpeakersService {
         entityType: 'visiting_speaker',
         entityId: saved.id,
         changedFields: ['phone'],
-        before: { phone: '<скрыто>' },
-        after: { phone: '<скрыто>' },
+        before: { phone: '•••' },
+        after: { phone: '•••' },
       });
     }
     return saved;

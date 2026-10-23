@@ -122,6 +122,33 @@ describe('DataRightsService.eraseMyAccount', () => {
     );
   });
 
+  it('a German congregation reads the erased card in German (23 October 2026)', async () => {
+    const ds = makeDataSource();
+    ds.repos.set(
+      User,
+      makeRepo({
+        findOne: jest.fn().mockResolvedValue({
+          id: 'u1',
+          role: UserRole.PUBLISHER,
+          passwordHash: 'h',
+        }),
+      }),
+    );
+    ds.manager.findOne.mockImplementation(async (entity: unknown) =>
+      entity === Publisher
+        ? { id: 'p1', firstName: 'Hans', lastName: 'Meier', userId: 'u1' }
+        : { id: 'c1', language: 'de' },
+    );
+    bcrypt.compare.mockResolvedValue(true);
+    const svc = new DataRightsService(
+      ds as never,
+      { todayFor: jest.fn().mockResolvedValue('2026-09-05') } as never,
+    );
+    await svc.eraseMyAccount('c1', 'u1', 'good');
+    const saved = ds.manager.save.mock.calls[0][1] as Record<string, unknown>;
+    expect(saved.displayName).toBe('Gelöschter Verkündiger');
+  });
+
   it('anonymises the publisher and deletes the user on success', async () => {
     const ds = makeDataSource();
     ds.repos.set(
