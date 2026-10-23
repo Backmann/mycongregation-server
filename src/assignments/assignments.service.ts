@@ -58,6 +58,7 @@ const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
 
 /** The fields of the weekend talk line that say who speaks and on what. */
 const SPEAKER_FIELDS = [
+  'visitingSpeakerId',
   'publisherId',
   'speakerName',
   'speakerCongregation',
@@ -555,6 +556,19 @@ export class AssignmentsService {
     // instead of leaving it marked as used for a week it never appeared in.
     const partTitleReplaced =
       dto.partTitle !== undefined && dto.partTitle !== existing.partTitle;
+    // A guest picked by his card: the line spells him as the card does.
+    if (existing.partKey === PUBLIC_TALK_PART_KEY && dto.visitingSpeakerId) {
+      const named = await this.talkExchange.cardName(
+        congregationId,
+        dto.visitingSpeakerId,
+      );
+      if (!named) throw new NotFoundException('Speaker not found');
+      dto.publisherId = null;
+      dto.speakerName = named.name;
+      dto.speakerCongregation = named.congregation ?? undefined;
+    } else if (existing.partKey !== PUBLIC_TALK_PART_KEY) {
+      delete dto.visitingSpeakerId;
+    }
     // What of the weekend talk a person changed in THIS save: only that is
     // the journal's business (the journal owns who speaks, 23 October 2026).
     const speakerChanged = SPEAKER_FIELDS.some(

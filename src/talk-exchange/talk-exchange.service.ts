@@ -567,6 +567,22 @@ export class TalkExchangeService {
     return created.id;
   }
 
+  /** A directory card's name and congregation, as the programme shows them. */
+  async cardName(
+    tenantId: string,
+    id: string,
+  ): Promise<{ name: string; congregation: string | null } | null> {
+    const card = await this.speakerRepo.findOne({
+      where: { id, congregationId: tenantId },
+      relations: { externalCongregation: true },
+    });
+    if (!card || card.mergedIntoId) return null;
+    return {
+      name: speakerFullName(card),
+      congregation: card.externalCongregation?.name ?? null,
+    };
+  }
+
   /**
    * The card a programme slot with an invited guest belongs to.
    *
