@@ -16,6 +16,8 @@ import { OutgoingTalkNotificationsService } from './outgoing-talk-notifications.
 import { Publisher } from '../entities/publisher.entity';
 import { User } from '../entities/user.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
+import { Congregation } from '../entities/congregation.entity';
+import { TalkAttentionService } from './talk-attention.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { CongregationClockModule } from '../common/congregation-clock.module';
 import { ProgrammeFreezeModule } from '../assignments/programme-freeze.module';
@@ -34,6 +36,7 @@ import { ProgrammeFreezeModule } from '../assignments/programme-freeze.module';
       Publisher,
       User,
       SpecialEvent,
+      Congregation,
     ]),
     AuditLogModule,
     NotificationsModule,
@@ -47,7 +50,8 @@ import { ProgrammeFreezeModule } from '../assignments/programme-freeze.module';
     TalkExchangeService,
     SpecialTalkNotificationsService,
     OutgoingTalkNotificationsService,
+    TalkAttentionService,
   ],
-  exports: [TalkExchangeService],
+  exports: [TalkExchangeService, TalkAttentionService],
 })
 export class TalkExchangeModule {}

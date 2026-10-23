@@ -11,6 +11,8 @@ import {
   Post,
 } from '@nestjs/common';
 import { TalkExchangeService } from './talk-exchange.service';
+import { TalkAttentionService } from './talk-attention.service';
+import { AttentionAckDto } from './dto/attention-ack.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { RebuildFromProgrammeDto } from './dto/rebuild-from-programme.dto';
@@ -26,7 +28,33 @@ import { TenantId } from '../common/decorators/tenant-id.decorator';
  */
 @Controller('talk-exchange')
 export class TalkExchangeController {
-  constructor(private readonly service: TalkExchangeService) {}
+  constructor(
+    private readonly service: TalkExchangeService,
+    private readonly attention: TalkAttentionService,
+  ) {}
+
+  /**
+   * Our trips that need someone: no brother yet, or the brother away that day
+   * or departed (23 October 2026). Read by the journal and its banner.
+   */
+  @Get('attention')
+  attentionList(@TenantId() tenantId: string) {
+    return this.attention.attentionFor(tenantId);
+  }
+
+  /** «He goes»: lift the in-question mark for this reason. */
+  @Post(':id/attention-ack')
+  @HttpCode(200)
+  async attentionAck(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AttentionAckDto,
+  ) {
+    await this.service.assertWriter(user);
+    await this.attention.acknowledge(tenantId, id, dto.reason);
+    return { ok: true };
+  }
 
   @Get()
   list(@CurrentUser() user: AuthenticatedUser) {
