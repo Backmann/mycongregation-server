@@ -614,6 +614,17 @@ export class AssignmentsService {
         saved.weekStartDate,
         { speakerChanged },
       );
+      // The answer carries what the journal made of it: the card and the
+      // entry the line now shows — the form shows that entry at once.
+      const fresh = await this.repo.findOne({
+        where: { id: saved.id, congregationId },
+      });
+      if (fresh) {
+        saved.talkExchangeId = fresh.talkExchangeId;
+        saved.visitingSpeakerId = fresh.visitingSpeakerId;
+        saved.speakerName = fresh.speakerName;
+        saved.speakerCongregation = fresh.speakerCongregation;
+      }
     }
     // The planning helpers are for meetings still ahead. On one already
     // held they would rewrite a neighbouring part — and the microphone in
