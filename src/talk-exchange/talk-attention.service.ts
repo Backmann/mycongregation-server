@@ -193,6 +193,9 @@ export class TalkAttentionService {
         })
       : [];
 
+    const tripAbsences = new Set(
+      trips.map((t) => t.linkedAbsenceId).filter((x): x is string => !!x),
+    );
     const out: AttentionItem[] = [];
     for (const t of trips) {
       const date = String(t.date).slice(0, 10);
@@ -212,9 +215,13 @@ export class TalkAttentionService {
         away.some(
           (a) =>
             a.publisherId === t.publisherId &&
-            // The trip's own absence says he is there, not that he cannot go.
-            a.id !== t.linkedAbsenceId &&
-            a.talkExchangeId !== t.id &&
+            // An absence a trip wrote says he is away GIVING a talk — his own
+            // trip, or another the same day. Two talks in one day are a
+            // legitimate pair (Lionel, 11 September 2026), so neither puts the
+            // other in question. Found on 23 October: a brother with two trips
+            // on the 25th had both marked, each by the other's absence.
+            !a.talkExchangeId &&
+            !tripAbsences.has(a.id) &&
             a.startDate.slice(0, 10) <= date &&
             (a.endDate ? a.endDate.slice(0, 10) : a.startDate.slice(0, 10)) >=
               date,

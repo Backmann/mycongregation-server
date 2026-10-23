@@ -225,4 +225,28 @@ describe('trips «От нас» without a brother (real database)', () => {
     expect(told).toContain(bco);
     expect(told).not.toContain(asst);
   });
+
+  it('two trips of one brother on one day do not put each other in question', async () => {
+    const date = inDays(45);
+    const other = await h
+      .as('admin')
+      .post('/external-congregations', { name: 'Реда' });
+    const a = await h.as('coord').post('/talk-exchange', {
+      direction: 'outgoing',
+      date,
+      publisherId: brotherCard,
+      hostCongregationId: hostId,
+    });
+    const b = await h.as('coord').post('/talk-exchange', {
+      direction: 'outgoing',
+      date,
+      publisherId: brotherCard,
+      hostCongregationId: other.body.id,
+    });
+    expect([a.status, b.status]).toEqual([201, 201]);
+    const list = await h.as('coord').get('/talk-exchange/attention');
+    const ids = list.body.map((x: { id: string }) => x.id);
+    expect(ids).not.toContain(a.body.id);
+    expect(ids).not.toContain(b.body.id);
+  });
 });
