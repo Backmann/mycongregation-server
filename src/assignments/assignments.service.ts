@@ -253,7 +253,11 @@ export class AssignmentsService {
 
     const rows = await this.repo
       .createQueryBuilder('a')
-      .select('a.weekStartDate', 'week')
+      // The date as text, from the database itself: read as a JS Date it is
+      // local midnight, and on a server whose clock is east of UTC
+      // toISOString() made it the day before — every week a Sunday, every
+      // midweek meeting a Tuesday (found on the stand, 23 October 2026).
+      .select("to_char(a.weekStartDate, 'YYYY-MM-DD')", 'week')
       .addSelect("bool_or(a.eventType = 'midweek')", 'hasMidweek')
       .addSelect("bool_or(a.eventType = 'weekend')", 'hasWeekend')
       .where('a.congregationId = :congregationId', { congregationId })
@@ -271,10 +275,7 @@ export class AssignmentsService {
       }>();
 
     const weeks = rows.map((r) => ({
-      weekStartDate:
-        typeof r.week === 'string'
-          ? r.week
-          : new Date(r.week).toISOString().slice(0, 10),
+      weekStartDate: String(r.week),
       hasMidweek: r.hasMidweek === true,
       hasWeekend: r.hasWeekend === true,
       memorialDate: null as string | null,

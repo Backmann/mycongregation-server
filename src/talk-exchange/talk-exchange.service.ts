@@ -907,7 +907,6 @@ export class TalkExchangeService {
     tenantId: string,
     entry: TalkExchange,
     overwrite: boolean,
-    speakerAlone = false,
   ): Promise<TalkExchangeResult> {
     const theme = entry.specialTheme?.trim() || null;
 
@@ -932,11 +931,19 @@ export class TalkExchangeService {
     }
     const hasSpeaker = !!localPublisherId || !!name;
     const hasTalk = !!entry.publicTalkId || !!theme;
-    // A speaker with no talk yet is kept to the journal on a normal save, as
-    // before; the programme gets him only into an empty slot (fillEmptySlot).
-    if (!hasTalk && !(hasSpeaker && speakerAlone)) {
-      return entry;
-    }
+    /**
+     * A speaker whose talk is not chosen yet goes to the programme too
+     * (23 October 2026).
+     *
+     * He used to stay in the journal on an ordinary save and reach the
+     * programme only when the week was created after him (fillEmptySlot). A
+     * week already in the programme kept an empty line while the coordinator
+     * saw the visit arranged — Lionel: «у координатора докладчики есть, а в
+     * программе нет». Now the speaker alone decides only the speaker: the
+     * talk in the slot, if somebody put one there, stays as it is.
+     */
+    if (!hasTalk && !hasSpeaker) return entry;
+    const keepTalk = !hasTalk;
 
     const weekStartDate = mondayOf(entry.date);
     const slot = await this.assignmentRepo.findOne({
@@ -948,9 +955,12 @@ export class TalkExchangeService {
     });
     if (!slot) return entry; // no weekend programme for that week yet
 
-    const talkSame = theme
-      ? slot.specialTalk && (slot.partTitle ?? '').trim() === theme
-      : !slot.specialTalk && slot.publicTalkId === (entry.publicTalkId ?? null);
+    const talkSame = keepTalk
+      ? true
+      : theme
+        ? slot.specialTalk && (slot.partTitle ?? '').trim() === theme
+        : !slot.specialTalk &&
+          slot.publicTalkId === (entry.publicTalkId ?? null);
     const speakerSame = localPublisherId
       ? slot.publisherId === localPublisherId
       : name
@@ -1011,11 +1021,14 @@ export class TalkExchangeService {
       });
       slot.partTitle = talk ? `№${talk.number}. ${talk.title}` : slot.partTitle;
       slot.specialTalk = false;
-    } else {
+    } else if (slotHasSpeaker) {
+      // Replacing another speaker (the coordinator confirmed it): his talk
+      // goes with him rather than staying on the new man's name.
       slot.publicTalkId = null;
       slot.partTitle = null;
       slot.specialTalk = false;
     }
+    // Otherwise, no talk in the entry: the slot's talk is left alone.
     if (slot.status === AssignmentStatus.PUBLISHED) {
       slot.changedSincePublish = true;
     }
@@ -1058,7 +1071,7 @@ export class TalkExchangeService {
     });
     if (!entry) return;
 
-    await this.applyIncomingToProgram(tenantId, entry, false, true);
+    await this.applyIncomingToProgram(tenantId, entry, false);
   }
 
   /**

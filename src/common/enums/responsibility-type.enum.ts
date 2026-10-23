@@ -86,3 +86,46 @@ export enum ResponsibilityType {
   /** Брат, дающий советы — counsels the student assignments. No assistant. */
   ADVISER = 'adviser',
 }
+
+/**
+ * A duty and its own assistant are two men (23 October 2026, Lionel: «только
+ * X и помощник X»). The assistant stands in when the holder cannot, which
+ * means nothing when both are the same brother — yet the app let one brother
+ * be the coordinator of the body and his own assistant. Other combinations
+ * stay allowed: a small congregation needs one man to carry several duties.
+ */
+export const ASSISTANT_OF: ReadonlyArray<
+  readonly [ResponsibilityType, ResponsibilityType]
+> = [
+  [
+    ResponsibilityType.BODY_COORDINATOR,
+    ResponsibilityType.BODY_COORDINATOR_ASSISTANT,
+  ],
+  [
+    ResponsibilityType.PUBLIC_TALK_COORDINATOR,
+    ResponsibilityType.PUBLIC_TALK_COORDINATOR_ASSISTANT,
+  ],
+  [
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+  ],
+  [
+    ResponsibilityType.ATTENDANCE_RECORDER,
+    ResponsibilityType.ATTENDANCE_RECORDER_ASSISTANT,
+  ],
+  [
+    ResponsibilityType.WT_STUDY_CONDUCTOR,
+    ResponsibilityType.WT_STUDY_CONDUCTOR_BACKUP,
+  ],
+];
+
+/** The other half of `type`'s pair, if it has one. */
+export function pairedWith(
+  type: ResponsibilityType,
+): ResponsibilityType | null {
+  for (const [main, assistant] of ASSISTANT_OF) {
+    if (type === main) return assistant;
+    if (type === assistant) return main;
+  }
+  return null;
+}

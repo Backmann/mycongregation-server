@@ -302,6 +302,100 @@ describe('Специальная речь в журнале', () => {
   });
 });
 
+describe('Докладчик без речи — в программу сразу (23 октября 2026)', () => {
+  it('приезжий без номера встаёт в пустую строку уже существующей недели', async () => {
+    const { service, state } = build({ slot: emptySlot() });
+    await service.create(
+      T,
+      {
+        direction: TalkExchangeDirection.INCOMING,
+        date: '2027-03-14',
+        speakerName: 'Томас Шульц',
+        speakerCongregation: 'Зост',
+      },
+      ADMIN,
+    );
+    expect(state.slot).toMatchObject({
+      speakerName: 'Томас Шульц',
+      speakerCongregation: 'Зост',
+      publisherId: null,
+      publicTalkId: null,
+    });
+  });
+
+  it('речь, уже стоящая в строке, остаётся — докладчик к ней добавляется', async () => {
+    const { service, state } = build({
+      slot: emptySlot({
+        publicTalkId: 'talk-12',
+        partTitle: '№12. Каталожная',
+      }),
+    });
+    await service.create(
+      T,
+      {
+        direction: TalkExchangeDirection.INCOMING,
+        date: '2027-03-14',
+        speakerName: 'Томас Шульц',
+      },
+      ADMIN,
+    );
+    expect(state.slot).toMatchObject({
+      speakerName: 'Томас Шульц',
+      publicTalkId: 'talk-12',
+      partTitle: '№12. Каталожная',
+    });
+  });
+
+  it('другой докладчик в строке — не переписывается, а спрашивается', async () => {
+    const { service, state } = build({
+      slot: emptySlot({ speakerName: 'Другой Брат' }),
+    });
+    const result = await service.create(
+      T,
+      {
+        direction: TalkExchangeDirection.INCOMING,
+        date: '2027-03-14',
+        speakerName: 'Томас Шульц',
+      },
+      ADMIN,
+    );
+    expect(state.slot?.speakerName).toBe('Другой Брат');
+    expect(result).toMatchObject({ programConflict: true });
+  });
+
+  it('замена с согласия: речь прежнего докладчика уходит вместе с ним', async () => {
+    const entry = {
+      id: 'tx-1',
+      congregationId: T,
+      direction: TalkExchangeDirection.INCOMING,
+      date: '2027-03-14',
+      status: TalkExchangeStatus.CONFIRMED,
+      speakerName: 'Томас Шульц',
+      publicTalkId: null,
+      specialTheme: null,
+    } as TalkExchange;
+    const { service, state } = build({
+      slot: emptySlot({
+        speakerName: 'Другой Брат',
+        publicTalkId: 'talk-12',
+        partTitle: '№12. Каталожная',
+      }),
+      entry,
+    });
+    await service.update(
+      T,
+      'tx-1',
+      { speakerName: 'Томас Шульц', overwriteProgram: true },
+      ADMIN,
+    );
+    expect(state.slot).toMatchObject({
+      speakerName: 'Томас Шульц',
+      publicTalkId: null,
+      partTitle: null,
+    });
+  });
+});
+
 describe('Объявление о специальной речи', () => {
   const entry = (over: Partial<TalkExchange> = {}) =>
     ({

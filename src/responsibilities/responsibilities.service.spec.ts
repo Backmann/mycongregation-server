@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { ResponsibilitiesService } from './responsibilities.service';
 import { Responsibility } from '../entities/responsibility.entity';
 import { User } from '../entities/user.entity';
@@ -55,6 +55,66 @@ describe('ResponsibilitiesService', () => {
     }).compile();
 
     service = moduleRef.get(ResponsibilitiesService);
+  });
+
+  describe('a duty and its own assistant (23 October 2026)', () => {
+    it('refuses the assistant to the brother who holds the duty', async () => {
+      usersRepo.findOne.mockResolvedValue({ id: 'u1', congregationId: 't1' });
+      responsibilitiesRepo.findOne.mockImplementation(
+        ({ where }: { where: { type: ResponsibilityType } }) =>
+          Promise.resolve(
+            where.type === ResponsibilityType.BODY_COORDINATOR
+              ? { id: 'r0', type: where.type, userId: 'u1' }
+              : null,
+          ),
+      );
+      await expect(
+        service.assign(
+          't1',
+          { type: ResponsibilityType.BODY_COORDINATOR_ASSISTANT, userId: 'u1' },
+          'admin1',
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(responsibilitiesRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('refuses the duty to its own assistant, the other way round', async () => {
+      usersRepo.findOne.mockResolvedValue({ id: 'u1', congregationId: 't1' });
+      responsibilitiesRepo.findOne.mockImplementation(
+        ({ where }: { where: { type: ResponsibilityType } }) =>
+          Promise.resolve(
+            where.type === ResponsibilityType.WT_STUDY_CONDUCTOR_BACKUP
+              ? { id: 'r0', type: where.type, userId: 'u1' }
+              : null,
+          ),
+      );
+      await expect(
+        service.assign(
+          't1',
+          { type: ResponsibilityType.WT_STUDY_CONDUCTOR, userId: 'u1' },
+          'admin1',
+        ),
+      ).rejects.toMatchObject({
+        response: { code: 'RESPONSIBILITY_OWN_ASSISTANT' },
+      });
+    });
+
+    it('other duties may still be carried by one brother', async () => {
+      usersRepo.findOne.mockResolvedValue({ id: 'u1', congregationId: 't1' });
+      responsibilitiesRepo.findOne.mockResolvedValue(null);
+      responsibilitiesRepo.find.mockResolvedValue([]);
+      responsibilitiesRepo.create.mockImplementation((x: unknown) => x);
+      responsibilitiesRepo.save.mockImplementation((x: unknown) =>
+        Promise.resolve({ id: 'r1', ...(x as object) }),
+      );
+      await expect(
+        service.assign(
+          't1',
+          { type: ResponsibilityType.SECRETARY, userId: 'u1' },
+          'admin1',
+        ),
+      ).resolves.toMatchObject({ type: ResponsibilityType.SECRETARY });
+    });
   });
 
   describe('assign', () => {

@@ -202,8 +202,25 @@ describe('ServiceGroupsService', () => {
       );
     });
 
+    it('a sister is not made overseer or assistant of a group (23 October 2026)', async () => {
+      publishersService.findOne.mockResolvedValue({
+        id: 'x',
+        gender: 'sister',
+      });
+      await expect(
+        service.create('t1', {
+          name: 'G',
+          overseerPublisherId: 'p-sis',
+        } as never),
+      ).rejects.toMatchObject({ response: { code: 'GROUP_LEADER_SISTER' } });
+      expect(serviceGroupsRepo.save).not.toHaveBeenCalled();
+    });
+
     it('create auto-adds the overseer and assistant as members', async () => {
-      publishersService.findOne.mockResolvedValue({ id: 'x' });
+      publishersService.findOne.mockResolvedValue({
+        id: 'x',
+        gender: 'brother',
+      });
       serviceGroupsRepo.create.mockReturnValue({
         overseerPublisherId: 'p-over',
         assistantPublisherId: 'p-asst',
