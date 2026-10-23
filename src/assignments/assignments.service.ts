@@ -58,6 +58,7 @@ const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
 
 /** The fields of the weekend talk line that say who speaks and on what. */
 const SPEAKER_FIELDS = [
+  'visitingSpeakerId',
   'publisherId',
   'speakerName',
   'speakerCongregation',
@@ -555,6 +556,19 @@ export class AssignmentsService {
     // instead of leaving it marked as used for a week it never appeared in.
     const partTitleReplaced =
       dto.partTitle !== undefined && dto.partTitle !== existing.partTitle;
+    // A guest picked by his card: the line spells him as the card does.
+    if (existing.partKey === PUBLIC_TALK_PART_KEY && dto.visitingSpeakerId) {
+      const named = await this.talkExchange.cardName(
+        congregationId,
+        dto.visitingSpeakerId,
+      );
+      if (!named) throw new NotFoundException('Speaker not found');
+      dto.publisherId = null;
+      dto.speakerName = named.name;
+      dto.speakerCongregation = named.congregation ?? undefined;
+    } else if (existing.partKey !== PUBLIC_TALK_PART_KEY) {
+      delete dto.visitingSpeakerId;
+    }
     // What of the weekend talk a person changed in THIS save: only that is
     // the journal's business (the journal owns who speaks, 23 October 2026).
     const speakerChanged = SPEAKER_FIELDS.some(
@@ -600,6 +614,17 @@ export class AssignmentsService {
         saved.weekStartDate,
         { speakerChanged },
       );
+      // The answer carries what the journal made of it: the card and the
+      // entry the line now shows — the form shows that entry at once.
+      const fresh = await this.repo.findOne({
+        where: { id: saved.id, congregationId },
+      });
+      if (fresh) {
+        saved.talkExchangeId = fresh.talkExchangeId;
+        saved.visitingSpeakerId = fresh.visitingSpeakerId;
+        saved.speakerName = fresh.speakerName;
+        saved.speakerCongregation = fresh.speakerCongregation;
+      }
     }
     // The planning helpers are for meetings still ahead. On one already
     // held they would rewrite a neighbouring part — and the microphone in

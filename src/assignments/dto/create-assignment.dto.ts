@@ -78,6 +78,15 @@ export class CreateAssignmentDto {
   speakerCongregation?: string;
 
   /**
+   * The weekend public talk: a guest picked from the directory by his card
+   * (23 October 2026). The line then carries his name as the card spells it;
+   * a namesake is never guessed at. Ignored on any other part.
+   */
+  @IsOptional()
+  @IsUUID()
+  visitingSpeakerId?: string | null;
+
+  /**
    * A correction of a programme that has become the record (a week after
    * its meeting). Honoured only for an administrator or the coordinator of
    * the body of elders; anyone else is refused, the flag or not.

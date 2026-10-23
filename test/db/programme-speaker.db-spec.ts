@@ -157,6 +157,43 @@ describe('a guest typed into the programme (real database)', () => {
     });
   });
 
+  it('a guest picked from the directory is that very card, not a namesake', async () => {
+    const reda = await h
+      .as('admin')
+      .post('/external-congregations', { name: 'Реда' });
+    const first = await h
+      .as('admin')
+      .post('/visiting-speakers', { firstName: 'Иван', lastName: 'Ротарюк' });
+    const second = await h.as('admin').post('/visiting-speakers', {
+      firstName: 'Иван',
+      lastName: 'Ротарюк',
+      externalCongregationId: reda.body.id,
+    });
+    expect([200, 201]).toContain(second.status);
+    const slot = await slotFor(week);
+    const r = await h
+      .as('admin')
+      .patch(`/assignments/${slot}`, { visitingSpeakerId: second.body.id });
+    expect(r.status).toBe(200);
+    const [row] = await h.sql<{
+      card: string;
+      cong: string | null;
+      entry: string;
+    }>(
+      `SELECT a.visiting_speaker_id AS card, a.speaker_congregation AS cong,
+              te.visiting_speaker_id AS entry
+         FROM assignments a JOIN talk_exchange te ON te.id = a.talk_exchange_id
+        WHERE a.id = $1`,
+      [slot],
+    );
+    expect(row).toEqual({
+      card: second.body.id,
+      cong: 'Реда',
+      entry: second.body.id,
+    });
+    expect(first.body.id).not.toBe(second.body.id);
+  });
+
   it('a card someone added details to is never removed, even if no visit is left on it', async () => {
     const slot = await slotFor(week);
     await typeName(slot, 'Ханс Мюллер');
