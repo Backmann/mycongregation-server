@@ -36,12 +36,13 @@ export interface AttentionItem {
 
 /**
  * Who answers for the exchange of talks (Lionel, 23 October 2026): the
- * coordinator of the body of elders and his assistant, the public talk
- * coordinator and his assistant, and the administrators.
+ * coordinator of the body of elders — he answers for it — the public talk
+ * coordinator, who does it for him, with his assistant, and the
+ * administrators. Not the body coordinator's assistant: «не всегда помощник
+ * координатора занимается этими делами».
  */
 const ANSWERING: ResponsibilityType[] = [
   ResponsibilityType.BODY_COORDINATOR,
-  ResponsibilityType.BODY_COORDINATOR_ASSISTANT,
   ResponsibilityType.PUBLIC_TALK_COORDINATOR,
   ResponsibilityType.PUBLIC_TALK_COORDINATOR_ASSISTANT,
 ];

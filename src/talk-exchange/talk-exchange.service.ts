@@ -208,6 +208,9 @@ export class TalkExchangeService {
   }
 
   private static readonly MANAGER_RESPONSIBILITIES = [
+    // The coordinator of the body of elders answers for the exchange of
+    // talks (Lionel, 23 October 2026): the same access as the coordinator.
+    ResponsibilityType.BODY_COORDINATOR,
     ResponsibilityType.PUBLIC_TALK_COORDINATOR,
     // У помощника те же права: замену делают перед встречей, и координатора
     // может не быть рядом.

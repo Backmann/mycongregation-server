@@ -171,4 +171,58 @@ describe('trips «От нас» without a brother (real database)', () => {
     );
     expect(n).toBe(0);
   });
+
+  it('the body coordinator may keep the journal and is told; his assistant is neither', async () => {
+    const bcoCard = await h.addPublisher({
+      firstName: 'Андреас',
+      lastName: 'Вебер',
+      appointment: 'elder',
+      baptismDate: '1995-01-01',
+    });
+    const bco = await h.addUser({
+      login: 'bco',
+      role: 'elder',
+      publisherId: bcoCard,
+    });
+    await h
+      .as('admin')
+      .post('/responsibilities', { type: 'body_coordinator', userId: bco });
+    const asstCard = await h.addPublisher({
+      firstName: 'Юрген',
+      lastName: 'Шмидт',
+      appointment: 'elder',
+      baptismDate: '1998-01-01',
+    });
+    const asst = await h.addUser({
+      login: 'bcoasst',
+      role: 'elder',
+      publisherId: asstCard,
+    });
+    await h.as('admin').post('/responsibilities', {
+      type: 'body_coordinator_assistant',
+      userId: asst,
+    });
+
+    const trip = await h.as('bco').post('/talk-exchange', {
+      direction: 'outgoing',
+      date: inDays(25),
+      publisherId: brotherCard,
+      hostCongregationId: hostId,
+    });
+    expect(trip.status).toBe(201);
+    expect(
+      (
+        await h
+          .as('bcoasst')
+          .patch(`/talk-exchange/${trip.body.id}`, { note: 'x' })
+      ).status,
+    ).toBe(403);
+    const off = await h
+      .as('bco')
+      .patch(`/talk-exchange/${trip.body.id}`, { publisherId: null });
+    expect(off.status).toBe(200);
+    const told = (await attentionNotices(trip.body.id)).map((t) => t.user_id);
+    expect(told).toContain(bco);
+    expect(told).not.toContain(asst);
+  });
 });
