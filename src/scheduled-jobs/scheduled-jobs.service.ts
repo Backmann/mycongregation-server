@@ -18,6 +18,7 @@ import { UsersService } from '../users/users.service';
 import { ConductRunsService } from '../conduct-runs/conduct-runs.service';
 import { ConductLiveService } from '../conduct-live/conduct-live.service';
 import { ProgrammeNoticeService } from '../assignments/programme-notice.service';
+import { TalkAttentionService } from '../talk-exchange/talk-attention.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -42,7 +43,24 @@ export class ScheduledJobsService {
     private readonly conductRuns: ConductRunsService,
     private readonly conductLive: ConductLiveService,
     private readonly programmeNotices: ProgrammeNoticeService,
+    private readonly talkAttention: TalkAttentionService,
   ) {}
+
+  /**
+   * Trips of ours that need a brother, 14 and 7 days before, and trips that
+   * came into question — once a day, in the morning (23 October 2026).
+   */
+  @Cron('10 8 * * *', {
+    name: 'talk-attention',
+    timeZone: 'Europe/Berlin',
+  })
+  async handleTalkAttention(): Promise<void> {
+    try {
+      await this.talkAttention.runDaily();
+    } catch (e) {
+      this.logger.error(`talk attention failed: ${String(e)}`);
+    }
+  }
 
   /**
    * Edits of a published meeting — every minute: ten minutes after the last

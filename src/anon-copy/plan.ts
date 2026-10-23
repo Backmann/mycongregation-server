@@ -274,8 +274,8 @@ export const PLAN: Record<string, TablePlan> = {
   talk_exchange: table(
     copy(`id congregation_id direction date status public_talk_id
       visiting_speaker_id hospitality_publisher_id publisher_id
-      host_congregation_id linked_absence_id created_at updated_at
-      deleted_at`),
+      host_congregation_id linked_absence_id risk_ack_reason created_at
+      updated_at deleted_at`),
     {
       speaker_name: 'full',
       speaker_congregation: 'label:Собрание',

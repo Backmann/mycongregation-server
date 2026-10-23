@@ -40,6 +40,8 @@ export const NOTIFICATION_TYPES = [
   'cart_dobor_request',
   'cart_cancel',
   'outgoing_talk',
+  // A trip of ours that needs a brother, or has come into question.
+  'talk_exchange_attention',
   'test',
 ] as const;
 

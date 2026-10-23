@@ -91,6 +91,8 @@ describe('ScheduledJobsService', () => {
       conductLive as never,
       // Edits of a published meeting, said by themselves.
       { runDue: jest.fn(async () => 0) } as never,
+      // Trips of ours that need a brother or came into question.
+      { runDaily: jest.fn(async () => undefined) } as never,
     );
   });
 

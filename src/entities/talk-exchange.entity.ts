@@ -103,6 +103,13 @@ export class TalkExchange {
   @JoinColumn({ name: 'hospitality_publisher_id' })
   hospitalityPublisher!: Publisher | null;
 
+  /**
+   * «He goes» said for a trip marked in question, and for which reason
+   * (absence | departed) — 23 October 2026. Cleared when the brother changes.
+   */
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  riskAckReason!: string | null;
+
   // ---- Outgoing side ----
   @Column({ type: 'uuid', nullable: true })
   @Index()

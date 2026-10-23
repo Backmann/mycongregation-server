@@ -84,6 +84,9 @@ export class VisitingSpeakersService {
   ) {}
 
   private static readonly MANAGER_RESPONSIBILITIES = [
+    // The coordinator of the body of elders answers for the exchange of
+    // talks (Lionel, 23 October 2026): the same access as the coordinator.
+    ResponsibilityType.BODY_COORDINATOR,
     ResponsibilityType.PUBLIC_TALK_COORDINATOR,
     // Помощник ведёт те же справочники: иначе он может заменить докладчика,
     // но не может завести карточку тому, кого заменил.

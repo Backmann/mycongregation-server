@@ -40,6 +40,7 @@ import {
   OutgoingTalkNotificationsService,
   outgoingFacts,
 } from './outgoing-talk-notifications.service';
+import { TalkAttentionService } from './talk-attention.service';
 import { refusal } from '../common/errors/refusal';
 
 const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
@@ -186,6 +187,9 @@ export class TalkExchangeService {
      */
     @Optional()
     private readonly freeze?: ProgrammeFreezeService,
+    /** Trips that need a brother or came into question (23 October 2026). */
+    @Optional()
+    private readonly attention?: TalkAttentionService,
   ) {}
 
   /**
@@ -204,11 +208,19 @@ export class TalkExchangeService {
   }
 
   private static readonly MANAGER_RESPONSIBILITIES = [
+    // The coordinator of the body of elders answers for the exchange of
+    // talks (Lionel, 23 October 2026): the same access as the coordinator.
+    ResponsibilityType.BODY_COORDINATOR,
     ResponsibilityType.PUBLIC_TALK_COORDINATOR,
     // У помощника те же права: замену делают перед встречей, и координатора
     // может не быть рядом.
     ResponsibilityType.PUBLIC_TALK_COORDINATOR_ASSISTANT,
   ];
+
+  /** The same door as every write to the journal, for the controller. */
+  assertWriter(user: AuthenticatedUser): Promise<void> {
+    return this.assertCanWrite(user);
+  }
 
   private async assertCanWrite(user: AuthenticatedUser): Promise<void> {
     if (user.role === UserRole.ADMIN) return;
@@ -354,6 +366,10 @@ export class TalkExchangeService {
     const wasOutgoing = outgoingFacts(row);
     Object.assign(row, fields);
     settleSpecialTheme(row, fields);
+    // «He goes» was said about this brother; another brother starts clean.
+    if ((row.publisherId ?? null) !== wasOutgoing.publisherId) {
+      row.riskAckReason = null;
+    }
     const saved = await this.repo.save(row);
     await this.specialTalkNotifications.announceIfNew(saved, was);
     await this.outgoingTalkNotifications?.announce(
@@ -371,6 +387,16 @@ export class TalkExchangeService {
       after: snapshot(saved),
       fields: Object.keys(before),
     });
+    // The brother taken off a trip that still stands: the congregation over
+    // there still expects a speaker from us (Lionel, 23 October 2026).
+    if (
+      saved.direction === TalkExchangeDirection.OUTGOING &&
+      wasOutgoing.publisherId &&
+      !saved.publisherId &&
+      saved.status !== TalkExchangeStatus.DID_NOT_HAPPEN
+    ) {
+      await this.attention?.brotherTakenOff(tenantId, saved);
+    }
     return this.applySideEffects(tenantId, saved, overwriteProgram);
   }
 
@@ -1083,7 +1109,13 @@ export class TalkExchangeService {
     tenantId: string,
     entry: TalkExchange,
   ): Promise<void> {
-    if (!entry.publisherId) {
+    // A trip that did not happen keeps no absence: the brother was here
+    // after all. It used to stay, and nobody could remove it — the absences
+    // screen refuses one that comes from a trip (sync audit, 23 October 2026).
+    if (
+      !entry.publisherId ||
+      entry.status === TalkExchangeStatus.DID_NOT_HAPPEN
+    ) {
       if (entry.linkedAbsenceId) {
         await this.absenceRepo.softDelete(entry.linkedAbsenceId);
         entry.linkedAbsenceId = null;

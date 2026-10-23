@@ -17,6 +17,7 @@ import { UsersModule } from '../users/users.module';
 import { ConductRunsModule } from '../conduct-runs/conduct-runs.module';
 import { ConductLiveModule } from '../conduct-live/conduct-live.module';
 import { AssignmentsModule } from '../assignments/assignments.module';
+import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { AssignmentsModule } from '../assignments/assignments.module';
     ConductRunsModule,
     ConductLiveModule,
     AssignmentsModule,
+    TalkExchangeModule,
   ],
   controllers: [AdminController],
   providers: [ScheduledJobsService],

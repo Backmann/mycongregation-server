@@ -28,6 +28,9 @@ import { UserRole } from './enums/user-role.enum';
  * that already stands in the programme.
  */
 const READER_RESPONSIBILITIES = [
+  // The coordinator of the body of elders answers for the exchange of
+  // talks (Lionel, 23 October 2026): the same access as the coordinator.
+  ResponsibilityType.BODY_COORDINATOR,
   ResponsibilityType.PUBLIC_TALK_COORDINATOR,
   ResponsibilityType.PUBLIC_TALK_COORDINATOR_ASSISTANT,
 ];
