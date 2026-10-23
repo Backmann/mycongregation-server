@@ -479,8 +479,11 @@ export class TalkExchangeService {
     const candidates = await this.speakerRepo.find({
       where: { congregationId: tenantId },
     });
+    // A card merged into another is that other brother now: matching it
+    // would hang a new visit on a card the directory no longer shows.
     const same = candidates.find(
       (c) =>
+        !c.mergedIntoId &&
         speakerFullName(c).trim().replace(/\s+/g, ' ').toLowerCase() ===
           name.toLowerCase() &&
         (c.externalCongregationId ?? null) === externalId,
@@ -510,6 +513,95 @@ export class TalkExchangeService {
       }),
     );
     return created.id;
+  }
+
+  /**
+   * The card a programme slot with an invited guest belongs to.
+   *
+   * The form saves while the name is being typed, and the first few letters
+   * used to become a card of their own that the slot then kept: «Ив» stood in
+   * the brother's history instead of him (live data, 23 October 2026). So the
+   * link the slot carries is kept only while it still names this guest:
+   *
+   * - a card a person keeps (made or edited by hand) stays while its name is
+   *   the slot's — or while the slot's text has not been touched since the
+   *   journal last read it: then the card was renamed in the directory, and
+   *   the old spelling in the programme is the same brother;
+   * - a card the application made follows the text: the name the slot now
+   *   holds is looked up again, and the card made from a half-typed name is
+   *   left for retireLeftoverCards.
+   */
+  private async slotCard(
+    tenantId: string,
+    linkedId: string | null,
+    speakerName: string,
+    speakerCongregation: string | null,
+    journalName: string | null,
+  ): Promise<string | null> {
+    const linked = linkedId
+      ? await this.speakerRepo.findOne({
+          where: { id: linkedId, congregationId: tenantId },
+        })
+      : null;
+    // A link to a card this congregation cannot see is not second-guessed.
+    if (linkedId && !linked) return linkedId;
+    if (linked) {
+      const names = (c: VisitingSpeaker) => [
+        normalName(speakerFullName(c)),
+        normalName([c.lastName, c.firstName].filter(Boolean).join(' ')),
+      ];
+      const named = names(linked).includes(normalName(speakerName));
+      const textUntouched =
+        journalName !== null &&
+        normalName(journalName) === normalName(speakerName);
+      if (named || (!linked.autoCreated && textUntouched)) return linked.id;
+    }
+    return this.speakerCardFor(tenantId, speakerName, speakerCongregation);
+  }
+
+  /**
+   * A card the application made, that nothing points at any more, goes.
+   *
+   * Only such a card: one a person made, or added a phone, a note or a talk
+   * to, is the coordinator's and stays whatever happens to its visits. «Nothing
+   * points at it» counts removed rows too — a visit set aside for the circuit
+   * overseer comes back with its card, and must find it there. Soft-deleted,
+   * so a mistake here is put right by a restore, not by a backup.
+   */
+  private async retireLeftoverCards(
+    tenantId: string,
+    ids: Array<string | null | undefined>,
+  ): Promise<void> {
+    for (const id of new Set(ids.filter((x): x is string => !!x))) {
+      const card = await this.speakerRepo.findOne({
+        where: { id, congregationId: tenantId },
+      });
+      if (
+        !card ||
+        !card.autoCreated ||
+        card.circuitOverseer ||
+        card.mergedIntoId ||
+        card.phone ||
+        card.note ||
+        (card.talkNumbers ?? []).length > 0
+      ) {
+        continue;
+      }
+      const used =
+        (await this.repo.count({
+          where: { congregationId: tenantId, visitingSpeakerId: id },
+          withDeleted: true,
+        })) +
+        (await this.assignmentRepo.count({
+          where: { congregationId: tenantId, visitingSpeakerId: id },
+          withDeleted: true,
+        })) +
+        (await this.speakerRepo.count({
+          where: { congregationId: tenantId, mergedIntoId: id },
+          withDeleted: true,
+        }));
+      if (used === 0) await this.speakerRepo.softDelete(id);
+    }
   }
 
   // ───────────────────────── The circuit overseer ─────────────────────────
@@ -1764,23 +1856,22 @@ export class TalkExchangeService {
     // визит, и карточка у него своя, помеченная. Она ищется по имени каждый
     // раз заново: поменяли районного в визите — слот несёт уже другое имя, и
     // старая связь указывала бы на прежнего брата.
+    // Cards that may have lost their last visit by this sync: looked at once
+    // the slot and the entry point where they now should.
+    const leftBehind = [slot.visitingSpeakerId, existing?.visitingSpeakerId];
     const visitingSpeakerId = isOverseer
       ? await this.overseerCard(tenantId, speakerName)
-      : (slot.visitingSpeakerId ??
-        (await this.speakerCardFor(
+      : await this.slotCard(
           tenantId,
+          slot.visitingSpeakerId ?? null,
           speakerName,
           speakerCongregation,
-        )));
+          existing?.speakerName ?? null,
+        );
 
     // Слот, в котором имя было напечатано руками, дальше несёт найденную
     // карточку — иначе на каждое сохранение недели заводилась бы новая.
-    if (
-      visitingSpeakerId &&
-      (isOverseer
-        ? slot.visitingSpeakerId !== visitingSpeakerId
-        : !slot.visitingSpeakerId)
-    ) {
+    if (visitingSpeakerId && slot.visitingSpeakerId !== visitingSpeakerId) {
       // The link is bookkeeping, but it is the programme's row: left as
       // it is once the week is the record.
       if (await this.programmeOpen(tenantId, weekStartDate)) {
@@ -1797,27 +1888,29 @@ export class TalkExchangeService {
         existing.speakerCongregation === speakerCongregation &&
         existing.publicTalkId === publicTalkId &&
         (existing.specialTheme ?? null) === specialTheme;
-      if (same) return; // idempotent: nothing changed
-      existing.publisherId = null;
-      existing.visitingSpeakerId = visitingSpeakerId;
-      existing.speakerName = speakerName;
-      existing.speakerCongregation = speakerCongregation;
-      existing.publicTalkId = publicTalkId;
-      existing.specialTheme = specialTheme;
-      await this.repo.save(existing);
-      return;
+      if (!same) {
+        existing.publisherId = null;
+        existing.visitingSpeakerId = visitingSpeakerId;
+        existing.speakerName = speakerName;
+        existing.speakerCongregation = speakerCongregation;
+        existing.publicTalkId = publicTalkId;
+        existing.specialTheme = specialTheme;
+        await this.repo.save(existing);
+      }
+    } else {
+      await this.repo.save(
+        this.repo.create({
+          congregationId: tenantId,
+          direction: TalkExchangeDirection.INCOMING,
+          date: await this.weekendDateFor(tenantId, weekStartDate),
+          visitingSpeakerId,
+          speakerName,
+          speakerCongregation,
+          publicTalkId,
+          specialTheme,
+        }),
+      );
     }
-
-    const entry = this.repo.create({
-      congregationId: tenantId,
-      direction: TalkExchangeDirection.INCOMING,
-      date: await this.weekendDateFor(tenantId, weekStartDate),
-      visitingSpeakerId,
-      speakerName,
-      speakerCongregation,
-      publicTalkId,
-      specialTheme,
-    });
-    await this.repo.save(entry);
+    await this.retireLeftoverCards(tenantId, leftBehind);
   }
 }
