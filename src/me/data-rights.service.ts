@@ -26,6 +26,19 @@ import { UserRole } from '../common/enums/user-role.enum';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { refusal } from '../common/errors/refusal';
+import { Congregation } from '../entities/congregation.entity';
+import {
+  coerceLanguage,
+  type SupportedLanguage,
+} from '../common/i18n/supported-languages';
+
+/** What a card says once its owner had his data erased. */
+const DELETED_NAME: Record<SupportedLanguage, { first: string; last: string }> =
+  {
+    ru: { first: 'Удалённый', last: 'возвещатель' },
+    de: { first: 'Gelöschter', last: 'Verkündiger' },
+    en: { first: 'Deleted', last: 'publisher' },
+  };
 
 /**
  * Self-service data-subject rights (GDPR) for the signed-in member.
@@ -195,10 +208,17 @@ export class DataRightsService {
         where: { congregationId: tenantId, userId },
       });
       if (publisher) {
-        publisher.firstName = 'Удалённый';
+        // In the congregation's own language (23 October 2026): the card
+        // stays in its schedules and journal, read by everybody there.
+        const c = await m.findOne(Congregation, {
+          where: { id: tenantId },
+          select: { id: true, language: true },
+        });
+        const gone = DELETED_NAME[coerceLanguage(c?.language)];
+        publisher.firstName = gone.first;
         publisher.middleName = null;
-        publisher.lastName = 'возвещатель';
-        publisher.displayName = 'Удалённый возвещатель';
+        publisher.lastName = gone.last;
+        publisher.displayName = `${gone.first} ${gone.last}`;
         publisher.birthDate = null;
         publisher.mobilePhone = null;
         publisher.email = null;

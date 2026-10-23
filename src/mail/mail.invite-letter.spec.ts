@@ -270,4 +270,34 @@ describe('the invitation letter', () => {
     expect(sent[0].text).not.toMatch(/Читаете с компьютера|Шаг 1/);
     expect(sent[0].text).not.toMatch(/\n\n\n/);
   });
+
+  it('the shared-mailbox letter does not say the address still works (23 October 2026)', async () => {
+    for (const lang of ['ru', 'de', 'en']) {
+      const { service, sent } = build();
+      await service.sendSharedMailboxNotice('family@gmail.com', lang, {
+        recipientName: 'Вера',
+        loginName: 'sidorova.vera',
+      });
+      expect(sent[0].text).toContain('sidorova.vera');
+      expect(sent[0].text).not.toMatch(
+        /Адрес почты тоже подойдёт|E-Mail-Adresse funktioniert ebenfalls|email address works too/,
+      );
+    }
+  });
+
+  it('says the deadline in each language’s own order (23 October 2026)', async () => {
+    const at = new Date(2099, 9, 26, 12);
+    const send = async (lang: string) => {
+      const { service, sent } = build();
+      await service.sendInvite('vera@gmail.com', lang, 'https://x/y', {
+        code: 'K7QM-3XPD',
+        expiresAt: at,
+      });
+      return sent[0].text;
+    };
+    expect(await send('de')).toContain('26. Oktober');
+    expect(await send('en')).toContain('October 26');
+    expect(await send('de')).not.toContain('«');
+    expect(await send('en')).not.toContain('«');
+  });
 });

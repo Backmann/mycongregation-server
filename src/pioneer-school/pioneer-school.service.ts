@@ -30,9 +30,6 @@ import {
 } from './dto/pioneer-school.dto';
 import { refusal } from '../common/errors/refusal';
 
-/** Said in the congregation's own words, not in code. */
-const PIONEER_SCHOOL_ABSENCE_NOTE = 'Школа пионерского служения';
-
 /** The roles a school day carries, in the order they are read. */
 const AV_SLOT = { dutyType: DutyType.AV, slotIndex: 0 };
 const VENTILATION_SLOT = { dutyType: DutyType.VENTILATION, slotIndex: 0 };
@@ -696,7 +693,10 @@ export class PioneerSchoolService {
           publisherId: want.publisherId,
           startDate: want.date,
           endDate: null,
-          note: PIONEER_SCHOOL_ABSENCE_NOTE,
+          // No words of its own (23 October 2026): the duty it comes from
+          // says why, and the app says it in the reader's language. A fixed
+          // Russian note stood in German and English screens.
+          note: null,
           pioneerSchoolDutyId: dutyId,
         }),
       );
