@@ -76,6 +76,51 @@ jobs:
         run: npm test
 
 
+  # The real application against a real database (23 October 2026).
+  #
+  # The unit tests stub every service, and the stubs are where the bugs of
+  # the sync audit hid: tests passed while a departed elder kept his access
+  # and a deleted school absence broke the school. test/db boots the whole
+  # app on a database the migrations build from nothing and walks the same
+  # sequences a person would, over HTTP.
+  db:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run the real-database tests
+        env:
+          TEST_PG_HOST: localhost
+          TEST_PG_PORT: 5432
+          TEST_PG_USER: ci
+          TEST_PG_PASSWORD: ci
+          TEST_PG_ADMIN_DB: ci
+        run: npx jest --config test/db/jest-db.json
+
   # Does the application actually START?
   #
   # Nothing else here answers that. tsc and nest build know nothing about
@@ -174,7 +219,7 @@ jobs:
   deploy:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    needs: [test, boot]
+    needs: [test, boot, db]
     steps:
       - name: Checkout
         uses: actions/checkout@v4

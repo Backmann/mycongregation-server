@@ -664,11 +664,17 @@ export class PioneerSchoolService {
       wanted.set(duty.id, { publisherId, date });
     }
 
+    // Deleted rows too (23 October 2026). The index that keeps one absence per
+    // duty does not care whether a row is deleted; reading only live rows
+    // made a deleted one invisible here, the insert below hit the index, and
+    // every later assignment in the school failed. A deleted absence the duty
+    // still wants is brought back instead.
     const existing = await this.absencesRepo.find({
       where: {
         congregationId: tenantId,
         pioneerSchoolDutyId: In(duties.map((d) => d.id)),
       },
+      withDeleted: true,
     });
     for (const row of existing) {
       const want = wanted.get(row.pioneerSchoolDutyId as string);
@@ -677,6 +683,7 @@ export class PioneerSchoolService {
         want.publisherId === row.publisherId &&
         want.date === row.startDate.slice(0, 10)
       ) {
+        if (row.deletedAt) await this.absencesRepo.restore(row.id);
         wanted.delete(row.pioneerSchoolDutyId as string);
         continue;
       }

@@ -18,6 +18,7 @@ import { CreatePublisherDto } from './dto/create-publisher.dto';
 import { UpdatePublisherDto } from './dto/update-publisher.dto';
 import { QueryPublishersDto } from './dto/query-publishers.dto';
 import { RemovePublisherDto } from './dto/remove-publisher.dto';
+import { CorrectPioneerKindDto } from './dto/correct-pioneer-kind.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -314,6 +315,37 @@ export class PublishersController {
     @Body() dto: UpdatePublisherDto,
   ) {
     return this.publishersService.update(tenantId, id, dto, user?.id);
+  }
+
+  /** The pioneer kind was written down wrong — corrected for all its months. */
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(ResponsibilityType.SECRETARY)
+  @Post(':id/pioneer-kind-correction')
+  @HttpCode(200)
+  correctPioneerKind(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CorrectPioneerKindDto,
+  ) {
+    return this.publishersService.correctPioneerKind(
+      tenantId,
+      id,
+      dto.pioneerType,
+      user?.id,
+    );
+  }
+
+  /** What marking the card departed would take with it (23 October 2026). */
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(ResponsibilityType.SECRETARY)
+  @Get(':id/removal-impact')
+  removalImpact(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.publishersService.removalImpact(tenantId, id, user?.id);
   }
 
   @UseGuards(ResponsibilityGuard)

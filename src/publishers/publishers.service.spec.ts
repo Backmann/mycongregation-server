@@ -215,7 +215,7 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
   };
   let usersService: { syncRoleFromAppointment: jest.Mock };
   let auxiliaryPioneersService: { closeActiveForPublisher: jest.Mock };
-  let pioneerSpells: { syncWithCard: jest.Mock };
+  let pioneerSpells: { syncWithCard: jest.Mock; assertCardChange: jest.Mock };
 
   afterEach(() => restoreNow());
 
@@ -228,6 +228,21 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
       manager: {
         findOne: jest.fn().mockResolvedValue(null),
         find: jest.fn().mockResolvedValue([]),
+        // The departure writes through one transaction (23 October 2026);
+        // what it writes is proven against a real database in test/db.
+        getRepository: jest.fn(() => ({
+          findOne: jest.fn().mockResolvedValue(null),
+          find: jest.fn().mockResolvedValue([]),
+          count: jest.fn().mockResolvedValue(0),
+          save: jest.fn(async (x: unknown) => x),
+          softDelete: jest.fn(),
+          remove: jest.fn(),
+          update: jest.fn(),
+          delete: jest.fn(),
+        })),
+        transaction: jest.fn(async (fn: (m: unknown) => unknown) =>
+          fn((publishersRepo as any).manager),
+        ),
       },
     } as unknown as jest.Mocked<Repository<Publisher>>;
     reportsRepo = {
@@ -252,7 +267,10 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
     auxiliaryPioneersService = {
       closeActiveForPublisher: jest.fn().mockResolvedValue(0),
     };
-    pioneerSpells = { syncWithCard: jest.fn().mockResolvedValue({}) };
+    pioneerSpells = {
+      syncWithCard: jest.fn().mockResolvedValue({}),
+      assertCardChange: jest.fn().mockResolvedValue(undefined),
+    };
     service = new PublishersService(
       publishersRepo,
       reportsRepo,
@@ -368,7 +386,10 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         pushNotificationsService as any,
         usersService as any,
         auxiliaryPioneersService as any,
-        { syncWithCard: jest.fn().mockResolvedValue({}) } as any,
+        {
+          syncWithCard: jest.fn().mockResolvedValue({}),
+          assertCardChange: jest.fn().mockResolvedValue(undefined),
+        } as any,
       );
       const pub = makePublisher({
         id: 'pub-1',

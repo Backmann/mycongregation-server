@@ -20,6 +20,7 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { User } from '../entities/user.entity';
 import { Responsibility } from '../entities/responsibility.entity';
+import { RefreshSession } from '../entities/refresh-session.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { ServiceReport } from '../entities/service-report.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
@@ -1214,7 +1215,75 @@ export class PublishersService {
       displayName,
       capabilities,
     });
-    return this.publishersRepo.save(publisher);
+    const saved = await this.publishersRepo.save(publisher);
+    /**
+     * A card made as a pioneer gets its spell at once (23 October 2026).
+     *
+     * Only editing the card opened one, so a pioneer entered as such was an
+     * ordinary publisher to everything that asks the spells: the report form
+     * refused his hours, S-1 and the pioneer year counted him elsewhere —
+     * until somebody happened to edit the card.
+     */
+    await this.pioneerSpells.syncWithCard({
+      congregationId: tenantId,
+      publisherId: saved.id,
+      pioneerType: saved.pioneerType,
+      pioneerSince: saved.pioneerSince ?? null,
+      todayIso: await this.clock.todayFor(tenantId),
+      actorUserId: null,
+    });
+    return saved;
+  }
+
+  /**
+   * «The kind was written down wrong» (23 October 2026): the card and its open
+   * spell take the right kind for all the months it covers. A change of kind
+   * from a month on is an ordinary edit of the card; this is the other thing,
+   * asked for on purpose and journalled as a correction.
+   */
+  async correctPioneerKind(
+    tenantId: string,
+    id: string,
+    pioneerType: PioneerType,
+    actorUserId?: string,
+  ): Promise<Publisher> {
+    const publisher = await this.findOne(tenantId, id);
+    const before = publisher.pioneerType;
+    if (
+      before === pioneerType ||
+      ![
+        PioneerType.REGULAR,
+        PioneerType.SPECIAL,
+        PioneerType.MISSIONARY,
+      ].includes(before)
+    ) {
+      throw new BadRequestException(
+        refusal(
+          'PIONEER_KIND_CORRECTION_INVALID',
+          'Only the kind of a current regular, special or missionary pioneer can be corrected.',
+        ),
+      );
+    }
+    this.assertAppointmentConsistency(publisher.appointment, pioneerType);
+    await this.pioneerSpells.correctOpenKind({
+      congregationId: tenantId,
+      publisherId: id,
+      pioneerType,
+    });
+    publisher.pioneerType = pioneerType;
+    publisher.lastEditedById = actorUserId ?? publisher.lastEditedById;
+    const saved = await this.publishersRepo.save(publisher);
+    await this.auditLogService.logUpdate({
+      tenantId,
+      entityType: 'publisher',
+      entityId: id,
+      actorUserId: actorUserId ?? null,
+      subjectId: saved.userId ?? null,
+      before: { pioneerType: before },
+      after: { pioneerType, correction: true },
+      fields: ['pioneerType'],
+    });
+    return saved;
   }
 
   /**
@@ -1293,6 +1362,20 @@ export class PublishersService {
         tenantId,
         actorUserId,
       );
+    }
+
+    // A change of kind must start after the current kind began — asked
+    // BEFORE the card saves (23 October 2026). The spell sync below only
+    // logs, so a refusal there would leave the card changed and the
+    // history rewritten.
+    if (publisher.pioneerType !== prevPioneerType) {
+      await this.pioneerSpells.assertCardChange({
+        congregationId: tenantId,
+        publisherId: publisher.id,
+        pioneerType: publisher.pioneerType,
+        pioneerSince: publisher.pioneerSince ?? null,
+        todayIso: await this.clock.todayFor(tenantId),
+      });
     }
 
     publisher.lastEditedById = actorUserId ?? publisher.lastEditedById;
@@ -1431,6 +1514,93 @@ export class PublishersService {
     );
   }
 
+  /**
+   * What marking this card departed would take with it — asked by the window
+   * before anything happens, so the secretary sees the sign-in and the
+   * responsibilities by name rather than discovering them afterwards.
+   */
+  async removalImpact(
+    tenantId: string,
+    id: string,
+    actorUserId?: string,
+  ): Promise<{
+    account: {
+      active: boolean;
+      role: UserRole;
+      closable: boolean;
+      refusal: string | null;
+    } | null;
+    responsibilities: ResponsibilityType[];
+  }> {
+    const publisher = await this.findOne(tenantId, id);
+    if (!publisher.userId) return { account: null, responsibilities: [] };
+    const m = this.publishersRepo.manager;
+    const account = await m
+      .getRepository(User)
+      .findOne({ where: { id: publisher.userId, congregationId: tenantId } });
+    if (!account) return { account: null, responsibilities: [] };
+    const held = await m.getRepository(Responsibility).find({
+      where: { congregationId: tenantId, userId: account.id },
+    });
+    let refusalCode: string | null = null;
+    try {
+      await this.assertAccountClosable(tenantId, account, actorUserId);
+    } catch (err) {
+      const body = (err as { getResponse?: () => unknown }).getResponse?.();
+      refusalCode =
+        (body as { code?: string } | undefined)?.code ?? 'ACCOUNT_NOT_CLOSABLE';
+    }
+    return {
+      account: {
+        active: account.isActive,
+        role: account.role,
+        closable: account.isActive && refusalCode === null,
+        refusal: refusalCode,
+      },
+      responsibilities: held.map((r) => r.type),
+    };
+  }
+
+  /**
+   * The same three protections the users screen keeps: nobody closes his own
+   * sign-in, the owner's, or the last administrator's.
+   */
+  private async assertAccountClosable(
+    tenantId: string,
+    account: User,
+    actorUserId?: string,
+  ): Promise<void> {
+    if (actorUserId && account.id === actorUserId) {
+      throw new ForbiddenException(
+        refusal('OWN_DEACTIVATION', 'You cannot deactivate yourself'),
+      );
+    }
+    if (account.isOwner) {
+      throw new ForbiddenException(
+        refusal('OWNER_PROTECTED', 'The owner account cannot be deactivated'),
+      );
+    }
+    if (account.role === UserRole.ADMIN) {
+      const admins = await this.publishersRepo.manager
+        .getRepository(User)
+        .count({
+          where: {
+            congregationId: tenantId,
+            role: UserRole.ADMIN,
+            isActive: true,
+          },
+        });
+      if (admins <= 1) {
+        throw new ForbiddenException(
+          refusal(
+            'LAST_ACTIVE_ADMIN',
+            'Cannot deactivate the last active admin in this congregation',
+          ),
+        );
+      }
+    }
+  }
+
   async remove(
     tenantId: string,
     id: string,
@@ -1448,8 +1618,71 @@ export class PublishersService {
     publisher.removedAt = dto.date ? new Date(dto.date) : new Date();
     publisher.restoredAt = null;
     publisher.isActive = false;
-    await this.publishersRepo.save(publisher);
-    await this.publishersRepo.softDelete(id);
+
+    /**
+     * What leaves with the person (23 October 2026).
+     *
+     * Marking a card departed used to touch the card and nothing else: a
+     * departed elder signed in the next day with his role, his
+     * responsibilities and every report he could read before. Now his
+     * responsibilities are always taken off — nobody who has left can be the
+     * congregation's secretary — and, when the window's box is ticked, his
+     * sign-in is closed and his devices signed out. All of it in one
+     * transaction: half a departure (card gone, access alive) is the very
+     * state this exists to end.
+     */
+    const userId = publisher.userId ?? null;
+    const account = userId
+      ? await this.publishersRepo.manager
+          .getRepository(User)
+          .findOne({ where: { id: userId, congregationId: tenantId } })
+      : null;
+    const closing = !!account && !!dto.closeAccount && account.isActive;
+    if (closing)
+      await this.assertAccountClosable(tenantId, account, actorUserId);
+
+    const removedResponsibilities =
+      await this.publishersRepo.manager.transaction(async (m) => {
+        await m.getRepository(Publisher).save(publisher);
+        await m.getRepository(Publisher).softDelete(id);
+        let taken: Responsibility[] = [];
+        if (account) {
+          const repo = m.getRepository(Responsibility);
+          taken = await repo.find({
+            where: { congregationId: tenantId, userId: account.id },
+          });
+          if (taken.length) await repo.remove(taken.map((r) => ({ ...r })));
+        }
+        if (closing) {
+          await m.getRepository(User).update(account.id, { isActive: false });
+          await m.getRepository(RefreshSession).delete({ userId: account.id });
+        }
+        return taken;
+      });
+
+    for (const r of removedResponsibilities) {
+      await this.auditLogService.logEvent({
+        tenantId,
+        entityType: 'responsibility',
+        entityId: r.id,
+        action: 'DELETE',
+        actorUserId: actorUserId ?? null,
+        subjectId: r.userId,
+        detail: { type: r.type, userId: r.userId, reason: 'departed' },
+      });
+    }
+    if (closing) {
+      await this.auditLogService.logUpdate({
+        tenantId,
+        entityType: 'user',
+        entityId: account.id,
+        actorUserId: actorUserId ?? null,
+        subjectId: account.id,
+        before: { isActive: true },
+        after: { isActive: false },
+        fields: ['isActive'],
+      });
+    }
     // A departure moves every report about the months after it, and the day
     // it is ENTERED is not the day he left. Both are kept: the entry's own
     // time, and the day and reason as typed. The note stays out — it is the
