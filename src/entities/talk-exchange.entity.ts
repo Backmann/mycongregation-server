@@ -110,6 +110,23 @@ export class TalkExchange {
   @Column({ type: 'varchar', length: 16, nullable: true })
   riskAckReason!: string | null;
 
+  /**
+   * The weekend this guest was to speak at was cancelled (a convention, the
+   * circuit assembly). The entry stays with its note and host family, out of
+   * the programme, and comes back whole when the cancellation is lifted
+   * (23 October 2026). Incoming only.
+   */
+  @Column({ type: 'boolean', default: false })
+  meetingCancelled!: boolean;
+
+  /**
+   * Who made the entry: `journal` — a person, in the coordinator's journal;
+   * `programme` — the application, from a name typed into the weekend
+   * programme. Clearing the programme line removes only the second kind.
+   */
+  @Column({ type: 'varchar', length: 16, default: 'journal' })
+  origin!: 'journal' | 'programme';
+
   // ---- Outgoing side ----
   @Column({ type: 'uuid', nullable: true })
   @Index()

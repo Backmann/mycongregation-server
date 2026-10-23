@@ -417,7 +417,7 @@ describe('TalkExchangeService', () => {
     expect(slot.publisherId).toBe('someone-else');
   });
 
-  it('still clears an invited speaker, as it always did', async () => {
+  it('clears the guest of its own line', async () => {
     repo.findOne.mockResolvedValue({
       id: 'tx-1',
       congregationId: TENANT,
@@ -433,6 +433,7 @@ describe('TalkExchangeService', () => {
       speakerName: 'Гость',
       partTitle: 'что-то',
       status: 'draft',
+      talkExchangeId: 'tx-1',
     };
     assignmentRepo.findOne.mockResolvedValue(slot);
 
@@ -440,6 +441,29 @@ describe('TalkExchangeService', () => {
 
     expect(slot.speakerName).toBeNull();
     expect(slot.publicTalkId).toBeNull();
+  });
+
+  it('leaves a line that shows another entry (sync audit M2)', async () => {
+    repo.findOne.mockResolvedValue({
+      id: 'tx-1',
+      congregationId: TENANT,
+      direction: 'incoming',
+      date: '2026-08-23',
+      publisherId: null,
+      speakerName: 'Первый',
+    });
+    const slot = {
+      id: 'as-1',
+      publisherId: null,
+      speakerName: 'Второй',
+      status: 'draft',
+      talkExchangeId: 'tx-2',
+    };
+    assignmentRepo.findOne.mockResolvedValue(slot);
+
+    await service.remove(TENANT, 'tx-1', user());
+
+    expect(slot.speakerName).toBe('Второй');
   });
 
   it('removes the linked absence on delete', async () => {
@@ -971,7 +995,7 @@ describe('TalkExchangeService', () => {
     );
   });
 
-  it('removes the journal entry when the slot week is CANCELLED', async () => {
+  it('marks, and keeps, the journal entry when the slot week is CANCELLED', async () => {
     assignmentRepo.findOne.mockResolvedValue({
       id: 'asg',
       publisherId: 'pub-1',
@@ -983,8 +1007,10 @@ describe('TalkExchangeService', () => {
 
     await service.syncProgramToJournal(TENANT, '2026-06-15');
 
-    expect(repo.softDelete).toHaveBeenCalledWith('tx-9');
-    expect(repo.save).not.toHaveBeenCalled();
+    expect(repo.softDelete).not.toHaveBeenCalled();
+    expect(repo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'tx-9', meetingCancelled: true }),
+    );
   });
 
   it('removes the journal entry when the program slot has no speaker', async () => {
@@ -1370,7 +1396,7 @@ describe('TalkExchangeService', () => {
         assignmentRepo.findOne.mockResolvedValue(s);
         await service.circuitVisitRemoved(TENANT, WEEK, 'Иван Тестов');
         expect(s.visitingSpeakerId).toBe('guest-card');
-        expect(assignmentRepo.save).not.toHaveBeenCalled();
+        expect(s.speakerName).toBe('Пётр Гостев');
       });
     });
 

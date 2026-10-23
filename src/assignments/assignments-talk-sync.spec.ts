@@ -100,6 +100,8 @@ describe('AssignmentsService — journal sync coverage and public-talk swap', ()
           useValue: {
             syncProgramToJournal: sync,
             fillEmptySlot: jest.fn(async () => undefined),
+            weekEntry: jest.fn(async () => null),
+            moveWeekEntries: jest.fn(async () => undefined),
           },
         },
         {
@@ -131,7 +133,9 @@ describe('AssignmentsService — journal sync coverage and public-talk swap', ()
       partKey: TALK_KEY,
       weekStartDate: '2026-07-13',
     } as never);
-    expect(sync).toHaveBeenCalledWith(CONG, '2026-07-13');
+    expect(sync).toHaveBeenCalledWith(CONG, '2026-07-13', {
+      speakerChanged: false,
+    });
   });
 
   it('create() of another part does NOT touch the journal', async () => {

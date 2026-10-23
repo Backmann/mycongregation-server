@@ -141,6 +141,15 @@ export class Assignment {
   @JoinColumn({ name: 'visiting_speaker_id' })
   visitingSpeaker!: VisitingSpeaker | null;
 
+  /**
+   * The weekend public talk's own entry in the journal «К нам», which owns
+   * who speaks (23 October 2026). The line shows that entry; it is no longer
+   * found again by week and name each time.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  @Index()
+  talkExchangeId!: string | null;
+
   // ---- State ----
   @Column({
     type: 'enum',

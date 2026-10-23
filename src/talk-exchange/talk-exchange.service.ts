@@ -51,6 +51,28 @@ function normalName(name: string): string {
   return name.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+/** The refusal for a second live entry «К нам» in one week. */
+function weekTaken(): BadRequestException {
+  return new BadRequestException(
+    refusal(
+      'TALK_WEEK_TAKEN',
+      'That weekend already has a speaker in the journal',
+    ),
+  );
+}
+
+/** The unique index «one live entry «К нам» a week» refused a write. */
+function isWeekTaken(err: unknown): boolean {
+  const e = err as {
+    code?: string;
+    constraint?: string;
+    driverError?: { code?: string; constraint?: string };
+  };
+  const code = e.code ?? e.driverError?.code;
+  const constraint = e.constraint ?? e.driverError?.constraint;
+  return code === '23505' && constraint === 'UQ_talk_exchange_incoming_week';
+}
+
 /** dateStr + n days, as YYYY-MM-DD (UTC). */
 function addDaysISO(dateStr: string, n: number): string {
   const d = new Date(`${dateStr}T00:00:00Z`);
@@ -328,9 +350,20 @@ export class TalkExchangeService {
   ): Promise<TalkExchangeResult> {
     await this.assertCanWrite(user);
     const { overwriteProgram, ...fields } = dto;
-    const row = this.repo.create({ ...fields, congregationId: tenantId });
+    const row = this.repo.create({
+      ...fields,
+      congregationId: tenantId,
+      origin: 'journal',
+    });
     settleSpecialTheme(row, fields);
-    const saved = await this.repo.save(row);
+    if (row.direction === TalkExchangeDirection.INCOMING) {
+      await this.assertWeekFree(tenantId, row);
+      row.meetingCancelled = await this.weekCancelled(
+        tenantId,
+        mondayOf(row.date),
+      );
+    }
+    const saved = await this.saveEntry(row);
     await this.specialTalkNotifications.announceIfNew(saved, null);
     await this.outgoingTalkNotifications?.announce(
       tenantId,
@@ -364,13 +397,32 @@ export class TalkExchangeService {
     const was = { specialTheme: row.specialTheme, date: row.date };
     // What the travelling brother knew, read BEFORE the row is mutated.
     const wasOutgoing = outgoingFacts(row);
+    const wasWeek =
+      row.direction === TalkExchangeDirection.INCOMING &&
+      row.status !== TalkExchangeStatus.DID_NOT_HAPPEN
+        ? mondayOf(row.date)
+        : null;
     Object.assign(row, fields);
     settleSpecialTheme(row, fields);
     // «He goes» was said about this brother; another brother starts clean.
     if ((row.publisherId ?? null) !== wasOutgoing.publisherId) {
       row.riskAckReason = null;
     }
-    const saved = await this.repo.save(row);
+    const nowWeek =
+      row.direction === TalkExchangeDirection.INCOMING &&
+      row.status !== TalkExchangeStatus.DID_NOT_HAPPEN
+        ? mondayOf(row.date)
+        : null;
+    if (nowWeek && nowWeek !== wasWeek) {
+      await this.assertWeekFree(tenantId, row);
+      row.meetingCancelled = await this.weekCancelled(tenantId, nowWeek);
+    }
+    const saved = await this.saveEntry(row);
+    // The week it left — another date, or «did not happen» — no longer shows
+    // it (sync audit L2, H3).
+    if (wasWeek && wasWeek !== nowWeek) {
+      await this.releaseLine(tenantId, wasWeek, saved.id);
+    }
     await this.specialTalkNotifications.announceIfNew(saved, was);
     await this.outgoingTalkNotifications?.announce(
       tenantId,
@@ -903,11 +955,25 @@ export class TalkExchangeService {
       withDeleted: true,
     });
     if (all.some((e) => !e.deletedAt)) return;
+    // An entry made in the journal may carry only the card: its name is the
+    // card's, and the guest set aside must be found by it too.
+    const cardNames = new Map<string, string>();
+    for (const e of all) {
+      if (!e.visitingSpeakerId || cardNames.has(e.visitingSpeakerId)) continue;
+      const c = await this.speakerRepo.findOne({
+        where: { id: e.visitingSpeakerId, congregationId: tenantId },
+        withDeleted: true,
+      });
+      if (c) cardNames.set(c.id, normalName(speakerFullName(c)));
+    }
     const his = all
       .filter((e) =>
         slot.publisherId
           ? e.publisherId === slot.publisherId
-          : !e.publisherId && normalName(e.speakerName ?? '') === name,
+          : !e.publisherId &&
+            (normalName(e.speakerName ?? '') === name ||
+              (!!e.visitingSpeakerId &&
+                cardNames.get(e.visitingSpeakerId) === name)),
       )
       .sort((a, b) => +b.deletedAt! - +a.deletedAt!)[0];
     if (his) await this.repo.restore(his.id);
@@ -966,28 +1032,168 @@ export class TalkExchangeService {
     if (!slot) return;
     // The record stays as it was: the journal says what happened.
     if (!(await this.programmeOpen(tenantId, slot.weekStartDate))) return;
-
-    // A local brother in the slot used to stop this outright, on the reasoning
-    // that he was not ours to wipe. That is right when SOMEONE ELSE put him
-    // there — and wrong when this very entry did, which is what happens
-    // whenever "our brother" is chosen: the entry writes slot.publisherId, and
-    // then deleting the entry left him behind, still on the weekend programme.
-    // So the test is not "is a brother assigned" but "is he the one this entry
-    // assigned".
-    const putHereByThisEntry =
-      entry.publisherId != null && slot.publisherId === entry.publisherId;
-    if (slot.publisherId && !putHereByThisEntry) return;
     if (!slotOccupied(slot)) return;
+
+    /**
+     * Whose line is it. A line that knows its entry is cleared only by that
+     * entry: removing the visit marked «did not happen» after a replacement
+     * used to wipe the brother who came instead (sync audit M2). A line from
+     * before the link existed is judged as before, by the speaker in it — and
+     * for a guest too, not only for one of ours.
+     */
+    if (slot.talkExchangeId) {
+      if (slot.talkExchangeId !== entry.id) return;
+    } else {
+      const sameGuest =
+        !entry.publisherId &&
+        !slot.publisherId &&
+        ((!!entry.visitingSpeakerId &&
+          slot.visitingSpeakerId === entry.visitingSpeakerId) ||
+          normalName(slot.speakerName ?? '') ===
+            normalName(entry.speakerName ?? ''));
+      const sameBrother =
+        entry.publisherId != null && slot.publisherId === entry.publisherId;
+      if (!sameGuest && !sameBrother) return;
+    }
 
     slot.publisherId = null;
     slot.speakerName = null;
     slot.speakerCongregation = null;
+    slot.visitingSpeakerId = null;
+    slot.talkExchangeId = null;
     slot.publicTalkId = null;
     slot.partTitle = null;
     slot.specialTalk = false;
     if (slot.status === AssignmentStatus.PUBLISHED)
       slot.changedSincePublish = true;
     await this.assignmentRepo.save(slot);
+  }
+
+  /** The weekend line of a week an entry has left: emptied, if it was its. */
+  private async releaseLine(
+    tenantId: string,
+    weekStartDate: string,
+    entryId: string,
+  ): Promise<void> {
+    const slot = await this.assignmentRepo.findOne({
+      where: {
+        congregationId: tenantId,
+        weekStartDate,
+        partKey: PUBLIC_TALK_PART_KEY,
+      },
+    });
+    if (!slot || slot.talkExchangeId !== entryId) return;
+    const entry = await this.repo.findOne({
+      where: { id: entryId, congregationId: tenantId },
+      withDeleted: true,
+    });
+    if (entry) {
+      await this.clearProgramSlot(tenantId, {
+        ...entry,
+        date: addDaysISO(weekStartDate, 6),
+      } as TalkExchange);
+    }
+  }
+
+  /**
+   * The one live entry «К нам» of a week — the database holds there is at
+   * most one (migration 1913).
+   */
+  async weekEntry(
+    tenantId: string,
+    weekStartDate: string,
+  ): Promise<TalkExchange | null> {
+    return this.repo.findOne({
+      where: {
+        congregationId: tenantId,
+        direction: TalkExchangeDirection.INCOMING,
+        date: Between(weekStartDate, addDaysISO(weekStartDate, 6)),
+        status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
+      },
+    });
+  }
+
+  /** A second guest for a weekend that has one is refused, in words. */
+  private async assertWeekFree(
+    tenantId: string,
+    entry: TalkExchange,
+  ): Promise<void> {
+    if (
+      entry.direction !== TalkExchangeDirection.INCOMING ||
+      entry.status === TalkExchangeStatus.DID_NOT_HAPPEN
+    ) {
+      return;
+    }
+    const other = await this.weekEntry(tenantId, mondayOf(entry.date));
+    if (other && other.id !== entry.id) throw weekTaken();
+  }
+
+  /** Saved — and the database's «one a week» said in words, not as a 500. */
+  private async saveEntry(row: TalkExchange): Promise<TalkExchange> {
+    try {
+      return await this.repo.save(row);
+    } catch (err) {
+      if (isWeekTaken(err)) throw weekTaken();
+      throw err;
+    }
+  }
+
+  /** Is the weekend meeting of that week cancelled in the programme? */
+  private async weekCancelled(
+    tenantId: string,
+    weekStartDate: string,
+  ): Promise<boolean> {
+    const slot = await this.assignmentRepo.findOne({
+      where: {
+        congregationId: tenantId,
+        weekStartDate,
+        partKey: PUBLIC_TALK_PART_KEY,
+      },
+    });
+    return slot?.status === AssignmentStatus.CANCELLED;
+  }
+
+  /**
+   * Entries that change weeks together — the programme's «swap» and «move».
+   *
+   * The entry itself goes, note, host family and all; it used to stay where
+   * it was while the mirror rewrote whatever entry the other week had into
+   * this guest (sync audit H2). The weeks are freed first and filled after,
+   * so the database's «one a week» holds at every step.
+   */
+  async moveWeekEntries(
+    tenantId: string,
+    moves: Array<{ entry: TalkExchange; toWeek: string }>,
+  ): Promise<void> {
+    if (moves.length === 0) return;
+    const dates = new Map<string, string>();
+    for (const mv of moves) {
+      dates.set(mv.entry.id, await this.weekendDateFor(tenantId, mv.toWeek));
+    }
+    await this.repo.manager.transaction(async (m) => {
+      const r = m.getRepository(TalkExchange);
+      for (const mv of moves) await r.softDelete(mv.entry.id);
+      for (const mv of moves) {
+        await r
+          .createQueryBuilder()
+          .update()
+          .set({ date: dates.get(mv.entry.id)! })
+          .where('id = :id', { id: mv.entry.id })
+          .execute();
+      }
+      for (const mv of moves) await r.restore(mv.entry.id);
+    });
+    for (const mv of moves) {
+      await this.auditLog.logUpdate({
+        tenantId,
+        entityType: 'talk_exchange',
+        entityId: mv.entry.id,
+        subjectId: mv.entry.publisherId ?? mv.entry.hospitalityPublisherId,
+        before: { date: String(mv.entry.date).slice(0, 10) },
+        after: { date: dates.get(mv.entry.id)! },
+        fields: ['date'],
+      });
+    }
   }
 
   // ---- Side effects -------------------------------------------------------
@@ -1026,6 +1232,10 @@ export class TalkExchangeService {
     entry: TalkExchange,
     overwrite: boolean,
   ): Promise<TalkExchangeResult> {
+    // A visit that did not happen, or whose weekend is cancelled, is not in
+    // the programme (sync audit H3).
+    if (entry.status === TalkExchangeStatus.DID_NOT_HAPPEN) return entry;
+    if (entry.meetingCancelled) return entry;
     const theme = entry.specialTheme?.trim() || null;
 
     const localPublisherId = entry.publisherId ?? null;
@@ -1072,41 +1282,80 @@ export class TalkExchangeService {
       },
     });
     if (!slot) return entry; // no weekend programme for that week yet
+    // The weekend is cancelled: the entry waits, marked, out of the
+    // programme — and comes back with the meeting.
+    if (slot.status === AssignmentStatus.CANCELLED) {
+      if (!entry.meetingCancelled) {
+        entry.meetingCancelled = true;
+        await this.repo.save(entry);
+        await this.attention?.meetingCancelled(tenantId, entry);
+      }
+      return entry;
+    }
 
+    // The circuit overseer's week: his name stands over the brother of ours
+    // put there before the visit, who comes back when the visit goes. The
+    // overseer's own entry leaves that brother where he is (sync audit M3).
+    // Asked only where it matters: a guest over a line holding one of ours.
+    const overseer =
+      !localPublisherId && name && slot.publisherId
+        ? await this.overseerOfWeek(tenantId, weekStartDate)
+        : null;
+    const overseersEntry =
+      !!name && !!overseer && normalName(overseer) === normalName(name);
+
+    const linkedHere = slot.talkExchangeId === entry.id;
     const talkSame = keepTalk
       ? true
       : theme
         ? slot.specialTalk && (slot.partTitle ?? '').trim() === theme
         : !slot.specialTalk &&
           slot.publicTalkId === (entry.publicTalkId ?? null);
+    /**
+     * The same man — by his card first. A card renamed or merged in the
+     * directory used to make every later save of the entry ask «replace?»
+     * about the same brother, because only the spelling was compared (sync
+     * audit M4).
+     */
     const speakerSame = localPublisherId
       ? slot.publisherId === localPublisherId
       : name
-        ? !slot.publisherId && slot.speakerName === name
+        ? (overseersEntry || !slot.publisherId) &&
+          ((!!entry.visitingSpeakerId &&
+            slot.visitingSpeakerId === entry.visitingSpeakerId) ||
+            normalName(slot.speakerName ?? '') === normalName(name))
         : !slot.publisherId && !slot.speakerName?.trim();
+    const spelled = !name || slot.speakerName === name;
     const alreadyThis = talkSame && speakerSame;
-    // Already as the entry says: nothing to write, nothing to tell.
-    if (alreadyThis) return entry;
+    if (alreadyThis && linkedHere && spelled) return entry;
     // A week already the record keeps its programme; the entry is saved and
     // the coordinator told so (13 October 2026). Asked only now, when the
     // programme WOULD change — not on every save of an old entry's notes.
     if (!(await this.programmeOpen(tenantId, weekStartDate))) {
-      return { ...entry, programmeFrozen: true };
+      return alreadyThis ? entry : { ...entry, programmeFrozen: true };
+    }
+    if (alreadyThis) {
+      // The same visit: the line learns its entry, and the card's spelling.
+      slot.talkExchangeId = entry.id;
+      if (name) slot.speakerName = name;
+      await this.assignmentRepo.save(slot);
+      return entry;
     }
 
-    // A slot that holds only this very talk — the theme put there before the
-    // speaker was known — is not somebody else's decision: the speaker joins it
-    // without asking.
+    /**
+     * Someone else's decision is asked about; the entry's own line is not.
+     * The journal owns who speaks: a line that shows this entry follows it
+     * without a question (23 October 2026). Only a line holding a speaker of
+     * its own — typed in before the two were linked — still asks.
+     */
     const slotHasSpeaker = !!(slot.publisherId || slot.speakerName?.trim());
-    const conflict = slotHasSpeaker
-      ? !alreadyThis
-      : slotOccupied(slot) && !talkSame;
+    const conflict =
+      !linkedHere && (slotHasSpeaker ? true : slotOccupied(slot) && !talkSame);
     if (conflict && !overwrite) {
       const result = entry as TalkExchangeResult;
       result.programConflict = true;
       return result;
     }
-    if (alreadyThis) return entry;
 
     if (localPublisherId) {
       slot.publisherId = localPublisherId;
@@ -1114,7 +1363,7 @@ export class TalkExchangeService {
       slot.speakerCongregation = null;
       slot.visitingSpeakerId = null;
     } else if (name) {
-      slot.publisherId = null;
+      if (!overseersEntry) slot.publisherId = null;
       slot.speakerName = name;
       slot.speakerCongregation = congName;
       // Связь едет вместе с именем. Без неё обратное зеркало прочитает только
@@ -1139,7 +1388,7 @@ export class TalkExchangeService {
       });
       slot.partTitle = talk ? `№${talk.number}. ${talk.title}` : slot.partTitle;
       slot.specialTalk = false;
-    } else if (slotHasSpeaker) {
+    } else if (slotHasSpeaker && !speakerSame) {
       // Replacing another speaker (the coordinator confirmed it): his talk
       // goes with him rather than staying on the new man's name.
       slot.publicTalkId = null;
@@ -1147,6 +1396,7 @@ export class TalkExchangeService {
       slot.specialTalk = false;
     }
     // Otherwise, no talk in the entry: the slot's talk is left alone.
+    slot.talkExchangeId = entry.id;
     if (slot.status === AssignmentStatus.PUBLISHED) {
       slot.changedSincePublish = true;
     }
@@ -1353,8 +1603,10 @@ export class TalkExchangeService {
     );
 
     const weeks = [...new Set(slots.map((a) => a.weekStartDate))];
+    // Never removes: a run over months must not take away what the
+    // coordinator arranged because a line is still empty (sync audit M6).
     for (const week of weeks) {
-      await this.syncProgramToJournal(tenantId, week);
+      await this.syncProgramToJournal(tenantId, week, { rebuild: true });
     }
 
     const after = await this.repo.find({ where: whereIncoming });
@@ -1549,16 +1801,18 @@ export class TalkExchangeService {
     });
 
     // Зеркало заводит запись нового визита. Прежняя ему уже не видна.
+    // The line still points at the visit just closed: that link goes, so
+    // the new visit gets an entry of its own.
+    slot.talkExchangeId = null;
+    await this.assignmentRepo.save(slot);
     await this.syncProgramToJournal(tenantId, dto.weekStartDate);
 
-    const entry = await this.repo.findOne({
-      where: {
-        congregationId: tenantId,
-        direction: TalkExchangeDirection.INCOMING,
-        date: Between(dto.weekStartDate, weekEnd),
-        status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
-      },
-    });
+    const entry = await this.weekEntry(tenantId, dto.weekStartDate);
+    // A person decided it, from the coordinator's side: it is his entry.
+    if (entry && entry.origin !== 'journal') {
+      entry.origin = 'journal';
+      await this.repo.save(entry);
+    }
 
     /**
      * Гостеприимство переезжает к тому, кто приехал.
@@ -1642,9 +1896,28 @@ export class TalkExchangeService {
      */
     const liveHasOwnWork = !!live && !!live.note;
 
+    /**
+     * The week is freed BEFORE the closed visit stands again: one live entry
+     * a week. The replacing visit with a note of its own is no longer kept
+     * live beside it — two live entries in one week left every reader to
+     * pick one (sync audit M1). It stays, with its note, marked as not held:
+     * by this undo, it did not happen.
+     */
+    let removed: string | null = null;
+    if (live && liveHasOwnWork) {
+      live.status = TalkExchangeStatus.DID_NOT_HAPPEN;
+      await this.repo.save(live);
+    } else if (live) {
+      if (live.hospitalityPublisherId && !closed.hospitalityPublisherId) {
+        closed.hospitalityPublisherId = live.hospitalityPublisherId;
+      }
+      await this.repo.softDelete(live.id);
+      removed = live.id;
+    }
+
     const before = snapshot(closed);
     closed.status = TalkExchangeStatus.CONFIRMED;
-    await this.repo.save(closed);
+    await this.saveEntry(closed);
     await this.auditLog.logUpdate({
       tenantId,
       entityType: 'talk_exchange',
@@ -1654,16 +1927,6 @@ export class TalkExchangeService {
       after: snapshot(closed),
       fields: ['status'],
     });
-
-    let removed: string | null = null;
-    if (live && !liveHasOwnWork) {
-      if (live.hospitalityPublisherId && !closed.hospitalityPublisherId) {
-        closed.hospitalityPublisherId = live.hospitalityPublisherId;
-        await this.repo.save(closed);
-      }
-      await this.repo.softDelete(live.id);
-      removed = live.id;
-    }
 
     // Программа возвращается к нему: председатель снова прочитает верное имя.
     const slot = await this.assignmentRepo.findOne({
@@ -1675,12 +1938,27 @@ export class TalkExchangeService {
     });
     if (slot) {
       const slotBefore = slotSnapshot(slot);
+      slot.talkExchangeId = closed.id;
       slot.publisherId = closed.publisherId ?? null;
       slot.visitingSpeakerId = closed.visitingSpeakerId ?? null;
-      slot.speakerName = closed.publisherId ? null : closed.speakerName;
+      // The name from his card — an entry made in the journal may carry the
+      // card alone, and the line came back empty.
+      const card = closed.visitingSpeakerId
+        ? await this.speakerRepo.findOne({
+            where: { id: closed.visitingSpeakerId, congregationId: tenantId },
+            relations: { externalCongregation: true },
+          })
+        : null;
+      slot.speakerName = closed.publisherId
+        ? null
+        : card
+          ? speakerFullName(card)
+          : closed.speakerName;
       slot.speakerCongregation = closed.publisherId
         ? null
-        : closed.speakerCongregation;
+        : card
+          ? (card.externalCongregation?.name ?? null)
+          : closed.speakerCongregation;
       if (closed.specialTheme) {
         slot.publicTalkId = null;
         slot.partTitle = closed.specialTheme;
@@ -1712,16 +1990,37 @@ export class TalkExchangeService {
   }
 
   /**
-   * Keep the journal's incoming entry in sync with the program's weekend
-   * public-talk slot for a week. Only invited speakers (free-text speakerName,
-   * no local publisher) map to a "К нам" entry. Called after the schedule edits
-   * a public_talk_speaker assignment. Writes directly (no further side effects)
-   * and is idempotent, so it never loops with applyIncomingToProgram.
+   * The programme line was saved: what the journal learns from it.
+   *
+   * The journal owns who speaks at a weekend (23 October 2026); the line
+   * shows its entry. So the line writes into the journal only what a person
+   * changed IN THE LINE — the speaker, his congregation, the talk. Before,
+   * any save of the line — its duration, its status — rewrote the week's
+   * entry from it, and a «replace?» the coordinator had declined was undone
+   * by the next unrelated save (sync audit M2).
+   *
+   * What it does, in order:
+   * - a cancelled weekend marks its entry and tells those who answer for the
+   *   talks; lifting the cancellation gives the entry back to the line whole
+   *   (H3, M7). Nothing is deleted;
+   * - an unchanged speaker: the line only learns its entry, and an empty line
+   *   — restored, just created — takes it;
+   * - a changed speaker: the week's entry (the line's own one first) is
+   *   rewritten, or made. A line emptied by hand removes only an entry the
+   *   application made from a typed name; an entry the coordinator made stays
+   *   — it is his arrangement — and he is told (H2). `rebuild` never removes.
    */
   async syncProgramToJournal(
     tenantId: string,
     weekStartDate: string,
+    opts: {
+      speakerChanged?: boolean;
+      rebuild?: boolean;
+      /** The line itself was just brought back from removal. */
+      lineRestored?: boolean;
+    } = {},
   ): Promise<void> {
+    const speakerChanged = opts.speakerChanged ?? true;
     const slot = await this.assignmentRepo.findOne({
       where: {
         congregationId: tenantId,
@@ -1730,28 +2029,56 @@ export class TalkExchangeService {
       },
     });
 
-    // Find the existing incoming journal entry for this week (if any).
-    const weekEnd = addDaysISO(weekStartDate, 6);
     /**
-     * Запись, которую зеркало ведёт, — только СОСТОЯВШАЯСЯ.
-     *
-     * После замены в неделе лежат две: несостоявшийся визит первого брата и
-     * визит второго. Если бы зеркало могло выбрать любую, оно рано или поздно
-     * переписало бы историю первого именем второго — и потеря, ради устранения
-     * которой всё затевалось, вернулась бы с другой стороны.
+     * Запись, которую зеркало ведёт, — только СОСТОЯВШАЯСЯ, и прежде всего
+     * та, которую строка знает. После замены в неделе лежат две:
+     * несостоявшийся визит первого брата и визит второго.
      */
-    const existing = await this.repo.findOne({
-      where: {
-        congregationId: tenantId,
-        direction: TalkExchangeDirection.INCOMING,
-        date: Between(weekStartDate, weekEnd),
-        status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
-      },
-    });
+    let existing = await this.weekEntry(tenantId, weekStartDate);
+    if (!existing && opts.lineRestored && slot?.talkExchangeId) {
+      // The line's own entry, removed with the line: it comes back with it.
+      const own = await this.repo.findOne({
+        where: { id: slot.talkExchangeId, congregationId: tenantId },
+        withDeleted: true,
+      });
+      if (
+        own?.deletedAt &&
+        own.direction === TalkExchangeDirection.INCOMING &&
+        own.status !== TalkExchangeStatus.DID_NOT_HAPPEN &&
+        mondayOf(own.date) === weekStartDate
+      ) {
+        await this.repo.restore(own.id);
+        own.deletedAt = null;
+        existing = own;
+      }
+    }
 
-    // A cancelled week (congress, memorial, ...) counts as "no speaker":
-    // its journal entry must not survive the cancellation.
-    const active = slot && slot.status !== AssignmentStatus.CANCELLED;
+    // A cancelled weekend: the entry waits, marked, and its people are told.
+    if (slot && slot.status === AssignmentStatus.CANCELLED) {
+      if (existing && !existing.meetingCancelled) {
+        existing.meetingCancelled = true;
+        await this.repo.save(existing);
+        await this.attention?.meetingCancelled(tenantId, existing);
+      }
+      return;
+    }
+    if (existing?.meetingCancelled) {
+      existing.meetingCancelled = false;
+      await this.repo.save(existing);
+      if (slot) await this.applyIncomingToProgram(tenantId, existing, false);
+      return;
+    }
+
+    if (!speakerChanged) {
+      if (slot && existing && slot.talkExchangeId !== existing.id) {
+        await this.applyIncomingToProgram(tenantId, existing, false);
+      } else if (slot && existing && !slotOccupied(slot)) {
+        await this.applyIncomingToProgram(tenantId, existing, false);
+      }
+      return;
+    }
+
+    const active = !!slot;
     /**
      * Районный в слоте — приезжий, даже если под ним остался наш брат.
      *
@@ -1764,53 +2091,58 @@ export class TalkExchangeService {
       ? await this.overseerOfWeek(tenantId, weekStartDate)
       : null;
     const isOverseer =
-      !!active &&
+      !!slot &&
       !!overseer &&
       normalName(overseer) === normalName(slot.speakerName ?? '');
-    const hasLocal = !!(active && slot.publisherId && !isOverseer);
+    const hasLocal = !!(slot && slot.publisherId && !isOverseer);
     const hasInvited = !!(
-      active &&
+      slot &&
       (!slot.publisherId || isOverseer) &&
       slot.speakerName?.trim()
     );
 
     if (!hasLocal && !hasInvited) {
-      /**
-       * The programme has nobody for that weekend.
-       *
-       * A cancelled week means the entry should go — the meeting is not
-       * happening. But an EMPTY slot means «ещё не заполнили», and an entry
-       * carrying the coordinator's own work — a note, a host family, a named
-       * visiting speaker — must not be thrown away because the programme has
-       * not caught up yet. That would be the application undoing arrangements
-       * it did not make.
-       */
-      const cancelled = !!slot && slot.status === AssignmentStatus.CANCELLED;
+      if (!existing || opts.rebuild) return;
       const coordinatorsOwn =
-        !!existing &&
-        (!!existing.visitingSpeakerId ||
-          !!existing.hospitalityPublisherId ||
-          !!existing.note ||
-          !!existing.specialTheme);
-      if (existing && (cancelled || !coordinatorsOwn)) {
+        existing.origin === 'journal' ||
+        !!existing.hospitalityPublisherId ||
+        !!existing.note ||
+        !!existing.specialTheme;
+      if (!coordinatorsOwn) {
         await this.repo.softDelete(existing.id);
+        await this.retireLeftoverCards(tenantId, [
+          existing.visitingSpeakerId,
+          slot?.visitingSpeakerId,
+        ]);
+        return;
       }
+      if (slot?.talkExchangeId === existing.id) {
+        slot.talkExchangeId = null;
+        slot.visitingSpeakerId = null;
+        if (await this.programmeOpen(tenantId, weekStartDate)) {
+          await this.assignmentRepo.save(slot);
+        }
+      }
+      await this.attention?.droppedFromProgramme(tenantId, existing);
       return;
     }
+    const line = slot!;
 
-    const publicTalkId = slot!.publicTalkId ?? null;
+    const publicTalkId = line.publicTalkId ?? null;
     /**
      * Тема специальной речи идёт из программы, как и докладчик: у недели с
      * докладчиком тема — ровно то, что стоит в слоте. Иначе при обмене
      * неделями тема оставалась у недели, а не у речи, и доставалась гостю,
      * который приехал с каталожной речью.
      */
-    const specialTheme = slot!.specialTalk
-      ? slot!.partTitle?.trim() || null
+    const specialTheme = line.specialTalk
+      ? line.partTitle?.trim() || null
       : null;
 
+    let entry: TalkExchange;
+    const leftBehind: Array<string | null | undefined> = [];
     if (hasLocal) {
-      const publisherId = slot!.publisherId!;
+      const publisherId = line.publisherId!;
       if (existing) {
         const same =
           existing.publisherId === publisherId &&
@@ -1818,98 +2150,94 @@ export class TalkExchangeService {
           existing.speakerName == null &&
           existing.publicTalkId === publicTalkId &&
           (existing.specialTheme ?? null) === specialTheme;
-        if (same) return;
-        existing.publisherId = publisherId;
-        // Наш брат — не приезжий: связь со справочником снимается намеренно.
-        existing.visitingSpeakerId = null;
-        existing.speakerName = null;
-        existing.speakerCongregation = null;
-        existing.publicTalkId = publicTalkId;
-        existing.specialTheme = specialTheme;
-        await this.repo.save(existing);
-        return;
-      }
-      const entry = this.repo.create({
-        congregationId: tenantId,
-        direction: TalkExchangeDirection.INCOMING,
-        date: await this.weekendDateFor(tenantId, weekStartDate),
-        publisherId,
-        publicTalkId,
-        specialTheme,
-      });
-      await this.repo.save(entry);
-      return;
-    }
-
-    const speakerName = slot!.speakerName!.trim();
-    const speakerCongregation = slot!.speakerCongregation?.trim() || null;
-
-    /**
-     * Чей это визит.
-     *
-     * Слот теперь может нести связь сам; если не несёт — значит имя напечатали
-     * руками, и карточку надо найти или завести. Раньше здесь просто ставился
-     * null, и ровно в этой строке визит переставал принадлежать человеку.
-     */
-    //
-    // Районный в неделю своего визита — особый случай: имя в слот ставит сам
-    // визит, и карточка у него своя, помеченная. Она ищется по имени каждый
-    // раз заново: поменяли районного в визите — слот несёт уже другое имя, и
-    // старая связь указывала бы на прежнего брата.
-    // Cards that may have lost their last visit by this sync: looked at once
-    // the slot and the entry point where they now should.
-    const leftBehind = [slot.visitingSpeakerId, existing?.visitingSpeakerId];
-    const visitingSpeakerId = isOverseer
-      ? await this.overseerCard(tenantId, speakerName)
-      : await this.slotCard(
-          tenantId,
-          slot.visitingSpeakerId ?? null,
-          speakerName,
-          speakerCongregation,
-          existing?.speakerName ?? null,
+        if (!same) {
+          leftBehind.push(existing.visitingSpeakerId, line.visitingSpeakerId);
+          existing.publisherId = publisherId;
+          // Наш брат — не приезжий: связь со справочником снимается намеренно.
+          existing.visitingSpeakerId = null;
+          existing.speakerName = null;
+          existing.speakerCongregation = null;
+          existing.publicTalkId = publicTalkId;
+          existing.specialTheme = specialTheme;
+          await this.repo.save(existing);
+        }
+        entry = existing;
+      } else {
+        entry = await this.repo.save(
+          this.repo.create({
+            congregationId: tenantId,
+            direction: TalkExchangeDirection.INCOMING,
+            date: await this.weekendDateFor(tenantId, weekStartDate),
+            publisherId,
+            publicTalkId,
+            specialTheme,
+            origin: 'programme',
+          }),
         );
-
-    // Слот, в котором имя было напечатано руками, дальше несёт найденную
-    // карточку — иначе на каждое сохранение недели заводилась бы новая.
-    if (visitingSpeakerId && slot.visitingSpeakerId !== visitingSpeakerId) {
-      // The link is bookkeeping, but it is the programme's row: left as
-      // it is once the week is the record.
-      if (await this.programmeOpen(tenantId, weekStartDate)) {
-        slot.visitingSpeakerId = visitingSpeakerId;
-        await this.assignmentRepo.save(slot!);
       }
-    }
-
-    if (existing) {
-      const same =
-        existing.publisherId == null &&
-        existing.visitingSpeakerId === visitingSpeakerId &&
-        existing.speakerName === speakerName &&
-        existing.speakerCongregation === speakerCongregation &&
-        existing.publicTalkId === publicTalkId &&
-        (existing.specialTheme ?? null) === specialTheme;
-      if (!same) {
-        existing.publisherId = null;
-        existing.visitingSpeakerId = visitingSpeakerId;
-        existing.speakerName = speakerName;
-        existing.speakerCongregation = speakerCongregation;
-        existing.publicTalkId = publicTalkId;
-        existing.specialTheme = specialTheme;
-        await this.repo.save(existing);
+      if (line.visitingSpeakerId) {
+        leftBehind.push(line.visitingSpeakerId);
+        line.visitingSpeakerId = null;
       }
     } else {
-      await this.repo.save(
-        this.repo.create({
-          congregationId: tenantId,
-          direction: TalkExchangeDirection.INCOMING,
-          date: await this.weekendDateFor(tenantId, weekStartDate),
-          visitingSpeakerId,
-          speakerName,
-          speakerCongregation,
-          publicTalkId,
-          specialTheme,
-        }),
-      );
+      const speakerName = line.speakerName!.trim();
+      const speakerCongregation = line.speakerCongregation?.trim() || null;
+      // Cards that may have lost their last visit by this sync: looked at
+      // once the slot and the entry point where they now should.
+      leftBehind.push(line.visitingSpeakerId, existing?.visitingSpeakerId);
+      //
+      // Районный в неделю своего визита — особый случай: имя в слот ставит
+      // сам визит, и карточка у него своя, помеченная.
+      const visitingSpeakerId = isOverseer
+        ? await this.overseerCard(tenantId, speakerName)
+        : await this.slotCard(
+            tenantId,
+            line.visitingSpeakerId ?? null,
+            speakerName,
+            speakerCongregation,
+            existing?.speakerName ?? null,
+          );
+      line.visitingSpeakerId = visitingSpeakerId;
+      if (existing) {
+        const same =
+          existing.publisherId == null &&
+          existing.visitingSpeakerId === visitingSpeakerId &&
+          existing.speakerName === speakerName &&
+          existing.speakerCongregation === speakerCongregation &&
+          existing.publicTalkId === publicTalkId &&
+          (existing.specialTheme ?? null) === specialTheme;
+        if (!same) {
+          existing.publisherId = null;
+          existing.visitingSpeakerId = visitingSpeakerId;
+          existing.speakerName = speakerName;
+          existing.speakerCongregation = speakerCongregation;
+          existing.publicTalkId = publicTalkId;
+          existing.specialTheme = specialTheme;
+          await this.repo.save(existing);
+        }
+        entry = existing;
+      } else {
+        entry = await this.repo.save(
+          this.repo.create({
+            congregationId: tenantId,
+            direction: TalkExchangeDirection.INCOMING,
+            date: await this.weekendDateFor(tenantId, weekStartDate),
+            visitingSpeakerId,
+            speakerName,
+            speakerCongregation,
+            publicTalkId,
+            specialTheme,
+            origin: 'programme',
+          }),
+        );
+      }
+    }
+
+    // The line knows its entry from now on. The link is bookkeeping, but it
+    // is the programme's row: left as it is once the week is the record.
+    if (await this.programmeOpen(tenantId, weekStartDate)) {
+      line.talkExchangeId = entry.id;
+      await this.assignmentRepo.save(line);
     }
     await this.retireLeftoverCards(tenantId, leftBehind);
   }

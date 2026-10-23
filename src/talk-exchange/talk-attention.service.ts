@@ -60,6 +60,11 @@ const STR: Record<
     absence: (day: string, host: string) => string;
     departed: (day: string, host: string) => string;
     elsewhere: string;
+    cancelledTitle: string;
+    cancelledBody: (day: string, guest: string) => string;
+    droppedTitle: string;
+    droppedBody: (day: string, guest: string) => string;
+    guest: string;
   }
 > = {
   ru: {
@@ -72,6 +77,13 @@ const STR: Record<
     departed: (day, host) =>
       `${day} · ${host}: брат отмечен выбывшим. Нужен другой`,
     elsewhere: 'другое собрание',
+    cancelledTitle: 'Встреча отменена — у нас записан гость',
+    cancelledBody: (day, guest) =>
+      `${day} · ${guest}. Сообщите ему или перенесите визит`,
+    droppedTitle: 'Докладчика убрали из программы',
+    droppedBody: (day, guest) =>
+      `${day} · ${guest} записан в журнале «К нам», а в программе его больше нет. Проверьте, приедет ли он`,
+    guest: 'гость',
   },
   de: {
     needsTitle: 'Ein Bruder von uns wird gebraucht',
@@ -83,6 +95,13 @@ const STR: Record<
     departed: (day, host) =>
       `${day} · ${host}: Der Bruder ist als ausgeschieden markiert. Ein anderer wird gebraucht`,
     elsewhere: 'andere Versammlung',
+    cancelledTitle: 'Zusammenkunft abgesagt – ein Gastredner ist eingetragen',
+    cancelledBody: (day, guest) =>
+      `${day} · ${guest}. Bitte ihn informieren oder den Besuch verschieben`,
+    droppedTitle: 'Redner aus dem Programm entfernt',
+    droppedBody: (day, guest) =>
+      `${day} · ${guest} steht im Vortragsplan, aber nicht mehr im Programm. Bitte klären, ob er kommt`,
+    guest: 'Gastredner',
   },
   en: {
     needsTitle: 'A brother from us is needed',
@@ -94,6 +113,13 @@ const STR: Record<
     departed: (day, host) =>
       `${day} · ${host}: the brother is marked as departed. Someone else is needed`,
     elsewhere: 'another congregation',
+    cancelledTitle: 'Meeting cancelled — a guest speaker is booked',
+    cancelledBody: (day, guest) =>
+      `${day} · ${guest}. Let him know or move the visit`,
+    droppedTitle: 'Speaker removed from the programme',
+    droppedBody: (day, guest) =>
+      `${day} · ${guest} is booked in the talk log but no longer in the programme. Check whether he is coming`,
+    guest: 'guest',
   },
 };
 
@@ -267,6 +293,63 @@ export class TalkAttentionService {
           body: STR[l].needsBody(shortDay(date, l), host ?? STR[l].elsewhere),
         }),
         `talk-attention:off:${entry.id}:${stamp}`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `talk attention ${entry.id}: not announced: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * A guest is booked for a weekend whose meeting was just cancelled — a
+   * convention, the circuit assembly. His entry is kept; the brother himself
+   * must be told, and only those who answer for the talks can (23 October
+   * 2026). Once per cancellation of that entry.
+   */
+  async meetingCancelled(
+    tenantId: string,
+    entry: Pick<TalkExchange, 'id' | 'date' | 'speakerName'>,
+  ): Promise<void> {
+    await this.aboutGuest(tenantId, entry, 'cancelled');
+  }
+
+  /**
+   * The weekend programme no longer names a guest the coordinator booked:
+   * the entry is his arrangement and stays, but the chairman would announce
+   * nobody (23 October 2026).
+   */
+  async droppedFromProgramme(
+    tenantId: string,
+    entry: Pick<TalkExchange, 'id' | 'date' | 'speakerName'>,
+  ): Promise<void> {
+    await this.aboutGuest(tenantId, entry, 'dropped');
+  }
+
+  private async aboutGuest(
+    tenantId: string,
+    entry: Pick<TalkExchange, 'id' | 'date' | 'speakerName'>,
+    what: 'cancelled' | 'dropped',
+  ): Promise<void> {
+    try {
+      const date = String(entry.date).slice(0, 10);
+      if (date < (await this.today(tenantId))) return;
+      const stamp = Math.floor(Date.now() / 10_000).toString(36);
+      await this.say(
+        tenantId,
+        entry.id,
+        date,
+        (l) => ({
+          title:
+            what === 'cancelled' ? STR[l].cancelledTitle : STR[l].droppedTitle,
+          body: (what === 'cancelled'
+            ? STR[l].cancelledBody
+            : STR[l].droppedBody)(
+            shortDay(date, l),
+            entry.speakerName?.trim() || STR[l].guest,
+          ),
+        }),
+        `talk-attention:${what}:${entry.id}:${stamp}`,
       );
     } catch (err) {
       this.logger.warn(
