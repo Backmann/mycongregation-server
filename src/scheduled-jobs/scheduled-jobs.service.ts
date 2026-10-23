@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { MemorialService } from '../memorial/memorial.service';
 import { PublishersService } from '../publishers/publishers.service';
@@ -19,6 +19,7 @@ import { ConductRunsService } from '../conduct-runs/conduct-runs.service';
 import { ConductLiveService } from '../conduct-live/conduct-live.service';
 import { ProgrammeNoticeService } from '../assignments/programme-notice.service';
 import { TalkAttentionService } from '../talk-exchange/talk-attention.service';
+import { TalkConsistencyService } from '../talk-exchange/talk-consistency.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -44,6 +45,9 @@ export class ScheduledJobsService {
     private readonly conductLive: ConductLiveService,
     private readonly programmeNotices: ProgrammeNoticeService,
     private readonly talkAttention: TalkAttentionService,
+    /** The morning comparison of the talk journal and the programme. */
+    @Optional()
+    private readonly talkConsistency?: TalkConsistencyService,
   ) {}
 
   /**
@@ -59,6 +63,23 @@ export class ScheduledJobsService {
       await this.talkAttention.runDaily();
     } catch (e) {
       this.logger.error(`talk attention failed: ${String(e)}`);
+    }
+  }
+
+  /**
+   * Do the talk journal and the weekend programme still say the same for the
+   * weeks ahead? Each morning, before the day's notices; the administrators
+   * hear of a difference (23 October 2026).
+   */
+  @Cron('50 7 * * *', {
+    name: 'talk-consistency',
+    timeZone: 'Europe/Berlin',
+  })
+  async handleTalkConsistency(): Promise<void> {
+    try {
+      await this.talkConsistency?.runDaily();
+    } catch (e) {
+      this.logger.error(`talk consistency failed: ${String(e)}`);
     }
   }
 
