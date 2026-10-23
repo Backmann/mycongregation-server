@@ -56,6 +56,24 @@ import { refusal } from '../common/errors/refusal';
 
 const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
 
+/** The fields of the weekend talk line that say who speaks and on what. */
+const SPEAKER_FIELDS = [
+  'publisherId',
+  'speakerName',
+  'speakerCongregation',
+  'publicTalkId',
+  'partTitle',
+  'specialTalk',
+] as const;
+
+/** Does a new line already name somebody to speak? */
+function namesSpeaker(a: {
+  publisherId?: string | null;
+  speakerName?: string | null;
+}): boolean {
+  return !!a.publisherId || !!a.speakerName?.trim();
+}
+
 /**
  * Congregation-opt-in rule: whoever is chairman is also assigned the
  * concluding (midweek) / opening (weekend) prayer of the same meeting.
@@ -409,6 +427,7 @@ export class AssignmentsService {
       await this.talkExchange.syncProgramToJournal(
         congregationId,
         saved.weekStartDate,
+        { speakerChanged: namesSpeaker(fields) },
       );
     }
     return saved;
@@ -451,14 +470,19 @@ export class AssignmentsService {
       });
     }
     if (retroactive) return saved;
-    const talkWeeks = new Set(
-      saved
-        .filter((a) => a.partKey === PUBLIC_TALK_PART_KEY)
-        .map((a) => a.weekStartDate),
-    );
-    for (const week of talkWeeks) {
+    const talkWeeks = new Map<string, boolean>();
+    for (const a of saved) {
+      if (a.partKey !== PUBLIC_TALK_PART_KEY) continue;
+      talkWeeks.set(
+        a.weekStartDate,
+        (talkWeeks.get(a.weekStartDate) ?? false) || namesSpeaker(a),
+      );
+    }
+    for (const [week, speakerChanged] of talkWeeks) {
       await this.talkExchange.fillEmptySlot(congregationId, week);
-      await this.talkExchange.syncProgramToJournal(congregationId, week);
+      await this.talkExchange.syncProgramToJournal(congregationId, week, {
+        speakerChanged,
+      });
     }
     // A meeting created for a week with a circuit visit gets the visit's
     // programme now — the visit may have been saved long before the week had
@@ -531,6 +555,11 @@ export class AssignmentsService {
     // instead of leaving it marked as used for a week it never appeared in.
     const partTitleReplaced =
       dto.partTitle !== undefined && dto.partTitle !== existing.partTitle;
+    // What of the weekend talk a person changed in THIS save: only that is
+    // the journal's business (the journal owns who speaks, 23 October 2026).
+    const speakerChanged = SPEAKER_FIELDS.some(
+      (f) => dto[f] !== undefined && (dto[f] ?? null) !== (existing[f] ?? null),
+    );
     Object.assign(existing, dto);
     // A talk from the catalogue ends a special talk: the number is the title.
     if (dto.publicTalkId) existing.specialTalk = false;
@@ -569,6 +598,7 @@ export class AssignmentsService {
       await this.talkExchange.syncProgramToJournal(
         congregationId,
         saved.weekStartDate,
+        { speakerChanged },
       );
     }
     // The planning helpers are for meetings still ahead. On one already
@@ -824,8 +854,32 @@ export class AssignmentsService {
       );
     }
 
+    /**
+     * The journal's entries go with their weeks (sync audit H2). «Move»
+     * onto a week that has its own guest would leave that guest's entry
+     * without a line, or rewrite it into another man: refused, nothing
+     * written.
+     */
+    const sourceEntry = await this.talkExchange.weekEntry(
+      congregationId,
+      dto.sourceWeekStartDate,
+    );
+    const targetEntry = await this.talkExchange.weekEntry(
+      congregationId,
+      dto.targetWeekStartDate,
+    );
+    if (dto.mode === 'move' && targetEntry) {
+      throw new BadRequestException(
+        refusal(
+          'TALK_WEEK_TAKEN',
+          'The target weekend already has a speaker in the journal',
+        ),
+      );
+    }
+
     type TalkFields = Pick<
       Assignment,
+      | 'talkExchangeId'
       | 'publisherId'
       | 'speakerName'
       | 'speakerCongregation'
@@ -839,6 +893,7 @@ export class AssignmentsService {
       | 'specialTalk'
     >;
     const take = (a: Assignment): TalkFields => ({
+      talkExchangeId: a.talkExchangeId,
       publisherId: a.publisherId,
       speakerName: a.speakerName,
       speakerCongregation: a.speakerCongregation,
@@ -869,6 +924,7 @@ export class AssignmentsService {
       dto.mode === 'swap'
         ? fromTarget
         : {
+            talkExchangeId: null,
             publisherId: null,
             speakerName: null,
             speakerCongregation: null,
@@ -880,6 +936,16 @@ export class AssignmentsService {
     );
 
     await this.repo.save([source, target]);
+    await this.talkExchange.moveWeekEntries(congregationId, [
+      ...(sourceEntry
+        ? [{ entry: sourceEntry, toWeek: dto.targetWeekStartDate }]
+        : []),
+      ...(targetEntry && dto.mode === 'swap'
+        ? [{ entry: targetEntry, toWeek: dto.sourceWeekStartDate }]
+        : []),
+    ]);
+    // Each line now shows the entry that came with it; a line from before
+    // the link existed gets one.
     await this.talkExchange.syncProgramToJournal(
       congregationId,
       dto.sourceWeekStartDate,
@@ -972,9 +1038,11 @@ export class AssignmentsService {
     });
     const restored = await this.getById(congregationId, id);
     if (!retroactive && restored.partKey === PUBLIC_TALK_PART_KEY) {
+      // The line comes back with its own entry, not a bare new one (M7).
       await this.talkExchange.syncProgramToJournal(
         congregationId,
         restored.weekStartDate,
+        { speakerChanged: false, lineRestored: true },
       );
     }
     return restored;

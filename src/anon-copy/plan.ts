@@ -167,7 +167,7 @@ export const PLAN: Record<string, TablePlan> = {
     copy(`id congregation_id week_start_date event_type part_key part_order
       part_duration_min publisher_id assistant_publisher_id status created_at
       updated_at deleted_at public_talk_id changed_since_publish
-      visiting_speaker_id special_talk`),
+      visiting_speaker_id special_talk talk_exchange_id`),
     {
       part_title: 'scrub',
       speaker_name: 'full',
@@ -274,8 +274,8 @@ export const PLAN: Record<string, TablePlan> = {
   talk_exchange: table(
     copy(`id congregation_id direction date status public_talk_id
       visiting_speaker_id hospitality_publisher_id publisher_id
-      host_congregation_id linked_absence_id risk_ack_reason created_at
-      updated_at deleted_at`),
+      host_congregation_id linked_absence_id risk_ack_reason meeting_cancelled
+      origin created_at updated_at deleted_at`),
     {
       speaker_name: 'full',
       speaker_congregation: 'label:Собрание',

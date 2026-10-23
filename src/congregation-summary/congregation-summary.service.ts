@@ -174,6 +174,8 @@ export class CongregationSummaryService {
             direction: TalkExchangeDirection.INCOMING,
             date: MoreThanOrEqual(today),
             status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
+            // A guest whose weekend is cancelled is not the next one to come.
+            meetingCancelled: false,
           },
           relations: { visitingSpeaker: { externalCongregation: true } },
           order: { date: 'ASC' },
