@@ -521,6 +521,14 @@ export class AssignmentsService {
     for (const week of new Set(saved.map((a) => a.weekStartDate))) {
       await this.coVisitTemplate.applyForWeek(congregationId, week);
     }
+    // ...and the journal of that week follows (24 October 2026, sync audit
+    // M5/H1), as after a workbook import: the guest booked before the visit
+    // steps aside whole, the overseer gets his entry. Without it the journal
+    // kept the guest while the programme named the overseer. Does nothing in
+    // a week without a visit.
+    for (const week of talkWeeks.keys()) {
+      await this.talkExchange.circuitVisitApplied(congregationId, week);
+    }
     return saved;
   }
 

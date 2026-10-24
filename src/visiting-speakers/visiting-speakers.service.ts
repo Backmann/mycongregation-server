@@ -7,10 +7,13 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { In, IsNull, Repository } from 'typeorm';
+import { In, IsNull, MoreThanOrEqual, Not, Repository } from 'typeorm';
+import { CongregationClock } from '../common/congregation-clock.service';
+import { mondayOf } from '../common/week';
 import {
   SpeakerMergeRecord,
   VisitingSpeaker,
@@ -81,7 +84,70 @@ export class VisitingSpeakersService {
     /** The circuit visits: who came as the overseer, who as his substitute. */
     @InjectRepository(SpecialEvent)
     private readonly eventRepo: Repository<SpecialEvent>,
+    // Optional so the specs that build this by hand need not carry it.
+    @Optional() private readonly clock?: CongregationClock,
   ) {}
+
+  /**
+   * The programme lines of this card, from this week on, written with the
+   * card's own name (24 October 2026).
+   *
+   * A line keeps the guest's name as text — that is what Home, the
+   * programme and «Ведение встречи» read. Correcting the card («Петроф» →
+   * «Петров»), or merging two cards into one, changed the journal at once
+   * (it reads the card) and left the programme with the old spelling. Past
+   * weeks keep what was said then. No notice: the same man, spelt right.
+   */
+  private async respellLines(
+    tenantId: string,
+    cardId: string,
+    actorUserId: string | null,
+  ): Promise<void> {
+    if (!this.clock) return;
+    const card = await this.repo.findOne({
+      where: { id: cardId, congregationId: tenantId },
+    });
+    if (!card) return;
+    const name = [card.firstName, card.lastName]
+      .map((x) => (x ?? '').trim())
+      .filter(Boolean)
+      .join(' ');
+    if (!name) return;
+    const from = mondayOf(await this.clock.todayFor(tenantId));
+    const lines = await this.assignmentRepo.find({
+      where: {
+        congregationId: tenantId,
+        visitingSpeakerId: cardId,
+        publisherId: IsNull(),
+        weekStartDate: MoreThanOrEqual(from),
+        speakerName: Not(name),
+      },
+      select: { id: true, weekStartDate: true, speakerName: true },
+    });
+    if (lines.length === 0) return;
+    await this.assignmentRepo.update(
+      { id: In(lines.map((l) => l.id)) },
+      { speakerName: name },
+    );
+    await this.auditLog.logRawUpdate({
+      tenantId,
+      entityType: 'visiting_speaker',
+      entityId: cardId,
+      actorUserId,
+      changedFields: ['programmeSpelling'],
+      before: {
+        programmeSpelling: [...new Set(lines.map((l) => l.speakerName))].join(
+          ', ',
+        ),
+      },
+      after: {
+        programmeSpelling: `${name} (${lines
+          .map((l) => l.weekStartDate)
+          .sort()
+          .join(', ')})`,
+      },
+    });
+  }
 
   private static readonly MANAGER_RESPONSIBILITIES = [
     // The coordinator of the body of elders answers for the exchange of
@@ -234,6 +300,12 @@ export class VisitingSpeakersService {
       after: speakerSnapshot(saved),
       fields: [...SPEAKER_FIELDS],
     });
+    if (
+      before.firstName !== saved.firstName ||
+      before.lastName !== saved.lastName
+    ) {
+      await this.respellLines(tenantId, saved.id, user.id ?? null);
+    }
     if (phoneBefore !== saved.phone) {
       // The number itself never enters the journal — only that it moved.
       await this.auditLog.logRawUpdate({
@@ -402,6 +474,8 @@ export class VisitingSpeakersService {
       },
       fields: ['mergedFrom', 'movedVisits', 'talkNumbers'],
     });
+    // The lines now his are written with his name.
+    await this.respellLines(tenantId, keep.id, user.id ?? null);
 
     return this.findOne(tenantId, keep.id);
   }
@@ -565,6 +639,8 @@ export class VisitingSpeakersService {
       },
       fields: ['separatedFrom', 'returnedVisits', 'talkNumbers'],
     });
+    // The lines given back to the separated card carry its own name again.
+    await this.respellLines(tenantId, mergedId, user.id ?? null);
 
     return this.findOne(tenantId, keep.id);
   }

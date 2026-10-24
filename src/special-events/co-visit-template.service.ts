@@ -89,6 +89,12 @@ function coDisplayName(event: SpecialEvent): string | null {
   return name.length > 0 ? name : null;
 }
 
+/** Two spellings of one name: case and spaces aside. */
+function sameName(a: string, b: string): boolean {
+  const n = (x: string) => x.trim().replace(/\s+/g, ' ').toLowerCase();
+  return n(a) !== '' && n(a) === n(b);
+}
+
 @Injectable()
 export class CoVisitTemplateService {
   private readonly logger = new Logger(CoVisitTemplateService.name);
@@ -363,10 +369,18 @@ export class CoVisitTemplateService {
           // The overseer gives the talk, and nobody else is left in the slot
           // beneath him: whoever was there is remembered and comes back with
           // the week.
+          // The overseer himself already in the slot — filled from his own
+          // entry when the week was created after the visit — is not who
+          // was there before him (24 October 2026, sync audit H1). Remembered
+          // as him, he was put back when the visit was removed, and stayed
+          // in the programme and in «К нам» for a visit that no longer was.
+          const himAlready =
+            !publicTalk.publisherId &&
+            sameName(publicTalk.speakerName ?? '', speaker);
           ops.push({
             op: 'speaker',
             id: publicTalk.id,
-            prev: speakerOf(publicTalk),
+            prev: himAlready ? speakerOf({}) : speakerOf(publicTalk),
           });
           Object.assign(publicTalk, overseerInSlot(speaker));
           await aRepo.save(publicTalk);
