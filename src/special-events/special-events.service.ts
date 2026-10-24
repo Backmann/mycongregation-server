@@ -1,5 +1,6 @@
 import {
   Optional,
+  Inject,
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -10,6 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { In, IsNull, Not, Repository } from 'typeorm';
 import { SpecialEvent } from '../entities/special-event.entity';
+import { SCHOOL_SYNC, type SchoolSync } from '../pioneer-school/school-sync';
 import { Responsibility } from '../entities/responsibility.entity';
 import { CreateSpecialEventDto } from './dto/create-special-event.dto';
 import { UpdateSpecialEventDto } from './dto/update-special-event.dto';
@@ -76,7 +78,24 @@ export class SpecialEventsService {
     /** The Memorial's places move with it (sync audit M4). */
     @Optional()
     private readonly memorial?: MemorialService,
+    /** The pioneer school's absences follow the meeting days (audit M5). */
+    @Optional()
+    @Inject(SCHOOL_SYNC)
+    private readonly schools?: SchoolSync,
   ) {}
+
+  /**
+   * A visit, an assembly or the Memorial moves or takes a meeting: the
+   * pioneer school's absences are brought in line now, not when the school
+   * is next opened. Best effort — the event is saved whatever happens here.
+   */
+  private async schoolsFollow(tenantId: string): Promise<void> {
+    try {
+      await this.schools?.resyncUpcoming(tenantId);
+    } catch {
+      // The night's pass puts it right.
+    }
+  }
 
   /** Whether the journal should follow this event: a visit still ahead. */
   private async journalFollows(event: SpecialEvent): Promise<boolean> {
@@ -331,6 +350,7 @@ export class SpecialEventsService {
       );
     }
     await this.eventNotifications.announce(applied, 'created');
+    await this.schoolsFollow(tenantId);
     return this.present(applied, true);
   }
 
@@ -489,6 +509,7 @@ export class SpecialEventsService {
         );
       }
       if (told) await this.eventNotifications.announce(applied, 'changed');
+      await this.schoolsFollow(tenantId);
       return this.present(applied, true);
     }
     if (!(await this.coVisitTemplate.weekIsOver(saved))) {
@@ -511,6 +532,7 @@ export class SpecialEventsService {
       );
     }
     if (told) await this.eventNotifications.announce(saved, 'changed');
+    await this.schoolsFollow(tenantId);
     return this.present(saved, true);
   }
 
@@ -580,6 +602,7 @@ export class SpecialEventsService {
     });
     await this.specialEventsRepo.softDelete({ id, congregationId: tenantId });
     if (!over) await this.eventNotifications.announce(event, 'cancelled');
+    await this.schoolsFollow(tenantId);
   }
 
   async restore(tenantId: string, id: string): Promise<SpecialEvent> {
@@ -599,6 +622,7 @@ export class SpecialEventsService {
     if (found.deletedAt) {
       await this.eventNotifications.announce(applied, 'restored');
     }
+    await this.schoolsFollow(tenantId);
     return this.present(applied, true);
   }
 }

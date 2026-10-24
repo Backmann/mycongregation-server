@@ -18,6 +18,7 @@ import { ConductRunsModule } from '../conduct-runs/conduct-runs.module';
 import { ConductLiveModule } from '../conduct-live/conduct-live.module';
 import { AssignmentsModule } from '../assignments/assignments.module';
 import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
+import { PioneerSchoolModule } from '../pioneer-school/pioneer-school.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
     CleaningModule,
     MemorialModule,
     SpecialEventsModule,
+    PioneerSchoolModule,
     AnnualReportModule,
     ServiceReportsModule,
     UsersModule,

@@ -22,6 +22,7 @@ import {
   UpdatePioneerSchoolDayDto,
   UpdatePioneerSchoolDto,
   UpdatePioneerSchoolHelperDto,
+  RestorePioneerSchoolHelperDto,
 } from './dto/pioneer-school.dto';
 
 /**
@@ -61,8 +62,22 @@ export class PioneerSchoolController {
     return this.service.updateHelper(tenantId, id, dto, user);
   }
 
+  /** What removing a helper takes off the schools to come. */
+  @Get('helpers/:id/removal-impact')
+  helperRemovalImpact(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.helperRemovalImpact(tenantId, id, user);
+  }
+
+  /**
+   * Answers with the places taken off (24 October 2026), for «Отменить».
+   * It was 204 with nothing; an app that ignores the body is not hurt.
+   */
   @Delete('helpers/:id')
-  @HttpCode(HttpStatus.NO_CONTENT)
+  @HttpCode(HttpStatus.OK)
   removeHelper(
     @TenantId() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -78,8 +93,9 @@ export class PioneerSchoolController {
     @TenantId() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: RestorePioneerSchoolHelperDto,
   ) {
-    return this.service.restoreHelper(tenantId, id, user);
+    return this.service.restoreHelper(tenantId, id, user, dto?.dutyIds ?? []);
   }
 
   @Get()

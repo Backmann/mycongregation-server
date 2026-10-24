@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Not, Repository } from 'typeorm';
@@ -12,13 +13,17 @@ import { PioneerSchoolDuty } from '../entities/pioneer-school-duty.entity';
 import { PioneerSchoolHelper } from '../entities/pioneer-school-helper.entity';
 import { Absence } from '../entities/absence.entity';
 import { MeetingAttendanceService } from '../meeting-attendance/meeting-attendance.service';
-import { EventType } from '../common/enums/event-type.enum';
 import { Duty } from '../entities/duty.entity';
 import { DutyType } from '../common/enums/duty-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { mondayOf } from '../common/week';
+import { CongregationClock } from '../common/congregation-clock.service';
+import {
+  DEFAULT_CONGREGATION_TIMEZONE,
+  todayIn,
+} from '../common/congregation-clock';
 import {
   AssignPioneerSchoolDutyDto,
   CreatePioneerSchoolDto,
@@ -65,7 +70,47 @@ export class PioneerSchoolService {
     @InjectRepository(Duty)
     private readonly meetingDutiesRepo: Repository<Duty>,
     private readonly auditLog: AuditLogService,
+    // Optional so the specs that build this by hand need not carry it.
+    @Optional() private readonly clock?: CongregationClock,
   ) {}
+
+  /** The congregation's today; the default zone where no clock was given (specs). */
+  private async today(tenantId: string): Promise<string> {
+    return this.clock
+      ? this.clock.todayFor(tenantId)
+      : todayIn(new Date(), DEFAULT_CONGREGATION_TIMEZONE);
+  }
+
+  /**
+   * Bring every school still to come in line with the meetings (24 October
+   * 2026). A school's absences followed the meeting days only when someone
+   * opened or edited the school; a circuit overseer's visit that moved the
+   * midweek meeting, an assembly, the Memorial or new meeting settings left
+   * brothers «away» on the old evening and free on the new one (sync audit
+   * M5). Run every night, and when a special event changes.
+   */
+  async resyncUpcoming(tenantId?: string): Promise<number> {
+    const rows = await this.schoolsRepo
+      .createQueryBuilder('s')
+      .select(['s.id', 's.congregationId', 's.endDate'])
+      .where(tenantId ? 's.congregationId = :tenantId' : '1=1', { tenantId })
+      .getMany();
+    let done = 0;
+    for (const school of rows) {
+      if (
+        String(school.endDate).slice(0, 10) <
+        (await this.today(school.congregationId))
+      )
+        continue;
+      try {
+        await this.syncAbsencesForSchool(school.congregationId, school.id);
+        done += 1;
+      } catch {
+        // One school that cannot be brought in line does not stop the rest.
+      }
+    }
+    return done;
+  }
 
   /**
    * Only an administrator keeps the schedule — Lionel's decision, and the
@@ -162,6 +207,9 @@ export class PioneerSchoolService {
     }
     const saved = await this.schoolsRepo.save(school);
     await this.reconcile(saved);
+    // New dates are new days: their absences now, not when the screen is
+    // next opened (sync audit M5).
+    await this.syncAbsencesForSchool(tenantId, saved.id);
     await this.auditLog.logUpdate({
       tenantId,
       entityType: 'pioneer_school',
@@ -186,6 +234,22 @@ export class PioneerSchoolService {
   ): Promise<void> {
     this.assertCanEdit(user);
     const school = await this.getSchool(tenantId, id);
+    // Its absences go with it (sync audit M6): the days and duties stay
+    // behind the hidden school, so the cascade from a duty never fires and
+    // every brother on a meeting evening stayed «away» for a school that no
+    // longer exists.
+    const days = await this.daysRepo.find({ where: { schoolId: id } });
+    const duties = days.length
+      ? await this.dutiesRepo.find({
+          where: { dayId: In(days.map((d) => d.id)) },
+        })
+      : [];
+    if (duties.length) {
+      await this.absencesRepo.delete({
+        congregationId: tenantId,
+        pioneerSchoolDutyId: In(duties.map((d) => d.id)),
+      });
+    }
     await this.auditLog.logEvent({
       tenantId,
       entityType: 'pioneer_school',
@@ -622,8 +686,11 @@ export class PioneerSchoolService {
       helpers.filter((h) => h.publisherId).map((h) => [h.id, h.publisherId!]),
     );
 
-    // Which of the school's days carry a midweek meeting of ours, asked once
-    // per week rather than once per day.
+    // Which of the school's days carry a meeting of ours, asked once per
+    // week rather than once per day. Any of ours (24 October 2026, Lionel):
+    // the weekend meeting and the Memorial too — a brother on duty at the
+    // school on Sunday morning is not free for our programme either. Until
+    // then only the midweek evening counted.
     const weeks = [...new Set(days.map((d) => mondayOf(d.date.slice(0, 10))))];
     const meetingDates = new Set<string>();
     for (const week of weeks) {
@@ -631,9 +698,7 @@ export class PioneerSchoolService {
         tenantId,
         week,
       );
-      for (const m of meetings) {
-        if (m.eventType === EventType.MIDWEEK) meetingDates.add(m.date);
-      }
+      for (const m of meetings) meetingDates.add(m.date);
     }
 
     const dateById = new Map(days.map((d) => [d.id, d.date.slice(0, 10)]));
@@ -806,15 +871,89 @@ export class PioneerSchoolService {
     tenantId: string,
     id: string,
     user: AuthenticatedUser,
-  ): Promise<void> {
+  ): Promise<{ cleared: { dutyId: string; date: string }[] }> {
     this.assertCanEdit(user);
     const helper = await this.helpersRepo.findOne({
       where: { id, congregationId: tenantId },
     });
     if (!helper) throw new NotFoundException('Helper not found');
+    // His places from today on are taken off (24 October 2026, Lionel): the
+    // sheet showed him on the microphone while his absence was gone and the
+    // programme took him for free (sync audit M4). Past ones stay — he
+    // served there. The ids come back so «Отменить» can put him back.
+    const ahead = await this.futureDutiesOf(tenantId, id);
+    if (ahead.length) {
+      await this.dutiesRepo.update(
+        { id: In(ahead.map((d) => d.id)) },
+        { helperId: null },
+      );
+    }
     // Soft: his name stays on the schools he already served, and the duty rows
     // keep pointing at a row that still exists.
     await this.helpersRepo.softDelete(id);
+    for (const schoolId of new Set(ahead.map((d) => d.schoolId))) {
+      await this.syncAbsencesForSchool(tenantId, schoolId);
+    }
+    if (ahead.length) {
+      await this.auditLog.logEvent({
+        tenantId,
+        entityType: 'pioneer_school_helper',
+        entityId: id,
+        action: 'DELETE',
+        detail: {
+          name: `${helper.firstName} ${helper.lastName}`.trim(),
+          dutiesCleared: ahead.length,
+          dates: [...new Set(ahead.map((d) => d.date))].sort(),
+        },
+      });
+    }
+    return { cleared: ahead.map((d) => ({ dutyId: d.id, date: d.date })) };
+  }
+
+  /** What removing a helper takes off the schools to come. */
+  async helperRemovalImpact(
+    tenantId: string,
+    id: string,
+    user: AuthenticatedUser,
+  ): Promise<{ duties: number; dates: string[] }> {
+    this.assertCanEdit(user);
+    const helper = await this.helpersRepo.findOne({
+      where: { id, congregationId: tenantId },
+    });
+    if (!helper) throw new NotFoundException('Helper not found');
+    const ahead = await this.futureDutiesOf(tenantId, id);
+    return {
+      duties: ahead.length,
+      dates: [...new Set(ahead.map((d) => d.date))].sort(),
+    };
+  }
+
+  /** His duties on school days from today on, in schools that stand. */
+  private async futureDutiesOf(
+    tenantId: string,
+    helperId: string,
+  ): Promise<{ id: string; schoolId: string; date: string }[]> {
+    const today = await this.today(tenantId);
+    const rows = await this.dutiesRepo
+      .createQueryBuilder('d')
+      .innerJoin(PioneerSchoolDay, 'day', 'day.id = d.dayId')
+      .innerJoin(
+        PioneerSchool,
+        's',
+        's.id = day.schoolId AND s.deletedAt IS NULL',
+      )
+      // The day as text: a raw date comes back as a Date in the process's
+      // own time zone, and a day east of UTC turned into the day before.
+      .select([
+        'd.id AS id',
+        'day.schoolId AS "schoolId"',
+        `to_char(day.date, 'YYYY-MM-DD') AS date`,
+      ])
+      .where('d.helperId = :helperId', { helperId })
+      .andWhere('d.congregationId = :tenantId', { tenantId })
+      .andWhere('day.date >= :today', { today })
+      .getRawMany<{ id: string; schoolId: string; date: string }>();
+    return rows;
   }
 
   /**
@@ -832,6 +971,7 @@ export class PioneerSchoolService {
     tenantId: string,
     id: string,
     user: AuthenticatedUser,
+    dutyIds: string[] = [],
   ): Promise<void> {
     this.assertCanEdit(user);
     const helper = await this.helpersRepo.findOne({
@@ -841,6 +981,23 @@ export class PioneerSchoolService {
     if (!helper) throw new NotFoundException('Helper not found');
     if (!helper.deletedAt) return;
     await this.helpersRepo.restore(id);
+    // The places his removal took off, given back where nobody has been
+    // put since (24 October 2026).
+    if (dutyIds.length === 0) return;
+    const free = await this.dutiesRepo.find({
+      where: { id: In(dutyIds), congregationId: tenantId, helperId: IsNull() },
+    });
+    if (free.length === 0) return;
+    await this.dutiesRepo.update(
+      { id: In(free.map((d) => d.id)) },
+      { helperId: id },
+    );
+    const days = await this.daysRepo.find({
+      where: { id: In([...new Set(free.map((d) => d.dayId))]) },
+    });
+    for (const schoolId of new Set(days.map((d) => d.schoolId))) {
+      await this.syncAbsencesForSchool(tenantId, schoolId);
+    }
   }
 
   /** A helper's name for the journal — an id in a journal explains nothing. */

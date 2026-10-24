@@ -174,3 +174,15 @@ export class ReservedDto {
   @IsArray()
   reserved?: string[];
 }
+
+/**
+ * «Отменить» after removing a helper: the places his removal took off, to
+ * be given back where nobody has been put since. Optional — an app that
+ * does not send them restores only the helper, as before.
+ */
+export class RestorePioneerSchoolHelperDto {
+  @IsOptional()
+  @IsArray()
+  @IsUUID('all', { each: true })
+  dutyIds?: string[];
+}

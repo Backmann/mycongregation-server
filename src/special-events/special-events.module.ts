@@ -8,6 +8,7 @@ import { SpecialEventsService } from './special-events.service';
 import { SpecialEventsController } from './special-events.controller';
 import { CoVisitTemplateModule } from './co-visit-template.module';
 import { MemorialModule } from '../memorial/memorial.module';
+import { PioneerSchoolModule } from '../pioneer-school/pioneer-school.module';
 import { EventNotificationsService } from './event-notifications.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { User } from '../entities/user.entity';
@@ -24,6 +25,7 @@ import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
     AuditLogModule,
     CoVisitTemplateModule,
     MemorialModule,
+    PioneerSchoolModule,
     TalkExchangeModule,
   ],
   controllers: [SpecialEventsController],

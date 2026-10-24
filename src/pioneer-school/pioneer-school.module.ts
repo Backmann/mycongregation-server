@@ -8,8 +8,10 @@ import { Absence } from '../entities/absence.entity';
 import { MeetingAttendanceModule } from '../meeting-attendance/meeting-attendance.module';
 import { Duty } from '../entities/duty.entity';
 import { AuditLogModule } from '../audit-log/audit-log.module';
+import { CongregationClockModule } from '../common/congregation-clock.module';
 import { PioneerSchoolService } from './pioneer-school.service';
 import { PioneerSchoolController } from './pioneer-school.controller';
+import { SCHOOL_SYNC } from './school-sync';
 
 @Module({
   imports: [
@@ -23,9 +25,13 @@ import { PioneerSchoolController } from './pioneer-school.controller';
     ]),
     AuditLogModule,
     MeetingAttendanceModule,
+    CongregationClockModule,
   ],
   controllers: [PioneerSchoolController],
-  providers: [PioneerSchoolService],
-  exports: [PioneerSchoolService],
+  providers: [
+    PioneerSchoolService,
+    { provide: SCHOOL_SYNC, useExisting: PioneerSchoolService },
+  ],
+  exports: [PioneerSchoolService, SCHOOL_SYNC],
 })
 export class PioneerSchoolModule {}
