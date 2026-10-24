@@ -296,6 +296,14 @@ jobs:
 
           echo "=== Cleanup ==="
           rm /tmp/server-src.tar.gz
+
+          # The live database checked after the deploy (24 October 2026):
+          # only OK or the names of broken rules reach this public log, never
+          # numbers. `facts` on the server shows the numbers.
+          echo "=== Facts ==="
+          chmod +x /root/mycongregation/server/scripts/facts.sh
+          ln -sf /root/mycongregation/server/scripts/facts.sh /usr/local/bin/facts
+          bash /root/mycongregation/server/scripts/facts.sh --ci
           echo "Deploy complete"
           ENDSSH
 
