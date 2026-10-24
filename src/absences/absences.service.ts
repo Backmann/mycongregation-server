@@ -253,6 +253,17 @@ export class AbsencesService {
     }
     // Ownership is checked against the STORED publisher, not the DTO.
     await this.assertCanWrite(user, found.publisherId);
+    // Nor changed by hand (24 October 2026): the school writes it from the
+    // duty, and its next pass put the old dates back over the edit in
+    // silence (sync audit L1). The duty is what to change.
+    if (found.pioneerSchoolDutyId) {
+      throw new BadRequestException(
+        refusal(
+          'ABSENCE_FROM_SCHOOL',
+          'This absence comes from the pioneer service school. Change the assignment in the school instead.',
+        ),
+      );
+    }
     // A non-manager may not reassign the absence to another publisher.
     if (dto.publisherId && dto.publisherId !== found.publisherId) {
       await this.assertCanWrite(user, dto.publisherId);

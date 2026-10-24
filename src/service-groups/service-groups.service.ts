@@ -3,11 +3,15 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { Brackets, Repository } from 'typeorm';
 import { ServiceGroup } from '../entities/service-group.entity';
+import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
+import { FieldServiceTemplateSlot } from '../entities/field-service-template-slot.entity';
+import { CongregationClock } from '../common/congregation-clock.service';
 import { Publisher } from '../entities/publisher.entity';
 import { CreateServiceGroupDto } from './dto/create-service-group.dto';
 import { UpdateServiceGroupDto } from './dto/update-service-group.dto';
@@ -43,7 +47,66 @@ export class ServiceGroupsService {
     private readonly serviceGroupsRepo: Repository<ServiceGroup>,
     private readonly publishersService: PublishersService,
     private readonly auditLog: AuditLogService,
+    // Optional so the specs that build this service by hand need not carry
+    // them; Nest always provides them.
+    @Optional()
+    @InjectRepository(FieldServiceMeeting)
+    private readonly meetingsRepo?: Repository<FieldServiceMeeting>,
+    @Optional()
+    @InjectRepository(FieldServiceTemplateSlot)
+    private readonly slotsRepo?: Repository<FieldServiceTemplateSlot>,
+    @Optional() private readonly clock?: CongregationClock,
   ) {}
+
+  /**
+   * What the group still has in field service, for the words of the
+   * confirmation before it is removed (24 October 2026): its rows in the
+   * template, its drafts and its announced meetings from today on.
+   */
+  async removalImpact(
+    tenantId: string,
+    id: string,
+  ): Promise<{ slots: number; drafts: number; published: number }> {
+    await this.findEntity(tenantId, id);
+    const { drafts, published } = await this.meetingsAhead(tenantId, id);
+    const slots = this.slotsRepo
+      ? await this.slotsRepo.count({
+          where: { congregationId: tenantId, serviceGroupId: id },
+        })
+      : 0;
+    return { slots, drafts: drafts.length, published: published.length };
+  }
+
+  /** The group's meetings from today on, not called off, split by state. */
+  private async meetingsAhead(tenantId: string, groupId: string) {
+    const dayOf = (m: FieldServiceMeeting) => {
+      const d = new Date(`${String(m.weekStartDate).slice(0, 10)}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + m.dayOfWeek - 1);
+      return d.toISOString().slice(0, 10);
+    };
+    if (!this.meetingsRepo || !this.clock) {
+      return { drafts: [], published: [], dayOf };
+    }
+    const today = await this.clock.todayFor(tenantId);
+    const monday = (() => {
+      const d = new Date(`${today}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+      return d.toISOString().slice(0, 10);
+    })();
+    const rows = await this.meetingsRepo
+      .createQueryBuilder('m')
+      .where('m.congregationId = :tenantId', { tenantId })
+      .andWhere('m.serviceGroupId = :groupId', { groupId })
+      .andWhere('m.cancelledAt IS NULL')
+      .andWhere('m.weekStartDate >= :monday', { monday })
+      .getMany();
+    const ahead = rows.filter((m) => dayOf(m) >= today);
+    return {
+      drafts: ahead.filter((m) => m.publishedAt === null),
+      published: ahead.filter((m) => m.publishedAt !== null),
+      dayOf,
+    };
+  }
 
   async findAll(
     tenantId: string,
@@ -304,12 +367,32 @@ export class ServiceGroupsService {
         refusal('GROUP_ALREADY_REMOVED', 'Service group already removed'),
       );
     }
+    // Its drafts go with it (24 October 2026): nobody was told of them, and
+    // a draft of a group that no longer exists would be announced a week
+    // before its month with no place and a conductor by rotation. Announced
+    // meetings stay — people were told — and the month view marks them
+    // «группа удалена» for the overseer to decide. Its template rows stay
+    // too, asleep: preparing a month skips them, and they wake if the group
+    // is restored.
+    const ahead = await this.meetingsAhead(tenantId, id);
+    const drafts = ahead.drafts;
+    if (drafts.length && this.meetingsRepo) {
+      await this.meetingsRepo.delete(drafts.map((m) => m.id));
+    }
     await this.auditLog.logEvent({
       tenantId,
       entityType: 'service_group',
       entityId: id,
       action: 'DELETE',
-      detail: { name: group.name },
+      detail: {
+        name: group.name,
+        ...(drafts.length
+          ? {
+              draftsRemoved: drafts.length,
+              draftDates: drafts.map((m) => ahead.dayOf(m)).sort(),
+            }
+          : {}),
+      },
     });
     await this.serviceGroupsRepo.softDelete(id);
   }

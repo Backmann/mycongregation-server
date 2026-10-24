@@ -32,6 +32,9 @@ import { HallBusyService } from './hall-busy.service';
 import { PioneerSchool } from '../entities/pioneer-school.entity';
 import { PioneerSchoolDay } from '../entities/pioneer-school-day.entity';
 import { CongregationClockModule } from '../common/congregation-clock.module';
+import { FieldServiceRemovedDay } from '../entities/field-service-removed-day.entity';
+import { FieldServiceAttentionService } from './field-service-attention.service';
+import { FieldServiceConsistencyService } from './field-service-consistency.service';
 
 @Module({
   imports: [
@@ -42,6 +45,7 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
       FieldServiceTemplateSlot,
       FieldServiceSettings,
       FieldServiceMonthRun,
+      FieldServiceRemovedDay,
       SpecialEvent,
       // What else is on a day — the pioneer school sits in the hall too.
       PioneerSchool,
@@ -75,8 +79,14 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
     ServiceOverseerService,
     GroupVisitTasksService,
     HallBusyService,
+    FieldServiceAttentionService,
+    FieldServiceConsistencyService,
     ResponsibilityGuard,
   ],
-  exports: [GroupVisitTasksService, FieldServiceAutomationService],
+  exports: [
+    GroupVisitTasksService,
+    FieldServiceAutomationService,
+    FieldServiceConsistencyService,
+  ],
 })
 export class FieldServiceMeetingsModule {}

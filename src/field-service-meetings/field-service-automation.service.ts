@@ -87,6 +87,8 @@ const TEXTS: Record<
     remindPublish: string;
     remindOnly: string;
     published: string;
+    held: string;
+    publishFailed: string;
   }
 > = {
   ru: {
@@ -98,6 +100,9 @@ const TEXTS: Record<
     remindOnly: '{month} ещё черновик — не забудьте опубликовать.',
     published:
       '{month} опубликован автоматически: черновик никто не опубликовал за 7 дней до начала.',
+    held: 'Остались черновиком, их надо поправить: {list}.',
+    publishFailed:
+      '{month} не удалось опубликовать автоматически. Следующей ночью попробую снова — или опубликуйте сами.',
   },
   en: {
     title: 'Field service meetings',
@@ -108,6 +113,9 @@ const TEXTS: Record<
     remindOnly: '{month} is still a draft — remember to publish it.',
     published:
       '{month} was published automatically: nobody published the draft 7 days before the month.',
+    held: 'Left as drafts, they need fixing: {list}.',
+    publishFailed:
+      '{month} could not be published automatically. It will be tried again tomorrow night — or publish it yourself.',
   },
   de: {
     title: 'Zusammenkünfte für den Predigtdienst',
@@ -118,6 +126,9 @@ const TEXTS: Record<
     remindOnly: '{month} ist noch ein Entwurf – bitte veröffentlichen.',
     published:
       '{month} wurde automatisch veröffentlicht: niemand hat den Entwurf 7 Tage vor Monatsbeginn veröffentlicht.',
+    held: 'Als Entwurf geblieben, bitte korrigieren: {list}.',
+    publishFailed:
+      '{month} konnte nicht automatisch veröffentlicht werden. In der nächsten Nacht wird es erneut versucht – oder selbst veröffentlichen.',
   },
 };
 
@@ -326,13 +337,35 @@ export class FieldServiceAutomationService {
         today >= publishDay &&
         today < first
       ) {
+        // The mark goes on AFTER the month is published (sync audit L3).
+        // Set before, a publication that failed was never tried again and
+        // nobody heard; now the next night tries again, and the planners
+        // hear once that it did not go.
+        let res: Awaited<
+          ReturnType<FieldServiceMeetingsService['publishMonth']>
+        >;
+        try {
+          res = await this.meetings.publishMonth(cong, year, month, {
+            hold: true,
+          });
+        } catch (e) {
+          this.logger.error(
+            `auto-publish ${cong} ${year}-${month} failed: ${e instanceof Error ? e.message : String(e)}`,
+          );
+          await this.tellPlanners(cong, year, month, 'publishFailed');
+          continue;
+        }
         run.autoPublishedAt = now;
         await this.runs.save(run);
-        const res = await this.meetings.publishMonth(cong, year, month);
+        const held = (res.held ?? []).map((h) => h.date);
         if (res.published > 0) {
           out.published += 1;
-          await this.tellPlanners(cong, year, month, 'published');
-          out.tasksClosed += await this.closeTaskIfOpen(cong, year, month);
+          await this.tellPlanners(cong, year, month, 'published', [], held);
+          if (held.length === 0) {
+            out.tasksClosed += await this.closeTaskIfOpen(cong, year, month);
+          }
+        } else if (held.length) {
+          await this.tellPlanners(cong, year, month, 'held', [], held);
         }
       }
     }
@@ -424,8 +457,15 @@ export class FieldServiceAutomationService {
     congregationId: string,
     year: number,
     month: number,
-    what: 'prepared' | 'remindPublish' | 'remindOnly' | 'published',
+    what:
+      | 'prepared'
+      | 'remindPublish'
+      | 'remindOnly'
+      | 'published'
+      | 'held'
+      | 'publishFailed',
     busy: { date: string; title: string }[] = [],
+    held: string[] = [],
   ): Promise<void> {
     const { userIds } = await this.planners(congregationId);
     if (userIds.length === 0) return;
@@ -436,10 +476,19 @@ export class FieldServiceAutomationService {
         kind: 'field_service_meeting',
         key: `field-service-month:${congregationId}:${year}-${month}:${what}`,
         text: (lang) => {
-          const body = TEXTS[lang][what].replace(
-            '{month}',
-            monthName(year, month, lang),
-          );
+          const heldLine = held.length
+            ? TEXTS[lang].held.replace(
+                '{list}',
+                [...new Set(held)].map((d) => dayShort(d, lang)).join(', '),
+              )
+            : '';
+          const body = (
+            what === 'held'
+              ? `{month} — ${heldLine.charAt(0).toLowerCase()}${heldLine.slice(1)}`
+              : what === 'published' && heldLine
+                ? `${TEXTS[lang].published} ${heldLine}`
+                : TEXTS[lang][what]
+          ).replace('{month}', monthName(year, month, lang));
           // A month name opens the sentence in two of the texts.
           const head = body.charAt(0).toUpperCase() + body.slice(1);
           const extra = busy.length

@@ -146,6 +146,12 @@ function build(opts: {
     save: jest.fn(async (v: unknown[]) =>
       v.map((x, i) => ({ id: `new-${i}`, ...(x as object) })),
     ),
+    // prepare() runs under a lock in one transaction; here the transaction
+    // is the same repository.
+    manager: {
+      transaction: async (fn: (em: unknown) => Promise<unknown>) =>
+        fn({ query: jest.fn(), getRepository: () => meetingRepo }),
+    },
   };
   const publishersRepo = {
     find: jest.fn(async () => (opts.people ?? PEOPLE).map((p) => ({ ...p }))),
@@ -625,16 +631,18 @@ describe('whose turn it is', () => {
     ]);
     expect(verne[0].conductor?.reason).toBe('group_assistant');
     expect(verne[0].address).toBe('Lindenweg 5');
-    // Nord's overseer has no switch: for HIS group he still conducts.
+    // Nord's overseer has no switch (24 October 2026): shown last with the
+    // reason, never picked — saving him would be refused (FS_NOT_A_CONDUCTOR).
     const nord = await planner.suggestConductor(CONG, {
       date: '2026-11-07',
       serviceGroupId: G_NORD,
       conductorRule: 'group_overseer',
     });
-    expect(nord[0]).toMatchObject({
+    expect(nord[0].publisherId).not.toBe('p-nord-ov');
+    expect(nord[nord.length - 1]).toMatchObject({
       publisherId: 'p-nord-ov',
-      reason: 'group_overseer',
-      free: true,
+      reason: 'not_conductor',
+      free: false,
     });
   });
 
@@ -715,7 +723,15 @@ describe('prepare', () => {
     expect(out).toEqual({
       created: 4,
       withoutConductor: 0,
-      skipped: { exists: 0, assembly: 2, co_visit: 0, past: 0 },
+      skipped: {
+        exists: 0,
+        assembly: 2,
+        co_visit: 0,
+        past: 0,
+        group_removed: 0,
+        removed: 0,
+        differs: 0,
+      },
     });
     const rows = meetingRepo.save.mock.calls[0][0] as Record<string, unknown>[];
     expect(

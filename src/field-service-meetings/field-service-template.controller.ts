@@ -10,8 +10,8 @@ import {
 import { FieldServiceTemplateService } from './field-service-template.service';
 import { FieldServicePlannerService } from './field-service-planner.service';
 import {
-  GenerateFieldServiceDto,
   PrepareFieldServiceMonthDto,
+  FieldServiceMonthDto,
   ReplaceFieldServiceTemplateDto,
   UpdateFieldServiceSettingsDto,
 } from './dto/field-service-template.dto';
@@ -89,6 +89,20 @@ export class FieldServiceTemplateController {
     );
   }
 
+  /** The empty conductors of a draft month, each by its slot's rule. */
+  @Post('fill-conductors')
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+  )
+  fillConductors(
+    @TenantId() congregationId: string,
+    @Body() dto: FieldServiceMonthDto,
+  ) {
+    return this.planner.fillConductors(congregationId, dto.year, dto.month);
+  }
+
   @Get()
   getSlots(@TenantId() congregationId: string) {
     return this.service.getSlots(congregationId);
@@ -113,10 +127,7 @@ export class FieldServiceTemplateController {
     ResponsibilityType.SERVICE_OVERSEER,
     ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
   )
-  generate(
-    @TenantId() congregationId: string,
-    @Body() dto: GenerateFieldServiceDto,
-  ) {
-    return this.service.generate(congregationId, dto);
+  generate(): never {
+    return this.service.generate();
   }
 }

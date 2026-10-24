@@ -1,4 +1,4 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { MemorialService } from '../memorial/memorial.service';
 import { PublishersService } from '../publishers/publishers.service';
@@ -20,6 +20,8 @@ import { ConductLiveService } from '../conduct-live/conduct-live.service';
 import { ProgrammeNoticeService } from '../assignments/programme-notice.service';
 import { TalkAttentionService } from '../talk-exchange/talk-attention.service';
 import { TalkConsistencyService } from '../talk-exchange/talk-consistency.service';
+import { FieldServiceConsistencyService } from '../field-service-meetings/field-service-consistency.service';
+import { SCHOOL_SYNC, type SchoolSync } from '../pioneer-school/school-sync';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -48,6 +50,12 @@ export class ScheduledJobsService {
     /** The morning comparison of the talk journal and the programme. */
     @Optional()
     private readonly talkConsistency?: TalkConsistencyService,
+    @Optional()
+    private readonly fieldServiceConsistency?: FieldServiceConsistencyService,
+    /** The pioneer schools' absences, brought in line each night. */
+    @Optional()
+    @Inject(SCHOOL_SYNC)
+    private readonly schools?: SchoolSync,
   ) {}
 
   /**
@@ -80,6 +88,23 @@ export class ScheduledJobsService {
       await this.talkConsistency?.runDaily();
     } catch (e) {
       this.logger.error(`talk consistency failed: ${String(e)}`);
+    }
+  }
+
+  /**
+   * The field-service meetings ahead against what has changed since they
+   * were planned — after the night's automation, before the day begins
+   * (24 October 2026).
+   */
+  @Cron('55 7 * * *', {
+    name: 'field-service-consistency',
+    timeZone: 'Europe/Berlin',
+  })
+  async handleFieldServiceConsistency(): Promise<void> {
+    try {
+      await this.fieldServiceConsistency?.runDaily();
+    } catch (e) {
+      this.logger.error(`field-service check failed: ${String(e)}`);
     }
   }
 
@@ -231,11 +256,16 @@ export class ScheduledJobsService {
   async handleTaskReminders(): Promise<void> {
     try {
       await this.taskReminders.runDue();
-      // Raised when a group has gone the service year without a visit, and
-      // lowered again by itself when one is planned.
-      await this.groupVisitTasks.ensureForToday();
     } catch (e) {
       this.logger.error(`task reminders failed: ${String(e)}`);
+    }
+    // Raised when a group has gone the service year without a visit, and
+    // lowered again by itself when one is planned. On its own: a failure in
+    // one used to skip the other every quarter of an hour (sync audit L10).
+    try {
+      await this.groupVisitTasks.ensureForToday();
+    } catch (e) {
+      this.logger.error(`group visit tasks failed: ${String(e)}`);
     }
   }
 
@@ -266,6 +296,24 @@ export class ScheduledJobsService {
       await this.calendarTasks.ensureForToday();
     } catch (e) {
       this.logger.error(`calendar tasks failed: ${String(e)}`);
+    }
+  }
+
+  /**
+   * The pioneer schools still to come against the meeting days, once a
+   * night (24 October 2026): a change of the meeting settings reaches the
+   * school's absences here; a visit, an assembly or the Memorial already
+   * does when it is saved.
+   */
+  @Cron('20 3 * * *', {
+    name: 'pioneer-school-absences',
+    timeZone: 'Europe/Berlin',
+  })
+  async handlePioneerSchoolAbsences(): Promise<void> {
+    try {
+      await this.schools?.resyncUpcoming();
+    } catch (e) {
+      this.logger.error(`pioneer school absences failed: ${String(e)}`);
     }
   }
 

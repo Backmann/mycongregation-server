@@ -29,6 +29,12 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { refusal } from '../common/errors/refusal';
+import { FieldServiceRemovedDay } from '../entities/field-service-removed-day.entity';
+import {
+  FieldServiceAttentionService,
+  HOLDS_PUBLICATION,
+  type MeetingProblem,
+} from './field-service-attention.service';
 
 /** Add n days to an ISO 'YYYY-MM-DD' date (UTC, calendar-safe). */
 function addDaysISO(iso: string, n: number): string {
@@ -208,6 +214,11 @@ export interface PublishMonthResult {
   published: number;
   /** People told — one message each, whatever the number of their dates. */
   notified: number;
+  /**
+   * With `hold`: the drafts kept back because something went wrong since
+   * they were planned (24 October 2026) — for the planners' message.
+   */
+  held?: { id: string; date: string; problems: MeetingProblem[] }[];
 }
 
 @Injectable()
@@ -230,7 +241,41 @@ export class FieldServiceMeetingsService {
     // Optional so the many specs that build this service by hand need not
     // carry it; Nest always provides it (same module).
     @Optional() private readonly planner?: FieldServicePlannerService,
+    @Optional() private readonly attention?: FieldServiceAttentionService,
+    @Optional()
+    @InjectRepository(FieldServiceRemovedDay)
+    private readonly removedRepo?: Repository<FieldServiceRemovedDay>,
   ) {}
+
+  /**
+   * A meeting deleted, or moved off its day, is remembered there so that
+   * preparing the month again does not bring it back (sync audit M2). Only
+   * a day still to come: a past one is not prepared anyway.
+   */
+  private async rememberRemoved(
+    congregationId: string,
+    was: {
+      date: string;
+      startTime: string;
+      address: string;
+      serviceGroupId: string | null;
+      isGeneral: boolean;
+    },
+  ): Promise<void> {
+    if (!this.removedRepo) return;
+    const today = await this.clock.todayFor(congregationId);
+    if (was.date < today) return;
+    await this.removedRepo.save(
+      this.removedRepo.create({
+        congregationId,
+        date: was.date,
+        startTime: was.startTime,
+        address: was.address ?? '',
+        serviceGroupId: was.serviceGroupId,
+        isGeneral: was.isGeneral,
+      }),
+    );
+  }
 
   /**
    * A day the calendar takes away — an assembly, a convention, the circuit
@@ -747,11 +792,23 @@ export class FieldServiceMeetingsService {
         since: addDaysISO(await this.clock.todayFor(congregationId), -365),
       });
     }
-    return qb
+    const rows = await qb
       .orderBy('m.weekStartDate', 'ASC')
       .addOrderBy('m.dayOfWeek', 'ASC')
       .addOrderBy('m.startTime', 'ASC')
       .getMany();
+    // The planners see what has gone wrong since a meeting was planned
+    // (24 October 2026): away, no longer conducting, removed; its group
+    // removed; the day taken by an assembly or the circuit overseer's week.
+    if (drafts && this.attention) {
+      const today = await this.clock.todayFor(congregationId);
+      const marks = await this.attention.of(congregationId, rows, today);
+      for (const m of rows) {
+        const a = marks.get(m.id);
+        if (a) Object.assign(m, { attention: a.problems });
+      }
+    }
+    return rows;
   }
 
   async create(
@@ -1018,6 +1075,15 @@ export class FieldServiceMeetingsService {
         dto.serviceOverseerAssistantId ?? null;
     }
     const saved = await this.repo.save(entity);
+    if (newDate !== was.date) {
+      await this.rememberRemoved(congregationId, {
+        date: was.date,
+        startTime: before.startTime,
+        address: before.address,
+        serviceGroupId: before.serviceGroupId,
+        isGeneral: before.isGeneral,
+      });
+    }
     // A draft changes in silence; see create().
     const tell = dto.notifyConductor !== false && saved.publishedAt !== null;
     await this.auditLog.logUpdate({
@@ -1245,6 +1311,13 @@ export class FieldServiceMeetingsService {
     }
     await this.assertNotHeld(congregationId, meetingDateISO(entity), entity.id);
     await this.repo.delete({ id, congregationId });
+    await this.rememberRemoved(congregationId, {
+      date: meetingDateISO(entity),
+      startTime: entity.startTime,
+      address: entity.address,
+      serviceGroupId: entity.serviceGroupId,
+      isGeneral: entity.isGeneral,
+    });
     await this.auditLog.logEvent({
       tenantId: congregationId,
       entityType: 'field_service_meeting',
@@ -1298,6 +1371,7 @@ export class FieldServiceMeetingsService {
     congregationId: string,
     year: number,
     month: number,
+    opts: { hold?: boolean } = {},
   ): Promise<PublishMonthResult> {
     const first = `${year}-${String(month).padStart(2, '0')}-01`;
     const next =
@@ -1319,7 +1393,28 @@ export class FieldServiceMeetingsService {
       const d = meetingDateISO(m);
       return d >= first && d < next && d >= today;
     });
-    if (drafts.length === 0) return { published: 0, notified: 0 };
+    // Published on its own, the month keeps back the drafts that went wrong
+    // since they were planned (24 October 2026): a brother told «you
+    // conduct» for a day he is away hears it from nobody else. The person
+    // pressing the button sees the same marks and decides himself.
+    const held: NonNullable<PublishMonthResult['held']> = [];
+    if (opts.hold && this.attention && drafts.length) {
+      const marks = await this.attention.of(congregationId, drafts, today);
+      for (let i = drafts.length - 1; i >= 0; i--) {
+        const a = marks.get(drafts[i].id);
+        if (a && a.problems.some((p) => HOLDS_PUBLICATION.includes(p))) {
+          held.push({
+            id: drafts[i].id,
+            date: meetingDateISO(drafts[i]),
+            problems: a.problems,
+          });
+          drafts.splice(i, 1);
+        }
+      }
+      held.sort((a, b) => a.date.localeCompare(b.date));
+    }
+    const heldOut = opts.hold ? { held } : {};
+    if (drafts.length === 0) return { published: 0, notified: 0, ...heldOut };
 
     const now = new Date();
     await this.repo.update(
@@ -1382,7 +1477,9 @@ export class FieldServiceMeetingsService {
         }
       }
     }
-    if (byPerson.size === 0) return { published: drafts.length, notified: 0 };
+    if (byPerson.size === 0) {
+      return { published: drafts.length, notified: 0, ...heldOut };
+    }
 
     const groupIds = [
       ...new Set(drafts.map((m) => m.serviceGroupId).filter(Boolean)),
@@ -1453,7 +1550,7 @@ export class FieldServiceMeetingsService {
         );
       }
     }
-    return { published: drafts.length, notified };
+    return { published: drafts.length, notified, ...heldOut };
   }
 
   /**

@@ -9,7 +9,6 @@ import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { FieldServiceSettings } from '../entities/field-service-settings.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import {
-  GenerateFieldServiceDto,
   ReplaceFieldServiceTemplateDto,
   TemplateSlotDto,
   UpdateFieldServiceSettingsDto,
@@ -196,11 +195,17 @@ export class FieldServiceTemplateService {
     congregationId: string,
     dto: ReplaceFieldServiceTemplateDto,
   ): Promise<FieldServiceTemplateSlot[]> {
+    // A removed group's rows are the congregation's still (24 October 2026):
+    // they sleep while it is removed and wake if it is restored. Refusing
+    // them made the whole template unsavable the day a group was removed —
+    // the app sends every row back, the removed group's among them.
     const groups = new Map(
-      (await this.groupsRepo.find({ where: { congregationId } })).map((g) => [
-        g.id,
-        g,
-      ]),
+      (
+        await this.groupsRepo.find({
+          where: { congregationId },
+          withDeleted: true,
+        })
+      ).map((g) => [g.id, g]),
     );
     const rows: Omit<TemplateSlotView, 'id' | 'position'>[] = [];
     for (const s of dto.slots) rows.push(this.normalize(s, groups));
@@ -298,158 +303,20 @@ export class FieldServiceTemplateService {
   }
 
   /**
-   * Materialize the template into real meetings across the chosen month range
-   * — the generator the app has called since the template existed. Announced
-   * at once, conductor left empty: the app that calls this shows the month
-   * the moment it returns and knows nothing of drafts. The new way (a draft
-   * month, conductors picked, the calendar honoured) is `prepare` in the
-   * planner. Safe to re-run / extend:
-   *
-   *  • A day already gone is not filled (`past`). The month being lived is the
-   *    month most often generated, and its first Saturdays are behind it —
-   *    they came back as fresh, empty meetings on days nobody could hold them
-   *    any more (9 October 2026). The day is the congregation's; today is
-   *    still open.
-   *  • A meeting already on that DAY at the same time, OR at the same place,
-   *    counts as the slot being there (`skipped`). Until 9 October 2026 only
-   *    the exact time counted: move the third Saturday from 10:30 to 10:00 by
-   *    hand, run the month again, and a second, empty 10:30 meeting appeared
-   *    beside it. A group's own meeting that day — another time AND another
-   *    place — does not stand in for the template's and does not block it.
-   *
-   * The whole run is ONE line in the journal (how many, which weeks), as the
-   * bulk creation of assignments already is: until now generating a month
-   * left no trace at all.
+   * The old generator, retired (24 October 2026). It announced meetings at
+   * once, ignored assemblies and the circuit overseer's week, and brought
+   * back days the overseer had removed. The app stopped calling it on
+   * 10 October; a phone that still has the old window hears why instead of
+   * a month announced behind the overseer's back. Preparing a month
+   * (`prepare`) is the way.
    */
-  async generate(
-    congregationId: string,
-    dto: GenerateFieldServiceDto,
-  ): Promise<{ created: number; skipped: number; past: number }> {
-    const slots = await this.getSlots(congregationId);
-    if (!slots.length) return { created: 0, skipped: 0, past: 0 };
-    const today = await this.clock.todayFor(congregationId);
-    const groups = new Map(
-      (await this.groupsRepo.find({ where: { congregationId } })).map((g) => [
-        g.id,
-        g,
-      ]),
+  generate(): never {
+    throw new BadRequestException(
+      refusal(
+        'FS_GENERATE_RETIRED',
+        'Generating meetings this way is retired. Prepare the month from the template instead.',
+      ),
     );
-
-    const specs: {
-      weekStartDate: string;
-      dayOfWeek: number;
-      startTime: string;
-      address: string;
-      serviceGroupId: string | null;
-      isGeneral: boolean;
-    }[] = [];
-    let past = 0;
-    let y = dto.startYear;
-    let m = dto.startMonth;
-    for (let i = 0; i < dto.months; i++) {
-      for (const slot of slots) {
-        for (const iso of slotDatesInMonth(slot, y, m)) {
-          if (iso < today) {
-            past += 1;
-            continue;
-          }
-          specs.push({
-            weekStartDate: mondayOf(iso),
-            dayOfWeek: slot.dayOfWeek,
-            startTime: slot.startTime,
-            address: FieldServiceTemplateService.placeOf(slot, groups),
-            serviceGroupId: slot.serviceGroupId,
-            isGeneral: slot.isGeneral,
-          });
-        }
-      }
-      m += 1;
-      if (m > 12) {
-        m = 1;
-        y += 1;
-      }
-    }
-    if (!specs.length) return { created: 0, skipped: 0, past };
-
-    const weekStarts = specs.map((s) => s.weekStartDate).sort();
-    const existing = await this.meetingRepo.find({
-      where: {
-        congregationId,
-        weekStartDate: Between(
-          weekStarts[0],
-          weekStarts[weekStarts.length - 1],
-        ),
-      },
-    });
-    const day = (m: { weekStartDate: string; dayOfWeek: number }) =>
-      `${m.weekStartDate}|${m.dayOfWeek}`;
-    const place = (a: string) => a.trim().toLowerCase();
-    // What already stands on each day: its times and its places. A meeting
-    // made in this very run joins them, so a template with two slots on one
-    // day at one time still yields one meeting.
-    const onDay = new Map<
-      string,
-      { times: Set<string>; places: Set<string> }
-    >();
-    const note = (m: {
-      weekStartDate: string;
-      dayOfWeek: number;
-      startTime: string;
-      address: string;
-    }) => {
-      const k = day(m);
-      const d = onDay.get(k) ?? { times: new Set(), places: new Set() };
-      d.times.add(m.startTime);
-      d.places.add(place(m.address));
-      onDay.set(k, d);
-    };
-    existing.forEach(note);
-
-    let created = 0;
-    let skipped = 0;
-    const toInsert: FieldServiceMeeting[] = [];
-    for (const s of specs) {
-      const d = onDay.get(day(s));
-      if (d && (d.times.has(s.startTime) || d.places.has(place(s.address)))) {
-        skipped += 1;
-        continue;
-      }
-      note(s);
-      toInsert.push(
-        this.meetingRepo.create({
-          congregationId,
-          weekStartDate: s.weekStartDate,
-          dayOfWeek: s.dayOfWeek,
-          startTime: s.startTime,
-          address: s.address,
-          conductorPublisherId: null,
-          topic: null,
-          sourceUrl: null,
-          isGeneral: s.isGeneral,
-          serviceGroupId: s.serviceGroupId,
-          // The old generator announces at once, as it always did: the app
-          // that calls it shows the month the moment it returns.
-          publishedAt: new Date(),
-        }),
-      );
-      created += 1;
-    }
-    if (toInsert.length) {
-      const saved = await this.meetingRepo.save(toInsert);
-      await this.auditLog.logEvent({
-        tenantId: congregationId,
-        entityType: 'field_service_meeting',
-        entityId: saved[0]?.id ?? congregationId,
-        action: 'CREATE' as never,
-        detail: {
-          bulk: true,
-          count: saved.length,
-          weeks: [...new Set(saved.map((x) => x.weekStartDate))].sort(),
-          fromTemplate: true,
-        },
-      });
-    }
-    return { created, skipped, past };
   }
 
   /** Meetings of one calendar month, by their own day, drafts included. */
@@ -478,13 +345,18 @@ export class FieldServiceTemplateService {
     });
   }
 
-  /** Load groups once for a run. */
-  async groupsOf(congregationId: string): Promise<Map<string, ServiceGroup>> {
+  /** Load groups once for a run. `withRemoved` adds the removed ones. */
+  async groupsOf(
+    congregationId: string,
+    withRemoved = false,
+  ): Promise<Map<string, ServiceGroup>> {
     return new Map(
-      (await this.groupsRepo.find({ where: { congregationId } })).map((g) => [
-        g.id,
-        g,
-      ]),
+      (
+        await this.groupsRepo.find({
+          where: { congregationId },
+          withDeleted: withRemoved,
+        })
+      ).map((g) => [g.id, g]),
     );
   }
 }

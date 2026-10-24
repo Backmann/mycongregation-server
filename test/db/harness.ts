@@ -23,6 +23,7 @@ export interface Harness {
     get(path: string): request.Test;
     post(path: string, body?: object): request.Test;
     patch(path: string, body?: object): request.Test;
+    put(path: string, body?: object): request.Test;
     delete(path: string): request.Test;
   };
   sql<T = Record<string, unknown>>(q: string, params?: unknown[]): Promise<T[]>;
@@ -157,6 +158,12 @@ export async function startHarness(): Promise<Harness> {
         wrap(
           request(server)
             .patch(`/api${p}`)
+            .send(b ?? {}),
+        ),
+      put: (p, b) =>
+        wrap(
+          request(server)
+            .put(`/api${p}`)
             .send(b ?? {}),
         ),
       delete: (p) => wrap(request(server).delete(`/api${p}`)),
