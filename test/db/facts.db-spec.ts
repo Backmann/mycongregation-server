@@ -40,10 +40,12 @@ describe('production facts (real database)', () => {
       'facts_role_can_create_in_public',
       'facts_role_tables_readable',
       'fs_drafts_ahead_of_removed_groups',
+      'overseer_without_visit',
       'school_absences_of_removed_schools',
       'school_duties_ahead_of_removed_helpers',
       'talk_lines_linked_to_missing_entry',
       'talk_weeks_with_two_incoming',
+      'two_speakers_in_a_line',
     ]);
     expect(rules.filter((r) => Number(r.value) !== 0)).toEqual([]);
     expect(rows.map((r) => r.check_name)).toEqual(
@@ -88,5 +90,44 @@ describe('production facts (real database)', () => {
       (r) => r.check_name === 'fs_drafts_ahead_of_removed_groups',
     );
     expect(Number(row?.value)).toBe(1);
+  });
+
+  it('the overseer left in a week without a visit, and two speakers in a line, show', async () => {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + 60);
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    const w = d.toISOString().slice(0, 10);
+    const r = await h.as('admin').post('/assignments', {
+      weekStartDate: w,
+      eventType: 'weekend',
+      partKey: 'public_talk_speaker',
+    });
+    expect(r.status).toBe(201);
+    const [{ cid }] = await h.sql<{ cid: string }>(
+      `SELECT congregation_id AS cid FROM assignments WHERE id = $1`,
+      [r.body.id],
+    );
+    const [{ id: co }] = await h.sql<{ id: string }>(
+      `INSERT INTO visiting_speakers (congregation_id, first_name, last_name, circuit_overseer)
+       VALUES ($1, 'Андреас', 'Районный', true) RETURNING id`,
+      [cid],
+    );
+    await h.sql(
+      `UPDATE assignments SET speaker_name = 'Андреас Районный', visiting_speaker_id = $2 WHERE id = $1`,
+      [r.body.id, co],
+    );
+    const value = async (name: string) =>
+      Number((await facts()).find((x) => x.check_name === name)?.value);
+    expect(await value('overseer_without_visit')).toBe(1);
+    const p = await h.addPublisher({
+      firstName: 'Юрген',
+      lastName: 'Бауэр',
+      baptismDate: '2000-01-01',
+    });
+    await h.sql(
+      `UPDATE assignments SET publisher_id = $2, visiting_speaker_id = NULL WHERE id = $1`,
+      [r.body.id, p],
+    );
+    expect(await value('two_speakers_in_a_line')).toBe(1);
   });
 });
