@@ -758,6 +758,160 @@ export class FieldServicePlannerService {
   }
 
   /**
+   * «Подобрать ведущих» for a draft month, on the server (24 October 2026).
+   *
+   * The app did it in a loop of its own: every group meeting by «its
+   * overseer», every other by rotation — whatever the template said, so a
+   * slot set to «без ведущего» was filled — and the first refusal stopped
+   * the loop halfway with no word of what was done (sync audit M3). Here
+   * each draft follows the rule of the template slot it came from; a draft
+   * no slot accounts for (added by hand) follows the old default. Turns and
+   * days taken are counted as the month fills, the same as preparing it.
+   * Drafts only — an announced meeting changes by hand, with its notice.
+   */
+  async fillConductors(
+    congregationId: string,
+    year: number,
+    month: number,
+  ): Promise<{
+    filled: number;
+    left: { id: string; date: string; why: 'nobody_free' | 'no_overseer' }[];
+    ruleNone: number;
+  }> {
+    const today = await this.clock.todayFor(congregationId);
+    const cal = await this.calendar(congregationId, year, month);
+    const drafts = (
+      await this.template.meetingsOfMonth(congregationId, year, month)
+    )
+      .filter(
+        (m) =>
+          m.publishedAt === null &&
+          !m.cancelledAt &&
+          !m.conductorPublisherId &&
+          meetingDateISO(m) >= today,
+      )
+      .sort(
+        (a, b) =>
+          meetingDateISO(a).localeCompare(meetingDateISO(b)) ||
+          a.startTime.localeCompare(b.startTime),
+      );
+    const out = {
+      filled: 0,
+      left: [] as {
+        id: string;
+        date: string;
+        why: 'nobody_free' | 'no_overseer';
+      }[],
+      ruleNone: 0,
+    };
+    if (drafts.length === 0) return out;
+    const slots = await this.template.getSlots(congregationId);
+    const groups = await this.template.groupsOf(congregationId);
+    const { brothers, people, lastLed, upcoming } = await this.circle(
+      congregationId,
+      addDaysISO(cal.last, 1),
+    );
+    const busy = await this.busyByDay(
+      congregationId,
+      cal.first,
+      cal.last,
+      null,
+    );
+    const absent = await this.absentByDay(congregationId, cal.first, cal.last);
+    const ruleOf = (m: FieldServiceMeeting): ConductorRule => {
+      const date = meetingDateISO(m);
+      const mine = slots.filter(
+        (sl) =>
+          (m.serviceGroupId
+            ? sl.serviceGroupId === m.serviceGroupId
+            : !sl.serviceGroupId && sl.isGeneral === m.isGeneral) &&
+          slotDatesInMonth(sl, year, month).includes(date),
+      );
+      const slot =
+        mine.find((sl) => sl.startTime === m.startTime) ?? mine[0] ?? null;
+      if (slot) return slot.conductorRule;
+      return m.serviceGroupId ? 'group_overseer' : 'rotation';
+    };
+    const picked: { id: string; publisherId: string }[] = [];
+    for (const m of drafts) {
+      const date = meetingDateISO(m);
+      const rule = ruleOf(m);
+      if (rule === 'none') {
+        out.ruleNone += 1;
+        continue;
+      }
+      const group = m.serviceGroupId
+        ? (groups.get(m.serviceGroupId) ?? null)
+        : null;
+      const list = this.rank(
+        brothers,
+        people,
+        lastLed,
+        upcoming,
+        busy.get(date) ?? new Set(),
+        (pid) => absent(pid, date),
+        group,
+        rule,
+      );
+      const pick = list.find((c) => c.free) ?? null;
+      if (!pick) {
+        out.left.push({
+          id: m.id,
+          date,
+          why:
+            rule === 'group_overseer' &&
+            !group?.overseerPublisherId &&
+            !group?.assistantPublisherId
+              ? 'no_overseer'
+              : 'nobody_free',
+        });
+        continue;
+      }
+      picked.push({ id: m.id, publisherId: pick.publisherId });
+      lastLed.set(pick.publisherId, date);
+      const set = busy.get(date) ?? new Set<string>();
+      set.add(pick.publisherId);
+      busy.set(date, set);
+    }
+    if (picked.length) {
+      await this.meetingRepo.manager.transaction(async (em) => {
+        const repo = em.getRepository(FieldServiceMeeting);
+        for (const p of picked) {
+          // Still empty and still a draft: a person may have filled it
+          // since the list was read.
+          await repo.update(
+            {
+              id: p.id,
+              congregationId,
+              conductorPublisherId: IsNull(),
+              publishedAt: IsNull(),
+            },
+            { conductorPublisherId: p.publisherId },
+          );
+        }
+      });
+      out.filled = picked.length;
+      // One line for the run, as publishing the month is: which drafts got
+      // whom is the month view itself.
+      await this.auditLog.logUpdate({
+        tenantId: congregationId,
+        entityType: 'field_service_meeting',
+        entityId: picked[0].id,
+        before: { conductorsFilled: null },
+        after: {
+          conductorsFilled: JSON.stringify({
+            year,
+            month,
+            count: picked.length,
+          }),
+        },
+        fields: ['conductorsFilled'],
+      });
+    }
+    return out;
+  }
+
+  /**
    * Write the month `preview` showed, as DRAFTS. One line in the journal for
    * the run. Nobody is told: that is what publishing the month is for.
    */

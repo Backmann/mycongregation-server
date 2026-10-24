@@ -366,6 +366,50 @@ describe('field-service meetings after planning (real database)', () => {
     });
   });
 
+  describe('«Подобрать ведущих»', () => {
+    it('follows each slot: a slot without a conductor stays empty, the rest are filled', async () => {
+      const { year, month } = nextMonth();
+      await h.sql(
+        `UPDATE publishers SET capabilities = capabilities || '{"fs_meeting_conductor": true}' WHERE id = $1`,
+        [conductor],
+      );
+      await setTemplate([
+        {
+          ordinals: [1],
+          dayOfWeek: 6,
+          startTime: '10:00',
+          address: 'Зал Царства',
+          isGeneral: true,
+          conductorRule: 'none',
+        },
+        {
+          ordinals: [2],
+          dayOfWeek: 6,
+          startTime: '10:00',
+          address: 'Зал Царства',
+          isGeneral: true,
+          conductorRule: 'rotation',
+        },
+      ]);
+      expect((await prepare(year, month, false)).status).toBe(201);
+      const r = await h
+        .as('admin')
+        .post('/field-service-template/fill-conductors', { year, month });
+      expect([200, 201]).toContain(r.status);
+      expect(r.body).toMatchObject({ filled: 1, ruleNone: 1, left: [] });
+      const who = async (n: number) =>
+        (
+          await h.sql<{ c: string | null }>(
+            `SELECT conductor_publisher_id AS c FROM field_service_meetings WHERE id = $1`,
+            [(await meetingsOn(saturday(year, month, n)))[0].id],
+          )
+        )[0].c;
+      expect(await who(1)).toBeNull();
+      expect(await who(2)).not.toBeNull();
+      await setTemplate([]);
+    });
+  });
+
   describe('the calendar', () => {
     it("a circuit overseer's visit beginning on Tuesday the 1st takes the Monday before it", async () => {
       // The next month whose 1st is a Tuesday.

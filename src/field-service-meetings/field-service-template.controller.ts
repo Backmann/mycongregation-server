@@ -11,6 +11,7 @@ import { FieldServiceTemplateService } from './field-service-template.service';
 import { FieldServicePlannerService } from './field-service-planner.service';
 import {
   PrepareFieldServiceMonthDto,
+  FieldServiceMonthDto,
   ReplaceFieldServiceTemplateDto,
   UpdateFieldServiceSettingsDto,
 } from './dto/field-service-template.dto';
@@ -86,6 +87,20 @@ export class FieldServiceTemplateController {
       dto.month,
       dto.pickConductors !== false,
     );
+  }
+
+  /** The empty conductors of a draft month, each by its slot's rule. */
+  @Post('fill-conductors')
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+  )
+  fillConductors(
+    @TenantId() congregationId: string,
+    @Body() dto: FieldServiceMonthDto,
+  ) {
+    return this.planner.fillConductors(congregationId, dto.year, dto.month);
   }
 
   @Get()
