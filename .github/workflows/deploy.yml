@@ -263,9 +263,17 @@ jobs:
       - name: Upload to server
         run: scp /tmp/server-src.tar.gz myserver:/tmp/server-src.tar.gz
 
+      # The script goes to the server on standard input. Every command in it
+      # that could read standard input gets </dev/null: `docker compose exec`
+      # forwards stdin even with -T, and until 24 October 2026 it swallowed
+      # the rest of this script right after the migrations — the check that
+      # they applied, the status, the clean-up and the facts never ran, and
+      # the deploy still came out green. The last line is checked below, so
+      # a script cut short can no longer pass.
       - name: Deploy on server
         run: |
-          ssh myserver bash << 'ENDSSH'
+          set -o pipefail
+          ssh myserver bash << 'ENDSSH' | tee /tmp/deploy-out.txt
           set -euo pipefail
 
           echo "=== Extracting source ==="
@@ -277,22 +285,22 @@ jobs:
 
           echo "=== Rebuilding Docker image ==="
           cd /root/mycongregation
-          docker compose build server
+          docker compose build server </dev/null
 
           echo "=== Restarting container ==="
-          docker compose up -d server
+          docker compose up -d server </dev/null
 
           echo "=== Waiting for container ==="
           sleep 8
 
           echo "=== Running migrations ==="
-          docker compose exec -T server npm run migration:run:prod
+          docker compose exec -T server npm run migration:run:prod </dev/null
           echo "=== Verifying migrations applied ==="
-          docker compose exec -T server npm run migration:show:prod
+          docker compose exec -T server npm run migration:show:prod </dev/null
 
           echo "=== Status ==="
-          docker compose ps server
-          docker compose logs --tail=15 server
+          docker compose ps server </dev/null
+          docker compose logs --tail=15 server </dev/null
 
           echo "=== Cleanup ==="
           rm /tmp/server-src.tar.gz
@@ -303,9 +311,13 @@ jobs:
           echo "=== Facts ==="
           chmod +x /root/mycongregation/server/scripts/facts.sh
           ln -sf /root/mycongregation/server/scripts/facts.sh /usr/local/bin/facts
-          bash /root/mycongregation/server/scripts/facts.sh --ci
+          bash /root/mycongregation/server/scripts/facts.sh --ci </dev/null
           echo "Deploy complete"
           ENDSSH
+          grep -qx "Deploy complete" /tmp/deploy-out.txt || {
+            echo "The deploy script stopped before its end."
+            exit 1
+          }
 
       # The deploy is done when the LIVE server says it runs this commit — not
       # when the commands above returned. A container that failed to come up,

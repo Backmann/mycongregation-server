@@ -19,7 +19,9 @@ if [ -n "${FACTS_LOCAL_DB:-}" ]; then
   # The stand and the tests: a database on this machine, no container.
   rows=$(psql -X -q -v ON_ERROR_STOP=1 -U mycongregation_facts -d "$FACTS_LOCAL_DB" -At -F '|' -c "$QUERY")
 else
-  rows=$(docker exec -i "$CONTAINER" sh -c \
+  # No -i: nothing is sent in, and with it the call would read whatever
+  # stands on standard input — the rest of the deploy script.
+  rows=$(docker exec "$CONTAINER" sh -c \
     "psql -X -q -v ON_ERROR_STOP=1 -U mycongregation_facts -d \"\$POSTGRES_DB\" -At -F '|' -c '$QUERY'")
 fi
 
