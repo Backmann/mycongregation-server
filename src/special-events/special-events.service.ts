@@ -392,10 +392,17 @@ export class SpecialEventsService {
     // Whether the meeting was held is history too: attendance was counted by
     // it. The hour, the place and the words can still be put right.
     const modeChanged = meeting.meetingMode !== (event.meetingMode ?? 'usual');
+    // The day the visit moved the midweek meeting to is history as well
+    // (24 October 2026, events audit M2): changed afterwards, the attendance
+    // counted on the Tuesday no longer had a meeting to belong to and fell
+    // out of S-3 and S-10.
+    const midweekDayChanged =
+      dto.coMidweekDow !== undefined &&
+      (dto.coMidweekDow ?? null) !== (event.coMidweekDow ?? null);
 
     if (
       lastDay(event) < today &&
-      (datesChanged || typeChanged || modeChanged)
+      (datesChanged || typeChanged || modeChanged || midweekDayChanged)
     ) {
       throw new BadRequestException({
         code: 'EVENT_PAST_LOCKED',

@@ -30,6 +30,14 @@ export interface AttendanceRow {
    */
   corrected?: boolean;
   /**
+   * A figure recorded on a day that, by today's rules, has no meeting of
+   * this kind — the visit's day changed or the visit was removed after the
+   * meeting (24 October 2026, events audit M2). The meeting was held and
+   * people came: counted in the month, and marked so the reader sees why it
+   * stands off the usual days.
+   */
+  offSchedule?: boolean;
+  /**
    * False when the meeting took place but nobody has entered a figure yet.
    * The sheet lists the year's MEETINGS, not the year's records: a week with
    * no entry has to be visible as a hole, or a reader cannot see that the
@@ -565,6 +573,25 @@ export class MeetingAttendanceService {
         week = addDaysISO(week, 7);
       }
     }
+    // Figures that no expected meeting claims: kept, not dropped.
+    const claimed = new Set(expected.map((r) => `${r.date}|${r.eventType}`));
+    for (const saved of rows) {
+      const key = `${saved.date}|${saved.eventType}`;
+      if (claimed.has(key) || saved.date < from || saved.date > to) continue;
+      expected.push({
+        date: saved.date,
+        eventType: saved.eventType,
+        count: saved.count ?? null,
+        notHeld: saved.notHeld ?? false,
+        recorded: true,
+        recordedByName: names.get(saved.recordedBy ?? '') ?? null,
+        recordedAt: saved.updatedAt
+          ? new Date(saved.updatedAt).toISOString()
+          : null,
+        offSchedule: true,
+      });
+    }
+    expected.sort((a, b) => a.date.localeCompare(b.date));
 
     const months: AttendanceMonth[] = [];
     for (let i = 0; i < 12; i++) {
