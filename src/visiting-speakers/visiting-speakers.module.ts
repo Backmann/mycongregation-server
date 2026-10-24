@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuditLogModule } from '../audit-log/audit-log.module';
+import { CongregationClockModule } from '../common/congregation-clock.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { TalkExchange } from '../entities/talk-exchange.entity';
@@ -21,6 +22,7 @@ import { VisitingSpeakersController } from './visiting-speakers.controller';
       SpecialEvent,
     ]),
     AuditLogModule,
+    CongregationClockModule,
   ],
   controllers: [VisitingSpeakersController],
   providers: [VisitingSpeakersService],
