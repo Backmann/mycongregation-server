@@ -289,7 +289,9 @@ describe('the draft nobody published', () => {
     expect(r2.reminded).toBe(0);
     const r3 = await pass(s, '2026-10-25');
     expect(r3.published).toBe(1);
-    expect(meetings.publishMonth).toHaveBeenCalledWith(CONG, 2026, 11);
+    expect(meetings.publishMonth).toHaveBeenCalledWith(CONG, 2026, 11, {
+      hold: true,
+    });
     // Told that it happened.
     expect(notifications.notify).toHaveBeenCalledTimes(2);
     await pass(s, '2026-10-26');

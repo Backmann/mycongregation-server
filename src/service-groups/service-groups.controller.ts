@@ -99,6 +99,16 @@ export class ServiceGroupsController {
     return this.serviceGroupsService.update(tenantId, id, dto);
   }
 
+  /** What removing the group would touch, for the confirmation's words. */
+  @Roles(UserRole.ADMIN)
+  @Get(':id/removal-impact')
+  removalImpact(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.serviceGroupsService.removalImpact(tenantId, id);
+  }
+
   @Roles(UserRole.ADMIN)
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)

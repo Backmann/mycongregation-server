@@ -20,6 +20,7 @@ import { ConductLiveService } from '../conduct-live/conduct-live.service';
 import { ProgrammeNoticeService } from '../assignments/programme-notice.service';
 import { TalkAttentionService } from '../talk-exchange/talk-attention.service';
 import { TalkConsistencyService } from '../talk-exchange/talk-consistency.service';
+import { FieldServiceConsistencyService } from '../field-service-meetings/field-service-consistency.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -48,6 +49,8 @@ export class ScheduledJobsService {
     /** The morning comparison of the talk journal and the programme. */
     @Optional()
     private readonly talkConsistency?: TalkConsistencyService,
+    @Optional()
+    private readonly fieldServiceConsistency?: FieldServiceConsistencyService,
   ) {}
 
   /**
@@ -80,6 +83,23 @@ export class ScheduledJobsService {
       await this.talkConsistency?.runDaily();
     } catch (e) {
       this.logger.error(`talk consistency failed: ${String(e)}`);
+    }
+  }
+
+  /**
+   * The field-service meetings ahead against what has changed since they
+   * were planned — after the night's automation, before the day begins
+   * (24 October 2026).
+   */
+  @Cron('55 7 * * *', {
+    name: 'field-service-consistency',
+    timeZone: 'Europe/Berlin',
+  })
+  async handleFieldServiceConsistency(): Promise<void> {
+    try {
+      await this.fieldServiceConsistency?.runDaily();
+    } catch (e) {
+      this.logger.error(`field-service check failed: ${String(e)}`);
     }
   }
 
@@ -231,11 +251,16 @@ export class ScheduledJobsService {
   async handleTaskReminders(): Promise<void> {
     try {
       await this.taskReminders.runDue();
-      // Raised when a group has gone the service year without a visit, and
-      // lowered again by itself when one is planned.
-      await this.groupVisitTasks.ensureForToday();
     } catch (e) {
       this.logger.error(`task reminders failed: ${String(e)}`);
+    }
+    // Raised when a group has gone the service year without a visit, and
+    // lowered again by itself when one is planned. On its own: a failure in
+    // one used to skip the other every quarter of an hour (sync audit L10).
+    try {
+      await this.groupVisitTasks.ensureForToday();
+    } catch (e) {
+      this.logger.error(`group visit tasks failed: ${String(e)}`);
     }
   }
 

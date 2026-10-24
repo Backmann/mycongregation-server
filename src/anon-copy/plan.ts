@@ -216,6 +216,12 @@ export const PLAN: Record<string, TablePlan> = {
       start_time service_group_id is_general conductor_rule created_at updated_at`),
     { address: 'label:Адрес' },
   ),
+  /** A deleted meeting's day, time, place and group: no person in it. */
+  field_service_removed_days: table(
+    copy(`id congregation_id date start_time service_group_id is_general
+      removed_at`),
+    { address: 'label:Адрес' },
+  ),
   /** Three timestamps per month: nothing about a person. */
   field_service_month_runs: table(
     copy(

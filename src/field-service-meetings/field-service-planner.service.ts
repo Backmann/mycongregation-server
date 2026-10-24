@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, IsNull, LessThanOrEqual, Repository } from 'typeorm';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
@@ -10,6 +10,7 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { Absence } from '../entities/absence.entity';
+import { FieldServiceRemovedDay } from '../entities/field-service-removed-day.entity';
 import { Gender } from '../common/enums/gender.enum';
 import { mondayOf } from '../common/week';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -53,7 +54,12 @@ export type CandidateReason =
   | 'group_overseer' // the group's own overseer
   | 'group_assistant' // the group's assistant (its overseer not free)
   | 'leads_that_day' // already conducts another meeting on that day
-  | 'absent'; // away on that day
+  | 'absent' // away on that day
+  // The group's overseer or assistant without the card switch «Проводит
+  // встречу для проповеди», or not active: shown so the overseer sees why
+  // he is not first, never picked (24 October 2026) — saving him would be
+  // refused with FS_NOT_A_CONDUCTOR anyway.
+  | 'not_conductor';
 
 export interface ConductorCandidate {
   publisherId: string;
@@ -70,7 +76,15 @@ export type PlannedStatus =
   | 'exists' // a meeting already stands there
   | 'assembly' // an assembly or convention takes the day
   | 'co_visit' // the circuit overseer's week: its own schedule applies
-  | 'past'; // the day is gone
+  | 'past' // the day is gone
+  // The slot's group was removed: the row sleeps until it is restored.
+  | 'group_removed'
+  // A meeting like it was deleted by hand on that day: not brought back.
+  | 'removed'
+  // A meeting for the whole congregation already stands that day at another
+  // time and place — the template changed since. Not made beside it;
+  // `existingId` is the one standing, for the app to offer to change it.
+  | 'differs';
 
 export interface PlannedRow {
   date: string;
@@ -83,8 +97,14 @@ export interface PlannedRow {
   groupName: string | null;
   conductorRule: ConductorRule;
   status: PlannedStatus;
-  /** With `exists`, `assembly`: what stands in the way, for the words. */
+  /**
+   * With `exists`, `assembly`, `co_visit`: what stands in the way; with
+   * `group_removed` the group's name; with `differs` the standing meeting's
+   * «time · place».
+   */
   because: string | null;
+  /** With `differs`: the meeting that stands there. */
+  existingId?: string | null;
   conductor: ConductorCandidate | null;
   /** With `create` and no conductor: why none could be picked. */
   noConductor: 'rule_none' | 'nobody_free' | 'no_overseer' | null;
@@ -147,6 +167,10 @@ export class FieldServicePlannerService {
     private readonly auditLog: AuditLogService,
     private readonly clock: CongregationClock,
     private readonly hallBusy: HallBusyService,
+    // Optional so the specs that build this by hand need not carry it.
+    @Optional()
+    @InjectRepository(FieldServiceRemovedDay)
+    private readonly removedRepo?: Repository<FieldServiceRemovedDay>,
   ) {}
 
   // ---- who may conduct ----------------------------------------------------
@@ -345,8 +369,15 @@ export class FieldServicePlannerService {
         const p = people.get(pid);
         // Appointed but no longer here (removed): not a candidate at all.
         if (!p) continue;
-        out.push(blocked(p) ?? one(p, reason, true));
         taken.add(pid);
+        // Not one who conducts: shown with the reason, never picked. Put
+        // first he was saved on a draft by the month's preparation and
+        // refused the moment a person saved him by hand (sync audit M3).
+        if (!p.isActive || p.capabilities?.fs_meeting_conductor !== true) {
+          out.push(one(p, 'not_conductor', false));
+          continue;
+        }
+        out.push(blocked(p) ?? one(p, reason, true));
       }
     }
     const rest = brothers.filter((p) => !taken.has(p.id));
@@ -374,7 +405,11 @@ export class FieldServicePlannerService {
       out.push({ ...one(p, 'upcoming', true), lastDate: upcoming.get(p.id)! });
     }
     for (const p of notFree) out.push(blocked(p)!);
-    return out;
+    // The group's men who do not conduct go last, after everyone who can.
+    return [
+      ...out.filter((c) => c.reason !== 'not_conductor'),
+      ...out.filter((c) => c.reason === 'not_conductor'),
+    ];
   }
 
   // ---- the month ----------------------------------------------------------
@@ -392,7 +427,10 @@ export class FieldServicePlannerService {
       where: {
         congregationId,
         type: In([...ASSEMBLY_TYPES, 'circuit_overseer_visit']),
-        date: LessThanOrEqual(last),
+        // Six days past the month: a visit that begins on Tuesday the 1st
+        // has its Monday — the 30th — in this month, and that week is the
+        // visit's (sync audit L8).
+        date: LessThanOrEqual(addDaysISO(last, 6)),
       },
     });
     const assemblies = settings.skipAssemblies
@@ -456,8 +494,14 @@ export class FieldServicePlannerService {
   ): Promise<MonthPreview> {
     const slots = await this.template.getSlots(congregationId);
     const groups = await this.template.groupsOf(congregationId);
+    const allGroups = await this.template.groupsOf(congregationId, true);
     const today = await this.clock.todayFor(congregationId);
     const cal = await this.calendar(congregationId, year, month);
+    const removed = this.removedRepo
+      ? await this.removedRepo.find({
+          where: { congregationId, date: Between(cal.first, cal.last) },
+        })
+      : [];
     const existing = await this.template.meetingsOfMonth(
       congregationId,
       year,
@@ -501,6 +545,17 @@ export class FieldServicePlannerService {
       onDay.set(m.date, list);
     };
     for (const m of existing) note({ ...m, date: meetingDateISO(m) });
+    // What a person deleted (or moved away) on each day, in the same shape.
+    const gone = new Map<
+      string,
+      { groupId: string | null; general: boolean }[]
+    >();
+    for (const r of removed) {
+      const d = String(r.date).slice(0, 10);
+      const list = gone.get(d) ?? [];
+      list.push({ groupId: r.serviceGroupId, general: r.isGeneral });
+      gone.set(d, list);
+    }
     /**
      * Does something already stand where the slot would go? A group that
      * has a meeting that day (a visit, say) is not given a second one. A
@@ -530,6 +585,24 @@ export class FieldServicePlannerService {
       );
     };
 
+    /**
+     * Was a meeting of this slot's kind deleted (or moved away) on that day?
+     * Of its own kind, whatever its hour and place: the day was taken out
+     * for that group, or for the congregation's meeting, even if the
+     * template has since moved it to 09:30 in the park. A group's Saturday
+     * taken out says nothing about the congregation's, nor the other way
+     * round.
+     */
+    const wasRemoved = (
+      date: string,
+      slot: FieldServiceTemplateSlot,
+    ): boolean =>
+      (gone.get(date) ?? []).some((x) =>
+        slot.serviceGroupId
+          ? x.groupId === slot.serviceGroupId
+          : x.groupId === null && x.general === slot.isGeneral,
+      );
+
     // Dates first, then slots on the same date: the circle is walked in
     // calendar order, so the brother picked for the 7th is not asked again
     // on the 14th while others wait.
@@ -546,11 +619,37 @@ export class FieldServicePlannerService {
         a.slot.position - b.slot.position,
     );
 
+    // The congregation's meetings that no general slot of their day
+    // accounts for — what the template said before it changed. A general
+    // slot that finds nothing of its own that day is paired with one of
+    // these instead of being made beside it (sync audit M2, case C).
+    const loose = new Map<string, FieldServiceMeeting[]>();
+    for (const m of existing) {
+      if (!m.isGeneral || m.serviceGroupId) continue;
+      const d = meetingDateISO(m);
+      const own = planned.some(
+        (x) =>
+          x.date === d &&
+          x.slot.isGeneral &&
+          !x.slot.serviceGroupId &&
+          (x.slot.startTime === m.startTime ||
+            (place(FieldServiceTemplateService.placeOf(x.slot, groups)) !==
+              '' &&
+              place(FieldServiceTemplateService.placeOf(x.slot, groups)) ===
+                place(m.address))),
+      );
+      if (own) continue;
+      const list = loose.get(d) ?? [];
+      list.push(m);
+      loose.set(d, list);
+    }
+
     const rows: PlannedRow[] = [];
     for (const { date, slot } of planned) {
       const group = slot.serviceGroupId
         ? (groups.get(slot.serviceGroupId) ?? null)
         : null;
+      const groupGone = !!slot.serviceGroupId && !group;
       const address = FieldServiceTemplateService.placeOf(slot, groups);
       const row: PlannedRow = {
         date,
@@ -559,7 +658,11 @@ export class FieldServicePlannerService {
         address,
         serviceGroupId: slot.serviceGroupId,
         isGeneral: slot.isGeneral,
-        groupName: group?.name ?? null,
+        groupName:
+          group?.name ??
+          (slot.serviceGroupId
+            ? (allGroups.get(slot.serviceGroupId)?.name ?? null)
+            : null),
         conductorRule: slot.conductorRule,
         status: 'create',
         because: null,
@@ -571,6 +674,9 @@ export class FieldServicePlannerService {
       const visit = cal.visitOn(date);
       if (date < today) {
         row.status = 'past';
+      } else if (groupGone) {
+        row.status = 'group_removed';
+        row.because = row.groupName;
       } else if (assembly) {
         row.status = 'assembly';
         row.because = assembly.title;
@@ -579,6 +685,17 @@ export class FieldServicePlannerService {
         row.because = visit.title;
       } else if (standsThere(date, slot, address)) {
         row.status = 'exists';
+      } else if (wasRemoved(date, slot)) {
+        row.status = 'removed';
+      } else if (
+        slot.isGeneral &&
+        !slot.serviceGroupId &&
+        loose.get(date)?.length
+      ) {
+        const m = loose.get(date)!.shift()!;
+        row.status = 'differs';
+        row.because = [m.startTime, m.address].filter(Boolean).join(' · ');
+        row.existingId = m.id;
       }
       if (row.status !== 'create') {
         rows.push(row);
@@ -650,6 +767,35 @@ export class FieldServicePlannerService {
     month: number,
     pickConductors = true,
   ): Promise<PrepareResult> {
+    // One preparation of a congregation at a time (sync audit L2): two
+    // presses, two tabs, or the night's pass during a deploy each read the
+    // month empty and wrote it twice — there is no key on a meeting that
+    // could refuse the second. The lock lives as long as the transaction;
+    // the second run waits for the first to commit and then finds its
+    // meetings standing.
+    return this.meetingRepo.manager.transaction(async (em) => {
+      await em.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+        `field-service-prepare:${congregationId}`,
+      ]);
+      return this.prepareLocked(em.getRepository(FieldServiceMeeting), {
+        congregationId,
+        year,
+        month,
+        pickConductors,
+      });
+    });
+  }
+
+  private async prepareLocked(
+    repo: Repository<FieldServiceMeeting>,
+    a: {
+      congregationId: string;
+      year: number;
+      month: number;
+      pickConductors: boolean;
+    },
+  ): Promise<PrepareResult> {
+    const { congregationId, year, month, pickConductors } = a;
     const view = await this.preview(
       congregationId,
       year,
@@ -659,7 +805,15 @@ export class FieldServicePlannerService {
     const result: PrepareResult = {
       created: 0,
       withoutConductor: 0,
-      skipped: { exists: 0, assembly: 0, co_visit: 0, past: 0 },
+      skipped: {
+        exists: 0,
+        assembly: 0,
+        co_visit: 0,
+        past: 0,
+        group_removed: 0,
+        removed: 0,
+        differs: 0,
+      },
     };
     const toInsert: FieldServiceMeeting[] = [];
     for (const r of view.rows) {
@@ -669,7 +823,7 @@ export class FieldServicePlannerService {
       }
       if (!r.conductor) result.withoutConductor += 1;
       toInsert.push(
-        this.meetingRepo.create({
+        repo.create({
           congregationId,
           weekStartDate: mondayOf(r.date),
           dayOfWeek: isoDow(r.date),
@@ -686,7 +840,7 @@ export class FieldServicePlannerService {
       result.created += 1;
     }
     if (toInsert.length) {
-      const saved = await this.meetingRepo.save(toInsert);
+      const saved = await repo.save(toInsert);
       await this.auditLog.logEvent({
         tenantId: congregationId,
         entityType: 'field_service_meeting',

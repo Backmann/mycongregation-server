@@ -10,7 +10,6 @@ import {
 import { FieldServiceTemplateService } from './field-service-template.service';
 import { FieldServicePlannerService } from './field-service-planner.service';
 import {
-  GenerateFieldServiceDto,
   PrepareFieldServiceMonthDto,
   ReplaceFieldServiceTemplateDto,
   UpdateFieldServiceSettingsDto,
@@ -113,10 +112,7 @@ export class FieldServiceTemplateController {
     ResponsibilityType.SERVICE_OVERSEER,
     ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
   )
-  generate(
-    @TenantId() congregationId: string,
-    @Body() dto: GenerateFieldServiceDto,
-  ) {
-    return this.service.generate(congregationId, dto);
+  generate(): never {
+    return this.service.generate();
   }
 }
