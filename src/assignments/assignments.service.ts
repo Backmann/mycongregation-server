@@ -386,6 +386,23 @@ export class AssignmentsService {
     return assignment;
   }
 
+  /** Is any other live part of this meeting published? */
+  private async meetingPublished(
+    congregationId: string,
+    row: Assignment,
+  ): Promise<boolean> {
+    const n = await this.repo.count({
+      where: {
+        congregationId,
+        weekStartDate: row.weekStartDate,
+        eventType: row.eventType,
+        status: AssignmentStatus.PUBLISHED,
+        id: Not(row.id),
+      },
+    });
+    return n > 0;
+  }
+
   async create(
     congregationId: string,
     dto: CreateAssignmentDto,
@@ -416,6 +433,19 @@ export class AssignmentsService {
     });
     // A correction after the fact is the row and nothing else.
     if (retroactive) return saved;
+    // A part made with its brother already in it follows the same rules as
+    // one given a brother later: the chairman's prayer, the Treasures talk's
+    // prayer and microphone (sync audit L4).
+    if (saved.publisherId) {
+      const lock = await this.freeze.lockOf(congregationId, {
+        weekStartDate: saved.weekStartDate,
+        eventType: saved.eventType,
+      });
+      if (!lock.held) {
+        await this.applyChairmanPrayerRule(congregationId, saved, null);
+        await this.applyTreasuresPrayerLink(congregationId, saved, null);
+      }
+    }
     // Keep the "К нам" journal in sync when the weekend public-talk slot is
     // created directly with a speaker (not only via update).
     if (saved.partKey === PUBLIC_TALK_PART_KEY) {
@@ -534,23 +564,52 @@ export class AssignmentsService {
     // flag it so the scheduler can notify the congregation of the change.
     // Not for a meeting already held: who stood in yesterday is put right,
     // not announced (13 October 2026).
+    /**
+     * A cancelled part given back takes the meeting's state, not «draft»
+     * (sync audit M1): the app's toggle sends draft, and a part of a
+     * published meeting then vanished from everybody's programme and from
+     * its brother's reminders until somebody published again.
+     */
+    if (
+      existing.status === AssignmentStatus.CANCELLED &&
+      dto.status === AssignmentStatus.DRAFT &&
+      (await this.meetingPublished(congregationId, existing))
+    ) {
+      dto.status = AssignmentStatus.PUBLISHED;
+    }
+    // Taken away by cancelling, or given back: news for its brother, like a
+    // replacement (sync audit H2, Lionel 24 October 2026).
+    const cancelTurn =
+      dto.status !== undefined &&
+      dto.status !== existing.status &&
+      (dto.status === AssignmentStatus.CANCELLED ||
+        existing.status === AssignmentStatus.CANCELLED) &&
+      (existing.status === AssignmentStatus.PUBLISHED ||
+        dto.status === AssignmentStatus.PUBLISHED);
     const changed =
       !lock.held &&
-      existing.status === AssignmentStatus.PUBLISHED &&
-      ((dto.publisherId !== undefined &&
-        dto.publisherId !== existing.publisherId) ||
-        (dto.assistantPublisherId !== undefined &&
-          dto.assistantPublisherId !== existing.assistantPublisherId) ||
-        (dto.speakerName !== undefined &&
-          dto.speakerName !== existing.speakerName) ||
-        (dto.speakerCongregation !== undefined &&
-          dto.speakerCongregation !== existing.speakerCongregation));
+      (cancelTurn ||
+        (existing.status === AssignmentStatus.PUBLISHED &&
+          ((dto.publisherId !== undefined &&
+            dto.publisherId !== existing.publisherId) ||
+            (dto.assistantPublisherId !== undefined &&
+              dto.assistantPublisherId !== existing.assistantPublisherId) ||
+            (dto.speakerName !== undefined &&
+              dto.speakerName !== existing.speakerName) ||
+            (dto.speakerCongregation !== undefined &&
+              dto.speakerCongregation !== existing.speakerCongregation))));
     const beforeSnapshot = {
       publisherId: prevPublisherId ?? null,
       assistantPublisherId: existing.assistantPublisherId ?? null,
       speakerName: existing.speakerName ?? null,
+      speakerCongregation: existing.speakerCongregation ?? null,
+      partTitle: existing.partTitle ?? null,
+      partDurationMin: existing.partDurationMin ?? null,
       status: existing.status,
     };
+    const cancelling =
+      dto.status === AssignmentStatus.CANCELLED &&
+      existing.status !== AssignmentStatus.CANCELLED;
     // A local-needs topic that was placed here is no longer here once the
     // part carries a different title. Releasing it puts it back in the plan
     // instead of leaving it marked as used for a week it never appeared in.
@@ -579,8 +638,18 @@ export class AssignmentsService {
     if (dto.publicTalkId) existing.specialTalk = false;
     if (changed) existing.changedSincePublish = true;
     const saved = await this.repo.save(existing);
-    if (partTitleReplaced && !retroactive) {
+    // A topic goes back to the plan only when the part no longer carries
+    // it — the title the topic itself put there is not a replacement (the
+    // app saves the title and binds the topic in two requests, sync audit
+    // M2) — or when the part is cancelled (L5).
+    if (cancelling && !retroactive) {
       await this.localNeeds.releaseAssignment(congregationId, id);
+    } else if (partTitleReplaced && !retroactive) {
+      await this.localNeeds.releaseAssignment(
+        congregationId,
+        id,
+        saved.partTitle ?? null,
+      );
     }
     await this.auditLog.logUpdate({
       tenantId: congregationId,
@@ -592,6 +661,9 @@ export class AssignmentsService {
         publisherId: saved.publisherId ?? null,
         assistantPublisherId: saved.assistantPublisherId ?? null,
         speakerName: saved.speakerName ?? null,
+        speakerCongregation: saved.speakerCongregation ?? null,
+        partTitle: saved.partTitle ?? null,
+        partDurationMin: saved.partDurationMin ?? null,
         status: saved.status,
         // Marked in the journal: corrected after it became the record.
         retroactive,
@@ -600,6 +672,9 @@ export class AssignmentsService {
         'publisherId',
         'assistantPublisherId',
         'speakerName',
+        'speakerCongregation',
+        'partTitle',
+        'partDurationMin',
         'status',
         'retroactive',
       ],
@@ -961,6 +1036,18 @@ export class AssignmentsService {
     );
 
     await this.repo.save([source, target]);
+    // In the journal of changes: the swap is seen, and who did it (L6).
+    await this.auditLog.logEvent({
+      tenantId: congregationId,
+      entityType: 'assignment',
+      entityId: target.id,
+      action: 'UPDATE' as never,
+      subjectId: target.publisherId ?? null,
+      detail: {
+        from: dto.sourceWeekStartDate,
+        to: dto.targetWeekStartDate,
+      },
+    });
     await this.talkExchange.moveWeekEntries(congregationId, [
       ...(sourceEntry
         ? [{ entry: sourceEntry, toWeek: dto.targetWeekStartDate }]
@@ -1001,6 +1088,23 @@ export class AssignmentsService {
       ],
       opts,
     );
+    // A published part taken away is news for its brother: marked before it
+    // goes, so the notice of the changes finds it (sync audit H2).
+    if (
+      !retroactive &&
+      existing.status === AssignmentStatus.PUBLISHED &&
+      !(
+        await this.freeze.lockOf(congregationId, {
+          weekStartDate: existing.weekStartDate,
+          eventType: existing.eventType,
+        })
+      ).held
+    ) {
+      await this.repo.update(
+        { id, congregationId },
+        { changedSincePublish: true },
+      );
+    }
     await this.repo.softDelete({
       id,
       congregationId,
@@ -1062,6 +1166,23 @@ export class AssignmentsService {
       congregationId,
     });
     const restored = await this.getById(congregationId, id);
+    // Back in a published meeting: its brother hears he has the part again.
+    if (
+      !retroactive &&
+      restored.status === AssignmentStatus.PUBLISHED &&
+      !(
+        await this.freeze.lockOf(congregationId, {
+          weekStartDate: restored.weekStartDate,
+          eventType: restored.eventType,
+        })
+      ).held
+    ) {
+      await this.repo.update(
+        { id, congregationId },
+        { changedSincePublish: true },
+      );
+      restored.changedSincePublish = true;
+    }
     if (!retroactive && restored.partKey === PUBLIC_TALK_PART_KEY) {
       // The line comes back with its own entry, not a bare new one (M7).
       await this.talkExchange.syncProgramToJournal(
@@ -1147,7 +1268,13 @@ export class AssignmentsService {
       .execute();
     if (notify && isMeeting) {
       // Fire-and-forget: each person learns what they were given, and whoever
-      // lost a part they had been told of learns that.
+      // lost a part they had been told of learns that. Read before
+      // publishing: what was a draft is published now.
+      for (const r of toAnnounce ?? []) {
+        if (r.status === AssignmentStatus.DRAFT) {
+          r.status = AssignmentStatus.PUBLISHED;
+        }
+      }
       void this.announce(congregationId, kind, weekStartDate, toAnnounce);
     }
     return { published };
@@ -1206,6 +1333,7 @@ export class AssignmentsService {
         .execute();
       return { notified: 0 };
     }
+    // Removed parts count too: their brother is told the part is gone.
     const changedRows = await this.repo.find({
       where: {
         congregationId,
@@ -1214,6 +1342,7 @@ export class AssignmentsService {
         changedSincePublish: true,
       },
       order: { partOrder: 'ASC' },
+      withDeleted: true,
     });
     if (changedRows.length === 0) {
       return { notified: 0 };
@@ -1231,7 +1360,6 @@ export class AssignmentsService {
       .andWhere('weekStartDate = :weekStartDate', { weekStartDate })
       .andWhere('eventType = :eventType', { eventType })
       .andWhere('changedSincePublish = true')
-      .andWhere('deletedAt IS NULL')
       .execute();
 
     const kind = String(eventType);
@@ -1240,7 +1368,23 @@ export class AssignmentsService {
       // no longer has it hears that too. Until October 2026 only the NEW
       // assignee was told; the one replaced could arrive prepared for a part
       // given to somebody else.
-      void this.announce(congregationId, kind, weekStartDate, changedRows);
+      // Awaited: the card says «Сообщено» only for what was said. A failure
+      // puts the marks back, so the next minute tries again (sync audit L1).
+      const ok = await this.announce(
+        congregationId,
+        kind,
+        weekStartDate,
+        changedRows,
+      );
+      if (!ok) {
+        await this.repo
+          .createQueryBuilder()
+          .update(Assignment)
+          .set({ changedSincePublish: true })
+          .whereInIds(changedRows.map((r) => r.id))
+          .execute();
+        return { notified: 0 };
+      }
     }
     return { notified: changedRows.length };
   }
@@ -1254,9 +1398,22 @@ export class AssignmentsService {
     kind: 'midweek' | 'weekend',
     weekStartDate: string,
     rows: Assignment[],
-  ): Promise<void> {
-    await this.notifyAssignees(congregationId, kind, weekStartDate, rows);
+  ): Promise<boolean> {
+    // «You have a part» only for a part that stands; a cancelled or removed
+    // one reaches its brother through the removals.
+    const ok = await this.notifyAssignees(
+      congregationId,
+      kind,
+      weekStartDate,
+      (rows ?? []).filter(
+        (r) =>
+          !r.deletedAt &&
+          r.status !== AssignmentStatus.CANCELLED &&
+          r.status !== AssignmentStatus.DRAFT,
+      ),
+    );
     await this.reminders?.announceRemovals(congregationId, weekStartDate, kind);
+    return ok;
   }
 
   /**
@@ -1277,7 +1434,7 @@ export class AssignmentsService {
     eventType: 'midweek' | 'weekend',
     weekStartDate: string,
     rows: Assignment[],
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       const partsByPublisher = new Map<string, Assignment[]>();
       const add = (publisherId: string | null, row: Assignment) => {
@@ -1291,7 +1448,7 @@ export class AssignmentsService {
         add(row.publisherId, row);
         add(row.assistantPublisherId, row);
       }
-      if (partsByPublisher.size === 0) return;
+      if (partsByPublisher.size === 0) return true;
 
       const publishers = await this.publishersRepo.find({
         where: {
@@ -1303,7 +1460,7 @@ export class AssignmentsService {
       const userIds = publishers
         .map((p) => p.userId)
         .filter((id): id is string => !!id);
-      if (userIds.length === 0) return;
+      if (userIds.length === 0) return true;
 
       const users = await this.repo.manager.find(User, {
         where: { id: In(userIds) },
@@ -1377,6 +1534,7 @@ export class AssignmentsService {
         eventType,
         rows,
       );
+      return true;
     } catch (err: any) {
       this.logger.warn(
         `notifyAssignees failed for tenant=${congregationId}: ${
@@ -1384,5 +1542,6 @@ export class AssignmentsService {
         }`,
       );
     }
+    return false;
   }
 }

@@ -17,14 +17,17 @@
  * edit, and users hold roles and passwords.
  */
 export const REVERTABLE_FIELDS: Record<string, string[]> = {
+  // The fields AssignmentsService.update writes to the journal — named as
+  // the part itself names them. The list used to name fields a part does not
+  // have (a task's assignee, a start time, a song), so only the assistant
+  // ever came back (sync audit, 23 October 2026).
   assignment: [
-    'partTitle',
-    'partNotes',
-    'assigneePublisherId',
+    'publisherId',
     'assistantPublisherId',
-    'startTime',
-    'durationMinutes',
-    'songNumber',
+    'speakerName',
+    'speakerCongregation',
+    'partTitle',
+    'partDurationMin',
   ],
   local_need: ['title', 'notes', 'speakerPublisherId', 'usedWeek'],
   absence: ['startDate', 'endDate', 'reason', 'note'],

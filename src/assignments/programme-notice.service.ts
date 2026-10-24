@@ -188,6 +188,8 @@ export class ProgrammeNoticeService {
   private async changed(m: Meeting): Promise<Assignment[]> {
     return this.assignments.find({
       where: { ...m, changedSincePublish: true },
+      // A part removed from a published meeting waits to be said too.
+      withDeleted: true,
     });
   }
 
@@ -394,7 +396,6 @@ export class ProgrammeNoticeService {
       .addSelect('a.event_type', 'eventType')
       .addSelect('max(a.updated_at)', 'last')
       .where('a.changed_since_publish = true')
-      .andWhere('a.deleted_at IS NULL')
       .andWhere('a.event_type IN (:...kinds)', {
         kinds: [EventType.MIDWEEK, EventType.WEEKEND],
       })
@@ -455,6 +456,7 @@ export class ProgrammeNoticeService {
         changedSincePublish: true,
       },
       select: { weekStartDate: true, eventType: true },
+      withDeleted: true,
     });
     const seen = new Map<string, Meeting>();
     for (const r of rows) {
