@@ -14,6 +14,7 @@ import {
   Not,
   In,
   MoreThanOrEqual,
+  Between,
 } from 'typeorm';
 import { Assignment } from '../entities/assignment.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
@@ -459,6 +460,19 @@ export class AssignmentsService {
         congregationId,
         saved.weekStartDate,
         { speakerChanged: namesSpeaker(fields) },
+      );
+    }
+    // A part added on its own in a circuit visit's week gets the visit's
+    // template too, as a whole week created at once does (24 October 2026,
+    // events audit L5). Does nothing in a week without a visit.
+    await this.coVisitTemplate.applyForWeek(
+      congregationId,
+      saved.weekStartDate,
+    );
+    if (saved.partKey === PUBLIC_TALK_PART_KEY) {
+      await this.talkExchange.circuitVisitApplied(
+        congregationId,
+        saved.weekStartDate,
       );
     }
     return saved;
@@ -945,6 +959,33 @@ export class AssignmentsService {
         code: 'WEEK_ALREADY_PAST',
         message: 'A week that has already happened cannot be swapped',
       });
+    }
+    /**
+     * Not into a circuit overseer's week, nor out of it (24 October 2026,
+     * events audit M3). The visit remembers whom it took the slot from; a
+     * swap moved the overseer to a week without a visit and the guest into
+     * the visit's, and removing the visit later left the overseer where he
+     * was never coming and lost the guest. The visit is what moves; a guest
+     * set aside by it waits in «К нам» and is booked for another week there.
+     */
+    const visitWeek = async (week: string) =>
+      (await this.specialEventsRepo.count({
+        where: {
+          congregationId,
+          type: 'circuit_overseer_visit',
+          date: Between(week, addDaysISO(week, 6)),
+        },
+      })) > 0;
+    if (
+      (await visitWeek(dto.sourceWeekStartDate)) ||
+      (await visitWeek(dto.targetWeekStartDate))
+    ) {
+      throw new BadRequestException(
+        refusal(
+          'TALK_SWAP_VISIT_WEEK',
+          "The circuit overseer's visit week keeps its talk: move the visit itself, and book the guest for another week in the talk log.",
+        ),
+      );
     }
     const findSlot = (week: string) =>
       this.repo.findOne({

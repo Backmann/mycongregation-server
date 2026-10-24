@@ -155,6 +155,7 @@ export const REFUSAL_CODES = [
   // ---- talks, local needs, the elders' agenda ----
   'TALK_SLOT_NOBODY',
   'TALK_WEEK_TAKEN',
+  'TALK_SWAP_VISIT_WEEK',
   'TALKS_SET_ASIDE_FORBIDDEN',
   'TALK_NUMBER_TAKEN',
   'LOCAL_NEEDS_FOR_ELDERS',

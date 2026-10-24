@@ -121,6 +121,20 @@ export class CoVisitTemplateService {
   }
 
   /**
+   * The visit's midweek meeting is already behind us (24 October 2026,
+   * events audit L2). A visit entered on the Wednesday of its own week, or
+   * removed on the Friday, rewrote the Tuesday meeting that had been held:
+   * its programme is what was said, and stays.
+   */
+  async midweekHeld(
+    event: Pick<SpecialEvent, 'congregationId' | 'date' | 'coMidweekDow'>,
+  ): Promise<boolean> {
+    const today = await this.clock.todayFor(event.congregationId);
+    const day = addDaysISO(mondayOf(event.date), (event.coMidweekDow ?? 2) - 1);
+    return day < today;
+  }
+
+  /**
    * Offers the template to every visit of this week — called whenever a
    * meeting of a week is created or imported, so a visit saved before the
    * programme existed still gets it. Does nothing in a week without a visit.
@@ -289,7 +303,10 @@ export class CoVisitTemplateService {
 
       // ---- Midweek: CBS -> 30-min service talk by the CO ----
       const midweek = await loadMeeting(EventType.MIDWEEK);
-      if (applied.has('midweek')) {
+      const midweekGone = await this.midweekHeld(event);
+      if (midweekGone && !applied.has('midweek')) {
+        // Held already: left as it was said.
+      } else if (applied.has('midweek')) {
         // Already has it — but a workbook imported again brings the study
         // back as a fresh row. While the visit stands, it stays hidden.
         await this.foldStrays(em, midweek, MIDWEEK_HIDE_KEYS, ops, hidePart);
@@ -340,6 +357,20 @@ export class CoVisitTemplateService {
           talk.publicTalkId = null;
           talk.specialTalk = false;
           talk.partTitle = null;
+          await aRepo.save(talk);
+        } else if (
+          talk &&
+          speaker &&
+          !ops.some((o) => o.op === 'speaker' && o.id === talk.id) &&
+          !sameName(talk.speakerName ?? '', speaker)
+        ) {
+          // A visit saved without the overseer's name, given one later
+          // (24 October 2026, events audit M1): the weekend was marked done
+          // and the slot never handed over, so the name was written beside
+          // our brother — two speakers in one line, and nobody remembered to
+          // give back. Now it is handed over as when the name came first.
+          ops.push({ op: 'speaker', id: talk.id, prev: speakerOf(talk) });
+          Object.assign(talk, overseerInSlot(speaker));
           await aRepo.save(talk);
         }
       } else if (weekend.length > 0) {
@@ -545,9 +576,32 @@ export class CoVisitTemplateService {
       const aRepo = em.getRepository(Assignment);
       const eRepo = em.getRepository(SpecialEvent);
 
+      // A midweek meeting already held keeps what the visit made of it.
+      const keepMidweek = await this.midweekHeld(event);
+      const midweekRows = new Set<string>();
+      if (keepMidweek) {
+        const ids = ops
+          .filter((o) => o.op !== 'meeting')
+          .map((o) => (o as { id: string }).id);
+        if (ids.length) {
+          for (const r of await aRepo.find({
+            where: { id: In(ids) },
+            withDeleted: true,
+            select: { id: true, eventType: true },
+          })) {
+            if (r.eventType === EventType.MIDWEEK) midweekRows.add(r.id);
+          }
+        }
+      }
+      const kept: RevertOp[] = [];
+
       // Undo in reverse so additions are removed before restores, etc.
       for (const op of [...ops].reverse()) {
         if (op.op === 'meeting') continue;
+        if (midweekRows.has(op.id)) {
+          kept.unshift(op);
+          continue;
+        }
         if (op.op === 'added') {
           await aRepo.delete({ id: op.id });
           continue;
@@ -574,6 +628,11 @@ export class CoVisitTemplateService {
 
       event.coRevertData = null;
       await eRepo.save(event);
+      if (kept.length) {
+        this.logger.log(
+          `CO visit ${event.id}: ${kept.length} changes of the held midweek meeting kept`,
+        );
+      }
       this.logger.log(
         `CO visit ${event.id}: reverted ${ops.length} template changes`,
       );
