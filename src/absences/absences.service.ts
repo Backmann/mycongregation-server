@@ -264,6 +264,15 @@ export class AbsencesService {
         ),
       );
     }
+    // Nor one written by a trip «От нас» (24 October 2026, events audit L4):
+    // the trip's next save puts its dates back. The trip is what to change.
+    if (found.talkExchangeId) {
+      throw new BadRequestException({
+        code: 'ABSENCE_FROM_TRIP',
+        message:
+          'This absence comes from a talk trip. Change the trip in the talk log instead.',
+      });
+    }
     // A non-manager may not reassign the absence to another publisher.
     if (dto.publisherId && dto.publisherId !== found.publisherId) {
       await this.assertCanWrite(user, dto.publisherId);
@@ -356,6 +365,16 @@ export class AbsencesService {
       throw new NotFoundException('Absence not found');
     }
     await this.assertCanWrite(user, found.publisherId);
+    // A trip or school absence comes back only with what wrote it.
+    if (found.talkExchangeId || found.pioneerSchoolDutyId) {
+      throw new BadRequestException({
+        code: found.talkExchangeId
+          ? 'ABSENCE_FROM_TRIP'
+          : 'ABSENCE_FROM_SCHOOL',
+        message:
+          'This absence belongs to a trip or the pioneer school and follows it.',
+      });
+    }
     await this.repo.restore(id);
     return this.findOne(tenantId, id, user);
   }

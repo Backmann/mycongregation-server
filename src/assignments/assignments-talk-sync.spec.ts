@@ -82,7 +82,10 @@ describe('AssignmentsService — journal sync coverage and public-talk swap', ()
         {
           // The drawer's week list now also asks for published Memorials.
           provide: getRepositoryToken(SpecialEvent),
-          useValue: { find: jest.fn().mockResolvedValue([]) },
+          useValue: {
+            find: jest.fn().mockResolvedValue([]),
+            count: jest.fn().mockResolvedValue(0),
+          },
         },
         {
           provide: PushNotificationsService,
@@ -100,6 +103,7 @@ describe('AssignmentsService — journal sync coverage and public-talk swap', ()
           useValue: {
             syncProgramToJournal: sync,
             fillEmptySlot: jest.fn(async () => undefined),
+            circuitVisitApplied: jest.fn(async () => undefined),
             weekEntry: jest.fn(async () => null),
             moveWeekEntries: jest.fn(async () => undefined),
           },

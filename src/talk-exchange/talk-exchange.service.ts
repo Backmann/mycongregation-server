@@ -1222,6 +1222,17 @@ export class TalkExchangeService {
     entry: TalkExchange,
     overwriteProgram?: boolean,
   ): Promise<TalkExchangeResult> {
+    // An entry turned from a trip into a visit keeps no trip absence
+    // (24 October 2026, events audit M4): it stayed, and nobody could remove
+    // it — the absences screen refuses one that comes from a trip.
+    if (
+      entry.direction !== TalkExchangeDirection.OUTGOING &&
+      entry.linkedAbsenceId
+    ) {
+      await this.absenceRepo.softDelete(entry.linkedAbsenceId);
+      entry.linkedAbsenceId = null;
+      await this.repo.save(entry);
+    }
     if (entry.direction === TalkExchangeDirection.INCOMING) {
       return this.applyIncomingToProgram(
         tenantId,
