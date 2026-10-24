@@ -197,6 +197,8 @@ export const PUSH_STRINGS: Record<
     myAssignmentChanged: MyAssignmentTemplate;
     memorialPublished: MemorialTemplate;
     memorialTomorrow: MemorialTemplate;
+    memorialAssigned: MemorialTemplate;
+    memorialRemoved: MemorialTemplate;
   }
 > = {
   en: {
@@ -237,6 +239,14 @@ export const PUSH_STRINGS: Record<
       title: 'The Memorial is tomorrow',
       body: ({ day, parts }) => `${day} — you have: ${parts}`,
     },
+    memorialAssigned: {
+      title: 'The Memorial: a part for you',
+      body: ({ day, parts }) => `${day} — you have: ${parts}`,
+    },
+    memorialRemoved: {
+      title: 'The Memorial: taken off',
+      body: ({ day, parts }) => `${day} — no longer yours: ${parts}`,
+    },
   },
   ru: {
     statusChange: {
@@ -276,6 +286,14 @@ export const PUSH_STRINGS: Record<
       title: 'Завтра Вечеря воспоминания',
       body: ({ day, parts }) => `${day} — у вас: ${parts}`,
     },
+    memorialAssigned: {
+      title: 'Вечеря: вам поручено',
+      body: ({ day, parts }) => `${day} — у вас: ${parts}`,
+    },
+    memorialRemoved: {
+      title: 'Вечеря: с вас снято',
+      body: ({ day, parts }) => `${day} — уже не у вас: ${parts}`,
+    },
   },
   de: {
     statusChange: {
@@ -313,6 +331,14 @@ export const PUSH_STRINGS: Record<
     memorialTomorrow: {
       title: 'Morgen ist das Gedächtnismahl',
       body: ({ day, parts }) => `${day} — Sie haben: ${parts}`,
+    },
+    memorialAssigned: {
+      title: 'Gedächtnismahl: eine Aufgabe für Sie',
+      body: ({ day, parts }) => `${day} — Sie haben: ${parts}`,
+    },
+    memorialRemoved: {
+      title: 'Gedächtnismahl: Aufgabe abgenommen',
+      body: ({ day, parts }) => `${day} — nicht mehr bei Ihnen: ${parts}`,
     },
   },
 };

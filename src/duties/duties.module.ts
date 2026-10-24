@@ -12,10 +12,12 @@ import { Congregation } from '../entities/congregation.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { CongregationClockModule } from '../common/congregation-clock.module';
+import { MemorialModule } from '../memorial/memorial.module';
 
 @Module({
   imports: [
     CongregationClockModule,
+    MemorialModule,
     AuditLogModule,
     TypeOrmModule.forFeature([
       Duty,

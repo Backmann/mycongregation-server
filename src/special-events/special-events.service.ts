@@ -1,4 +1,5 @@
 import {
+  Optional,
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -24,6 +25,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { EventNotificationsService } from './event-notifications.service';
+import { MemorialService } from '../memorial/memorial.service';
 import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
 import { signatureOf } from './event-messages';
 import { settleMeeting } from './meeting-mode';
@@ -71,6 +73,9 @@ export class SpecialEventsService {
     private readonly eventNotifications: EventNotificationsService,
     /** The talk journal follows a circuit visit; see TalkExchangeService. */
     private readonly talkExchange: TalkExchangeService,
+    /** The Memorial's places move with it (sync audit M4). */
+    @Optional()
+    private readonly memorial?: MemorialService,
   ) {}
 
   /** Whether the journal should follow this event: a visit still ahead. */
@@ -414,6 +419,8 @@ export class SpecialEventsService {
 
     const prevName = this.coVisitTemplate.displayName(event);
     const before = journalView(event);
+    const memorialFromWeek =
+      event.type === 'memorial' ? mondayOf(event.date) : null;
     const signatureBefore = signatureOf(event);
 
     // Where the visit stood, for the journal: the entry of the old week
@@ -437,6 +444,20 @@ export class SpecialEventsService {
       after: journalView(saved),
       fields: [...JOURNAL_FIELDS],
     });
+
+    // The Memorial moved to another week: its places, and the brothers in
+    // them, go with it (sync audit M4, Lionel 24 October 2026).
+    if (
+      memorialFromWeek &&
+      saved.type === 'memorial' &&
+      mondayOf(saved.date) !== memorialFromWeek
+    ) {
+      await this.memorial?.moveDuties(
+        tenantId,
+        memorialFromWeek,
+        mondayOf(saved.date),
+      );
+    }
 
     // Told again only when what people plan by has changed — the days, the
     // hours, the place, the kind, whether the meeting goes. A corrected note

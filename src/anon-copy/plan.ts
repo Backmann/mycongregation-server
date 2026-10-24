@@ -170,6 +170,7 @@ export const PLAN: Record<string, TablePlan> = {
       visiting_speaker_id special_talk talk_exchange_id`),
     {
       part_title: 'scrub',
+      imported_title: 'scrub',
       speaker_name: 'full',
       speaker_congregation: 'label:Собрание',
     },

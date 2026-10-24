@@ -1,3 +1,4 @@
+import { MEMORIAL_CHANGES } from './memorial-changes';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MemorialService } from './memorial.service';
@@ -18,7 +19,10 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
     NotificationsModule,
   ],
   controllers: [MemorialController],
-  providers: [MemorialService],
-  exports: [MemorialService],
+  providers: [
+    MemorialService,
+    { provide: MEMORIAL_CHANGES, useExisting: MemorialService },
+  ],
+  exports: [MemorialService, MEMORIAL_CHANGES],
 })
 export class MemorialModule {}

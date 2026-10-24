@@ -350,6 +350,13 @@ export class MemorialService {
       after: saved,
       fields: ['label', 'publisherId', 'personText', 'songNumber', 'note'],
     });
+    if ((before.publisherId ?? null) !== (saved.publisherId ?? null)) {
+      await this.tellChange(congregationId, mondayOf(event.date), {
+        added: saved.publisherId ?? null,
+        removed: before.publisherId ?? null,
+        label: saved.label,
+      });
+    }
     return saved;
   }
 
@@ -614,6 +621,117 @@ export class MemorialService {
     } catch (err: any) {
       this.logger.warn(
         `memorial notify failed for tenant=${congregationId}: ${
+          err?.message ?? err
+        }`,
+      );
+    }
+  }
+
+  /**
+   * The Memorial moved to another week: its places go with it.
+   *
+   * The programme lines follow the evening by its id; the places are duties
+   * of the week and stayed behind — filled, in the old week, while the new
+   * week got empty ones and the reminders no longer reached the brothers
+   * (sync audit M4). The empty places a visit to the new week already made
+   * give way; if somebody is already written there, nothing is moved and it
+   * is said in the log — two sets of names are for a person to sort out.
+   */
+  async moveDuties(
+    congregationId: string,
+    fromWeek: string,
+    toWeek: string,
+  ): Promise<number> {
+    if (fromWeek === toWeek) return 0;
+    const there = await this.dutiesRepo.find({
+      where: {
+        congregationId,
+        weekStartDate: toWeek,
+        eventType: EventType.MEMORIAL,
+      },
+    });
+    if (there.some((d) => d.publisherId)) {
+      this.logger.warn(
+        `memorial ${congregationId}: places of ${toWeek} already have people; those of ${fromWeek} were not moved`,
+      );
+      return 0;
+    }
+    if (there.length > 0) await this.dutiesRepo.remove(there);
+    const res = await this.dutiesRepo.update(
+      {
+        congregationId,
+        weekStartDate: fromWeek,
+        eventType: EventType.MEMORIAL,
+      },
+      { weekStartDate: toWeek },
+    );
+    return res.affected ?? 0;
+  }
+
+  /**
+   * A change to the Memorial's sheet after it was published, told to whom it
+   * concerns (sync audit M5, Lionel 24 October 2026): the brother given a
+   * line or a place hears what it is, the one taken off hears that. Before
+   * publishing, nobody is told anything — the publication says it all.
+   */
+  async tellChange(
+    congregationId: string,
+    weekStartDate: string,
+    change: {
+      added: string | null;
+      removed: string | null;
+      label: string;
+    },
+  ): Promise<void> {
+    try {
+      if (change.added === change.removed) return;
+      const events = await this.eventsRepo.find({
+        where: { congregationId, type: 'memorial' },
+      });
+      const event = events.find((e) => mondayOf(e.date) === weekStartDate);
+      if (!event?.memorialPublishedAt) return;
+      if (event.date < (await this.clock.todayFor(congregationId))) return;
+      const ids = [change.added, change.removed].filter(
+        (x): x is string => !!x,
+      );
+      const cards = await this.publishersRepo.find({
+        where: { congregationId, id: In(ids) },
+        select: { id: true, userId: true },
+      });
+      const userOf = new Map(cards.map((c) => [c.id, c.userId]));
+      const stamp = Math.floor(Date.now() / 10_000).toString(36);
+      for (const [publisherId, kind] of [
+        [change.added, 'memorialAssigned'],
+        [change.removed, 'memorialRemoved'],
+      ] as const) {
+        const userId = publisherId ? userOf.get(publisherId) : null;
+        if (!userId) continue;
+        const user = await this.repo.manager.findOne(User, {
+          where: { id: userId },
+          select: { id: true, uiLanguage: true },
+        });
+        const lang = coerceLanguage(user?.uiLanguage);
+        const strings = PUSH_STRINGS[lang][kind];
+        await this.notifications.notify({
+          tenantId: congregationId,
+          userIds: [userId],
+          title: strings.title,
+          body: strings.body({
+            day: formatDay(event.date, lang),
+            parts: change.label,
+          }),
+          kind: 'memorial',
+          key: `memorial:${event.id}:${kind === 'memorialAssigned' ? 'add' : 'off'}:${stamp}:${userId}`,
+          data: {
+            type: 'memorial_published',
+            weekStartDate: mondayOf(event.date),
+            specialEventId: event.id,
+          },
+        });
+      }
+    } catch (err: any) {
+      this.logger.warn(
+        `memorial change notice failed for tenant=${congregationId}: ${
           err?.message ?? err
         }`,
       );

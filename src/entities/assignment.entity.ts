@@ -150,6 +150,13 @@ export class Assignment {
   @Index()
   talkExchangeId!: string | null;
 
+  /**
+   * The title the workbook import last wrote here. A title that differs from
+   * it was changed by hand, and a second import leaves it (24 October 2026).
+   */
+  @Column({ type: 'text', nullable: true })
+  importedTitle!: string | null;
+
   // ---- State ----
   @Column({
     type: 'enum',
