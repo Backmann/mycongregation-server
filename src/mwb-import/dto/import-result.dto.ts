@@ -56,6 +56,24 @@ export type ImportNotice =
       code: 'unclassified_part';
       weekStartDate: string;
       title: string | null;
+    }
+  | {
+      /**
+       * Parts whose title a person had changed: their title was left as it
+       * was (24 October 2026).
+       */
+      code: 'kept_by_hand';
+      weekStartDate: string;
+      parts: number;
+    }
+  | {
+      /**
+       * Empty numbered parts of a week made by hand that this workbook does
+       * not have — removed, so they are not reported as missing.
+       */
+      code: 'empty_parts_removed';
+      weekStartDate: string;
+      parts: number;
     };
 
 export interface ImportResultDto {

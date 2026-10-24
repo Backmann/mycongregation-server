@@ -1,5 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { AuditLogService } from '../audit-log/audit-log.service';
+import { LocalNeedsTopic } from '../entities/local-needs-topic.entity';
 import { In, Repository } from 'typeorm';
 import { Assignment } from '../entities/assignment.entity';
 import { EventType } from '../common/enums/event-type.enum';
@@ -66,6 +68,9 @@ export class MwbImportService {
     private readonly talkExchange: TalkExchangeService,
     /** The programme's freeze: a week already the record is not loaded into. */
     private readonly freeze: ProgrammeFreezeService,
+    /** One line per load in the journal of changes. */
+    @Optional()
+    private readonly auditLog?: AuditLogService,
   ) {}
 
   /**
@@ -172,6 +177,7 @@ export class MwbImportService {
       notices: [],
     };
 
+    const touched: string[] = [];
     for (const week of dto.weeks) {
       const parts: ParsedPart[] = week.parts.map((p) => ({
         rawTitle: p.partTitle ?? null,
@@ -192,9 +198,28 @@ export class MwbImportService {
         week.biblePassage ?? '',
         parts,
         result,
+        touched,
       );
       result.weeks.push(summary);
       if (!summary.notHeld && !summary.frozen) result.weeksImported++;
+    }
+
+    // One line in the journal of changes for the whole load (sync audit M3):
+    // it used to write none, so a load could be neither seen nor traced.
+    if (touched.length > 0) {
+      await this.auditLog?.logEvent({
+        tenantId: congregationId,
+        entityType: 'assignment',
+        entityId: touched[0],
+        action: 'CREATE' as never,
+        detail: {
+          bulk: true,
+          count: touched.length,
+          weeks: result.weeks
+            .filter((w) => !w.notHeld && !w.frozen)
+            .map((w) => w.weekStartDate),
+        },
+      });
     }
 
     this.logger.log(
@@ -213,6 +238,8 @@ export class MwbImportService {
     biblePassage: string,
     parts: ParsedPart[],
     overall: ImportResultDto,
+    /** The rows this load created or filled, for its journal line. */
+    touched: string[],
   ): Promise<WeekImportSummary> {
     const summary: WeekImportSummary = {
       weekStartDate,
@@ -354,6 +381,7 @@ export class MwbImportService {
       }
     }
 
+    let keptByHand = 0;
     for (const part of parts) {
       // Skip unclassified parts (don't pollute DB with "unknown" partKey)
       if (part.partKey === 'unknown') {
@@ -399,27 +427,83 @@ export class MwbImportService {
           partKey: part.partKey,
           partOrder: part.partOrder,
           partTitle,
+          importedTitle: partTitle,
           partDurationMin: part.durationMin ?? null,
           status: AssignmentStatus.DRAFT,
         });
         await this.assignmentsRepo.save(newAssignment);
+        touched.push(newAssignment.id);
         summary.created++;
         overall.partsCreated++;
       } else if (isEmptyTemplate(existingForPart)) {
         // Replace empty template — keep id, fill data from EPUB
         const kept = ofVisit.fields.get(existingForPart.id);
         existingForPart.partOrder = part.partOrder;
-        if (!kept?.has('partTitle')) existingForPart.partTitle = partTitle;
+        // A title a person changed stays (sync audit M3): it is no longer
+        // what the import last wrote — or, on a row from before that was
+        // remembered, it carries a local-needs topic.
+        const byHand =
+          !!existingForPart.partTitle &&
+          existingForPart.partTitle !== partTitle &&
+          (existingForPart.importedTitle != null
+            ? existingForPart.partTitle !== existingForPart.importedTitle
+            : ((await this.assignmentsRepo.manager?.count(LocalNeedsTopic, {
+                where: { congregationId, usedAssignmentId: existingForPart.id },
+              })) ?? 0) > 0);
+        if (byHand) {
+          keptByHand++;
+        } else if (!kept?.has('partTitle')) {
+          existingForPart.partTitle = partTitle;
+          existingForPart.importedTitle = partTitle;
+        }
         if (!kept?.has('partDurationMin')) {
           existingForPart.partDurationMin = part.durationMin ?? null;
         }
         await this.assignmentsRepo.save(existingForPart);
+        touched.push(existingForPart.id);
         summary.updated++;
         overall.partsUpdated++;
       } else {
         // Already filled — skip
         summary.skipped++;
         overall.partsSkipped++;
+      }
+    }
+
+    if (keptByHand > 0) {
+      overall.notices.push({
+        code: 'kept_by_hand',
+        weekStartDate,
+        parts: keptByHand,
+      });
+    }
+
+    /**
+     * A week made by hand before its workbook came carries every numbered
+     * part the app knows — a fourth «Применяй», a third «Христианская
+     * жизнь» — and the workbook may have fewer. Those were left behind
+     * and reported as missing 7 and 3 days before the meeting (sync audit
+     * M6). Removed now: only numbered parts the workbook does not have,
+     * with nobody in them and no title of their own.
+     */
+    if (weekEventType === EventType.MIDWEEK) {
+      const keys = new Set(parts.map((p) => p.partKey));
+      const extra = existing.filter(
+        (a) =>
+          !a.deletedAt &&
+          !ofVisit.added.has(a.id) &&
+          /^(apply_yourself|living_christians)_\d+$/.test(a.partKey) &&
+          !keys.has(a.partKey) &&
+          isEmptyTemplate(a) &&
+          !a.partTitle?.trim(),
+      );
+      if (extra.length > 0) {
+        await this.assignmentsRepo.softDelete(extra.map((a) => a.id));
+        overall.notices.push({
+          code: 'empty_parts_removed',
+          weekStartDate,
+          parts: extra.length,
+        });
       }
     }
 

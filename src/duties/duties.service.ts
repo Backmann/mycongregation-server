@@ -1,6 +1,8 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
+  Optional,
   NotFoundException,
 } from '@nestjs/common';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -28,6 +30,10 @@ import { QueryDutiesDto } from './dto/query-duties.dto';
 import { GenerateWeekDutiesDto } from './dto/generate-week-duties.dto';
 import { AssignDutyDto } from './dto/assign-duty.dto';
 import { CreateCustomDutyDto } from './dto/create-custom-duty.dto';
+import {
+  MEMORIAL_CHANGES,
+  type MemorialChanges,
+} from '../memorial/memorial-changes';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { versionForWeek, MeetingKind, WeekRules } from '../common/week-rules';
 import { rulesFromContext } from '../common/week-rules.service';
@@ -69,6 +75,10 @@ export class DutiesService {
     @InjectRepository(SpecialEvent)
     private readonly specialEventRepo: Repository<SpecialEvent>,
     private readonly clock: CongregationClock,
+    /** A place at the Memorial changed after publishing is told (M5). */
+    @Optional()
+    @Inject(MEMORIAL_CHANGES)
+    private readonly memorial?: MemorialChanges,
   ) {}
 
   /**
@@ -602,6 +612,13 @@ export class DutiesService {
       after: { publisherId: saved.publisherId ?? null },
       fields: ['publisherId'],
     });
+    if (saved.eventType === EventType.MEMORIAL) {
+      await this.memorial?.tellChange(congregationId, saved.weekStartDate, {
+        added: saved.publisherId ?? null,
+        removed: previousPublisherId,
+        label: saved.customLabel || saved.dutyType,
+      });
+    }
     const warnings = duty.publisherId
       ? await this.conflicts(congregationId, saved, duty.publisherId)
       : [];

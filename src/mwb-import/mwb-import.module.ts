@@ -1,3 +1,4 @@
+import { AuditLogModule } from '../audit-log/audit-log.module';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MeetingAttendanceModule } from '../meeting-attendance/meeting-attendance.module';
@@ -11,6 +12,7 @@ import { ProgrammeFreezeModule } from '../assignments/programme-freeze.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Assignment]),
+    AuditLogModule,
     MeetingAttendanceModule,
     CoVisitTemplateModule,
     TalkExchangeModule,
