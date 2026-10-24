@@ -101,4 +101,33 @@ describe('morning check: journal against programme (real database)', () => {
     expect(two.map((m) => m.kind)).toEqual(['other_speaker', 'no_entry']);
     expect(await notices()).toBeGreaterThan(once);
   });
+
+  it('finds the overseer left in a week without a visit', async () => {
+    const w = monday(9);
+    const r = await h.as('admin').post('/assignments', {
+      weekStartDate: w,
+      eventType: 'weekend',
+      partKey: 'public_talk_speaker',
+    });
+    expect(r.status).toBe(201);
+    const [{ id: co }] = await h.sql<{ id: string }>(
+      `INSERT INTO visiting_speakers (congregation_id, first_name, last_name, circuit_overseer)
+       VALUES ($1, 'Андреас', 'Районный', true) RETURNING id`,
+      [tenantId],
+    );
+    await h.sql(
+      `UPDATE assignments SET speaker_name = 'Андреас Районный', visiting_speaker_id = $2 WHERE id = $1`,
+      [r.body.id, co],
+    );
+    const found = await svc.mismatches(tenantId);
+    expect(found).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          weekStartDate: w,
+          kind: 'overseer_without_visit',
+          programme: 'Андреас Районный',
+        }),
+      ]),
+    );
+  });
 });

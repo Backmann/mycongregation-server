@@ -8,6 +8,7 @@ import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { User } from '../entities/user.entity';
 import { Congregation } from '../entities/congregation.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -31,7 +32,11 @@ export type MismatchKind =
   | 'other_speaker'
   | 'no_entry'
   | 'empty_line'
-  | 'cancel_unmarked';
+  | 'cancel_unmarked'
+  /** The overseer in the programme or in «К нам» of a week with no visit. */
+  | 'overseer_without_visit'
+  /** A brother of ours and a typed name in one line, outside a visit week. */
+  | 'two_speakers';
 
 export interface Mismatch {
   weekStartDate: string;
@@ -50,6 +55,8 @@ const STR: Record<
     no_entry: (day: string, p: string) => string;
     empty_line: (day: string, j: string) => string;
     cancel_unmarked: (day: string, j: string) => string;
+    overseer_without_visit: (day: string, who: string) => string;
+    two_speakers: (day: string, p: string, j: string) => string;
     more: (n: number) => string;
   }
 > = {
@@ -63,6 +70,9 @@ const STR: Record<
     empty_line: (d, j) => `${d}: в журнале ${j}, в программе никого`,
     cancel_unmarked: (d, j) =>
       `${d}: встреча отменена, а запись ${j} не помечена`,
+    overseer_without_visit: (d, w) =>
+      `${d}: районный ${w} стоит в программе или в журнале, а визита на этой неделе нет`,
+    two_speakers: (d, p, j) => `${d}: в строке докладчика двое — ${p} и ${j}`,
     more: (n) => `и ещё ${n}`,
   },
   de: {
@@ -75,6 +85,10 @@ const STR: Record<
     empty_line: (d, j) => `${d}: im Vortragsplan ${j}, im Programm niemand`,
     cancel_unmarked: (d, j) =>
       `${d}: Zusammenkunft abgesagt, Eintrag ${j} nicht markiert`,
+    overseer_without_visit: (d, w) =>
+      `${d}: Kreisaufseher ${w} steht im Programm oder Vortragsplan, aber in dieser Woche ist kein Besuch`,
+    two_speakers: (d, p, j) =>
+      `${d}: zwei Redner in einer Zeile — ${p} und ${j}`,
     more: (n) => `und ${n} weitere`,
   },
   en: {
@@ -86,6 +100,9 @@ const STR: Record<
     no_entry: (d, p) => `${d}: the program has ${p}, the log has no entry`,
     empty_line: (d, j) => `${d}: the log has ${j}, the program nobody`,
     cancel_unmarked: (d, j) => `${d}: meeting canceled, entry ${j} not marked`,
+    overseer_without_visit: (d, w) =>
+      `${d}: circuit overseer ${w} is in the program or the log, but there is no visit that week`,
+    two_speakers: (d, p, j) => `${d}: two speakers in one line — ${p} and ${j}`,
     more: (n) => `and ${n} more`,
   },
 };
@@ -120,6 +137,8 @@ export class TalkConsistencyService {
     private readonly users: Repository<User>,
     @InjectRepository(Congregation)
     private readonly congregations: Repository<Congregation>,
+    @InjectRepository(SpecialEvent)
+    private readonly events: Repository<SpecialEvent>,
     private readonly notifications: NotificationsService,
     private readonly clock: CongregationClock,
   ) {}
@@ -165,13 +184,20 @@ export class TalkConsistencyService {
           const d = shortDay(m.day, l);
           const p = m.programme ?? '—';
           const j = m.journal ?? '—';
-          return m.kind === 'other_speaker'
-            ? STR[l].other_speaker(d, p, j)
-            : m.kind === 'no_entry'
-              ? STR[l].no_entry(d, p)
-              : m.kind === 'empty_line'
-                ? STR[l].empty_line(d, j)
-                : STR[l].cancel_unmarked(d, j);
+          switch (m.kind) {
+            case 'other_speaker':
+              return STR[l].other_speaker(d, p, j);
+            case 'no_entry':
+              return STR[l].no_entry(d, p);
+            case 'empty_line':
+              return STR[l].empty_line(d, j);
+            case 'cancel_unmarked':
+              return STR[l].cancel_unmarked(d, j);
+            case 'overseer_without_visit':
+              return STR[l].overseer_without_visit(d, m.programme ?? j);
+            case 'two_speakers':
+              return STR[l].two_speakers(d, p, j);
+          }
         });
         if (found.length > 3) lines.push(STR[l].more(found.length - 3));
         return { title: STR[l].title(found.length), body: lines.join('\n') };
@@ -255,6 +281,21 @@ export class TalkConsistencyService {
     );
     const norm = (s: string | null | undefined) =>
       (s ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+    // The weeks that have a circuit visit, and the overseer's cards: a line
+    // or an entry naming him in a week without one is a visit that left
+    // something behind (24 October 2026 — three ways to it were found in
+    // one day, and there may be others).
+    const visits = await this.events.find({
+      where: {
+        congregationId: tenantId,
+        type: 'circuit_overseer_visit',
+        date: Between(addDaysISO(from, -6), addDaysISO(to, 6)),
+      },
+    });
+    const visitWeeks = new Set(visits.map((v) => mondayOf(String(v.date))));
+    const overseerCards = new Set(
+      cards.filter((c) => c.circuitOverseer).map((c) => c.id),
+    );
 
     const out: Mismatch[] = [];
     for (const line of lines) {
@@ -262,6 +303,39 @@ export class TalkConsistencyService {
       const day = e
         ? String(e.date).slice(0, 10)
         : addDaysISO(line.weekStartDate, 6);
+      if (
+        !visitWeeks.has(line.weekStartDate) &&
+        line.status !== AssignmentStatus.CANCELLED
+      ) {
+        const overseerHere =
+          (!!line.visitingSpeakerId &&
+            overseerCards.has(line.visitingSpeakerId)) ||
+          (!!e?.visitingSpeakerId && overseerCards.has(e.visitingSpeakerId));
+        if (overseerHere) {
+          out.push({
+            weekStartDate: line.weekStartDate,
+            kind: 'overseer_without_visit',
+            day,
+            programme:
+              line.speakerName?.trim() ||
+              (e?.visitingSpeakerId
+                ? (cardName.get(e.visitingSpeakerId) ?? null)
+                : null),
+            journal: null,
+          });
+          continue;
+        }
+        if (line.publisherId && line.speakerName?.trim()) {
+          out.push({
+            weekStartDate: line.weekStartDate,
+            kind: 'two_speakers',
+            day,
+            programme: pubName.get(line.publisherId) ?? null,
+            journal: line.speakerName.trim(),
+          });
+          continue;
+        }
+      }
       const lineWho = line.publisherId
         ? (pubName.get(line.publisherId) ?? null)
         : line.speakerName?.trim() || null;
