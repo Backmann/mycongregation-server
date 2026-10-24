@@ -383,11 +383,26 @@ export class LocalNeedsService {
   async releaseAssignment(
     tenantId: string,
     assignmentId: string,
+    /**
+     * The part's title now. A topic it still carries stays bound: the title
+     * the topic itself just put there is not a replacement of it.
+     */
+    keepTitle?: string | null,
   ): Promise<void> {
     const bound = await this.repo.find({
       where: { congregationId: tenantId, usedAssignmentId: assignmentId },
     });
+    const kept =
+      keepTitle != null
+        ? [
+            LocalNeedsService.normaliseTitle(keepTitle),
+            LocalNeedsService.normaliseTitle(keepTitle.split(':')[0]),
+          ]
+        : [];
     for (const topic of bound) {
+      if (kept.includes(LocalNeedsService.normaliseTitle(topic.title))) {
+        continue;
+      }
       const before = {
         usedWeek: topic.usedWeek,
         usedAssignmentId: topic.usedAssignmentId,
