@@ -124,6 +124,9 @@ describe('a guest set aside by a circuit visit (real database)', () => {
     const listed = await h.as('admin').get('/talk-exchange/set-aside');
     expect(listed.status).toBe(200);
     expect(listed.body.map((e: { id: string }) => e.id)).toContain(g);
+    expect(listed.body.find((e: { id: string }) => e.id === g)).toEqual(
+      expect.objectContaining({ name: 'Пётр Гостев', setAsideBy: v }),
+    );
     expect(await told(`talk-attention:aside:${g}`)).toBe(1);
   });
 

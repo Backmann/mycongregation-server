@@ -1357,7 +1357,9 @@ export class TalkExchangeService {
    * A visit removed has given its guests back; one whose week is over keeps
    * them as the record of who did not speak, and they are not listed.
    */
-  async setAsideFor(user: AuthenticatedUser): Promise<TalkExchange[]> {
+  async setAsideFor(
+    user: AuthenticatedUser,
+  ): Promise<Array<TalkExchange & { name: string | null }>> {
     const tenantId = user.congregationId;
     const today = await this.today(tenantId);
     const rows = await this.repo.find({
@@ -1368,6 +1370,7 @@ export class TalkExchangeService {
         date: MoreThanOrEqual(addDaysISO(today, -6)),
       },
       withDeleted: true,
+      relations: { publisher: true, visitingSpeaker: true },
       order: { date: 'ASC' },
     });
     const visits = new Set(
@@ -1386,10 +1389,24 @@ export class TalkExchangeService {
         visits.has(r.setAsideBy!) &&
         addDaysISO(mondayOf(r.date), 6) >= today,
     );
-    if (await readsDirectoryContacts(user, this.responsibilitiesRepo)) {
-      return out;
-    }
-    return out.map(exchangeWithoutPrivate);
+    // Who he is, as the journal names him: the page of the visit shows it
+    // without the directory at hand.
+    const named = (r: TalkExchange) =>
+      r.publisher
+        ? r.publisher.displayName ||
+          [r.publisher.lastName, r.publisher.firstName].join(' ')
+        : r.visitingSpeaker
+          ? speakerFullName(r.visitingSpeaker)
+          : r.speakerName?.trim() || null;
+    const open = await readsDirectoryContacts(user, this.responsibilitiesRepo);
+    return out.map((r) => {
+      const name = named(r);
+      const row: TalkExchange = { ...(open ? r : exchangeWithoutPrivate(r)) };
+      // The relations were for the name; the list carries the entry alone.
+      delete (row as Partial<TalkExchange>).publisher;
+      delete (row as Partial<TalkExchange>).visitingSpeaker;
+      return { ...row, name };
+    });
   }
 
   /**
