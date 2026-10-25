@@ -43,6 +43,12 @@ import {
 } from './outgoing-talk-notifications.service';
 import { TalkAttentionService } from './talk-attention.service';
 import { refusal } from '../common/errors/refusal';
+import { CongregationClock } from '../common/congregation-clock.service';
+import {
+  DEFAULT_CONGREGATION_TIMEZONE,
+  todayIn,
+} from '../common/congregation-clock';
+import { speakerOf } from '../special-events/co-visit-speaker';
 
 const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
 const CIRCUIT_OVERSEER_VISIT_TYPE = 'circuit_overseer_visit';
@@ -50,6 +56,16 @@ const CIRCUIT_OVERSEER_VISIT_TYPE = 'circuit_overseer_visit';
 /** A name as it is compared: case and stray spaces do not make two brothers. */
 function normalName(name: string): string {
   return name.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/** The overseer's name as the visit gives it, or null. */
+function visitName(visit: SpecialEvent): string | null {
+  return (
+    [visit.coFirstName, visit.coLastName]
+      .filter((p) => p && p.trim())
+      .join(' ')
+      .trim() || null
+  );
 }
 
 /** The refusal for a second live entry «К нам» in one week. */
@@ -215,7 +231,16 @@ export class TalkExchangeService {
     /** Trips that need a brother or came into question (23 October 2026). */
     @Optional()
     private readonly attention?: TalkAttentionService,
+    /** The congregation's own day, for moving a guest set aside. */
+    @Optional()
+    private readonly clock?: CongregationClock,
   ) {}
+
+  private today(tenantId: string): Promise<string> {
+    return this.clock
+      ? this.clock.todayFor(tenantId)
+      : Promise.resolve(todayIn(new Date(), DEFAULT_CONGREGATION_TIMEZONE));
+  }
 
   /**
    * May the journal write into this week's weekend programme? Not once it
@@ -690,11 +715,11 @@ export class TalkExchangeService {
   // and comes back with it. His card is marked, so that the lists by which
   // somebody is invited pass it over.
 
-  /** The name the visit puts into the talk slot of that week, or null. */
-  private async overseerOfWeek(
+  /** The circuit visit standing in that week, or null. */
+  private async visitOfWeek(
     tenantId: string,
     weekStartDate: string,
-  ): Promise<string | null> {
+  ): Promise<SpecialEvent | null> {
     const visits = await this.eventRepo.find({
       where: {
         congregationId: tenantId,
@@ -702,14 +727,16 @@ export class TalkExchangeService {
         deletedAt: IsNull(),
       },
     });
-    const visit = visits.find((v) => mondayOf(v.date) === weekStartDate);
-    if (!visit) return null;
-    return (
-      [visit.coFirstName, visit.coLastName]
-        .filter((p) => p && p.trim())
-        .join(' ')
-        .trim() || null
-    );
+    return visits.find((v) => mondayOf(v.date) === weekStartDate) ?? null;
+  }
+
+  /** The name the visit puts into the talk slot of that week, or null. */
+  private async overseerOfWeek(
+    tenantId: string,
+    weekStartDate: string,
+  ): Promise<string | null> {
+    const visit = await this.visitOfWeek(tenantId, weekStartDate);
+    return visit ? visitName(visit) : null;
   }
 
   /**
@@ -754,15 +781,20 @@ export class TalkExchangeService {
     return created.id;
   }
 
-  /** The journal entries of a week that are this overseer's visit. */
+  /**
+   * The journal entries of a week that are this visit's own — by the visit's
+   * id (25 October 2026). By the overseer's name only for an entry nobody has
+   * linked yet: one the mirror wrote from the programme, or one from before
+   * the link existed; it is linked the moment it is found.
+   */
   private async overseerEntries(
     tenantId: string,
     weekStartDate: string,
-    fullName: string,
+    visitId: string | null,
+    fullName: string | null,
     withDeleted = false,
   ): Promise<TalkExchange[]> {
-    const name = normalName(fullName);
-    if (name === '') return [];
+    const name = normalName(fullName ?? '');
     const rows = await this.repo.find({
       where: {
         congregationId: tenantId,
@@ -773,7 +805,13 @@ export class TalkExchangeService {
       withDeleted,
     });
     return rows.filter(
-      (r) => !r.publisherId && normalName(r.speakerName ?? '') === name,
+      (r) =>
+        !r.setAsideBy &&
+        ((!!visitId && r.circuitVisitId === visitId) ||
+          (!r.circuitVisitId &&
+            !r.publisherId &&
+            name !== '' &&
+            normalName(r.speakerName ?? '') === name)),
     );
   }
 
@@ -788,8 +826,9 @@ export class TalkExchangeService {
     /** The name the visit carried before this change, when it was another. */
     previousName: string | null = null,
   ): Promise<void> {
-    const name = await this.overseerOfWeek(tenantId, weekStartDate);
-    if (!name) return;
+    const visit = await this.visitOfWeek(tenantId, weekStartDate);
+    const name = visit ? visitName(visit) : null;
+    if (!visit || !name) return;
     const slot = await this.assignmentRepo.findOne({
       where: {
         congregationId: tenantId,
@@ -805,27 +844,38 @@ export class TalkExchangeService {
         status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
       },
     });
+    // His by the link; by the name only an entry nobody has linked.
     const isHis = (e: TalkExchange) =>
-      !e.publisherId &&
-      [name, previousName].some(
-        (n) => !!n && normalName(e.speakerName ?? '') === normalName(n),
-      );
+      e.circuitVisitId === visit.id ||
+      (!e.circuitVisitId &&
+        !e.publisherId &&
+        [name, previousName].some(
+          (n) => !!n && normalName(e.speakerName ?? '') === normalName(n),
+        ));
     /**
      * Whoever was to speak that weekend steps aside WHOLE.
      *
      * The mirror keeps one entry a week and used to rewrite it: a visiting
      * speaker's entry became the overseer's, and the coordinator's note about
-     * the guest — «обед у семьи» — then stood on the overseer's visit. Taking
-     * the visit away removed that entry, note and all, and the guest came back
-     * with a bare new one (stand, 6 October). Now his entry is set aside
-     * untouched and returns untouched; the overseer gets an entry of his own.
+     * the guest — «обед у семьи» — then stood on the overseer's visit. Now his
+     * entry is set aside untouched, marked with the visit that did it
+     * (25 October 2026): the journal shows him under the overseer, he can be
+     * moved to another week, and he comes back by that mark when the visit
+     * goes. Those who answer for the talks are told — the guest may still be
+     * on his way.
      *
      * Only once the weekend has a programme: until then the slot has not been
      * given to the overseer, and the coordinator's arrangement stands.
      */
     if (slot) {
       for (const e of live) {
-        if (!isHis(e)) await this.repo.softDelete(e.id);
+        if (!isHis(e)) await this.setAside(tenantId, e, visit);
+      }
+    }
+    for (const e of live) {
+      if (isHis(e) && e.circuitVisitId !== visit.id) {
+        e.circuitVisitId = visit.id;
+        await this.repo.update({ id: e.id }, { circuitVisitId: visit.id });
       }
     }
     // A visit taken away and put back: its entry comes back with whatever
@@ -833,11 +883,22 @@ export class TalkExchangeService {
     const othersStand = !slot && live.some((e) => !isHis(e));
     if (!live.some(isHis) && !othersStand) {
       const gone = (
-        await this.overseerEntries(tenantId, weekStartDate, name, true)
+        await this.overseerEntries(
+          tenantId,
+          weekStartDate,
+          visit.id,
+          name,
+          true,
+        )
       )
         .filter((r) => !!r.deletedAt)
         .sort((a, b) => +b.deletedAt! - +a.deletedAt!)[0];
-      if (gone) await this.repo.restore(gone.id);
+      if (gone) {
+        await this.repo.restore(gone.id);
+        if (gone.circuitVisitId !== visit.id) {
+          await this.repo.update({ id: gone.id }, { circuitVisitId: visit.id });
+        }
+      }
     }
     /**
      * A visit whose weekend has no programme yet.
@@ -851,6 +912,16 @@ export class TalkExchangeService {
      */
     if (slot) {
       await this.syncProgramToJournal(tenantId, weekStartDate);
+      // The mirror wrote the entry from the slot, by the name: it is his.
+      const entry = await this.weekEntry(tenantId, weekStartDate);
+      if (
+        entry &&
+        !entry.publisherId &&
+        !entry.circuitVisitId &&
+        normalName(entry.speakerName ?? '') === normalName(name)
+      ) {
+        await this.repo.update({ id: entry.id }, { circuitVisitId: visit.id });
+      }
       return;
     }
     const cardId = await this.overseerCard(tenantId, name);
@@ -862,20 +933,19 @@ export class TalkExchangeService {
         status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
       },
     });
-    const isNamed = (e: TalkExchange, n: string | null) =>
-      !!n &&
-      !e.publisherId &&
-      normalName(e.speakerName ?? '') === normalName(n);
-    const mine =
-      entries.find((e) => isNamed(e, name)) ??
-      entries.find((e) => isNamed(e, previousName));
+    const mine = entries.find(isHis);
     if (mine) {
-      if (mine.speakerName === name && mine.visitingSpeakerId === cardId) {
+      if (
+        mine.speakerName === name &&
+        mine.visitingSpeakerId === cardId &&
+        mine.circuitVisitId === visit.id
+      ) {
         return;
       }
       mine.speakerName = name;
       mine.speakerCongregation = null;
       mine.visitingSpeakerId = cardId;
+      mine.circuitVisitId = visit.id;
       await this.repo.save(mine);
       return;
     }
@@ -890,8 +960,36 @@ export class TalkExchangeService {
         visitingSpeakerId: cardId,
         speakerName: name,
         speakerCongregation: null,
+        circuitVisitId: visit.id,
       }),
     );
+  }
+
+  /**
+   * One entry steps aside for the visit: out of the live journal, marked with
+   * the visit, written in the journal of changes, and — a guest from another
+   * congregation — told to those who answer for the talks. One of ours is
+   * told by his own evening digest that the part is no longer his.
+   */
+  private async setAside(
+    tenantId: string,
+    entry: TalkExchange,
+    visit: SpecialEvent,
+  ): Promise<void> {
+    await this.repo.update({ id: entry.id }, { setAsideBy: visit.id });
+    await this.repo.softDelete(entry.id);
+    await this.auditLog.logUpdate({
+      tenantId,
+      entityType: 'talk_exchange',
+      entityId: entry.id,
+      subjectId: entry.publisherId ?? entry.hospitalityPublisherId,
+      before: { setAsideBy: null },
+      after: { setAsideBy: visit.id },
+      fields: ['setAsideBy'],
+    });
+    if (!entry.publisherId) {
+      await this.attention?.guestSetAside(tenantId, entry);
+    }
   }
 
   /**
@@ -931,16 +1029,20 @@ export class TalkExchangeService {
     tenantId: string,
     weekStartDate: string,
     fullName: string | null,
+    visitId: string | null = null,
   ): Promise<void> {
     await this.releaseSlot(tenantId, weekStartDate);
-    for (const e of fullName
-      ? await this.overseerEntries(tenantId, weekStartDate, fullName)
-      : []) {
+    for (const e of await this.overseerEntries(
+      tenantId,
+      weekStartDate,
+      visitId,
+      fullName,
+    )) {
       await this.repo.softDelete(e.id);
     }
     // The week is itself again: whoever was to speak before the visit is the
     // speaker now, and his entry comes back as it was set aside.
-    await this.returnEntry(tenantId, weekStartDate);
+    await this.returnEntry(tenantId, weekStartDate, visitId);
     await this.syncProgramToJournal(tenantId, weekStartDate);
   }
 
@@ -949,11 +1051,41 @@ export class TalkExchangeService {
    * a visit has left the week — the entry set aside when the visit came, with
    * the coordinator's note and the host family still on it. Without one, the
    * mirror writes a new entry from the slot, as for any week.
+   *
+   * By the visit's mark (25 October 2026): the entry it set aside, and no
+   * other. A guest set aside before the mark existed is still found the old
+   * way — the latest removed entry with the name the slot holds again.
    */
   private async returnEntry(
     tenantId: string,
     weekStartDate: string,
+    visitId: string | null = null,
   ): Promise<void> {
+    if (visitId) {
+      const marked = await this.repo.find({
+        where: { congregationId: tenantId, setAsideBy: visitId },
+        withDeleted: true,
+      });
+      const inWeek = marked.filter(
+        (e) => !!e.deletedAt && mondayOf(e.date) === weekStartDate,
+      );
+      if (inWeek.length > 0) {
+        if (await this.weekEntry(tenantId, weekStartDate)) return;
+        const back = inWeek.sort((x, y) => +y.deletedAt! - +x.deletedAt!)[0];
+        await this.repo.update({ id: back.id }, { setAsideBy: null });
+        await this.repo.restore(back.id);
+        await this.auditLog.logUpdate({
+          tenantId,
+          entityType: 'talk_exchange',
+          entityId: back.id,
+          subjectId: back.publisherId ?? back.hospitalityPublisherId,
+          before: { setAsideBy: visitId },
+          after: { setAsideBy: null },
+          fields: ['setAsideBy'],
+        });
+        return;
+      }
+    }
     const slot = await this.assignmentRepo.findOne({
       where: {
         congregationId: tenantId,
@@ -1008,12 +1140,16 @@ export class TalkExchangeService {
     fromWeek: string,
     toWeek: string,
     fullName: string | null,
+    visitId: string | null = null,
   ): Promise<void> {
     if (fromWeek === toWeek) return;
     await this.releaseSlot(tenantId, fromWeek);
-    const mine = fullName
-      ? await this.overseerEntries(tenantId, fromWeek, fullName)
-      : [];
+    const mine = await this.overseerEntries(
+      tenantId,
+      fromWeek,
+      visitId,
+      fullName,
+    );
     if (mine.length > 0) {
       const taken = await this.repo.count({
         where: {
@@ -1033,7 +1169,7 @@ export class TalkExchangeService {
       }
     }
     // The week left behind is itself again — see circuitVisitRemoved.
-    await this.returnEntry(tenantId, fromWeek);
+    await this.returnEntry(tenantId, fromWeek, visitId);
     await this.syncProgramToJournal(tenantId, fromWeek);
   }
 
@@ -1213,6 +1349,158 @@ export class TalkExchangeService {
         fields: ['date'],
       });
     }
+  }
+
+  /**
+   * The guests set aside by circuit visits still standing (25 October 2026):
+   * the journal shows each under the overseer of his week, with «Перенести».
+   * A visit removed has given its guests back; one whose week is over keeps
+   * them as the record of who did not speak, and they are not listed.
+   */
+  async setAsideFor(
+    user: AuthenticatedUser,
+  ): Promise<Array<TalkExchange & { name: string | null }>> {
+    const tenantId = user.congregationId;
+    const today = await this.today(tenantId);
+    const rows = await this.repo.find({
+      where: {
+        congregationId: tenantId,
+        direction: TalkExchangeDirection.INCOMING,
+        setAsideBy: Not(IsNull()),
+        date: MoreThanOrEqual(addDaysISO(today, -6)),
+      },
+      withDeleted: true,
+      relations: { publisher: true, visitingSpeaker: true },
+      order: { date: 'ASC' },
+    });
+    const visits = new Set(
+      (
+        await this.eventRepo.find({
+          where: {
+            congregationId: tenantId,
+            id: In([...new Set(rows.map((r) => r.setAsideBy!))]),
+          },
+        })
+      ).map((v) => v.id),
+    );
+    const out = rows.filter(
+      (r) =>
+        !!r.deletedAt &&
+        visits.has(r.setAsideBy!) &&
+        addDaysISO(mondayOf(r.date), 6) >= today,
+    );
+    // Who he is, as the journal names him: the page of the visit shows it
+    // without the directory at hand.
+    const named = (r: TalkExchange) =>
+      r.publisher
+        ? r.publisher.displayName ||
+          [r.publisher.lastName, r.publisher.firstName].join(' ')
+        : r.visitingSpeaker
+          ? speakerFullName(r.visitingSpeaker)
+          : r.speakerName?.trim() || null;
+    const open = await readsDirectoryContacts(user, this.responsibilitiesRepo);
+    return out.map((r) => {
+      const name = named(r);
+      const row: TalkExchange = { ...(open ? r : exchangeWithoutPrivate(r)) };
+      // The relations were for the name; the list carries the entry alone.
+      delete (row as Partial<TalkExchange>).publisher;
+      delete (row as Partial<TalkExchange>).visitingSpeaker;
+      return { ...row, name };
+    });
+  }
+
+  /**
+   * «Перенести»: a guest set aside by a visit goes to another weekend, whole —
+   * his talk, the note, the host family (25 October 2026). Only into a week
+   * still ahead, with no circuit visit and nobody «К нам» yet; the week he
+   * left keeps the overseer, and taking the visit away later no longer puts
+   * the guest back there.
+   */
+  async moveSetAside(
+    tenantId: string,
+    id: string,
+    toWeek: string,
+    user: AuthenticatedUser,
+  ): Promise<TalkExchangeResult> {
+    await this.assertCanWrite(user);
+    const row = await this.repo.findOne({
+      where: { id, congregationId: tenantId },
+      withDeleted: true,
+    });
+    if (
+      !row ||
+      !row.deletedAt ||
+      !row.setAsideBy ||
+      row.direction !== TalkExchangeDirection.INCOMING
+    ) {
+      throw new NotFoundException('No guest set aside by a visit here');
+    }
+    const week = mondayOf(toWeek);
+    if (addDaysISO(week, 6) < (await this.today(tenantId))) {
+      throw new BadRequestException({
+        code: 'WEEK_ALREADY_PAST',
+        message: 'A week that has already happened cannot take a guest',
+      });
+    }
+    if (await this.visitOfWeek(tenantId, week)) {
+      throw new BadRequestException(
+        refusal(
+          'TALK_MOVE_VISIT_WEEK',
+          "The circuit overseer's visit week has no place for a guest",
+        ),
+      );
+    }
+    if (await this.weekEntry(tenantId, week)) throw weekTaken();
+
+    const visitId = row.setAsideBy;
+    const before: Record<string, string | null> = {
+      date: String(row.date).slice(0, 10),
+      setAsideBy: visitId,
+    };
+    const date = await this.weekendDateFor(tenantId, week);
+    try {
+      await this.repo
+        .createQueryBuilder()
+        .update()
+        .set({
+          date,
+          setAsideBy: null,
+          deletedAt: null,
+          meetingCancelled: await this.weekCancelled(tenantId, week),
+        })
+        .where('id = :id', { id: row.id })
+        .execute();
+    } catch (err) {
+      if (isWeekTaken(err)) throw weekTaken();
+      throw err;
+    }
+    // The visit no longer gives the slot back to him: he speaks elsewhere.
+    const visit = await this.eventRepo.findOne({
+      where: { id: visitId, congregationId: tenantId },
+    });
+    const ops =
+      (visit?.coRevertData as Array<Record<string, unknown>> | null) ?? [];
+    if (visit && ops.some((o) => o.op === 'speaker')) {
+      visit.coRevertData = ops.map((o) =>
+        o.op === 'speaker' ? { ...o, prev: speakerOf({}) } : o,
+      );
+      await this.eventRepo.save(visit);
+    }
+    const saved = await this.findOne(tenantId, row.id);
+    await this.auditLog.logUpdate({
+      tenantId,
+      entityType: 'talk_exchange',
+      entityId: saved.id,
+      subjectId: saved.publisherId ?? saved.hospitalityPublisherId,
+      before,
+      after: { date, setAsideBy: null },
+      fields: ['date', 'setAsideBy'],
+    });
+    await this.specialTalkNotifications.announceIfNew(saved, {
+      specialTheme: saved.specialTheme,
+      date: String(row.date).slice(0, 10),
+    });
+    return this.applySideEffects(tenantId, saved, false);
   }
 
   // ---- Side effects -------------------------------------------------------

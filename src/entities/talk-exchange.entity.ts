@@ -127,6 +127,22 @@ export class TalkExchange {
   @Column({ type: 'varchar', length: 16, default: 'journal' })
   origin!: 'journal' | 'programme';
 
+  /**
+   * The circuit visit this entry is the overseer's own of (25 October 2026).
+   * Found by id from then on, not by his name. Incoming only.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  circuitVisitId!: string | null;
+
+  /**
+   * The circuit visit that set this guest aside (25 October 2026). The entry
+   * is out of the live journal while the visit stands; the journal shows it
+   * under the overseer, it can be moved to another week, and it comes back
+   * by this mark when the visit goes. Incoming only.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  setAsideBy!: string | null;
+
   // ---- Outgoing side ----
   @Column({ type: 'uuid', nullable: true })
   @Index()
