@@ -19,6 +19,7 @@ import { RebuildFromProgrammeDto } from './dto/rebuild-from-programme.dto';
 import { CreateTalkExchangeDto } from './dto/create-talk-exchange.dto';
 import { UpdateTalkExchangeDto } from './dto/update-talk-exchange.dto';
 import { ReplaceSpeakerDto } from './dto/replace-speaker.dto';
+import { MoveSetAsideDto } from './dto/move-set-aside.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 
 /**
@@ -59,6 +60,27 @@ export class TalkExchangeController {
   @Get()
   list(@CurrentUser() user: AuthenticatedUser) {
     return this.service.listFor(user);
+  }
+
+  /**
+   * Guests set aside by circuit visits still standing (25 October 2026): the
+   * journal shows each under the overseer of his week.
+   */
+  @Get('set-aside')
+  setAside(@CurrentUser() user: AuthenticatedUser) {
+    return this.service.setAsideFor(user);
+  }
+
+  /** «Перенести»: a guest set aside by a visit goes to another weekend. */
+  @Post(':id/move-aside')
+  @HttpCode(200)
+  moveAside(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: MoveSetAsideDto,
+  ) {
+    return this.service.moveSetAside(tenantId, id, dto.weekStartDate, user);
   }
 
   /** Special talks — date, theme, speaker — for the events screen. */

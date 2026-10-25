@@ -232,6 +232,8 @@ describe('the talk journal follows a circuit visit', () => {
       '2026-10-12',
       '2026-10-19',
       'Иван Тестов',
+      // By the visit's id: its own entries, not whatever carries the name.
+      'e1',
     );
     expect(journal.circuitVisitApplied).toHaveBeenCalledWith(
       TENANT,
@@ -252,6 +254,7 @@ describe('the talk journal follows a circuit visit', () => {
       TENANT,
       '2026-10-12',
       'Иван Тестов',
+      'e1',
     );
     expect(journal.circuitVisitApplied).not.toHaveBeenCalled();
   });
@@ -292,6 +295,7 @@ describe('the talk journal follows a circuit visit', () => {
       TENANT,
       '2026-10-12',
       'Иван Тестов',
+      'e1',
     );
     expect(template.revert.mock.invocationCallOrder[0]).toBeLessThan(
       journal.circuitVisitRemoved.mock.invocationCallOrder[0],

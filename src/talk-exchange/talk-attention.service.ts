@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, In, Not, Repository } from 'typeorm';
+import { Between, In, IsNull, MoreThanOrEqual, Not, Repository } from 'typeorm';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { Absence } from '../entities/absence.entity';
 import { Publisher } from '../entities/publisher.entity';
@@ -8,6 +8,8 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { User } from '../entities/user.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { ExternalCongregation } from '../entities/external-congregation.entity';
+import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
@@ -50,6 +52,9 @@ const ANSWERING: ResponsibilityType[] = [
 /** Reminders while nobody is named, days before the trip (Lionel: 14 and 7). */
 const NEEDS_BROTHER_DAYS = [14, 7] as const;
 
+/** A guest set aside by a visit is mentioned once more after these days. */
+const ASIDE_AGAIN_DAYS = 3;
+
 const STR: Record<
   SupportedLanguage,
   {
@@ -64,6 +69,10 @@ const STR: Record<
     cancelledBody: (day: string, guest: string) => string;
     droppedTitle: string;
     droppedBody: (day: string, guest: string) => string;
+    asideTitle: string;
+    asideBody: (day: string, guest: string) => string;
+    asideAgainTitle: string;
+    asideAgainBody: (day: string, guest: string) => string;
     guest: string;
   }
 > = {
@@ -83,6 +92,12 @@ const STR: Record<
     droppedTitle: 'Докладчика убрали из программы',
     droppedBody: (day, guest) =>
       `${day} · ${guest} записан в журнале «К нам», а в программе его больше нет. Проверьте, приедет ли он`,
+    asideTitle: 'Визит районного занял неделю гостя',
+    asideBody: (day, guest) =>
+      `${day} выступит районный. ${guest} отложен — предупредите его или перенесите`,
+    asideAgainTitle: 'Гость всё ещё отложен',
+    asideAgainBody: (day, guest) =>
+      `${day} · ${guest} отложен из‑за визита районного и не перенесён. Предупредите его или перенесите`,
     guest: 'гость',
   },
   de: {
@@ -101,6 +116,12 @@ const STR: Record<
     droppedTitle: 'Redner aus dem Programm entfernt',
     droppedBody: (day, guest) =>
       `${day} · ${guest} steht im Vortragsplan, aber nicht mehr im Programm. Bitte klären, ob er kommt`,
+    asideTitle: 'Der Kreisaufseherbesuch belegt die Woche eines Gastredners',
+    asideBody: (day, guest) =>
+      `${day} spricht der Kreisaufseher. ${guest} ist zurückgestellt – bitte ihn informieren oder verlegen`,
+    asideAgainTitle: 'Gastredner noch zurückgestellt',
+    asideAgainBody: (day, guest) =>
+      `${day} · ${guest} ist wegen des Kreisaufseherbesuchs zurückgestellt und nicht verlegt. Bitte ihn informieren oder verlegen`,
     guest: 'Gastredner',
   },
   en: {
@@ -119,6 +140,12 @@ const STR: Record<
     droppedTitle: 'Speaker removed from the programme',
     droppedBody: (day, guest) =>
       `${day} · ${guest} is booked in the talk log but no longer in the programme. Check whether he is coming`,
+    asideTitle: "The circuit overseer's visit took a guest's week",
+    asideBody: (day, guest) =>
+      `${day} the circuit overseer speaks. ${guest} is set aside — let him know or move him`,
+    asideAgainTitle: 'A guest is still set aside',
+    asideAgainBody: (day, guest) =>
+      `${day} · ${guest} is set aside for the circuit overseer's visit and not moved. Let him know or move him`,
     guest: 'guest',
   },
 };
@@ -155,6 +182,10 @@ export class TalkAttentionService {
     private readonly hosts: Repository<ExternalCongregation>,
     private readonly notifications: NotificationsService,
     private readonly clock: CongregationClock,
+    @InjectRepository(VisitingSpeaker)
+    private readonly speakers: Repository<VisitingSpeaker>,
+    @InjectRepository(SpecialEvent)
+    private readonly events: Repository<SpecialEvent>,
   ) {}
 
   /** The congregation's own day, never the server's. */
@@ -326,6 +357,55 @@ export class TalkAttentionService {
     await this.aboutGuest(tenantId, entry, 'dropped');
   }
 
+  /**
+   * A circuit visit set a guest aside (25 October 2026): he may still be on
+   * his way, and only those who answer for the talks can tell him. Once when
+   * it happens, and once more after three days while he is neither moved nor
+   * given back — see {@link runFor}.
+   */
+  async guestSetAside(
+    tenantId: string,
+    entry: Pick<TalkExchange, 'id' | 'date' | 'speakerName'>,
+  ): Promise<void> {
+    try {
+      const date = String(entry.date).slice(0, 10);
+      if (date < (await this.today(tenantId))) return;
+      const guest = await this.guestName(tenantId, entry);
+      await this.say(
+        tenantId,
+        entry.id,
+        date,
+        (l) => ({
+          title: STR[l].asideTitle,
+          body: STR[l].asideBody(shortDay(date, l), guest ?? STR[l].guest),
+        }),
+        `talk-attention:aside:${entry.id}`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `talk attention ${entry.id}: not announced: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /** The guest's name: written on the entry, or his card's. */
+  private async guestName(
+    tenantId: string,
+    entry: Pick<TalkExchange, 'speakerName'> & {
+      visitingSpeakerId?: string | null;
+    },
+  ): Promise<string | null> {
+    if (entry.speakerName?.trim()) return entry.speakerName.trim();
+    if (!entry.visitingSpeakerId) return null;
+    const card = await this.speakers.findOne({
+      where: { id: entry.visitingSpeakerId, congregationId: tenantId },
+      withDeleted: true,
+    });
+    return card
+      ? [card.firstName, card.lastName].filter(Boolean).join(' ') || null
+      : null;
+  }
+
   private async aboutGuest(
     tenantId: string,
     entry: Pick<TalkExchange, 'id' | 'date' | 'speakerName'>,
@@ -419,6 +499,48 @@ export class TalkAttentionService {
         );
         said++;
       }
+    }
+    // A guest still set aside three days after the visit took his week.
+    const aside = await this.entries.find({
+      where: {
+        congregationId: tenantId,
+        direction: TalkExchangeDirection.INCOMING,
+        setAsideBy: Not(IsNull()),
+        date: MoreThanOrEqual(today),
+        deletedAt: Not(IsNull()),
+      },
+      withDeleted: true,
+    });
+    const standing = aside.length
+      ? new Set(
+          (
+            await this.events.find({
+              where: {
+                congregationId: tenantId,
+                id: In([...new Set(aside.map((e) => e.setAsideBy!))]),
+              },
+              select: { id: true },
+            })
+          ).map((v) => v.id),
+        )
+      : new Set<string>();
+    const cutoff = Date.now() - ASIDE_AGAIN_DAYS * 86_400_000;
+    for (const e of aside) {
+      if (!standing.has(e.setAsideBy!)) continue;
+      if (!e.deletedAt || +e.deletedAt > cutoff) continue;
+      const date = String(e.date).slice(0, 10);
+      const guest = await this.guestName(tenantId, e);
+      await this.say(
+        tenantId,
+        e.id,
+        date,
+        (l) => ({
+          title: STR[l].asideAgainTitle,
+          body: STR[l].asideAgainBody(shortDay(date, l), guest ?? STR[l].guest),
+        }),
+        `talk-attention:aside-again:${e.id}`,
+      );
+      said++;
     }
     return said;
   }

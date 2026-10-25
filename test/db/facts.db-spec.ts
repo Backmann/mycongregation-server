@@ -43,6 +43,7 @@ describe('production facts (real database)', () => {
       'overseer_without_visit',
       'school_absences_of_removed_schools',
       'school_duties_ahead_of_removed_helpers',
+      'talk_guests_set_aside_by_gone_visit',
       'talk_lines_linked_to_missing_entry',
       'talk_weeks_with_two_incoming',
       'two_speakers_in_a_line',
@@ -129,5 +130,29 @@ describe('production facts (real database)', () => {
       [r.body.id, p],
     );
     expect(await value('two_speakers_in_a_line')).toBe(1);
+  });
+
+  it('a guest left set aside by a visit that is gone shows', async () => {
+    const [{ cid }] = await h.sql<{ cid: string }>(
+      `SELECT congregation_id AS cid FROM users LIMIT 1`,
+    );
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + 90);
+    const date = d.toISOString().slice(0, 10);
+    const [{ id: v }] = await h.sql<{ id: string }>(
+      `INSERT INTO special_events (congregation_id, title, type, date, deleted_at)
+       VALUES ($1, 'Визит', 'circuit_overseer_visit', $2, now()) RETURNING id`,
+      [cid, date],
+    );
+    // The state the code now prevents, written straight into the table.
+    await h.sql(
+      `INSERT INTO talk_exchange (congregation_id, direction, date, speaker_name, set_aside_by, deleted_at)
+       VALUES ($1, 'incoming', $2, 'Пётр Гостев', $3, now())`,
+      [cid, date, v],
+    );
+    const row = (await facts()).find(
+      (r) => r.check_name === 'talk_guests_set_aside_by_gone_visit',
+    );
+    expect(Number(row?.value)).toBe(1);
   });
 });

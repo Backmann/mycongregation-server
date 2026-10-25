@@ -56,6 +56,8 @@ describe('TalkExchangeService', () => {
       save: jest.fn((x) => Promise.resolve({ id: x.id ?? 'tx-1', ...x })),
       findOne: jest.fn(),
       softDelete: jest.fn().mockResolvedValue({}),
+      // A visit marks the entries it sets aside and links its own.
+      update: jest.fn().mockResolvedValue({}),
       find: jest.fn().mockResolvedValue([]),
     };
     assignmentRepo = {

@@ -150,7 +150,28 @@ export class SpecialEventsService {
    * bookkeeping for everyone; the accommodation only for those above.
    */
   private present(e: SpecialEvent, seesAccommodation: boolean): SpecialEvent {
-    const out: Partial<SpecialEvent> = { ...e };
+    const out: Partial<SpecialEvent> & {
+      programmeApplied?: { midweek: boolean; weekend: boolean } | null;
+    } = { ...e };
+    /**
+     * What the visit has actually done to each meeting of its week
+     * (25 October 2026) — so its page does not promise a service talk for a
+     * midweek meeting that was held before the visit was entered. Read from
+     * the marks the template leaves per meeting; a visit saved before the
+     * marks existed says nothing (null), and the page speaks as it always did.
+     */
+    if (e.type === CIRCUIT_OVERSEER_VISIT_TYPE) {
+      const ops =
+        (e.coRevertData as Array<{ op: string; kind?: string }> | null) ?? [];
+      const marks = ops.filter((o) => o.op === 'meeting');
+      out.programmeApplied =
+        marks.length > 0 || ops.length === 0
+          ? {
+              midweek: marks.some((o) => o.kind === 'midweek'),
+              weekend: marks.some((o) => o.kind === 'weekend'),
+            }
+          : null;
+    }
     delete out.coRevertData;
     if (!seesAccommodation) {
       out.coAccommodationAddress = null;
@@ -500,12 +521,14 @@ export class SpecialEventsService {
             oldWeek,
             mondayOf(applied.date),
             prevName,
+            applied.id,
           );
         } else {
           await this.talkExchange.circuitVisitRemoved(
             tenantId,
             oldWeek,
             prevName,
+            applied.id,
           );
         }
       }
@@ -597,6 +620,7 @@ export class SpecialEventsService {
           tenantId,
           mondayOf(event.date),
           this.coVisitTemplate.displayName(event),
+          event.id,
         );
       }
     }
