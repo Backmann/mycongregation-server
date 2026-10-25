@@ -94,6 +94,8 @@ function build(
       publishers as never,
       duties as never,
       { isOver: jest.fn(async () => opts.over === true) } as never,
+      { delete: jest.fn(async () => ({ affected: 0 })) } as never,
+      { todayFor: jest.fn(async () => '2026-10-21') } as never,
     ),
     runs,
   };

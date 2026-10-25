@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Put, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Put,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -37,5 +45,15 @@ export class ConductRunsController {
   @Put()
   save(@CurrentUser() user: AuthenticatedUser, @Body() dto: SaveConductRunDto) {
     return this.service.save(user, dto);
+  }
+
+  /** «Это была проба»: the result and the run of that week go, until its day is over. */
+  @Delete()
+  drop(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('week') week: string,
+    @Query('kind') kind?: string,
+  ) {
+    return this.service.drop(user, week, conductKind(kind));
   }
 }
