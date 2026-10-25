@@ -92,6 +92,12 @@ export interface ReminderItem {
   time?: string | null;
   place?: string | null;
   /**
+   * A talk of ours in another congregation: the Watchtower study's songs
+   * that weekend, which he should not choose as his opening song (Lionel,
+   * 25 October 2026). Empty when the week's study is not imported.
+   */
+  avoidSongs?: number[];
+  /**
    * Where it stands in the programme. Only decides the order in which the
    * things of one meeting are named; a duty comes after the parts.
    */
@@ -274,7 +280,26 @@ interface Words {
   /** «речь в собрании Dortmund» / «речь в другом собрании» */
   talkAt: (congregation: string) => string;
   talkAway: string;
+  /** «на изучении «Сторожевой башни» песни 12 и 34 — их не выбирайте» */
+  avoidSongs: (songs: string) => string;
+  and: string;
   when: (days: number) => string;
+}
+
+/** «песни 12 и 34», «песня 12»; «songs 12 and 34»; «Lieder 12 und 34». */
+function songList(
+  songs: number[],
+  lang: SupportedLanguage,
+  and: string,
+): string {
+  const nums =
+    songs.length === 1
+      ? String(songs[0])
+      : `${songs.slice(0, -1).join(', ')} ${and} ${songs[songs.length - 1]}`;
+  const one = songs.length === 1;
+  if (lang === 'ru') return `${one ? 'песня' : 'песни'} ${nums}`;
+  if (lang === 'de') return `${one ? 'Lied' : 'Lieder'} ${nums}`;
+  return `${one ? 'song' : 'songs'} ${nums}`;
 }
 
 /** «2 дня», «5 дней», «21 день», «22 дня» — any number, not only the steps. */
@@ -302,6 +327,9 @@ const WORDS: Record<SupportedLanguage, Words> = {
     cleaning: 'уборка после встречи (ваша группа)',
     talkAt: (c) => `ваша речь в собрании ${c}`,
     talkAway: 'ваша речь в другом собрании',
+    avoidSongs: (n) =>
+      `на изучении «Сторожевой башни» ${n} — для вступления их не выбирайте`,
+    and: 'и',
     when: (d) =>
       d <= 0
         ? 'сегодня'
@@ -329,6 +357,9 @@ const WORDS: Record<SupportedLanguage, Words> = {
     cleaning: 'cleaning after the meeting (your group)',
     talkAt: (c) => `your talk in ${c}`,
     talkAway: 'your talk in another congregation',
+    avoidSongs: (n) =>
+      `the Watchtower study sings ${n} — do not choose them to open`,
+    and: 'and',
     when: (d) =>
       d <= 0
         ? 'today'
@@ -357,6 +388,9 @@ const WORDS: Record<SupportedLanguage, Words> = {
     cleaning: 'Reinigung nach der Zusammenkunft (Ihre Gruppe)',
     talkAt: (c) => `Ihr Vortrag in ${c}`,
     talkAway: 'Ihr Vortrag in einer anderen Versammlung',
+    avoidSongs: (n) =>
+      `beim Wachtturm-Studium: ${n} — bitte nicht als Anfangslied wählen`,
+    and: 'und',
     when: (d) =>
       d <= 0
         ? 'heute'
@@ -511,8 +545,13 @@ export function writeDigest(
       const it = l.item as ReminderItem;
       const at = it.time ? `, ${it.time.slice(0, 5)}` : '';
       const what = it.place?.trim() ? w.talkAt(it.place.trim()) : w.talkAway;
+      const songs = (it.avoidSongs ?? []).filter((n) => n > 0);
+      const avoid =
+        songs.length > 0
+          ? `; ${w.avoidSongs(songList(songs, lang, w.and))}`
+          : '';
       groups.push({
-        head: `${day}${whenOf(l)}${at}: ${what}`,
+        head: `${day}${whenOf(l)}${at}: ${what}${avoid}`,
         tail: '',
         lines: [],
       });

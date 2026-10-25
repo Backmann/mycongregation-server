@@ -395,6 +395,32 @@ describe('a talk in another congregation', () => {
     ]);
   });
 
+  // The study is the same that weekend everywhere (Lionel, 25 October 2026):
+  // he is told which songs not to choose to open his talk.
+  it("names the Watchtower study's songs he should not choose", async () => {
+    const song = (partKey: string, partTitle: string, partOrder: number) => ({
+      id: `${partKey}-1`,
+      weekStartDate: '2026-10-19',
+      eventType: 'weekend',
+      partKey,
+      partTitle,
+      partOrder,
+      publisherId: null,
+    });
+    const { svc, sent } = build({
+      parts: [
+        song('weekend_song', 'Песня 12', 5),
+        song('weekend_closing_prayer', 'Песня 34 и молитва', 8),
+      ],
+      talks: [talk()],
+      hosts,
+    });
+    await svc.sendDigests('cong-1', '2026-10-24');
+    expect(sent[0].body).toBe(
+      'Вс 25 октября, 10:00: ваша речь в собрании Dortmund-Russisch; на изучении «Сторожевой башни» песни 12 и 34 — для вступления их не выбирайте',
+    );
+  });
+
   it('one that did not happen is not recalled', async () => {
     const { svc, sent } = build({
       parts: [],

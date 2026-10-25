@@ -524,6 +524,9 @@ export class MwbImportService {
     // the visit was saved. `circuitVisitApplied` does nothing elsewhere.
     if (weekEventType === EventType.WEEKEND) {
       await this.talkExchange.fillEmptySlot(congregationId, weekStartDate);
+      // The visit's opening song into the new line; and the study's songs,
+      // now known, are compared with it (25 October 2026).
+      await this.talkExchange.fillOpeningSong(congregationId, weekStartDate);
       await this.talkExchange.circuitVisitApplied(
         congregationId,
         weekStartDate,

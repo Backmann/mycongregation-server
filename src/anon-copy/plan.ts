@@ -282,7 +282,7 @@ export const PLAN: Record<string, TablePlan> = {
     copy(`id congregation_id direction date status public_talk_id
       visiting_speaker_id hospitality_publisher_id publisher_id
       host_congregation_id linked_absence_id risk_ack_reason meeting_cancelled
-      origin circuit_visit_id set_aside_by created_at updated_at deleted_at`),
+      origin circuit_visit_id set_aside_by opening_song created_at updated_at deleted_at`),
     {
       speaker_name: 'full',
       speaker_congregation: 'label:Собрание',

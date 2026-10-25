@@ -143,6 +143,13 @@ export class TalkExchange {
   @Column({ type: 'uuid', nullable: true })
   setAsideBy!: string | null;
 
+  /**
+   * The opening song the guest chose (25 October 2026). The programme's
+   * opening-song line follows it, and it follows the line. Incoming only.
+   */
+  @Column({ type: 'smallint', nullable: true })
+  openingSong!: number | null;
+
   // ---- Outgoing side ----
   @Column({ type: 'uuid', nullable: true })
   @Index()

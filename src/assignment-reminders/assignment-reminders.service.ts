@@ -45,6 +45,7 @@ import { MEETING_NAMES, PART_NAMES } from '../common/i18n/push-strings';
 import { addDaysISO } from '../common/week-rules';
 import { WeekRulesService } from '../common/week-rules.service';
 import { mondayOf } from '../common/week';
+import { weekSongs } from '../talk-exchange/week-songs';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ReadinessService } from '../readiness/readiness.service';
 import {
@@ -371,6 +372,13 @@ export class AssignmentRemindersService {
         ? await this.hosts.find({ where: { congregationId, id: In(hostIds) } })
         : [];
       const hostById = new Map(hosts.map((h) => [h.id, h]));
+      // The study is the same everywhere that weekend: our own programme
+      // knows its songs once the Watchtower is imported.
+      const songsOf = await weekSongs(
+        this.assignments,
+        congregationId,
+        going.map((t) => mondayOf(String(t.date))),
+      );
       for (const t of going) {
         const host = t.hostCongregationId
           ? hostById.get(t.hostCongregationId)
@@ -386,6 +394,7 @@ export class AssignmentRemindersService {
           slot: null,
           time: host?.meetingTime ?? null,
           place: host?.name ?? null,
+          avoidSongs: songsOf.get(mondayOf(String(t.date)))?.study ?? [],
         });
       }
     }

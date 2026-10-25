@@ -22,6 +22,7 @@ import { TalkConsistencyService } from './talk-consistency.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { CongregationClockModule } from '../common/congregation-clock.module';
 import { ProgrammeFreezeModule } from '../assignments/programme-freeze.module';
+import { WeekRulesModule } from '../common/week-rules.module';
 
 @Module({
   imports: [
@@ -45,6 +46,8 @@ import { ProgrammeFreezeModule } from '../assignments/programme-freeze.module';
     // The programme's freeze: the journal stops writing into a week that is
     // already the record.
     ProgrammeFreezeModule,
+    // Which weekends the congregation meets on: the empty ones are named.
+    WeekRulesModule,
   ],
   controllers: [TalkExchangeController],
   providers: [

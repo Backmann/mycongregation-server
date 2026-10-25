@@ -258,14 +258,30 @@ export class PublicTalksService {
       return a.speakerName ?? null;
     };
 
+    /**
+     * The meeting's day, not its Monday (25 October 2026): a guest coming on
+     * Sunday the 25th read «Будет: 19 окт.», and «Последний раз» was six days
+     * early the same way.
+     */
+    const shown = [...latestByTalk.values(), ...nextByTalk.values()].map((a) =>
+      String(a.weekStartDate).slice(0, 10),
+    );
+    const dowOf = await this.weekendDowByWeek(congregationId, [
+      ...new Set(shown),
+    ]);
+    const dayOf = (a: Assignment | undefined): string | null => {
+      if (!a) return null;
+      const week = String(a.weekStartDate).slice(0, 10);
+      return addDaysISO(week, (dowOf.get(week) ?? 7) - 1);
+    };
     const data: PublicTalkWithHistory[] = talks.map((t) => {
       const latest = latestByTalk.get(t.id);
       const next = nextByTalk.get(t.id);
       return {
         ...t,
-        lastGivenAt: latest?.weekStartDate ?? null,
+        lastGivenAt: dayOf(latest),
         lastGivenBy: speakerOf(latest),
-        nextGivenAt: next?.weekStartDate ?? null,
+        nextGivenAt: dayOf(next),
         nextGivenBy: speakerOf(next),
       };
     });

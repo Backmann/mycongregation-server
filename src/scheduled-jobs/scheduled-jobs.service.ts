@@ -75,6 +75,22 @@ export class ScheduledJobsService {
   }
 
   /**
+   * The lunch bag for the guest speaker: its bringer hears of it the evening
+   * two days before — Friday for a Sunday (Lionel, 25 October 2026).
+   */
+  @Cron('0 18 * * *', {
+    name: 'guest-lunch-bag',
+    timeZone: 'Europe/Berlin',
+  })
+  async handleGuestLunchBag(): Promise<void> {
+    try {
+      await this.talkAttention.runLunchBagEvening();
+    } catch (e) {
+      this.logger.error(`guest lunch bag failed: ${String(e)}`);
+    }
+  }
+
+  /**
    * Do the talk journal and the weekend programme still say the same for the
    * weeks ahead? Each morning, before the day's notices; the administrators
    * hear of a difference (23 October 2026).
