@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, LessThan, Repository } from 'typeorm';
 import { ConductRun } from '../entities/conduct-run.entity';
+import { ConductLive } from '../entities/conduct-live.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Duty } from '../entities/duty.entity';
@@ -23,6 +24,8 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { refusal } from '../common/errors/refusal';
 import { isConductOverseer } from '../common/conduct-overseer';
 import { MeetingDayService } from './meeting-day.service';
+import { CongregationClock } from '../common/congregation-clock.service';
+import { addDaysISO } from '../common/week-rules';
 import { SaveConductRunDto } from './dto/save-conduct-run.dto';
 
 /** How long a run may be read and kept — Lionel, 14 October 2026. */
@@ -55,6 +58,9 @@ export class ConductRunsService {
     @InjectRepository(Duty)
     private readonly duties: Repository<Duty>,
     private readonly meetingDay: MeetingDayService,
+    @InjectRepository(ConductLive)
+    private readonly live: Repository<ConductLive>,
+    private readonly clock: CongregationClock,
   ) {}
 
   /** Whether this account is the timekeeper named for that week's midweek meeting. */
@@ -182,6 +188,62 @@ export class ConductRunsService {
     row.savedBy = user.id;
     row.savedAt = now;
     return this.runs.save(row);
+  }
+
+  /**
+   * «Это была проба — стереть» (Lionel, 25 October 2026): a run started to
+   * try the screen, on the meeting's own day, left a result that nothing
+   * could remove — and it stood among the results, and on Home, as if the
+   * meeting had taken three minutes.
+   *
+   * The same hands that save a result may wipe it — the chairman, the
+   * timekeeper, an admin — and only until the meeting's day is over: after
+   * that the result is the meeting's, as save() holds. Both the result and
+   * the run on the server go, so the meeting can be run again from the start
+   * and every watching screen goes back to «not begun».
+   */
+  async drop(
+    user: AuthenticatedUser,
+    weekStartDate: string,
+    kind: ConductKind = EventType.MIDWEEK,
+  ): Promise<{ result: boolean; run: boolean }> {
+    const week = this.monday(weekStartDate);
+    if (
+      user.role !== UserRole.ADMIN &&
+      !(await this.isChairman(user, week, kind)) &&
+      !(await this.isTimekeeper(user, week, kind))
+    ) {
+      throw new ForbiddenException(
+        refusal(
+          'CONDUCT_RUN_FORBIDDEN',
+          'Only the chairman or the timekeeper of that week wipes how the meeting ran.',
+        ),
+      );
+    }
+    // Over by its day — or, where the day cannot be told (no meeting
+    // settings), by the end of its week: a wipe errs towards keeping.
+    const weekEnded =
+      addDaysISO(week, 6) < (await this.clock.todayFor(user.congregationId));
+    if (
+      weekEnded ||
+      (await this.meetingDay.isOver(user.congregationId, week, kind))
+    ) {
+      throw new ConflictException(
+        refusal(
+          'CONDUCT_RESULT_KEPT',
+          'The result of this meeting is kept already; after its day it is not replaced.',
+        ),
+      );
+    }
+    const where = {
+      congregationId: user.congregationId,
+      weekStartDate: week,
+      eventType: kind,
+      room: MAIN_ROOM,
+    };
+    const result = await this.runs.delete(where);
+    const run = await this.live.delete(where);
+    return { result: (result.affected ?? 0) > 0, run: (run.affected ?? 0) > 0 };
   }
 
   /**
