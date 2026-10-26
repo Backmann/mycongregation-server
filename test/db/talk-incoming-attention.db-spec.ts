@@ -3,11 +3,12 @@ import { CongregationClock } from '../../src/common/congregation-clock.service';
 import { TalkAttentionService } from '../../src/talk-exchange/talk-attention.service';
 
 /**
- * Our own weekends (Lionel, 25 October 2026): the guest's opening song kept
- * on his visit and in the programme as one; the song the Watchtower study
- * sings the same day named at once; an empty weekend said 8 and 4 weeks
- * before; a guest without a lunch bag said 7 days before; the bringer told
- * the evening two days before; the coordinator reminded to remind the guest.
+ * Our own weekends (Lionel, 25–26 October 2026): the guest's opening song
+ * kept on his visit and in the programme as one; the song the Watchtower
+ * study sings the same day named at once; everything else still to do —
+ * empty weekends, a talk not chosen, a song not known, a lunch bag nobody
+ * brings, this week's guests to remind — counted into one weekly summary;
+ * the bringer told the evening two days before.
  */
 describe('our weekends that need somebody (real database)', () => {
   let h: Harness;
@@ -100,6 +101,25 @@ describe('our weekends that need somebody (real database)', () => {
         [`${key}%`],
       )
     )[0].n;
+  /** The week's summary sent on `day` — its body, or null. */
+  const digestOn = async (day: string) =>
+    (
+      await h.sql<{ body: string }>(
+        `SELECT body FROM notification_outbox WHERE dedupe_key = $1 LIMIT 1`,
+        [`talk-attention:digest:${monday(day)}`],
+      )
+    )[0]?.body ?? null;
+  const digestCount = async () =>
+    (
+      await h.sql<{ n: number }>(
+        `SELECT count(DISTINCT dedupe_key)::int AS n FROM notification_outbox
+          WHERE dedupe_key LIKE 'talk-attention:digest:%'`,
+      )
+    )[0].n;
+  const clearDigests = () =>
+    h.sql(
+      `DELETE FROM notification_outbox WHERE dedupe_key LIKE 'talk-attention:digest:%'`,
+    );
   const listed = async () => {
     const r = await h.as('admin').get('/talk-exchange/attention/incoming');
     expect(r.status).toBe(200);
@@ -199,7 +219,7 @@ describe('our weekends that need somebody (real database)', () => {
     expect((await listed()).filter((i) => i.weekStartDate === co)).toEqual([]);
   });
 
-  it('an empty weekend is listed from 8 weeks and said at 8 and at 4', async () => {
+  it('empty weekends are listed from 8 weeks and counted in ONE weekly summary', async () => {
     const near = week(3);
     const far = week(7);
     const items = await listed();
@@ -208,16 +228,56 @@ describe('our weekends that need somebody (real database)', () => {
     expect(of(near)).toEqual(['needs_guest']);
     expect(of(far)).toEqual(['needs_guest']);
     expect(of(week(10))).toEqual([]);
+    await clearDigests();
     await attention.runFor(tenantId);
     await attention.runFor(tenantId);
-    expect(await told(`talk-attention:guest:${near}:28`)).toBe(1);
-    expect(await told(`talk-attention:guest:${far}:56`)).toBe(1);
+    // Neither weekend has a notice of its own; one summary counts both.
+    expect(await told('talk-attention:guest:')).toBe(0);
+    expect(await digestCount()).toBe(1);
+    const empty = items.filter((i) => i.reason === 'needs_guest').length;
+    expect(await digestOn(today)).toContain(`«К нам»: ${empty}`);
+    // The next week: a new summary.
+    await asOf(plus(today, 7), () => attention.runFor(tenantId));
+    expect(await digestCount()).toBe(2);
     // Booked: no longer empty.
     await guest(far, 'Фома');
     expect((await listed()).filter((i) => i.weekStartDate === far)).toEqual([]);
   });
 
-  it('no lunch bag: listed from 14 days, said at 7; the bringer hears two days before; the coordinator is reminded to remind', async () => {
+  it('a visit arranged in a hurry: its talk asked for from 4 weeks, its song from 2', async () => {
+    const w = week(9);
+    const g = await guest(w, 'Тимофей');
+    const sunday = plus(w, 6);
+    const reasons = async (day: string) =>
+      asOf(day, async () =>
+        (await attention.incomingAttention(tenantId))
+          .filter((i) => i.weekStartDate === w)
+          .map((i) => i.reason),
+      );
+    expect(await reasons(plus(sunday, -29))).toEqual([]);
+    expect(await reasons(plus(sunday, -28))).toEqual(['needs_talk']);
+    expect(await reasons(plus(sunday, -14))).toEqual([
+      'no_lunch',
+      'needs_talk',
+      'needs_song',
+    ]);
+    // The summary of that week counts them.
+    await clearDigests();
+    await asOf(plus(sunday, -14), () => attention.runFor(tenantId));
+    const body = await digestOn(plus(sunday, -14));
+    expect(body).toMatch(/Речь не выбрана: [1-9]/);
+    expect(body).toMatch(/Песня гостя не известна: [1-9]/);
+    // Completed: they leave.
+    // A special theme counts as chosen, as a talk from the list does.
+    const r = await h.as('admin').patch(`/talk-exchange/${g}`, {
+      specialTheme: 'Особая речь',
+      openingSong: 88,
+    });
+    expect(r.status).toBe(200);
+    expect(await reasons(plus(sunday, -14))).toEqual(['no_lunch']);
+  });
+
+  it("no lunch bag: listed from 14 days, counted in the summary; the bringer hears two days before; this week's guest is in the summary to remind", async () => {
     const w = week(5);
     const g = await guest(w, 'Лука');
     const sunday = plus(w, 6);
@@ -226,12 +286,14 @@ describe('our weekends that need somebody (real database)', () => {
       const items = (await attention.incomingAttention(tenantId)).filter(
         (i) => i.weekStartDate === w,
       );
-      expect(items.map((i) => i.reason)).toEqual(['no_lunch']);
-      await attention.runFor(tenantId);
+      expect(items.map((i) => i).map((i) => i.reason)).toContain('no_lunch');
     });
-    expect(await told(`talk-attention:lunch:${g}`)).toBe(0);
+    await clearDigests();
     await asOf(plus(sunday, -7), () => attention.runFor(tenantId));
-    expect(await told(`talk-attention:lunch:${g}`)).toBe(1);
+    expect(await told(`talk-attention:lunch:${g}`)).toBe(0);
+    expect(await digestOn(plus(sunday, -7))).toMatch(
+      /Ланч-пакет никто не несёт: [1-9]/,
+    );
 
     // Somebody brings one: it leaves the list.
     const bringer = await h.addPublisher({
@@ -251,7 +313,7 @@ describe('our weekends that need somebody (real database)', () => {
       const items = (await attention.incomingAttention(tenantId)).filter(
         (i) => i.weekStartDate === w,
       );
-      expect(items).toEqual([]);
+      expect(items.map((i) => i.reason)).not.toContain('no_lunch');
     });
 
     // The evening two days before: the bringer herself.
@@ -267,16 +329,12 @@ describe('our weekends that need somebody (real database)', () => {
     );
     expect(bag.user_id).toBe(uid);
 
-    // «Напомните гостю»: three days before, not for a visit just made.
-    await asOf(plus(sunday, -3), () => attention.runFor(tenantId));
+    // «Напомнить гостю»: the week's summary names this week's guest.
+    await clearDigests();
+    await asOf(w, () => attention.runFor(tenantId));
+    expect(await digestOn(w)).toContain('Напомнить гостю:');
+    expect(await digestOn(w)).toContain('Лука Гостев');
     expect(await told(`talk-attention:remind:${g}`)).toBe(0);
-    await h.sql(
-      `UPDATE talk_exchange SET created_at = now() - interval '20 days' WHERE id = $1`,
-      [g],
-    );
-    await asOf(plus(sunday, -3), () => attention.runFor(tenantId));
-    await asOf(plus(sunday, -3), () => attention.runFor(tenantId));
-    expect(await told(`talk-attention:remind:${g}`)).toBe(1);
   });
 
   it('the sister who brings the lunch bag has it among her own tasks, with whom it is for', async () => {
