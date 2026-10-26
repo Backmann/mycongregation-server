@@ -279,6 +279,41 @@ describe('our weekends that need somebody (real database)', () => {
     expect(await told(`talk-attention:remind:${g}`)).toBe(1);
   });
 
+  it('the sister who brings the lunch bag has it among her own tasks, with whom it is for', async () => {
+    const w = week(6);
+    const g = await guest(w, 'Матвей');
+    const sister = await h.addPublisher({
+      firstName: 'Ольга',
+      lastName: 'Пакетова',
+      gender: 'sister',
+    });
+    await h.addUser({ login: 'olga', role: 'publisher', publisherId: sister });
+    await h
+      .as('admin')
+      .patch(`/talk-exchange/${g}`, { hospitalityPublisherId: sister });
+    const mine = await h.as('olga').get('/me/assignments');
+    expect(mine.status).toBe(200);
+    expect(
+      mine.body.items.filter((i: { kind: string }) => i.kind === 'guest_lunch'),
+    ).toEqual([
+      expect.objectContaining({
+        kind: 'guest_lunch',
+        date: plus(w, 6),
+        label: 'Матвей Гостев',
+      }),
+    ]);
+    // Taken off the visit: no longer hers.
+    await h
+      .as('admin')
+      .patch(`/talk-exchange/${g}`, { hospitalityPublisherId: null });
+    const after = await h.as('olga').get('/me/assignments');
+    expect(
+      after.body.items.filter(
+        (i: { kind: string }) => i.kind === 'guest_lunch',
+      ),
+    ).toEqual([]);
+  });
+
   it('the weekend songs ahead are given for the message to the guest', async () => {
     const w = week(18);
     await createWeek(w, { study: 'Песня 101', closing: 'Песня 102 и молитва' });
