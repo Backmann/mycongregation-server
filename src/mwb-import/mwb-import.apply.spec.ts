@@ -21,6 +21,7 @@ jest.mock('../push-notifications/push-notifications.service', () => ({
 /** The journal behind the weekend; the cases look at what it was asked. */
 const journal = {
   fillEmptySlot: jest.fn(async () => undefined),
+  fillOpeningSong: jest.fn(async () => undefined),
   syncProgramToJournal: jest.fn(async () => undefined),
   circuitVisitApplied: jest.fn(async () => undefined),
 };

@@ -21,6 +21,14 @@ import {
 import { SupportedLanguage } from '../common/i18n/supported-languages';
 import { shortDay } from '../assignment-reminders/digest';
 import { addDaysISO } from '../common/week-rules';
+import { mondayOf } from '../common/week';
+import { Assignment } from '../entities/assignment.entity';
+import { AssignmentStatus } from '../common/enums/assignment-status.enum';
+import {
+  WeekRulesService,
+  rulesFromContext,
+} from '../common/week-rules.service';
+import { weekSongs } from './week-songs';
 
 /** The kind these notices go out under; «other» — they cannot be switched off. */
 export const TALK_ATTENTION_KIND = 'talk_exchange_attention';
@@ -54,6 +62,123 @@ const NEEDS_BROTHER_DAYS = [14, 7] as const;
 
 /** A guest set aside by a visit is mentioned once more after these days. */
 const ASIDE_AGAIN_DAYS = 3;
+
+/**
+ * Our own weekends (Lionel, 25 October 2026): a weekend nobody is booked for
+ * is said 8 and 4 weeks before; a guest nobody brings a lunch bag for, 7
+ * days before; a guest's opening song that the Watchtower study sings the
+ * same day, as soon as it is known. The «Внимание» list shows the empty
+ * weekends from 8 weeks ahead and the missing lunch bag from 14 days.
+ */
+const NEEDS_GUEST_DAYS = [56, 28] as const;
+const LUNCH_DAYS = 7;
+const LUNCH_LIST_DAYS = 14;
+/** The coordinator is reminded to remind the guest, days before. */
+const REMIND_GUEST_DAYS = 3;
+/** A visit entered this close to it was just arranged: no reminder. */
+const REMIND_FRESH_DAYS = 2;
+/** The lunch bag's bringer hears of it this many days before, at evening. */
+export const LUNCH_BAG_EVENING_DAYS = 2;
+
+/** Why one of our weekends needs somebody's attention. */
+export type IncomingReason = 'needs_guest' | 'no_lunch' | 'song_repeat';
+
+export interface IncomingAttentionItem {
+  reason: IncomingReason;
+  weekStartDate: string;
+  /** The weekend meeting's day. */
+  date: string;
+  /** The week's visit, when there is one. */
+  entryId: string | null;
+  /** The guest's name, when known. */
+  guest: string | null;
+  /** The opening song that repeats (song_repeat). */
+  song: number | null;
+  /** The Watchtower study's songs that weekend (song_repeat). */
+  studySongs: number[];
+}
+
+function weeksWord(n: number, l: SupportedLanguage): string {
+  if (l === 'ru') {
+    const m10 = n % 10;
+    const m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return `${n} неделю`;
+    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return `${n} недели`;
+    return `${n} недель`;
+  }
+  if (l === 'de') return n === 1 ? '1 Woche' : `${n} Wochen`;
+  return n === 1 ? '1 week' : `${n} weeks`;
+}
+
+const IN_STR: Record<
+  SupportedLanguage,
+  {
+    guestTitle: (weeks: string) => string;
+    guestBody: (day: string) => string;
+    lunchTitle: string;
+    lunchBody: (day: string, guest: string) => string;
+    songTitle: string;
+    songBody: (day: string, guest: string, song: number) => string;
+    remindTitle: string;
+    remindBody: (day: string, guest: string) => string;
+    bagTitle: string;
+    bagBody: (day: string, guest: string) => string;
+    theGuest: string;
+  }
+> = {
+  ru: {
+    guestTitle: (w) => `Через ${w} некому выступать`,
+    guestBody: (day) => `${day}: «К нам» пусто. Пригласите докладчика`,
+    lunchTitle: 'Ланч-пакет для гостя не назначен',
+    lunchBody: (day, g) =>
+      `${day} · ${g}: никто не несёт ланч-пакет. Выберите, кто принесёт`,
+    songTitle: 'Песня гостя повторяется',
+    songBody: (day, g, n) =>
+      `${day} · ${g}: песня ${n} поётся на изучении «Сторожевой башни». Попросите выбрать другую`,
+    remindTitle: 'Напомните гостю о встрече',
+    remindBody: (day, g) =>
+      `${day} · ${g}. Готовое сообщение — в журнале «К нам / От нас»`,
+    bagTitle: 'Ланч-пакет для докладчика',
+    bagBody: (day, g) =>
+      `${day}: принесите, пожалуйста, ланч-пакет для брата ${g} в Зал Царства`,
+    theGuest: 'гость',
+  },
+  de: {
+    guestTitle: (w) => `In ${w} kein Redner`,
+    guestBody: (day) =>
+      `${day}: noch kein Gastredner eingetragen. Bitte einen Redner einladen`,
+    lunchTitle: 'Lunchpaket für den Gastredner nicht vergeben',
+    lunchBody: (day, g) =>
+      `${day} · ${g}: niemand bringt ein Lunchpaket. Bitte jemanden auswählen`,
+    songTitle: 'Lied des Gastredners doppelt',
+    songBody: (day, g, n) =>
+      `${day} · ${g}: Lied ${n} wird beim Wachtturm-Studium gesungen. Bitte um ein anderes bitten`,
+    remindTitle: 'Gastredner an den Vortrag erinnern',
+    remindBody: (day, g) =>
+      `${day} · ${g}. Die fertige Nachricht steht im Vortragsplan`,
+    bagTitle: 'Lunchpaket für den Redner',
+    bagBody: (day, g) =>
+      `${day}: Bitte bringen Sie ein Lunchpaket für Bruder ${g} in den Königreichssaal`,
+    theGuest: 'Gastredner',
+  },
+  en: {
+    guestTitle: (w) => `In ${w}, no speaker yet`,
+    guestBody: (day) => `${day}: no guest speaker booked. Invite a speaker`,
+    lunchTitle: 'No lunch bag for the guest',
+    lunchBody: (day, g) =>
+      `${day} · ${g}: nobody brings a lunch bag. Choose who will`,
+    songTitle: "The guest's song repeats",
+    songBody: (day, g, n) =>
+      `${day} · ${g}: song ${n} is sung at the Watchtower study. Ask him to choose another`,
+    remindTitle: 'Remind the guest of his talk',
+    remindBody: (day, g) =>
+      `${day} · ${g}. The ready message is in the talk log`,
+    bagTitle: 'A lunch bag for the speaker',
+    bagBody: (day, g) =>
+      `${day}: please bring a lunch bag for Brother ${g} to the Kingdom Hall`,
+    theGuest: 'guest',
+  },
+};
 
 const STR: Record<
   SupportedLanguage,
@@ -186,6 +311,9 @@ export class TalkAttentionService {
     private readonly speakers: Repository<VisitingSpeaker>,
     @InjectRepository(SpecialEvent)
     private readonly events: Repository<SpecialEvent>,
+    @InjectRepository(Assignment)
+    private readonly assignments: Repository<Assignment>,
+    private readonly weekRules: WeekRulesService,
   ) {}
 
   /** The congregation's own day, never the server's. */
@@ -288,6 +416,302 @@ export class TalkAttentionService {
       if (reason && t.riskAckReason !== reason) out.push({ ...base, reason });
     }
     return out;
+  }
+
+  /**
+   * Our own weekends that need somebody (25 October 2026): nobody booked,
+   * no lunch bag for the guest, his opening song sung at the study. Only
+   * weekends the congregation meets on, never a circuit visit's: the
+   * overseer's week has its own songs and its own hospitality. `onlyWeek`
+   * asks about one week, for the check right after a change.
+   */
+  async incomingAttention(
+    tenantId: string,
+    onlyWeek?: string,
+  ): Promise<IncomingAttentionItem[]> {
+    const today = await this.today(tenantId);
+    const first = onlyWeek ?? mondayOf(today);
+    const last = onlyWeek ?? addDaysISO(mondayOf(today), 52 * 7);
+    const weeks: string[] = [];
+    for (let w = first; w <= last; w = addDaysISO(w, 7)) weeks.push(w);
+    const [ctx, entries, slots, songs] = await Promise.all([
+      this.weekRules.contextOf(tenantId),
+      this.entries.find({
+        where: {
+          congregationId: tenantId,
+          direction: TalkExchangeDirection.INCOMING,
+          status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
+          date: Between(first, addDaysISO(last, 6)),
+        },
+        order: { date: 'ASC' },
+      }),
+      this.assignments.find({
+        where: {
+          congregationId: tenantId,
+          partKey: 'public_talk_speaker',
+          weekStartDate: Between(first, last),
+        },
+        select: {
+          id: true,
+          weekStartDate: true,
+          publisherId: true,
+          speakerName: true,
+          status: true,
+        },
+      }),
+      weekSongs(this.assignments, tenantId, weeks),
+    ]);
+    const entryOf = new Map<string, TalkExchange>();
+    for (const e of entries) {
+      const w = mondayOf(String(e.date));
+      if (!entryOf.has(w)) entryOf.set(w, e);
+    }
+    const slotOf = new Map(
+      slots.map((a) => [String(a.weekStartDate).slice(0, 10), a]),
+    );
+    const out: IncomingAttentionItem[] = [];
+    for (const week of weeks) {
+      const rules = rulesFromContext(ctx, week);
+      if (!rules.meetingsHeld || rules.coVisit) continue;
+      if (rules.memorialTakes === 'weekend') continue;
+      if (rules.replacedBy('weekend')) continue;
+      // No settings recorded yet: Sunday, as the journal dates its visits.
+      const date = rules.dateOf('weekend') ?? addDaysISO(week, 6);
+      if (date < today) continue;
+      const days = daysBetween(today, date);
+      const entry = entryOf.get(week) ?? null;
+      const slot = slotOf.get(week) ?? null;
+      if (slot?.status === AssignmentStatus.CANCELLED) continue;
+      if (entry?.meetingCancelled) continue;
+      const base = {
+        weekStartDate: week,
+        date,
+        entryId: entry?.id ?? null,
+        guest: null as string | null,
+        song: null as number | null,
+        studySongs: [] as number[],
+      };
+      if (!entry) {
+        const booked = !!(slot?.publisherId || slot?.speakerName?.trim());
+        if (!booked && days <= NEEDS_GUEST_DAYS[0]) {
+          out.push({ ...base, reason: 'needs_guest' });
+        }
+      }
+      const guestVisit = !!entry && !entry.publisherId && !entry.circuitVisitId;
+      const noLunch =
+        guestVisit && !entry.hospitalityPublisherId && days <= LUNCH_LIST_DAYS;
+      const ws = songs.get(week);
+      const opening = ws?.opening ?? entry?.openingSong ?? null;
+      const repeats = opening !== null && !!ws && ws.study.includes(opening);
+      const guest =
+        entry && (noLunch || repeats)
+          ? await this.guestName(tenantId, entry)
+          : null;
+      if (noLunch) out.push({ ...base, guest, reason: 'no_lunch' });
+      if (repeats && ws) {
+        out.push({
+          ...base,
+          guest,
+          reason: 'song_repeat',
+          song: opening,
+          studySongs: ws.study,
+        });
+      }
+    }
+    return out;
+  }
+
+  /** The weekend songs of the weeks ahead that the programme holds. */
+  async weekSongsAhead(
+    tenantId: string,
+  ): Promise<
+    { weekStartDate: string; opening: number | null; study: number[] }[]
+  > {
+    const first = mondayOf(await this.today(tenantId));
+    const weeks: string[] = [];
+    for (let i = 0; i <= 52; i++) weeks.push(addDaysISO(first, i * 7));
+    const map = await weekSongs(this.assignments, tenantId, weeks);
+    return [...map.entries()]
+      .filter(([, w]) => w.study.length > 0 || w.opening !== null)
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([weekStartDate, w]) => ({ weekStartDate, ...w }));
+  }
+
+  /**
+   * Right after a song or a programme changed: the coordinator hears at once
+   * that the guest's song is the study's. Once per week and song.
+   */
+  async songCheck(tenantId: string, week: string): Promise<void> {
+    try {
+      const items = await this.incomingAttention(tenantId, week);
+      for (const it of items) {
+        if (it.reason === 'song_repeat') await this.sayIncoming(tenantId, it);
+      }
+    } catch (err) {
+      this.logger.warn(
+        `talk attention song ${week}: not checked: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /** One notice of an incoming item, keyed so that it is said once. */
+  private async sayIncoming(
+    tenantId: string,
+    it: IncomingAttentionItem,
+    due?: number,
+  ): Promise<void> {
+    const guestOr = (l: SupportedLanguage) => it.guest ?? IN_STR[l].theGuest;
+    const id = it.entryId ?? it.weekStartDate;
+    if (it.reason === 'needs_guest') {
+      await this.say(
+        tenantId,
+        id,
+        it.date,
+        (l) => ({
+          title: IN_STR[l].guestTitle(
+            weeksWord(Math.round((due ?? 28) / 7), l),
+          ),
+          body: IN_STR[l].guestBody(shortDay(it.date, l)),
+        }),
+        `talk-attention:guest:${it.weekStartDate}:${due}`,
+      );
+    } else if (it.reason === 'no_lunch') {
+      await this.say(
+        tenantId,
+        id,
+        it.date,
+        (l) => ({
+          title: IN_STR[l].lunchTitle,
+          body: IN_STR[l].lunchBody(shortDay(it.date, l), guestOr(l)),
+        }),
+        `talk-attention:lunch:${id}:${it.date}`,
+      );
+    } else {
+      await this.say(
+        tenantId,
+        id,
+        it.date,
+        (l) => ({
+          title: IN_STR[l].songTitle,
+          body: IN_STR[l].songBody(shortDay(it.date, l), guestOr(l), it.song!),
+        }),
+        `talk-attention:song:${it.weekStartDate}:${it.song}`,
+      );
+    }
+  }
+
+  /** The daily notices about our own weekends; see {@link runFor}. */
+  private async runIncoming(tenantId: string, today: string): Promise<number> {
+    let said = 0;
+    for (const it of await this.incomingAttention(tenantId)) {
+      const days = daysBetween(today, it.date);
+      if (it.reason === 'needs_guest') {
+        const due = [...NEEDS_GUEST_DAYS].reverse().find((d) => days <= d);
+        if (due === undefined) continue;
+        await this.sayIncoming(tenantId, it, due);
+        said++;
+      } else if (it.reason === 'no_lunch') {
+        if (days > LUNCH_DAYS) continue;
+        await this.sayIncoming(tenantId, it);
+        said++;
+      } else {
+        await this.sayIncoming(tenantId, it);
+        said++;
+      }
+    }
+    // «Напомните гостю»: three days before, with the ready message waiting in
+    // the journal. Not for a visit arranged in the last two days.
+    const soon = await this.entries.find({
+      where: {
+        congregationId: tenantId,
+        direction: TalkExchangeDirection.INCOMING,
+        status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
+        publisherId: IsNull(),
+        circuitVisitId: IsNull(),
+        meetingCancelled: false,
+        date: Between(today, addDaysISO(today, REMIND_GUEST_DAYS)),
+      },
+    });
+    const freshAfter = Date.now() - REMIND_FRESH_DAYS * 86_400_000;
+    for (const e of soon) {
+      if (e.createdAt && +new Date(e.createdAt) > freshAfter) continue;
+      const date = String(e.date).slice(0, 10);
+      const guest = await this.guestName(tenantId, e);
+      if (!guest) continue;
+      await this.say(
+        tenantId,
+        e.id,
+        date,
+        (l) => ({
+          title: IN_STR[l].remindTitle,
+          body: IN_STR[l].remindBody(shortDay(date, l), guest),
+        }),
+        `talk-attention:remind:${e.id}:${date}`,
+      );
+      said++;
+    }
+    return said;
+  }
+
+  /**
+   * The evening two days before the meeting (Friday for a Sunday — Lionel,
+   * 25 October 2026): whoever brings the guest's lunch bag hears of it
+   * himself, when he signs in to the app. Scheduled from scheduled-jobs.
+   */
+  async runLunchBagEvening(): Promise<void> {
+    const all = await this.congregations.find({ select: { id: true } });
+    for (const c of all) {
+      try {
+        await this.lunchBagFor(c.id);
+      } catch (err) {
+        this.logger.error(`lunch bag ${c.id}: ${String(err)}`);
+      }
+    }
+  }
+
+  async lunchBagFor(tenantId: string): Promise<number> {
+    const today = await this.today(tenantId);
+    const day = addDaysISO(today, LUNCH_BAG_EVENING_DAYS);
+    const visits = await this.entries.find({
+      where: {
+        congregationId: tenantId,
+        direction: TalkExchangeDirection.INCOMING,
+        status: Not(TalkExchangeStatus.DID_NOT_HAPPEN),
+        hospitalityPublisherId: Not(IsNull()),
+        meetingCancelled: false,
+        date: day,
+      },
+    });
+    let said = 0;
+    for (const e of visits) {
+      const bringer = await this.publishers.findOne({
+        where: { id: e.hospitalityPublisherId!, congregationId: tenantId },
+        select: { id: true, userId: true },
+      });
+      if (!bringer?.userId) continue;
+      const user = await this.users.findOne({
+        where: { id: bringer.userId, congregationId: tenantId, isActive: true },
+        select: { id: true },
+      });
+      if (!user) continue;
+      const guest = await this.guestName(tenantId, e);
+      await this.notifications.notify({
+        tenantId,
+        userIds: [user.id],
+        text: (l) => ({
+          title: IN_STR[l].bagTitle,
+          body: IN_STR[l].bagBody(
+            shortDay(day, l),
+            guest ?? IN_STR[l].theGuest,
+          ),
+        }),
+        kind: 'guest_lunch',
+        key: `guest-lunch:${e.id}:${day}:${bringer.id}`,
+        data: { type: 'assignment_reminder', date: day },
+      });
+      said++;
+    }
+    return said;
   }
 
   /** «He goes»: the mark for this reason is lifted until something changes. */
@@ -542,6 +966,7 @@ export class TalkAttentionService {
       );
       said++;
     }
+    said += await this.runIncoming(tenantId, today);
     return said;
   }
 

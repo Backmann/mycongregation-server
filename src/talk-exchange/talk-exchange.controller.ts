@@ -43,6 +43,24 @@ export class TalkExchangeController {
     return this.attention.attentionFor(tenantId);
   }
 
+  /**
+   * Our own weekends that need someone: nobody booked, no lunch bag for the
+   * guest, his opening song sung at the study (25 October 2026).
+   */
+  @Get('attention/incoming')
+  incomingAttention(@TenantId() tenantId: string) {
+    return this.attention.incomingAttention(tenantId);
+  }
+
+  /**
+   * The Watchtower study's songs of the weekends ahead, as far as imported:
+   * the message to a guest names them, so that he does not choose one.
+   */
+  @Get('week-songs')
+  weekSongs(@TenantId() tenantId: string) {
+    return this.attention.weekSongsAhead(tenantId);
+  }
+
   /** «He goes»: lift the in-question mark for this reason. */
   @Post(':id/attention-ack')
   @HttpCode(200)

@@ -6,6 +6,9 @@ import {
   IsString,
   IsUUID,
   MaxLength,
+  IsInt,
+  Min,
+  Max,
 } from 'class-validator';
 import {
   TalkExchangeDirection,
@@ -52,6 +55,13 @@ export class UpdateTalkExchangeDto {
   @IsOptional()
   @IsUUID()
   hospitalityPublisherId?: string | null;
+
+  /** The guest's opening song; null clears it. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(999)
+  openingSong?: number | null;
 
   @IsOptional()
   @IsUUID()

@@ -54,6 +54,7 @@ import { CoVisitTemplateService } from '../special-events/co-visit-template.serv
 import { ProgrammeFreezeService } from './programme-freeze.service';
 import type { AuthenticatedUser as FreezeUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
+import { OPENING_SONG_PART_KEY, songNumber } from '../talk-exchange/week-songs';
 
 const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
 
@@ -462,6 +463,21 @@ export class AssignmentsService {
         { speakerChanged: namesSpeaker(fields) },
       );
     }
+    // The opening-song line made now: the visit's song goes into it when it
+    // is empty, a song given with it goes to the visit (25 October 2026).
+    if (saved.partKey === OPENING_SONG_PART_KEY) {
+      if (songNumber(saved.partTitle) === null) {
+        await this.talkExchange.fillOpeningSong(
+          congregationId,
+          saved.weekStartDate,
+        );
+      } else {
+        await this.talkExchange.openingSongFromProgramme(
+          congregationId,
+          saved.weekStartDate,
+        );
+      }
+    }
     // A part added on its own in a circuit visit's week gets the visit's
     // template too, as a whole week created at once does (24 October 2026,
     // events audit L5). Does nothing in a week without a visit.
@@ -528,6 +544,13 @@ export class AssignmentsService {
       await this.talkExchange.syncProgramToJournal(congregationId, week, {
         speakerChanged,
       });
+    }
+    for (const week of new Set(
+      saved
+        .filter((a) => a.partKey === OPENING_SONG_PART_KEY)
+        .map((a) => a.weekStartDate),
+    )) {
+      await this.talkExchange.fillOpeningSong(congregationId, week);
     }
     // A meeting created for a week with a circuit visit gets the visit's
     // programme now — the visit may have been saved long before the week had
@@ -722,6 +745,17 @@ export class AssignmentsService {
         saved.speakerName = fresh.speakerName;
         saved.speakerCongregation = fresh.speakerCongregation;
       }
+    }
+    // A song chosen in the programme reaches the week's visit.
+    if (
+      saved.partKey === OPENING_SONG_PART_KEY &&
+      dto.partTitle !== undefined &&
+      songNumber(dto.partTitle) !== songNumber(beforeSnapshot.partTitle)
+    ) {
+      await this.talkExchange.openingSongFromProgramme(
+        congregationId,
+        saved.weekStartDate,
+      );
     }
     // The planning helpers are for meetings still ahead. On one already
     // held they would rewrite a neighbouring part — and the microphone in

@@ -51,7 +51,9 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
     kind === 'assignment_reminder' ||
     // A talk one of ours gives in another congregation is his assignment as
     // much as a part at home is.
-    kind === 'outgoing_talk'
+    kind === 'outgoing_talk' ||
+    // The lunch bag one brings for the guest speaker (25 October 2026).
+    kind === 'guest_lunch'
   ) {
     return 'assignments';
   }

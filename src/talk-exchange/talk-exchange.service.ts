@@ -49,6 +49,7 @@ import {
   todayIn,
 } from '../common/congregation-clock';
 import { speakerOf } from '../special-events/co-visit-speaker';
+import { OPENING_SONG_PART_KEY, songNumber, songTitle } from './week-songs';
 
 const PUBLIC_TALK_PART_KEY = 'public_talk_speaker';
 const CIRCUIT_OVERSEER_VISIT_TYPE = 'circuit_overseer_visit';
@@ -129,6 +130,7 @@ function snapshot(row: TalkExchange): Record<string, unknown> {
     speakerName: row.speakerName,
     speakerCongregation: row.speakerCongregation,
     hospitalityPublisherId: row.hospitalityPublisherId,
+    openingSong: row.openingSong ?? null,
     publisherId: row.publisherId,
     hostCongregationId: row.hostCongregationId,
     note: row.note,
@@ -408,7 +410,13 @@ export class TalkExchangeService {
       subjectId: saved.publisherId ?? saved.hospitalityPublisherId,
       after: snapshot(saved),
     });
-    return this.applySideEffects(tenantId, saved, overwriteProgram);
+    const result = await this.applySideEffects(
+      tenantId,
+      saved,
+      overwriteProgram,
+    );
+    await this.openingSongToProgramme(tenantId, saved, null, null);
+    return result;
   }
 
   async update(
@@ -423,6 +431,7 @@ export class TalkExchangeService {
     // Snapshot BEFORE Object.assign — the row is mutated in place.
     const before = snapshot(row);
     const was = { specialTheme: row.specialTheme, date: row.date };
+    const wasSong = row.openingSong ?? null;
     // What the travelling brother knew, read BEFORE the row is mutated.
     const wasOutgoing = outgoingFacts(row);
     const wasWeek =
@@ -477,7 +486,146 @@ export class TalkExchangeService {
     ) {
       await this.attention?.brotherTakenOff(tenantId, saved);
     }
-    return this.applySideEffects(tenantId, saved, overwriteProgram);
+    const result = await this.applySideEffects(
+      tenantId,
+      saved,
+      overwriteProgram,
+    );
+    await this.openingSongToProgramme(
+      tenantId,
+      saved,
+      wasSong,
+      wasWeek && wasWeek !== nowWeek ? wasWeek : null,
+    );
+    return result;
+  }
+
+  /**
+   * The guest's opening song into the programme (25 October 2026).
+   *
+   * The line `weekend_opening_song` of the entry's week shows the song the
+   * entry holds. A song taken off the entry leaves the line only when the
+   * line still shows THAT song — another one, chosen in the programme, is a
+   * decision of its own. A week the entry left gives up its song the same
+   * way. A week that is already the record keeps its programme.
+   */
+  private async openingSongToProgramme(
+    tenantId: string,
+    entry: TalkExchange,
+    wasSong: number | null,
+    weekLeft: string | null,
+  ): Promise<void> {
+    if (entry.direction !== TalkExchangeDirection.INCOMING) return;
+    const clearIfStill = async (week: string, song: number | null) => {
+      if (song === null) return;
+      const line = await this.openingSongLine(tenantId, week);
+      if (!line || songNumber(line.partTitle) !== song) return;
+      if (!(await this.programmeOpen(tenantId, week))) return;
+      await this.writeSongLine(line, null);
+    };
+    if (weekLeft) await clearIfStill(weekLeft, wasSong);
+    const week = mondayOf(entry.date);
+    const live =
+      entry.status !== TalkExchangeStatus.DID_NOT_HAPPEN &&
+      !entry.setAsideBy &&
+      !entry.deletedAt;
+    if (!live) {
+      await clearIfStill(week, wasSong ?? entry.openingSong ?? null);
+      return;
+    }
+    const song = entry.openingSong ?? null;
+    if (song === null && wasSong !== null) {
+      if (!weekLeft) await clearIfStill(week, wasSong);
+    } else if (song === null) {
+      // A visit without a song of its own learns the one the programme
+      // already holds: the two never say different things.
+      const line = await this.openingSongLine(tenantId, week);
+      const held = line ? songNumber(line.partTitle) : null;
+      if (held !== null) {
+        entry.openingSong = held;
+        await this.repo.update(
+          { id: entry.id, congregationId: entry.congregationId },
+          { openingSong: held },
+        );
+      }
+    } else {
+      const line = await this.openingSongLine(tenantId, week);
+      if (
+        line &&
+        songNumber(line.partTitle) !== song &&
+        (await this.programmeOpen(tenantId, week))
+      ) {
+        await this.writeSongLine(line, song);
+      }
+    }
+    await this.attention?.songCheck(tenantId, week);
+  }
+
+  /** The week's opening-song line, when the programme has one in force. */
+  private async openingSongLine(
+    tenantId: string,
+    week: string,
+  ): Promise<Assignment | null> {
+    const line = await this.assignmentRepo.findOne({
+      where: {
+        congregationId: tenantId,
+        weekStartDate: week,
+        partKey: OPENING_SONG_PART_KEY,
+      },
+    });
+    return line && line.status !== AssignmentStatus.CANCELLED ? line : null;
+  }
+
+  private async writeSongLine(
+    line: Assignment,
+    song: number | null,
+  ): Promise<void> {
+    line.partTitle = song === null ? null : songTitle(song);
+    if (line.status === AssignmentStatus.PUBLISHED) {
+      line.changedSincePublish = true;
+    }
+    await this.assignmentRepo.save(line);
+  }
+
+  /**
+   * A week's programme has its opening-song line now (the week was created
+   * or imported): the song of the week's visit goes into it, when the line
+   * is still empty. The other way — {@link openingSongFromProgramme}.
+   */
+  async fillOpeningSong(tenantId: string, week: string): Promise<void> {
+    const entry = await this.weekEntry(tenantId, week);
+    if (entry?.openingSong) {
+      const line = await this.openingSongLine(tenantId, week);
+      if (
+        line &&
+        songNumber(line.partTitle) === null &&
+        (await this.programmeOpen(tenantId, week))
+      ) {
+        await this.writeSongLine(line, entry.openingSong);
+      }
+    }
+    await this.attention?.songCheck(tenantId, week);
+  }
+
+  /**
+   * A song chosen in the programme reaches the week's visit (25 October
+   * 2026): the coordinator and the programme never hold two songs for one
+   * weekend.
+   */
+  async openingSongFromProgramme(
+    tenantId: string,
+    week: string,
+  ): Promise<void> {
+    const line = await this.openingSongLine(tenantId, week);
+    const song = line ? songNumber(line.partTitle) : null;
+    const entry = await this.weekEntry(tenantId, week);
+    if (entry && (entry.openingSong ?? null) !== song) {
+      await this.repo.update(
+        { id: entry.id, congregationId: tenantId },
+        { openingSong: song },
+      );
+    }
+    await this.attention?.songCheck(tenantId, week);
   }
 
   async remove(
@@ -505,6 +653,13 @@ export class TalkExchangeService {
       await this.clearProgramSlot(tenantId, row);
     }
     await this.repo.softDelete(row.id);
+    // The visit's opening song leaves the programme with it.
+    await this.openingSongToProgramme(
+      tenantId,
+      { ...row, deletedAt: new Date() },
+      row.openingSong ?? null,
+      null,
+    );
     // The brother who was going is told not to prepare.
     await this.outgoingTalkNotifications?.announce(
       tenantId,

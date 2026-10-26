@@ -11,6 +11,13 @@ function iso(daysFromNow: number): string {
   return `${y}-${m}-${day}`;
 }
 
+/** The weekend's day of a week: Sunday when no settings are recorded. */
+function sunday(week: string): string {
+  const d = new Date(`${week}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 6);
+  return d.toISOString().slice(0, 10);
+}
+
 describe('PublicTalksService lastGiven (past weeks only)', () => {
   function build(histories: any[]) {
     const talk = { id: 't1', number: 11, title: 'Talk 11', isActive: true };
@@ -65,10 +72,10 @@ describe('PublicTalksService lastGiven (past weeks only)', () => {
       t.nextGivenAt,
       t.nextGivenBy,
     );
-    expect(t.lastGivenAt).toBe(iso(-60));
+    expect(t.lastGivenAt).toBe(sunday(iso(-60)));
     expect(t.lastGivenBy).toBe('Past Speaker');
     // the upcoming assignment is surfaced separately, not as "last given"
-    expect(t.nextGivenAt).toBe(iso(7));
+    expect(t.nextGivenAt).toBe(sunday(iso(7)));
     expect(t.nextGivenBy).toBe('Alexander Jakobi');
   });
 
@@ -92,7 +99,7 @@ describe('PublicTalksService lastGiven (past weeks only)', () => {
     );
     expect(t.lastGivenAt).toBeNull();
     expect(t.lastGivenBy).toBeNull();
-    expect(t.nextGivenAt).toBe(iso(7));
+    expect(t.nextGivenAt).toBe(sunday(iso(7)));
     expect(t.nextGivenBy).toBe('Alexander Jakobi');
   });
 });
