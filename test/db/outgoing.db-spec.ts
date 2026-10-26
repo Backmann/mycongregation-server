@@ -98,7 +98,7 @@ describe('trips «От нас» without a brother (real database)', () => {
     );
   });
 
-  it('reminds 14 days before, once, however often the daily pass runs', async () => {
+  it('a trip without a brother is counted in the week summary, said once a week', async () => {
     const trip = await h.as('coord').post('/talk-exchange', {
       direction: 'outgoing',
       date: inDays(10),
@@ -108,12 +108,17 @@ describe('trips «От нас» without a brother (real database)', () => {
     const svc = h.app.get(TalkAttentionService);
     await svc.runFor(tenantId);
     await svc.runFor(tenantId);
-    const keys = (await attentionNotices(trip.body.id)).map((t) => t.key);
-    const fourteen = keys.filter((k) => k.endsWith(':14'));
-    expect(fourteen.length).toBeGreaterThan(0);
-    // One per recipient, not one per pass.
-    expect(new Set(fourteen).size).toBe(1);
-    expect(keys.filter((k) => k.endsWith(':7'))).toHaveLength(0);
+    // No notice of its own any more (26 October 2026).
+    expect(await attentionNotices(trip.body.id)).toEqual([]);
+    const digest = await h.sql<{ key: string; body: string; user_id: string }>(
+      `SELECT dedupe_key AS key, body, user_id FROM notification_outbox
+        WHERE dedupe_key LIKE 'talk-attention:digest:%'`,
+    );
+    expect(new Set(digest.map((d) => d.key)).size).toBe(1);
+    expect(digest.map((d) => d.user_id)).toContain(coordinatorUser);
+    expect(digest[0].body).toMatch(
+      /(без брата|ohne Bruder|without a brother): \d+/,
+    );
   });
 
   it('a brother away that day puts the trip in question until someone says he goes', async () => {
