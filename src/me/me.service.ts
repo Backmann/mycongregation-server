@@ -26,7 +26,8 @@ export type MyAssignmentKind =
   | 'cart'
   | 'field_service'
   | 'outgoing_talk'
-  | 'co_lunch';
+  | 'co_lunch'
+  | 'guest_lunch';
 
 export interface MyAssignmentItem {
   kind: MyAssignmentKind;
@@ -829,6 +830,38 @@ export class MeService {
         time: c.startTime ?? undefined,
         label: c.kind,
         note: c.note ?? undefined,
+      });
+    }
+
+    // ---- The guest speaker's lunch bag she brings (26 October 2026) ----
+    // Until now she heard of it only by the Friday evening's notice; the
+    // task stands among her own from the day she is chosen. The meeting's
+    // hour is the app's to add, from the settings it already holds.
+    const lunches = await this.talkExchangeRepo
+      .createQueryBuilder('te')
+      .leftJoinAndSelect('te.visitingSpeaker', 'vs')
+      .leftJoinAndSelect('vs.externalCongregation', 'vc')
+      .where('te.congregation_id = :tenantId', { tenantId })
+      .andWhere("te.direction = 'incoming'")
+      .andWhere("te.status <> 'did_not_happen'")
+      .andWhere('te.meeting_cancelled = false')
+      .andWhere('te.hospitality_publisher_id = :pid', { pid })
+      .andWhere('te.date BETWEEN :today AND :horizon', { today, horizon })
+      .orderBy('te.date', 'ASC')
+      .getMany();
+    for (const e of lunches) {
+      const card = e.visitingSpeaker;
+      const name = card
+        ? [card.firstName, card.lastName].filter(Boolean).join(' ')
+        : (e.speakerName?.trim() ?? '');
+      const cong =
+        card?.externalCongregation?.name ?? e.speakerCongregation ?? undefined;
+      items.push({
+        kind: 'guest_lunch',
+        sortDate: String(e.date).slice(0, 10),
+        date: String(e.date).slice(0, 10),
+        label: name,
+        congregationName: cong?.trim() || undefined,
       });
     }
 
