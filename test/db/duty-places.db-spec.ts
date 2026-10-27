@@ -257,6 +257,39 @@ describe('duty places and the month of duties (real database)', () => {
     ).toBe(400);
   });
 
+  it('the month says how far each meeting’s programme is filled', async () => {
+    const week = monday(6);
+    await h.sql(
+      `INSERT INTO assignments (congregation_id, week_start_date, event_type, part_key, publisher_id)
+       VALUES ($1, $2, 'midweek', 'midweek_chairman', $3),
+              ($1, $2, 'midweek', 'bible_reading', NULL)`,
+      [tenantId, week, brother],
+    );
+    const month = wednesday(week).slice(0, 7);
+    const r = await h.as('admin').get(`/duties/month?month=${month}`);
+    const m = (
+      r.body.meetings as {
+        weekStartDate: string;
+        eventType: string;
+        programme: { loaded: boolean; assigned: number; total: number } | null;
+      }[]
+    ).find((x) => x.weekStartDate === week && x.eventType === 'midweek');
+    expect(m?.programme).toEqual(
+      expect.objectContaining({ loaded: true, assigned: 1, total: 2 }),
+    );
+    // He has a part there, so he is among those busy at that meeting.
+    expect(
+      (
+        r.body.meetings as {
+          weekStartDate: string;
+          eventType: string;
+          partPublisherIds: string[];
+        }[]
+      ).find((x) => x.weekStartDate === week && x.eventType === 'midweek')
+        ?.partPublisherIds,
+    ).toContain(brother);
+  });
+
   it('the readiness count of an unopened meeting follows the template', async () => {
     const week = monday(7);
     const r = await h
