@@ -35,6 +35,9 @@ function build(opts: {
     assignmentsRepo as never,
     dutiesRepo as never,
     weekRules as never,
+    {
+      storedAll: () => Promise.resolve({ midweek: [], weekend: [] }),
+    } as never,
   );
 }
 

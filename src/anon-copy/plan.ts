@@ -182,6 +182,12 @@ export const PLAN: Record<string, TablePlan> = {
     { custom_label: 'label:Обязанность' },
     remove('notes'),
   ),
+  duty_places: table(
+    copy(`id congregation_id meeting_kind duty_type count sort_order
+      capability created_at updated_at`),
+    { custom_label: 'label:Место' },
+    remove('notes'),
+  ),
   cleaning_assignments: copy(`id congregation_id week_start_date slot_type
     service_group_id created_at updated_at windows thorough_planned_at`),
   cart_locations: table(

@@ -4,6 +4,7 @@ import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { WeekRulesModule } from '../common/week-rules.module';
+import { DutyPlacesModule } from '../duty-places/duty-places.module';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { ReadinessService } from './readiness.service';
 import { ReadinessController } from './readiness.controller';
@@ -12,6 +13,7 @@ import { ReadinessController } from './readiness.controller';
   imports: [
     TypeOrmModule.forFeature([Assignment, Duty, Responsibility]),
     WeekRulesModule,
+    DutyPlacesModule,
   ],
   controllers: [ReadinessController],
   providers: [ReadinessService, ResponsibilityGuard],

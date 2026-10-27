@@ -13,11 +13,15 @@ import { SpecialEvent } from '../entities/special-event.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { CongregationClockModule } from '../common/congregation-clock.module';
 import { MemorialModule } from '../memorial/memorial.module';
+import { DutyPlacesModule } from '../duty-places/duty-places.module';
+import { WeekRulesModule } from '../common/week-rules.module';
 
 @Module({
   imports: [
     CongregationClockModule,
     MemorialModule,
+    DutyPlacesModule,
+    WeekRulesModule,
     AuditLogModule,
     TypeOrmModule.forFeature([
       Duty,

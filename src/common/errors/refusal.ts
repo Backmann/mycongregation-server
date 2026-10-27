@@ -56,6 +56,9 @@ export const REFUSAL_CODES = [
   'DUTIES_MEETING_NOT_HELD',
   'DUTY_ONLY_OWN_RENAME',
   'DUTY_ONLY_OWN_REMOVE',
+  'DUTY_PLACES_INVALID',
+  'DUTY_PLACE_NOT_FOUND',
+  'MONTH_INVALID',
   // ---- the Memorial ----
   'MEMORIAL_PAST_LOCKED',
   // ---- the circuit overseer's visit ----
