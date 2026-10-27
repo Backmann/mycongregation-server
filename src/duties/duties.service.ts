@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
@@ -8,7 +9,14 @@ import {
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { SpecialEvent } from '../entities/special-event.entity';
-import { LessThan, Not, Repository } from 'typeorm';
+import {
+  Between,
+  In,
+  LessThan,
+  MoreThanOrEqual,
+  Not,
+  Repository,
+} from 'typeorm';
 import { Duty } from '../entities/duty.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Publisher } from '../entities/publisher.entity';
@@ -21,10 +29,7 @@ import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { EventType } from '../common/enums/event-type.enum';
 import {
   DutyType,
-  SINGLE_SLOT_DUTIES_AFTER_MIC,
-  MEETING_RUN_DUTIES,
   MEMORIAL_DUTIES_BY_LANGUAGE,
-  SINGLE_SLOT_DUTIES_BEFORE_MIC,
 } from '../common/enums/duty-type.enum';
 import { QueryDutiesDto } from './dto/query-duties.dto';
 import { GenerateWeekDutiesDto } from './dto/generate-week-duties.dto';
@@ -38,6 +43,27 @@ import { CongregationClock } from '../common/congregation-clock.service';
 import { versionForWeek, MeetingKind, WeekRules } from '../common/week-rules';
 import { rulesFromContext } from '../common/week-rules.service';
 import { refusal } from '../common/errors/refusal';
+import { WeekRulesService } from '../common/week-rules.service';
+import { addDaysISO } from '../common/week-rules';
+import { mondayOf } from '../common/week';
+import { AssignmentStatus } from '../common/enums/assignment-status.enum';
+import {
+  DutyPlacesService,
+  effectivePlaces,
+} from '../duty-places/duty-places.service';
+import {
+  PlaceKind,
+  PlaceSpec,
+  SheetRow,
+  capabilityOfPlace,
+  defaultPlaces,
+  normalisePlaces,
+  placeKey,
+  placesProblem,
+  planIsEmpty,
+  planSheet,
+  rowsOfPlaces,
+} from './duty-places';
 
 /**
  * Non-blocking conflict warning codes returned when a publisher is assigned to
@@ -75,6 +101,9 @@ export class DutiesService {
     @InjectRepository(SpecialEvent)
     private readonly specialEventRepo: Repository<SpecialEvent>,
     private readonly clock: CongregationClock,
+    /** The congregation's places — what a new sheet is cut from. */
+    private readonly places: DutyPlacesService,
+    private readonly weekRules: WeekRulesService,
     /** A place at the Memorial changed after publishing is told (M5). */
     @Optional()
     @Inject(MEMORIAL_CHANGES)
@@ -385,36 +414,17 @@ export class DutiesService {
       });
     }
 
-    // The positions follow the order the screen has always shown, so nothing
-    // moves the day this ships; from then on they are the congregation's to
-    // change.
-    let order = 0;
-    for (const dutyType of SINGLE_SLOT_DUTIES_BEFORE_MIC) {
-      rows.push({ ...base, dutyType, slotIndex: 0, sortOrder: ++order });
-    }
-    order += 1; // all the microphones are ONE place
-    for (let i = 0; i < mics; i++) {
-      rows.push({
-        ...base,
-        dutyType: DutyType.MICROPHONE,
-        slotIndex: i,
-        sortOrder: order,
-      });
-    }
-    for (const dutyType of SINGLE_SLOT_DUTIES_AFTER_MIC) {
-      rows.push({ ...base, dutyType, slotIndex: 0, sortOrder: ++order });
-    }
-    // The timekeeper runs conduct mode — the midweek meeting's and, since
-    // 18 October 2026, the weekend's. Sheets made before got the row from
-    // migrations 1903 (midweek) and 1906 (weekend).
-    if (
-      dto.eventType === EventType.MIDWEEK ||
-      dto.eventType === EventType.WEEKEND
-    ) {
-      for (const dutyType of MEETING_RUN_DUTIES) {
-        rows.push({ ...base, dutyType, slotIndex: 0, sortOrder: ++order });
-      }
-    }
+    // Cut from the congregation's places (27 October 2026) — while it keeps
+    // none, the code's list with the settings' microphones, which is exactly
+    // what every sheet got before. Sheets made earlier got the timekeeper
+    // from migrations 1903 (midweek) and 1906 (weekend).
+    const placeKind: PlaceKind =
+      dto.eventType === EventType.MIDWEEK ? 'midweek' : 'weekend';
+    const places = effectivePlaces(
+      await this.places.stored(congregationId, placeKind),
+      mics,
+    );
+    rows.push(...rowsOfPlaces(places).map((r) => ({ ...base, ...r })));
 
     await this.repo
       .createQueryBuilder()
@@ -574,12 +584,28 @@ export class DutiesService {
     });
     if (programPart > 0) warnings.push('has_program_part');
 
-    if (duty.dutyType !== DutyType.CUSTOM) {
+    // A predefined place asks its own `duty_<type>`; a place of the
+    // congregation's own asks what its template says, if anything.
+    const wanted =
+      duty.dutyType !== DutyType.CUSTOM
+        ? `duty_${duty.dutyType}`
+        : duty.eventType === EventType.MIDWEEK ||
+            duty.eventType === EventType.WEEKEND
+          ? capabilityOfPlace(
+              duty.dutyType,
+              duty.customLabel,
+              await this.places.stored(
+                congregationId,
+                duty.eventType === EventType.MIDWEEK ? 'midweek' : 'weekend',
+              ),
+            )
+          : null;
+    if (wanted) {
       const publisher = await this.publisherRepo.findOne({
         where: { id: publisherId, congregationId },
       });
       const caps = (publisher?.capabilities ?? {}) as Record<string, boolean>;
-      if (caps[`duty_${duty.dutyType}`] !== true) {
+      if (caps[wanted] !== true) {
         warnings.push('capability_off');
       }
     }
@@ -925,4 +951,589 @@ export class DutiesService {
       },
     });
   }
+
+  // ─── The congregation's places ───────────────────────────────────────────
+
+  /**
+   * The places of one kind of meeting, for the screen that keeps them: the
+   * kept ones (or the code's list while none are kept), and the places of the
+   * latest meeting held, for «взять с последней встречи» — the places a
+   * congregation added by hand before it could keep them are on its sheets.
+   */
+  async getPlaces(
+    congregationId: string,
+    kind: PlaceKind,
+  ): Promise<{
+    stored: boolean;
+    places: PlaceSpec[];
+    latestSheet: { weekStartDate: string; places: PlaceSpec[] } | null;
+  }> {
+    const today = await this.clock.todayFor(congregationId);
+    const stored = await this.places.stored(congregationId, kind);
+    const places = effectivePlaces(
+      stored,
+      await this.micCount(congregationId, today),
+    );
+    const eventType =
+      kind === 'midweek' ? EventType.MIDWEEK : EventType.WEEKEND;
+    const latest = await this.repo.findOne({
+      where: {
+        congregationId,
+        eventType,
+        weekStartDate: LessThan(addDaysISO(mondayOf(today), 7)),
+      },
+      order: { weekStartDate: 'DESC' },
+    });
+    let latestSheet: { weekStartDate: string; places: PlaceSpec[] } | null =
+      null;
+    if (latest) {
+      const rows = await this.repo.find({
+        where: {
+          congregationId,
+          eventType,
+          weekStartDate: latest.weekStartDate,
+        },
+        order: { sortOrder: 'ASC', slotIndex: 'ASC' },
+      });
+      latestSheet = {
+        weekStartDate: latest.weekStartDate,
+        places: placesOfSheet(rows, stored),
+      };
+    }
+    return { stored: stored.length > 0, places, latestSheet };
+  }
+
+  /**
+   * What saving these places would do to the sheets already made for meetings
+   * still ahead — and, with `write`, doing it. A meeting already held is never
+   * touched (its duties are history from the midnight after it).
+   */
+  async changePlaces(
+    congregationId: string,
+    kind: PlaceKind,
+    input: PlaceSpec[],
+    write: boolean,
+  ): Promise<{
+    meetings: number;
+    kept: {
+      weekStartDate: string;
+      date: string | null;
+      label: string;
+      dutyType: DutyType;
+      customLabel: string | null;
+      publisherId: string;
+      publisherName: string | null;
+    }[];
+    places: PlaceSpec[];
+  }> {
+    const problem = placesProblem(input);
+    if (problem) {
+      throw new BadRequestException(refusal('DUTY_PLACES_INVALID', problem));
+    }
+    const next = normalisePlaces(input);
+    const stored = await this.places.stored(congregationId, kind);
+
+    // A place of the congregation's own, renamed: known by its id.
+    const renames = new Map<string, string>();
+    for (const p of next) {
+      if (!p.id || p.dutyType !== DutyType.CUSTOM) continue;
+      const was = stored.find((s) => s.id === p.id);
+      if (
+        was?.customLabel &&
+        p.customLabel &&
+        was.customLabel.trim() !== p.customLabel
+      ) {
+        renames.set(was.customLabel.trim(), p.customLabel);
+      }
+    }
+
+    const today = await this.clock.todayFor(congregationId);
+    const eventType =
+      kind === 'midweek' ? EventType.MIDWEEK : EventType.WEEKEND;
+    const rows = await this.repo.find({
+      where: {
+        congregationId,
+        eventType,
+        weekStartDate: MoreThanOrEqual(addDaysISO(today, -6)),
+      },
+      order: { weekStartDate: 'ASC', sortOrder: 'ASC', slotIndex: 'ASC' },
+    });
+    const byWeek = new Map<string, Duty[]>();
+    for (const r of rows) {
+      byWeek.set(r.weekStartDate, [...(byWeek.get(r.weekStartDate) ?? []), r]);
+    }
+    const weeks = [...byWeek.keys()];
+    const rules = await this.weekRules.forWeeks(congregationId, weeks);
+
+    const plans: {
+      week: string;
+      date: string | null;
+      plan: ReturnType<typeof planSheet>;
+    }[] = [];
+    for (const week of weeks) {
+      const r = rules.get(week);
+      const date = r?.dateOf(kind) ?? null;
+      // Still ahead, or today: the same line assertEditable draws.
+      if (date && date < today) continue;
+      const old =
+        stored.length > 0
+          ? stored
+          : defaultPlaces(r?.version?.microphoneSlots ?? null);
+      const plan = planSheet(
+        (byWeek.get(week) ?? []).map(toSheetRow),
+        old,
+        next,
+        renames,
+      );
+      if (!planIsEmpty(plan) || plan.kept.length > 0) {
+        plans.push({ week, date, plan });
+      }
+    }
+
+    const keptIds = [
+      ...new Set(
+        plans.flatMap((p) => p.plan.kept.map((k) => k.publisherId as string)),
+      ),
+    ];
+    const names = new Map<string, string>();
+    if (keptIds.length > 0) {
+      for (const p of await this.publisherRepo.find({
+        where: { congregationId, id: In(keptIds) },
+        select: { id: true, displayName: true },
+      })) {
+        names.set(p.id, p.displayName);
+      }
+    }
+    const kept = plans.flatMap((p) =>
+      p.plan.kept.map((k) => ({
+        weekStartDate: p.week,
+        date: p.date,
+        label:
+          k.dutyType === DutyType.CUSTOM ? (k.customLabel ?? '') : k.dutyType,
+        dutyType: k.dutyType,
+        customLabel: k.customLabel,
+        publisherId: k.publisherId as string,
+        publisherName: names.get(k.publisherId as string) ?? null,
+      })),
+    );
+    const meetings = plans.filter((p) => !planIsEmpty(p.plan)).length;
+
+    if (!write) return { meetings, kept, places: next };
+
+    await this.repo.manager.transaction(async (m) => {
+      for (const { week, plan } of plans) {
+        if (plan.remove.length > 0) {
+          await m.delete(Duty, { congregationId, id: In(plan.remove) });
+        }
+        for (const u of plan.update) {
+          const { id, ...fields } = u;
+          await m.update(Duty, { congregationId, id }, fields);
+        }
+        if (plan.insert.length > 0) {
+          await m
+            .createQueryBuilder()
+            .insert()
+            .into(Duty)
+            .values(
+              plan.insert.map((r) => ({
+                ...r,
+                congregationId,
+                weekStartDate: week,
+                eventType,
+                publisherId: null,
+              })),
+            )
+            .orIgnore()
+            .execute();
+        }
+      }
+    });
+    const saved = await this.places.replace(congregationId, kind, next);
+    await this.auditLog.logUpdate({
+      tenantId: congregationId,
+      entityType: 'duty_places',
+      entityId: congregationId,
+      before: { [kind]: describePlaces(stored) },
+      after: { [kind]: describePlaces(next) },
+      fields: [kind],
+    });
+    return { meetings, kept, places: saved };
+  }
+
+  // ─── A month on one screen ───────────────────────────────────────────────
+
+  /**
+   * Every meeting of a month with its places — the sheet where one was made,
+   * the congregation's places where none was (nothing is written for a week
+   * nobody touched) — and how much each person already carries that month.
+   *
+   * «Carries» counts duties AND parts of the programme (Lionel, 27 October
+   * 2026: cleaning and the carts are not counted). It answers both of the
+   * coordinator's questions: who has nothing this month, and who is still
+   * free at one meeting.
+   */
+  async month(congregationId: string, month: string): Promise<MonthOfDuties> {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+      throw new BadRequestException(
+        refusal('MONTH_INVALID', 'Month must be YYYY-MM.'),
+      );
+    }
+    const first = `${month}-01`;
+    const next = new Date(`${first}T00:00:00Z`);
+    next.setUTCMonth(next.getUTCMonth() + 1);
+    const after = next.toISOString().slice(0, 10);
+    const weeks: string[] = [];
+    for (let w = mondayOf(first); w < after; w = addDaysISO(w, 7)) {
+      weeks.push(w);
+    }
+    const lastWeek = weeks[weeks.length - 1];
+    const today = await this.clock.todayFor(congregationId);
+
+    const [rules, duties, parts, stored, settings] = await Promise.all([
+      this.weekRules.forWeeks(congregationId, weeks),
+      this.repo.find({
+        where: {
+          congregationId,
+          weekStartDate: Between(weeks[0], lastWeek),
+          eventType: In([EventType.MIDWEEK, EventType.WEEKEND]),
+        },
+        order: { sortOrder: 'ASC', slotIndex: 'ASC' },
+      }),
+      this.assignmentRepo.find({
+        where: {
+          congregationId,
+          weekStartDate: Between(weeks[0], lastWeek),
+          eventType: In([EventType.MIDWEEK, EventType.WEEKEND]),
+        },
+        select: {
+          id: true,
+          weekStartDate: true,
+          eventType: true,
+          publisherId: true,
+          assistantPublisherId: true,
+          status: true,
+        },
+      }),
+      this.places.storedAll(congregationId),
+      this.meetingRepo.find({ where: { congregationId } }),
+    ]);
+
+    const key = (w: string, e: string) => `${w}|${e}`;
+    const dutyRows = new Map<string, Duty[]>();
+    for (const d of duties) {
+      const k = key(d.weekStartDate, d.eventType);
+      dutyRows.set(k, [...(dutyRows.get(k) ?? []), d]);
+    }
+    const partPeople = new Map<string, Set<string>>();
+    for (const a of parts) {
+      if (a.status === AssignmentStatus.CANCELLED) continue;
+      const k = key(a.weekStartDate, a.eventType);
+      const set = partPeople.get(k) ?? new Set<string>();
+      if (a.publisherId) set.add(a.publisherId);
+      if (a.assistantPublisherId) set.add(a.assistantPublisherId);
+      partPeople.set(k, set);
+    }
+
+    const meetings: MonthMeeting[] = [];
+    const load = new Map<string, { duties: number; parts: number }>();
+    const bump = (id: string, field: 'duties' | 'parts') => {
+      const l = load.get(id) ?? { duties: 0, parts: 0 };
+      l[field] += 1;
+      load.set(id, l);
+    };
+
+    for (const week of weeks) {
+      const r = rules.get(week);
+      if (!r) continue;
+      if (!r.meetingsHeld) {
+        const days = r.congressDays.filter((d) => d >= first && d < after);
+        if (days.length > 0) {
+          meetings.push({
+            weekStartDate: week,
+            eventType: null,
+            date: days[0],
+            time: null,
+            held: false,
+            notHeld: 'congress',
+            locked: true,
+            hasSheet: false,
+            rows: [],
+            partPublisherIds: [],
+          });
+        }
+        continue;
+      }
+      for (const kind of ['midweek', 'weekend'] as const) {
+        const date = r.dateOf(kind);
+        if (!date || date < first || date >= after) continue;
+        const eventType =
+          kind === 'midweek' ? EventType.MIDWEEK : EventType.WEEKEND;
+        const v = versionForWeek(settings, week);
+        const time =
+          ((kind === 'midweek' ? v?.midweekTime : v?.weekendTime) ?? '').slice(
+            0,
+            5,
+          ) || null;
+        const notHeld =
+          r.memorialTakes === kind
+            ? ('memorial' as const)
+            : r.replacedBy(kind)
+              ? ('event' as const)
+              : null;
+        if (notHeld) {
+          meetings.push({
+            weekStartDate: week,
+            eventType,
+            date,
+            time,
+            held: false,
+            notHeld,
+            locked: true,
+            hasSheet: false,
+            rows: [],
+            partPublisherIds: [],
+          });
+          continue;
+        }
+        const existing = dutyRows.get(key(week, eventType)) ?? [];
+        const kindPlaces = effectivePlaces(
+          stored[kind],
+          r.version?.microphoneSlots ?? null,
+        );
+        const rows: MonthRow[] =
+          existing.length > 0
+            ? existing.map((d) => ({
+                id: d.id,
+                dutyType: d.dutyType,
+                customLabel: d.customLabel,
+                slotIndex: d.slotIndex,
+                sortOrder: d.sortOrder,
+                notes: d.notes,
+                publisherId: d.publisherId,
+                capability: capabilityOfPlace(
+                  d.dutyType,
+                  d.customLabel,
+                  kindPlaces,
+                ),
+                inTemplate: kindPlaces.some((p) => placeKey(p) === placeKey(d)),
+              }))
+            : rowsOfPlaces(kindPlaces).map((d) => ({
+                id: null,
+                ...d,
+                publisherId: null,
+                capability: capabilityOfPlace(
+                  d.dutyType,
+                  d.customLabel,
+                  kindPlaces,
+                ),
+                inTemplate: true,
+              }));
+        const people = partPeople.get(key(week, eventType)) ?? new Set();
+        for (const d of rows) if (d.publisherId) bump(d.publisherId, 'duties');
+        for (const id of people) bump(id, 'parts');
+        meetings.push({
+          weekStartDate: week,
+          eventType,
+          date,
+          time,
+          held: true,
+          notHeld: null,
+          locked: date < today,
+          hasSheet: existing.length > 0,
+          rows,
+          partPublisherIds: [...people],
+        });
+      }
+    }
+
+    // When each person last stood at a meeting, before this month — so the
+    // picker can float up whoever has waited longest.
+    const lastRows: {
+      publisher_id: string;
+      week: string;
+      event_type: string;
+    }[] = await this.repo.query(
+      `SELECT DISTINCT ON (publisher_id) publisher_id, to_char(week_start_date, 'YYYY-MM-DD') AS week, event_type
+           FROM duties
+          WHERE congregation_id = $1 AND publisher_id IS NOT NULL
+            AND event_type IN ('midweek', 'weekend') AND week_start_date < $2
+          ORDER BY publisher_id, week_start_date DESC, event_type DESC`,
+      [congregationId, weeks[0]],
+    );
+    const lastWeeks = [...new Set(lastRows.map((r) => r.week))];
+    const lastRules =
+      lastWeeks.length > 0
+        ? await this.weekRules.forWeeks(congregationId, lastWeeks)
+        : new Map<string, WeekRules>();
+    const lastDuty = new Map<string, string>();
+    for (const r of lastRows) {
+      const date =
+        lastRules
+          .get(r.week)
+          ?.dateOf(r.event_type === 'midweek' ? 'midweek' : 'weekend') ??
+        r.week;
+      lastDuty.set(r.publisher_id, date);
+    }
+
+    const ids = new Set([...load.keys(), ...lastDuty.keys()]);
+    return {
+      month,
+      meetings: meetings.sort(
+        (a, b) =>
+          a.date.localeCompare(b.date) ||
+          String(a.eventType).localeCompare(String(b.eventType)),
+      ),
+      load: [...ids].map((publisherId) => ({
+        publisherId,
+        duties: load.get(publisherId)?.duties ?? 0,
+        parts: load.get(publisherId)?.parts ?? 0,
+        lastDutyBefore: lastDuty.get(publisherId) ?? null,
+      })),
+    };
+  }
+
+  /**
+   * Put a person at a place of a meeting that may have no sheet yet — a cell
+   * of the month table. The sheet is cut first (the same way opening the
+   * meeting would), then the place's `ordinal`-th row is assigned.
+   */
+  async assignPlace(
+    congregationId: string,
+    dto: {
+      weekStartDate: string;
+      eventType: EventType;
+      dutyType: DutyType;
+      customLabel?: string | null;
+      ordinal: number;
+      publisherId: string | null;
+    },
+  ): Promise<DutyWithWarnings> {
+    const where = {
+      congregationId,
+      weekStartDate: dto.weekStartDate,
+      eventType: dto.eventType,
+    };
+    if ((await this.repo.count({ where })) === 0) {
+      await this.generateWeek(congregationId, {
+        weekStartDate: dto.weekStartDate,
+        eventType: dto.eventType,
+      });
+    }
+    const wanted = placeKey({
+      dutyType: dto.dutyType,
+      customLabel: dto.customLabel ?? null,
+    });
+    const rows = (
+      await this.repo.find({ where, order: { slotIndex: 'ASC' } })
+    ).filter((r) => placeKey(r) === wanted);
+    const row = rows[dto.ordinal];
+    if (!row) {
+      throw new ConflictException(
+        refusal(
+          'DUTY_PLACE_NOT_FOUND',
+          'That place is not on this meeting’s sheet.',
+        ),
+      );
+    }
+    return this.assign(congregationId, row.id, {
+      publisherId: dto.publisherId,
+    });
+  }
+}
+
+/** A template as the journal keeps it: short, readable, enough to compare. */
+function describePlaces(places: PlaceSpec[]): string {
+  return places
+    .map(
+      (p) =>
+        `${p.dutyType === DutyType.CUSTOM ? p.customLabel : p.dutyType}×${p.count}`,
+    )
+    .join(', ');
+}
+
+function toSheetRow(d: Duty): SheetRow {
+  return {
+    id: d.id,
+    dutyType: d.dutyType,
+    customLabel: d.customLabel,
+    slotIndex: d.slotIndex,
+    sortOrder: d.sortOrder,
+    notes: d.notes,
+    publisherId: d.publisherId,
+  };
+}
+
+/**
+ * The places a sheet holds, in its order — what «взять с последней встречи»
+ * offers. A congregation's own place keeps the capability its template gave
+ * it, if the template still has it.
+ */
+function placesOfSheet(rows: Duty[], stored: PlaceSpec[]): PlaceSpec[] {
+  const out: PlaceSpec[] = [];
+  const index = new Map<string, PlaceSpec>();
+  for (const r of rows) {
+    const key = placeKey(r);
+    const have = index.get(key);
+    if (have) {
+      have.count += 1;
+      continue;
+    }
+    const place: PlaceSpec = {
+      id: null,
+      dutyType: r.dutyType,
+      customLabel: r.dutyType === DutyType.CUSTOM ? r.customLabel : null,
+      count: 1,
+      notes: r.notes ?? null,
+      capability:
+        r.dutyType === DutyType.CUSTOM
+          ? capabilityOfPlace(r.dutyType, r.customLabel, stored)
+          : null,
+    };
+    index.set(key, place);
+    out.push(place);
+  }
+  return out;
+}
+
+export interface MonthRow {
+  /** Null for a place of a meeting whose sheet is not made yet. */
+  id: string | null;
+  dutyType: DutyType;
+  customLabel: string | null;
+  slotIndex: number;
+  sortOrder: number;
+  notes: string | null;
+  publisherId: string | null;
+  /** Whose card qualifies; null — anybody. */
+  capability: string | null;
+  /** False for a place only this meeting has (added for it, or since removed from the template). */
+  inTemplate: boolean;
+}
+
+export interface MonthMeeting {
+  weekStartDate: string;
+  /** Null for a convention week, which has no meetings at all. */
+  eventType: EventType | null;
+  date: string;
+  time: string | null;
+  held: boolean;
+  notHeld: 'congress' | 'memorial' | 'event' | null;
+  /** The day is past: its duties are history. */
+  locked: boolean;
+  hasSheet: boolean;
+  rows: MonthRow[];
+  /** Who has a part of the programme at this meeting. */
+  partPublisherIds: string[];
+}
+
+export interface MonthOfDuties {
+  month: string;
+  meetings: MonthMeeting[];
+  load: {
+    publisherId: string;
+    duties: number;
+    parts: number;
+    /** The day of the last duty before this month, or null. */
+    lastDutyBefore: string | null;
+  }[];
 }

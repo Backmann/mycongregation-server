@@ -13,6 +13,14 @@ import { DutyType } from '../common/enums/duty-type.enum';
 import { EventType } from '../common/enums/event-type.enum';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { clockStub } from '../common/testing/clock-stub';
+import { DutyPlacesService } from '../duty-places/duty-places.service';
+import { WeekRulesService } from '../common/week-rules.service';
+
+/** No kept places: every sheet is cut from the code's list, as before. */
+const placesStub = () => ({
+  stored: jest.fn().mockResolvedValue([]),
+  storedAll: jest.fn().mockResolvedValue({ midweek: [], weekend: [] }),
+});
 
 const MIDWEEK = 'midweek' as EventType;
 const MEMORIAL = 'memorial' as EventType;
@@ -76,6 +84,8 @@ describe('DutiesService', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         { provide: CongregationClock, useValue: clockStub() },
+        { provide: DutyPlacesService, useValue: placesStub() },
+        { provide: WeekRulesService, useValue: { forWeeks: jest.fn() } },
         DutiesService,
         {
           provide: AuditLogService,
@@ -411,6 +421,8 @@ describe('DutiesService — a meeting an event took away has no duties', () => {
         }),
       } as any,
       clockStub(),
+      placesStub() as any,
+      { forWeeks: jest.fn() } as any,
     );
     return { svc, qb };
   }
@@ -502,6 +514,8 @@ describe('DutiesService — a meeting an event took away has no duties', () => {
       } as any,
       { find: jest.fn().mockResolvedValue([]) } as any,
       clockStub(),
+      placesStub() as any,
+      { forWeeks: jest.fn() } as any,
     );
     await svc.generateWeek('c1', { weekStartDate: WEEK, eventType: MIDWEEK });
     expect(qb.insert).toHaveBeenCalled();
@@ -576,6 +590,8 @@ describe('DutiesService.generateWeek — the Memorial evening', () => {
         }),
       } as any,
       clockStub(),
+      placesStub() as any,
+      { forWeeks: jest.fn() } as any,
     );
     return { svc, qb };
   }
@@ -800,6 +816,8 @@ describe('DutiesService — a PLACE is renamed and removed whole', () => {
       { findOne: jest.fn().mockResolvedValue({}) } as any,
       { find: jest.fn().mockResolvedValue([]) } as any,
       clockStub(),
+      placesStub() as any,
+      { forWeeks: jest.fn() } as any,
     );
     return { svc, repo, audit, saved, removed };
   }
@@ -931,6 +949,8 @@ describe('DutiesService.movePlace — the sheet is put in the order wanted', () 
       { findOne: jest.fn().mockResolvedValue({}) } as any,
       { find: jest.fn().mockResolvedValue([]) } as any,
       clockStub(),
+      placesStub() as any,
+      { forWeeks: jest.fn() } as any,
     );
     return { svc, rows };
   }

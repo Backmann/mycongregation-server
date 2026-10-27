@@ -5,15 +5,16 @@ import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
 import { EventType } from '../common/enums/event-type.enum';
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
-import { MeetingKind, WeekSettingsVersion } from '../common/week-rules';
-import {
-  SINGLE_SLOT_DUTIES_AFTER_MIC,
-  OPTIONAL_DUTIES,
-  SINGLE_SLOT_DUTIES_BEFORE_MIC,
-} from '../common/enums/duty-type.enum';
+import { MeetingKind } from '../common/week-rules';
+import { OPTIONAL_DUTIES } from '../common/enums/duty-type.enum';
 import { WeekRulesService } from '../common/week-rules.service';
 import { addDaysISO } from '../common/week-rules';
 import { mondayOf } from '../common/week';
+import {
+  DutyPlacesService,
+  effectivePlaces,
+} from '../duty-places/duty-places.service';
+import type { PlaceSpec } from '../duties/duty-places';
 import { refusal } from '../common/errors/refusal';
 
 /**
@@ -116,6 +117,7 @@ export class ReadinessService {
     @InjectRepository(Duty)
     private readonly dutiesRepo: Repository<Duty>,
     private readonly weekRules: WeekRulesService,
+    private readonly places: DutyPlacesService,
   ) {}
 
   /**
@@ -144,7 +146,7 @@ export class ReadinessService {
     if (weeks.length === 0) return [];
 
     const last = weeks[weeks.length - 1];
-    const [rules, assignments, duties] = await Promise.all([
+    const [rules, assignments, duties, kept] = await Promise.all([
       this.weekRules.forWeeks(congregationId, weeks),
       this.assignmentsRepo.find({
         where: { congregationId, weekStartDate: Between(first, last) },
@@ -152,6 +154,7 @@ export class ReadinessService {
       this.dutiesRepo.find({
         where: { congregationId, weekStartDate: Between(first, last) },
       }),
+      this.places.storedAll(congregationId),
     ]);
 
     const progByKey = new Map<string, Assignment[]>();
@@ -179,7 +182,13 @@ export class ReadinessService {
           date: m.date,
           kind: m.kind,
           programme: countProgramme(progByKey.get(key) ?? []),
-          duties: countDuties(dutyByKey.get(key) ?? [], r?.version ?? null),
+          duties: countDuties(
+            dutyByKey.get(key) ?? [],
+            effectivePlaces(
+              kept[m.kind],
+              r?.version?.microphoneSlots ?? DEFAULT_MICROPHONE_SLOTS,
+            ),
+          ),
         };
       });
       return { weekStart, meetings };
@@ -211,30 +220,23 @@ function countProgramme(rows: Assignment[]): ProgrammeReadiness {
 }
 
 /**
- * How many places a meeting has, when nothing has been written down yet.
- *
- * The fixed duties either side of the microphones, plus as many microphones as
- * the settings in force that week call for. Same source `micCount` reads on
- * the duties side; the two must not disagree.
+ * How many places a meeting has, when nothing has been written down yet: the
+ * congregation's places (or the code's list while it keeps none) — the same
+ * places DutiesService cuts the sheet from, so the two cannot disagree. A
+ * place the congregation may leave empty (the timekeeper) is not counted.
  */
-function placesFromSettings(version: WeekSettingsVersion | null): number {
-  const mics = version?.microphoneSlots ?? DEFAULT_MICROPHONE_SLOTS;
-  return (
-    SINGLE_SLOT_DUTIES_BEFORE_MIC.length +
-    SINGLE_SLOT_DUTIES_AFTER_MIC.length +
-    mics
-  );
+function placesFromTemplate(places: PlaceSpec[]): number {
+  return places
+    .filter((p) => !OPTIONAL_DUTIES.has(p.dutyType))
+    .reduce((n, p) => n + p.count, 0);
 }
 
-function countDuties(
-  rows: Duty[],
-  version: WeekSettingsVersion | null,
-): DutiesCount {
+function countDuties(rows: Duty[], places: PlaceSpec[]): DutiesCount {
   // No rows means nobody has opened this week to assign anybody — not that the
   // meeting has no places. Counting them from the settings says «0 of 8» here
   // exactly as it does on a week somebody happened to scroll past.
   if (rows.length === 0) {
-    return { created: false, assigned: 0, total: placesFromSettings(version) };
+    return { created: false, assigned: 0, total: placesFromTemplate(places) };
   }
   // A place the congregation may not use at all (the timekeeper) is not a
   // place it is short of.

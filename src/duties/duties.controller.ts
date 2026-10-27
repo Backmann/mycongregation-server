@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,6 +10,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -24,6 +26,9 @@ import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { RenamePlaceDto } from './dto/rename-place.dto';
 import { MovePlaceDto } from './dto/move-place.dto';
+import { refusal } from '../common/errors/refusal';
+import { AssignDutyPlaceDto, SaveDutyPlacesDto } from './dto/duty-places.dto';
+import type { PlaceKind, PlaceSpec } from './duty-places';
 
 /**
  * Meeting duties. Reading is open to any authenticated member; editing requires
@@ -37,6 +42,74 @@ export class DutiesController {
   @Get()
   list(@TenantId() congregationId: string, @Query() query: QueryDutiesDto) {
     return this.service.list(congregationId, query);
+  }
+
+  /** Every meeting of a month with its places, and who carries how much. */
+  @Get('month')
+  month(@TenantId() congregationId: string, @Query('month') month: string) {
+    return this.service.month(congregationId, month);
+  }
+
+  /** The congregation's places at one kind of meeting. */
+  @Get('places/:kind')
+  places(@TenantId() congregationId: string, @Param('kind') kind: string) {
+    return this.service.getPlaces(congregationId, kindOf(kind));
+  }
+
+  /** What saving these places would change on the sheets still ahead. */
+  @Post('places/:kind/preview')
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.DUTIES_COORDINATOR,
+    ResponsibilityType.BODY_COORDINATOR,
+  )
+  previewPlaces(
+    @TenantId() congregationId: string,
+    @Param('kind') kind: string,
+    @Body() dto: SaveDutyPlacesDto,
+  ) {
+    return this.service.changePlaces(
+      congregationId,
+      kindOf(kind),
+      dto.places as PlaceSpec[],
+      false,
+    );
+  }
+
+  @Put('places/:kind')
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.DUTIES_COORDINATOR,
+    ResponsibilityType.BODY_COORDINATOR,
+  )
+  savePlaces(
+    @TenantId() congregationId: string,
+    @Param('kind') kind: string,
+    @Body() dto: SaveDutyPlacesDto,
+  ) {
+    return this.service.changePlaces(
+      congregationId,
+      kindOf(kind),
+      dto.places as PlaceSpec[],
+      true,
+    );
+  }
+
+  /** A cell of the month table: a place of a meeting that may have no sheet yet. */
+  @Post('assign-place')
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.DUTIES_COORDINATOR,
+    ResponsibilityType.BODY_COORDINATOR,
+  )
+  assignPlace(
+    @TenantId() congregationId: string,
+    @Body() dto: AssignDutyPlaceDto,
+  ) {
+    return this.service.assignPlace(congregationId, {
+      ...dto,
+      publisherId: dto.publisherId ?? null,
+    });
   }
 
   @Post('generate')
@@ -154,4 +227,11 @@ export class DutiesController {
   ) {
     return this.service.remove(congregationId, id);
   }
+}
+
+function kindOf(kind: string): PlaceKind {
+  if (kind === 'midweek' || kind === 'weekend') return kind;
+  throw new BadRequestException(
+    refusal('DUTY_PLACES_INVALID', 'Kind must be midweek or weekend.'),
+  );
 }
