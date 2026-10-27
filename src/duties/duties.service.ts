@@ -43,6 +43,10 @@ import { CongregationClock } from '../common/congregation-clock.service';
 import { versionForWeek, MeetingKind, WeekRules } from '../common/week-rules';
 import { rulesFromContext } from '../common/week-rules.service';
 import { refusal } from '../common/errors/refusal';
+import {
+  countProgramme,
+  type ProgrammeReadiness,
+} from '../readiness/readiness.service';
 import { WeekRulesService } from '../common/week-rules.service';
 import { addDaysISO } from '../common/week-rules';
 import { mondayOf } from '../common/week';
@@ -1209,8 +1213,10 @@ export class DutiesService {
           id: true,
           weekStartDate: true,
           eventType: true,
+          partKey: true,
           publisherId: true,
           assistantPublisherId: true,
+          speakerName: true,
           status: true,
         },
       }),
@@ -1225,7 +1231,10 @@ export class DutiesService {
       dutyRows.set(k, [...(dutyRows.get(k) ?? []), d]);
     }
     const partPeople = new Map<string, Set<string>>();
+    const partRows = new Map<string, Assignment[]>();
     for (const a of parts) {
+      const pk = key(a.weekStartDate, a.eventType);
+      partRows.set(pk, [...(partRows.get(pk) ?? []), a]);
       if (a.status === AssignmentStatus.CANCELLED) continue;
       const k = key(a.weekStartDate, a.eventType);
       const set = partPeople.get(k) ?? new Set<string>();
@@ -1259,6 +1268,7 @@ export class DutiesService {
             hasSheet: false,
             rows: [],
             partPublisherIds: [],
+            programme: null,
           });
         }
         continue;
@@ -1292,6 +1302,7 @@ export class DutiesService {
             hasSheet: false,
             rows: [],
             partPublisherIds: [],
+            programme: null,
           });
           continue;
         }
@@ -1342,6 +1353,7 @@ export class DutiesService {
           hasSheet: existing.length > 0,
           rows,
           partPublisherIds: [...people],
+          programme: countProgramme(partRows.get(key(week, eventType)) ?? []),
         });
       }
     }
@@ -1524,6 +1536,13 @@ export interface MonthMeeting {
   rows: MonthRow[];
   /** Who has a part of the programme at this meeting. */
   partPublisherIds: string[];
+  /**
+   * How far its programme is filled — the same count as «Собрание». The
+   * empty places are filled by turns only where it is complete (Lionel,
+   * 27 October 2026: «почти готова» is exactly where a clash would come).
+   * Null for a meeting not held.
+   */
+  programme: ProgrammeReadiness | null;
 }
 
 export interface MonthOfDuties {

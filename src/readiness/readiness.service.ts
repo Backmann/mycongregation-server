@@ -196,7 +196,17 @@ export class ReadinessService {
   }
 }
 
-function countProgramme(rows: Assignment[]): ProgrammeReadiness {
+/**
+ * How far a meeting's programme is filled. Exported for the duties' month
+ * (27 October 2026): the empty places are filled by turns only where the
+ * programme is complete, so the same count must answer both screens.
+ */
+export function countProgramme(
+  rows: Pick<
+    Assignment,
+    'partKey' | 'status' | 'publisherId' | 'speakerName'
+  >[],
+): ProgrammeReadiness {
   if (rows.length === 0) {
     return { loaded: false, assigned: 0, total: 0, missing: [] };
   }
