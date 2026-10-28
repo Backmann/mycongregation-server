@@ -76,6 +76,63 @@ describe('AbsencesService — self-absence authorization', () => {
     service = moduleRef.get(AbsencesService);
   });
 
+  // ---- dates in order (28 October 2026) ----
+
+  it('refuses an absence that ends before it starts', async () => {
+    const dto = {
+      publisherId: OTHER_PUBLISHER,
+      startDate: '2026-12-10',
+      endDate: '2026-12-01',
+    };
+    await expect(
+      service.create(TENANT, dto, user({ role: UserRole.ADMIN })),
+    ).rejects.toMatchObject({
+      response: { code: 'ABSENCE_ENDS_BEFORE_START' },
+    });
+    expect(absenceRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('takes a one-day absence and one that ends on its first day', async () => {
+    const admin = user({ role: UserRole.ADMIN });
+    await expect(
+      service.create(
+        TENANT,
+        { publisherId: OTHER_PUBLISHER, startDate: '2026-12-10' },
+        admin,
+      ),
+    ).resolves.toBeDefined();
+    await expect(
+      service.create(
+        TENANT,
+        {
+          publisherId: OTHER_PUBLISHER,
+          startDate: '2026-12-10',
+          endDate: '2026-12-10',
+        },
+        admin,
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it('refuses moving only the start past the stored end', async () => {
+    absenceRepo.findOne.mockResolvedValue({
+      id: 'abs-1',
+      publisherId: OTHER_PUBLISHER,
+      startDate: '2026-12-01',
+      endDate: '2026-12-05',
+    });
+    await expect(
+      service.update(
+        TENANT,
+        'abs-1',
+        { startDate: '2026-12-09' },
+        user({ role: UserRole.ADMIN }),
+      ),
+    ).rejects.toMatchObject({
+      response: { code: 'ABSENCE_ENDS_BEFORE_START' },
+    });
+  });
+
   // ---- create ----
 
   it('lets a publisher create their OWN absence', async () => {
