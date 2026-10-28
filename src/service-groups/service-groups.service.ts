@@ -233,13 +233,84 @@ export class ServiceGroupsService {
       tenantId,
       user.id,
     );
+    const counts = await this.countsFor(
+      tenantId,
+      page.data.map((g) => g.id),
+      privileged,
+      privileged
+        ? new Set<string>()
+        : await this.publishersService.overseenServiceGroupIds(
+            tenantId,
+            user.id,
+          ),
+    );
     return {
       ...page,
-      data: page.data.map((g) => ({
-        ...this.notesFor(g, privileged, ownGroupId),
-        mine: g.id === ownGroupId,
-      })),
+      data: page.data.map((g) => {
+        const c = counts.get(g.id) ?? { members: 0, pioneers: 0 };
+        return {
+          ...this.notesFor(g, privileged, ownGroupId),
+          mine: g.id === ownGroupId,
+          memberCount: c.members,
+          // How many pioneers a group has is for those who place people
+          // between groups (28 October 2026); a publisher sees the size.
+          ...(privileged ? { pioneerCount: c.pioneers } : {}),
+        };
+      }),
     };
+  }
+
+  /**
+   * HOW BIG EACH GROUP IS, without a name (28 October 2026): the groups'
+   * list showed none, and an ordinary publisher may not read another group's
+   * members. The number matches what each reader would be shown: students are
+   * not publishers and are never counted; for a reader without private access
+   * those whose status is «inactive» are left out too, as the roster leaves
+   * them out (decided 15 September) — except in the groups he oversees or
+   * assists, where the roster keeps them (22 October). A pioneer counts once his service has
+   * begun — a type set from a future month is not yet a pioneer.
+   */
+  private async countsFor(
+    tenantId: string,
+    groupIds: string[],
+    privileged: boolean,
+    /** Groups the reader oversees or assists: he sees their inactive too. */
+    keepInactiveIn: ReadonlySet<string>,
+  ): Promise<Map<string, { members: number; pioneers: number }>> {
+    const out = new Map<string, { members: number; pioneers: number }>();
+    const manager = (
+      this.serviceGroupsRepo as { manager?: { query?: unknown } }
+    ).manager as
+      | { query?: (sql: string, params: unknown[]) => Promise<unknown> }
+      | undefined;
+    if (groupIds.length === 0 || typeof manager?.query !== 'function')
+      return out;
+    // The congregation's own day; without the clock (hand-built specs) a
+    // pioneer counts whatever his start, as before this count existed.
+    const today = this.clock
+      ? await this.clock.todayFor(tenantId)
+      : '9999-12-31';
+    const rows = (await manager.query(
+      `SELECT service_group_id AS "groupId",
+              COUNT(*) FILTER (
+                WHERE appointment <> 'student'
+                  AND ($3::boolean OR status IS DISTINCT FROM 'inactive'
+                       OR service_group_id = ANY($5::uuid[]))
+              )::int AS members,
+              COUNT(*) FILTER (
+                WHERE pioneer_type IN ('regular', 'special', 'missionary')
+                  AND (pioneer_since IS NULL OR pioneer_since <= $4::date)
+              )::int AS pioneers
+         FROM publishers
+        WHERE congregation_id = $1
+          AND deleted_at IS NULL
+          AND service_group_id = ANY($2::uuid[])
+        GROUP BY service_group_id`,
+      [tenantId, groupIds, privileged, today, [...keepInactiveIn]],
+    )) as { groupId: string; members: number; pioneers: number }[];
+    for (const r of rows)
+      out.set(r.groupId, { members: r.members, pioneers: r.pioneers });
+    return out;
   }
 
   /**
