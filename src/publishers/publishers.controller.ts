@@ -138,31 +138,20 @@ export class PublishersController {
    * WHY a publisher's badge says what it says — the months weighed, from when
    * he is counted, and when a sixth silent month would fall.
    *
-   * Gated exactly like the card: whoever may see a publisher's private page
-   * may see the reasoning behind his standing. An ordinary publisher sees
-   * nobody's status at all, so there is nothing here for him to reach.
+   * Admins and elders only, like the status itself (28 October 2026). It was
+   * gated like the card, so a brother given access to private data — from
+   * whose card the status is stripped — could read it here: the answer
+   * carries the status and the silent months behind it. The two screens that
+   * ask (a publisher's history, a group's reports) ask only for elders.
    *
    * Must stay ABOVE ':id' or the router reads «status-explained» as an id.
    */
+  @Roles(UserRole.ADMIN, UserRole.ELDER)
   @Get(':id/status-explained')
   async explainStatus(
     @TenantId() tenantId: string,
-    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    const privileged = await this.publishersService.resolvePrivateAccess(
-      tenantId,
-      user,
-    );
-    if (!privileged) {
-      throw new ForbiddenException(
-        refusal(
-          'PUBLISHER_CARD_CLOSED',
-          'The reasoning behind a status is shown to those who may see the ' +
-            'publisher card.',
-        ),
-      );
-    }
     return this.publishersService.explainStatus(tenantId, id);
   }
 
