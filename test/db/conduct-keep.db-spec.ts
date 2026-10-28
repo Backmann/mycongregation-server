@@ -1,5 +1,6 @@
 import { ConductRunsService } from '../../src/conduct-runs/conduct-runs.service';
 import { MeetingDayService } from '../../src/conduct-runs/meeting-day.service';
+import { EventType } from '../../src/common/enums/event-type.enum';
 import { addDaysISO } from '../../src/common/week-rules';
 import { Harness, startHarness } from './harness';
 
@@ -52,7 +53,7 @@ describe('the result of a meeting, kept through the 4th day (real database)', ()
   it('is kept on the 4th day after the meeting and deleted on the 5th, for both meetings', async () => {
     const week = monday(-3);
     const days = h.app.get(MeetingDayService);
-    for (const kind of ['midweek', 'weekend'] as const) {
+    for (const kind of [EventType.MIDWEEK, EventType.WEEKEND] as const) {
       const id = await insert(week, kind);
       const meeting = await days.meetingDate(tenantId, week, kind);
       expect(meeting).not.toBeNull();
@@ -65,7 +66,7 @@ describe('the result of a meeting, kept through the 4th day (real database)', ()
       expect(keepUntil).toBe(addDaysISO(meeting!, 4));
       // Wednesday → Sunday, Sunday → Thursday.
       expect(new Date(`${keepUntil}T12:00:00Z`).getUTCDay()).toBe(
-        kind === 'midweek' ? 0 : 4,
+        kind === EventType.MIDWEEK ? 0 : 4,
       );
       // Noon on the last day, then noon the day after (UTC; noon is the
       // same date in any of Europe's zones).
