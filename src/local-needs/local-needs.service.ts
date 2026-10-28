@@ -363,10 +363,14 @@ export class LocalNeedsService {
         ORDER BY u.week_start_date DESC`,
       [tenantId, topicIds, since],
     );
+    const rules = await this.weekRules.forWeeks(tenantId, [
+      ...new Set(rows.map((r) => r.week)),
+    ]);
     for (const r of rows) {
       const list = out.get(r.topic_id) ?? [];
       list.push({
         weekStartDate: r.week,
+        meetingDate: rules.get(r.week)?.dateOf('midweek') ?? null,
         assignmentId: r.assignment_id,
         partKey: r.part_key,
         speaker: r.speaker_id
@@ -435,15 +439,17 @@ export class LocalNeedsService {
     });
     const topicOf = new Map(bound.map((t) => [t.usedAssignmentId!, t.id]));
 
+    const rulesOf = await this.weekRules.forWeeks(tenantId, [
+      ...new Set(parts.map((a) => String(a.weekStartDate).slice(0, 10))),
+    ]);
     const byWeek = new Map<string, ProgrammeWeek>();
     for (const a of parts) {
       const week = String(a.weekStartDate).slice(0, 10);
       let w = byWeek.get(week);
       if (!w) {
-        const rules = await this.weekRules.forWeek(tenantId, week);
         w = {
           weekStartDate: week,
-          meetingDate: rules.dateOf('midweek'),
+          meetingDate: rulesOf.get(week)?.dateOf('midweek') ?? null,
           parts: [],
         };
         byWeek.set(week, w);
@@ -921,6 +927,8 @@ export class LocalNeedsService {
 /** One week a topic was given, as the screen shows it. */
 export interface TopicUse {
   weekStartDate: string;
+  /** The day the topic was given — the midweek meeting, the week's rules applied. */
+  meetingDate: string | null;
   /** The part, while it still exists. */
   assignmentId: string | null;
   partKey: string | null;

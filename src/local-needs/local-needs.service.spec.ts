@@ -94,7 +94,7 @@ describe('LocalNeedsService', () => {
       uses,
       audit,
       clockStub(),
-      { forWeek: jest.fn() } as any,
+      { forWeek: jest.fn(), forWeeks: jest.fn(async () => new Map()) } as any,
     );
   });
 
