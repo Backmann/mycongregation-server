@@ -1,3 +1,4 @@
+import { addDaysISO } from '../common/week-rules';
 import {
   BadRequestException,
   ConflictException,
@@ -10,7 +11,7 @@ import {
 import { UserRole } from '../common/enums/user-role.enum';
 
 /**
- * How a midweek meeting ran — kept seven days, for the chairman of that week
+ * How a meeting ran — kept through the 4th day after it, for the chairman of that week
  * and the appointed brothers (Lionel, 14 and 15 October 2026).
  */
 const TENANT = 'cong-1';
@@ -54,6 +55,7 @@ function build(
     keeper?: string | null;
     stored?: Record<string, unknown> | null;
     over?: boolean;
+    noDay?: boolean;
   } = {},
 ) {
   const chair = opts.chair === undefined ? CHAIR_PUB : opts.chair;
@@ -62,6 +64,7 @@ function build(
     create: jest.fn((x: unknown) => ({ ...(x as object) })),
     save: jest.fn(async (x: Record<string, unknown>) => ({ id: 'r1', ...x })),
     delete: jest.fn().mockResolvedValue({ affected: 3 }),
+    find: jest.fn().mockResolvedValue([]),
   };
   const assignments = {
     findOne: jest.fn().mockResolvedValue(chair ? { publisherId: chair } : null),
@@ -93,9 +96,18 @@ function build(
       assignments as never,
       publishers as never,
       duties as never,
-      { isOver: jest.fn(async () => opts.over === true) } as never,
+      {
+        isOver: jest.fn(async () => opts.over === true),
+        // The Wednesday of the week, as the week rules would say.
+        meetingDate: jest.fn(async (_c: string, week: string) =>
+          opts.noDay ? null : addDaysISO(week, 2),
+        ),
+      } as never,
       { delete: jest.fn(async () => ({ affected: 0 })) } as never,
-      { todayFor: jest.fn(async () => '2026-10-21') } as never,
+      {
+        todayFor: jest.fn(async () => '2026-10-21'),
+        timezoneOf: jest.fn(async () => 'Europe/Berlin'),
+      } as never,
     ),
     runs,
   };
@@ -173,7 +185,7 @@ describe('saving how the meeting ran', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('finishing again replaces the row and restarts the seven days', async () => {
+  it('finishing again replaces the row with the new saving time', async () => {
     const old = {
       id: 'r1',
       congregationId: TENANT,
@@ -217,28 +229,34 @@ describe("after the meeting's day (16 October 2026)", () => {
 
 describe('reading how the meeting ran', () => {
   const savedAt = new Date('2026-10-14T19:45:00Z');
-  const stored = { id: 'r1', weekStartDate: WEEK, savedAt, segments: [] };
-  const day = 24 * 60 * 60 * 1000;
+  const stored = {
+    id: 'r1',
+    congregationId: 'c1',
+    weekStartDate: WEEK,
+    eventType: 'midweek',
+    savedAt,
+    segments: [],
+  };
 
   it('the counsel brother reads it (16 October 2026)', async () => {
-    const { service } = build({ stored });
+    const { service } = build({ stored: { ...stored } });
     expect(
       await service.find(
         user(UserRole.ELDER, ADVISER_USER),
         WEEK,
-        new Date(savedAt.getTime() + day),
+        new Date('2026-10-15T10:00:00Z'),
       ),
-    ).toBe(stored);
+    ).toMatchObject({ id: 'r1', keepUntil: '2026-10-18' });
   });
 
   it('the Life and Ministry overseer reads it, and an admin', async () => {
-    const { service } = build({ stored });
+    const { service } = build({ stored: { ...stored } });
     expect(
       await service.find(user(UserRole.ELDER, LMO_USER), WEEK, savedAt),
-    ).toBe(stored);
-    expect(await service.find(user(UserRole.ADMIN), WEEK, savedAt)).toBe(
-      stored,
-    );
+    ).toMatchObject({ id: 'r1' });
+    expect(
+      await service.find(user(UserRole.ADMIN), WEEK, savedAt),
+    ).toMatchObject({ id: 'r1' });
   });
 
   it('the chairman does not — he saw it on his own screen when it ended', async () => {
@@ -261,23 +279,34 @@ describe('reading how the meeting ran', () => {
     }
   });
 
-  it(`after ${CONDUCT_RUN_KEEP_DAYS} days it is gone, even before the night's deletion`, async () => {
-    const { service } = build({ stored });
-    const keep = CONDUCT_RUN_KEEP_DAYS * day;
+  it(`is read through the ${CONDUCT_RUN_KEEP_DAYS}th day after the meeting, in the congregation's calendar (28 October 2026)`, async () => {
+    // Wednesday 14 October → through Sunday 18 October, Berlin time.
+    const { service } = build({ stored: { ...stored } });
     expect(
       await service.find(
         user(UserRole.ADMIN),
         WEEK,
-        new Date(savedAt.getTime() + keep),
+        new Date('2026-10-18T21:30:00Z'), // 23:30 on Sunday in Berlin
       ),
-    ).toBe(stored);
+    ).toMatchObject({ keepUntil: '2026-10-18' });
     expect(
       await service.find(
         user(UserRole.ADMIN),
         WEEK,
-        new Date(savedAt.getTime() + keep + 1000),
+        new Date('2026-10-18T22:30:00Z'), // 00:30 on Monday in Berlin
       ),
     ).toBeNull();
+  });
+
+  it('counts from the day it was saved when the week has no day', async () => {
+    const { service } = build({ stored: { ...stored }, noDay: true });
+    expect(
+      await service.find(
+        user(UserRole.ADMIN),
+        WEEK,
+        new Date('2026-10-18T12:00:00Z'),
+      ),
+    ).toMatchObject({ keepUntil: '2026-10-18' });
   });
 
   it('no run is null, not an error', async () => {
@@ -287,11 +316,45 @@ describe('reading how the meeting ran', () => {
 });
 
 describe('the nightly deletion', () => {
-  it('deletes what is older than seven days', async () => {
+  it('deletes the runs whose days are over, and only those', async () => {
     const { service, runs } = build();
-    const now = new Date('2026-10-21T03:50:00Z');
-    expect(await service.deleteExpired(now)).toBe(3);
-    const arg = runs.delete.mock.calls[0][0] as { savedAt: { _value: Date } };
-    expect(arg.savedAt._value).toEqual(new Date('2026-10-14T03:50:00Z'));
+    runs.find.mockResolvedValue([
+      // Wednesday 14 October: kept through the 18th.
+      {
+        id: 'old',
+        congregationId: 'c1',
+        weekStartDate: WEEK,
+        eventType: 'midweek',
+        savedAt: new Date('2026-10-14T19:45:00Z'),
+      },
+      // Wednesday 21 October: kept through the 25th.
+      {
+        id: 'new',
+        congregationId: 'c1',
+        weekStartDate: '2026-10-19',
+        eventType: 'midweek',
+        savedAt: new Date('2026-10-21T19:45:00Z'),
+      },
+    ]);
+    const n = await service.deleteExpired(new Date('2026-10-19T03:50:00Z'));
+    expect(n).toBe(3); // what the repository answered
+    expect(runs.delete).toHaveBeenCalledWith(['old']);
+  });
+
+  it('deletes nothing while every run is within its days', async () => {
+    const { service, runs } = build();
+    runs.find.mockResolvedValue([
+      {
+        id: 'a',
+        congregationId: 'c1',
+        weekStartDate: WEEK,
+        eventType: 'midweek',
+        savedAt: new Date('2026-10-14T19:45:00Z'),
+      },
+    ]);
+    expect(await service.deleteExpired(new Date('2026-10-18T12:00:00Z'))).toBe(
+      0,
+    );
+    expect(runs.delete).not.toHaveBeenCalled();
   });
 });

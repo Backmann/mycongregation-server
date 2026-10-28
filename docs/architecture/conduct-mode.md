@@ -21,7 +21,7 @@ A screen that runs the midweek and the weekend meeting part by part
 against the clock (the weekend since 18 Oct; route `?kind=weekend`):
 a countdown per part, the counsel after a student part, how far the meeting
 has drifted from the programme, and when it will end. When the meeting
-ends, a **result** is saved for seven days.
+ends, a **result** is saved until the 4th day after the meeting.
 
 Variant A (15 Oct): a student part ends with **Закончено** — its clock
 stops, the chairman's counsel counts **up**; **Следующая** (with the next
@@ -32,7 +32,7 @@ reading shows 4:00); the fifth minute is the counsel, shown on its own line.
 
 ## 2. Who does what
 
-| Who | Runs the meeting | Watches it live | Reads the result (7 days) |
+| Who | Runs the meeting | Watches it live | Reads the result (meeting day + 4) |
 |---|---|---|---|
 | Chairman of that meeting | yes | yes | only on his own screen right after the meeting |
 | Timekeeper of that meeting (duty «Ведущий времени») | yes | yes | only on his own screen right after the meeting |
@@ -165,7 +165,7 @@ weekend song — the later of the two by `partOrder`.
   last part; a run that stopped earlier can only be dropped, a result from
   it would be wrong. Before 18 Oct the card said «Идёт встреча» until
   midnight.
-- The result card — the readers of that meeting, seven days.
+- The result card — the readers of that meeting, through the 4th day after it.
 
 ## 7. After the meeting's day it is history (16 Oct)
 
@@ -187,8 +187,13 @@ the size limits refused it. Since then:
 
 ## 8. The result
 
-- Kept **seven days** from saving, then deleted (decided 15 Oct: no history,
-  no statistics over months).
+- Kept through the **4th calendar day after the meeting day**, in the
+  congregation's time zone, and deleted the night after (Lionel, 28 Oct:
+  a Wednesday meeting stays until Sunday, a Sunday one until Thursday —
+  time enough to look back, no history, no statistics over months). It
+  was seven days from saving until then. The week without a meeting day
+  in its rules counts from the day it was saved. `GET` returns
+  `keepUntil` (YYYY-MM-DD) for the screen's «хранится до …».
 - Per part: programme seconds, actual seconds, counsel, and — from 16 Oct —
   `startSec`, when the part began (seconds from the meeting's start), plus
   `started_at` for the meeting.
