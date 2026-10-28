@@ -285,7 +285,11 @@ export class ServiceGroupsService {
       | undefined;
     if (groupIds.length === 0 || typeof manager?.query !== 'function')
       return out;
-    const today = new Date().toISOString().slice(0, 10);
+    // The congregation's own day; without the clock (hand-built specs) a
+    // pioneer counts whatever his start, as before this count existed.
+    const today = this.clock
+      ? await this.clock.todayFor(tenantId)
+      : '9999-12-31';
     const rows = (await manager.query(
       `SELECT service_group_id AS "groupId",
               COUNT(*) FILTER (
