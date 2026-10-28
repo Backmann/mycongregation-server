@@ -14,6 +14,8 @@ describe('LocalNeedsService', () => {
   let responsibilities: any;
   let assignments: any;
   let audit: any;
+  let uses: any;
+  let insertValues: jest.Mock;
   let service: LocalNeedsService;
 
   const admin = {
@@ -55,6 +57,7 @@ describe('LocalNeedsService', () => {
     };
     responsibilities = { count: jest.fn().mockResolvedValue(0) };
     assignments = {
+      findOne: jest.fn().mockResolvedValue({ id: 'a', publisherId: 'pub-9' }),
       createQueryBuilder: jest.fn().mockReturnValue({
         select: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
@@ -67,12 +70,31 @@ describe('LocalNeedsService', () => {
       logUpdate: jest.fn(),
       logEvent: jest.fn(),
     };
+    insertValues = jest.fn();
+    const insert: any = {
+      insert: jest.fn().mockReturnThis(),
+      into: jest.fn().mockReturnThis(),
+      values: jest.fn((v: any) => {
+        insertValues(v);
+        return insert;
+      }),
+      orUpdate: jest.fn().mockReturnThis(),
+      execute: jest.fn(),
+    };
+    uses = {
+      createQueryBuilder: jest.fn(() => insert),
+      delete: jest.fn(),
+      findOne: jest.fn().mockResolvedValue(null),
+      query: jest.fn().mockResolvedValue([]),
+    };
     service = new LocalNeedsService(
       repo,
       responsibilities,
       assignments,
+      uses,
       audit,
       clockStub(),
+      { forWeek: jest.fn() } as any,
     );
   });
 
@@ -216,7 +238,7 @@ describe('LocalNeedsService', () => {
       const saved = await service.update(
         'cong-1',
         'topic-1',
-        { usedWeek: null } as any,
+        { usedWeek: null },
         admin,
       );
 
@@ -229,7 +251,7 @@ describe('LocalNeedsService', () => {
       const saved = await service.update(
         'cong-1',
         'topic-1',
-        { usedWeek: '2026-07-11' } as any, // a Saturday
+        { usedWeek: '2026-07-11' }, // a Saturday
         admin,
       );
 
@@ -373,6 +395,87 @@ describe('LocalNeedsService', () => {
       expect(audit.logEvent).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'RESTORE' }),
       );
+    });
+  });
+
+  describe('the body of elders’ coordinator and the history (28 October 2026)', () => {
+    it('lets the coordinator manage the topics', async () => {
+      responsibilities.count.mockResolvedValue(1);
+      await service.create('cong-1', { title: 'X' }, elder);
+      const where = responsibilities.count.mock.calls[0][0].where;
+      expect(where.type.value).toContain(ResponsibilityType.BODY_COORDINATOR);
+    });
+
+    it('writes each use down, with the brother on the part', async () => {
+      repo.findOne.mockResolvedValue(topic());
+      await service.markUsed(
+        'cong-1',
+        'topic-1',
+        { week: '2026-07-08', assignmentId: 'assignment-9' },
+        admin,
+      );
+      expect(insertValues).toHaveBeenCalledWith(
+        expect.objectContaining({
+          topicId: 'topic-1',
+          weekStartDate: '2026-07-06',
+          assignmentId: 'assignment-9',
+          speakerPublisherId: 'pub-9',
+        }),
+      );
+    });
+
+    it('a placement taken back leaves the topic at its earlier use', async () => {
+      // Given in 2025, placed again in 2026, then taken out: it HAS been
+      // given — in 2025.
+      repo.findOne.mockResolvedValue(
+        topic({ usedWeek: '2026-12-07', usedAssignmentId: 'assignment-9' }),
+      );
+      uses.findOne.mockResolvedValue({
+        weekStartDate: '2025-07-07',
+        assignmentId: 'assignment-old',
+      });
+      const saved = await service.markPlanned('cong-1', 'topic-1', admin);
+      expect(uses.delete).toHaveBeenCalledWith(
+        expect.objectContaining({ weekStartDate: '2026-12-07' }),
+      );
+      expect(saved.usedWeek).toBe('2025-07-07');
+      expect(saved.usedAssignmentId).toBe('assignment-old');
+    });
+
+    it('clears the planned week once the topic is given', async () => {
+      repo.findOne.mockResolvedValue(topic({ plannedWeek: '2026-12-07' }));
+      const saved = await service.markUsed(
+        'cong-1',
+        'topic-1',
+        { week: '2026-12-09' },
+        admin,
+      );
+      expect(saved.plannedWeek).toBeNull();
+    });
+
+    it('snaps a planned week to its Monday', async () => {
+      repo.findOne.mockResolvedValue(topic());
+      const saved = await service.update(
+        'cong-1',
+        'topic-1',
+        { plannedWeek: '2027-01-14' },
+        admin,
+      );
+      expect(saved.plannedWeek).toBe('2027-01-11');
+      expect(insertValues).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['Местные потребности', true],
+      ['местные потребности: обсуждение', true],
+      ['«Местные потребности»', true],
+      ['Örtliche Bedürfnisse', true],
+      ['Local Needs', true],
+      ['Местные потребности и планы', false],
+      ['Тестовый пункт христианской жизни', false],
+      [null, false],
+    ])('knows the local-needs part by its title: %s', (title, yes) => {
+      expect(LocalNeedsService.isLocalNeedsTitle(title as any)).toBe(yes);
     });
   });
 });

@@ -29,6 +29,7 @@ import { ReportRemindersModule } from './report-reminders/report-reminders.modul
 import { SpecialEventsModule } from './special-events/special-events.module';
 import { AbsencesModule } from './absences/absences.module';
 import { LocalNeedsModule } from './local-needs/local-needs.module';
+import { LocalNeedsPlacementModule } from './local-needs/placement/local-needs-placement.module';
 import { PioneerSchoolModule } from './pioneer-school/pioneer-school.module';
 import { AuditRevertModule } from './audit-revert/audit-revert.module';
 import { AppVersionModule } from './app-version/app-version.module';
@@ -118,6 +119,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     SpecialEventsModule,
     AbsencesModule,
     LocalNeedsModule,
+    LocalNeedsPlacementModule,
     PioneerSchoolModule,
     AuditRevertModule,
     AppVersionModule,

@@ -42,6 +42,8 @@ export const NOTIFICATION_TYPES = [
   'outgoing_talk',
   // A trip of ours that needs a brother, or has come into question.
   'talk_exchange_attention',
+  // A «Местные потребности» part still without a topic — the coordinator.
+  'local_needs_reminder',
   'test',
 ] as const;
 

@@ -25,4 +25,12 @@ export class UpdateLocalNeedsTopicDto {
   @IsOptional()
   @IsDateString()
   usedWeek?: string | null;
+
+  /**
+   * The week the body of elders chose, while its programme is not imported
+   * yet — any date in it; null takes the plan off.
+   */
+  @IsOptional()
+  @IsDateString()
+  plannedWeek?: string | null;
 }
