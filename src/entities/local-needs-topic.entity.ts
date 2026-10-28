@@ -56,6 +56,15 @@ export class LocalNeedsTopic {
   usedWeek!: string | null;
 
   /**
+   * Monday of the week the body of elders chose for this topic before that
+   * week's programme exists (28 October 2026). Only a note: nothing is put
+   * into a programme by itself — once the week is imported the screen offers
+   * «Поставить». Cleared when the topic is placed or given.
+   */
+  @Column({ type: 'date', nullable: true })
+  plannedWeek!: string | null;
+
+  /**
    * The meeting part this topic became, when it was placed from the schedule.
    *
    * Null means the week was ticked by hand — the topic was used, but nothing

@@ -163,6 +163,8 @@ export const REFUSAL_CODES = [
   'TALKS_SET_ASIDE_FORBIDDEN',
   'TALK_NUMBER_TAKEN',
   'LOCAL_NEEDS_FOR_ELDERS',
+  'LOCAL_NEEDS_NO_PROGRAMME',
+  'LOCAL_NEEDS_NOT_A_PART',
   'AGENDA_FORBIDDEN',
   // ---- attendance, the meeting schedule, groups ----
   'ATTENDANCE_FORBIDDEN',

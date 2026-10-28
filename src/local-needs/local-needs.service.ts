@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { In, IsNull, Repository } from 'typeorm';
 import { LocalNeedsTopic } from '../entities/local-needs-topic.entity';
+import { LocalNeedsUse } from '../entities/local-needs-use.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
@@ -18,6 +19,8 @@ import { QueryLocalNeedsTopicsDto } from './dto/query-local-needs-topics.dto';
 import { MarkUsedLocalNeedsTopicDto } from './dto/mark-used-local-needs-topic.dto';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { mondayOf } from '../common/week';
+import { addDaysISO } from '../common/week-rules';
+import { WeekRulesService } from '../common/week-rules.service';
 import { refusal } from '../common/errors/refusal';
 
 @Injectable()
@@ -29,9 +32,41 @@ export class LocalNeedsService {
     private readonly responsibilitiesRepo: Repository<Responsibility>,
     @InjectRepository(Assignment)
     private readonly assignmentsRepo: Repository<Assignment>,
+    @InjectRepository(LocalNeedsUse)
+    private readonly usesRepo: Repository<LocalNeedsUse>,
     private readonly auditLog: AuditLogService,
     private readonly clock: CongregationClock,
+    private readonly weekRules: WeekRulesService,
   ) {}
+
+  /** How long each time a topic was given is kept (Lionel: two years). */
+  static readonly HISTORY_DAYS = 730;
+
+  /** How far ahead the screen lists the weeks of the programme. */
+  static readonly WEEKS_AHEAD = 16;
+
+  /**
+   * The part's own name in the workbook, normalised — what marks the
+   * «Местные потребности» part of a week among the «В жизни христианина»
+   * parts. The congregation's language decides which one the import wrote.
+   */
+  private static readonly LOCAL_NEEDS_TITLES = [
+    'местные потребности',
+    'місцеві потреби',
+    'örtliche bedürfnisse',
+    'lokale bedürfnisse',
+    'local needs',
+  ];
+
+  /** True when a part's title (imported or current) is the local-needs part. */
+  static isLocalNeedsTitle(title: string | null | undefined): boolean {
+    if (!title) return false;
+    const whole = LocalNeedsService.normaliseTitle(title);
+    const head = LocalNeedsService.normaliseTitle(title.split(':')[0]);
+    return LocalNeedsService.LOCAL_NEEDS_TITLES.some(
+      (t) => whole === t || head === t,
+    );
+  }
 
   /**
    * Responsibilities that may manage the local-needs backlog. Per the body of
@@ -40,10 +75,13 @@ export class LocalNeedsService {
    */
   private static readonly MANAGER_RESPONSIBILITIES = [
     ResponsibilityType.LIFE_MINISTRY_OVERSEER,
+    // The body of elders chooses the topics, and its coordinator answers for
+    // them (Lionel, 28 October 2026).
+    ResponsibilityType.BODY_COORDINATOR,
   ];
 
-  /** True when the user may edit the backlog (admin or Life & Ministry overseer). */
-  private async isManager(user: AuthenticatedUser): Promise<boolean> {
+  /** True when the user may edit the backlog (admin, L&M overseer, coordinator). */
+  async isManager(user: AuthenticatedUser): Promise<boolean> {
     if (user.role === UserRole.ADMIN) return true;
     const held = await this.responsibilitiesRepo.count({
       where: {
@@ -55,7 +93,7 @@ export class LocalNeedsService {
     return held > 0;
   }
 
-  private async assertCanManage(user: AuthenticatedUser): Promise<void> {
+  async assertCanManage(user: AuthenticatedUser): Promise<void> {
     if (!(await this.isManager(user))) {
       throw new ForbiddenException(
         refusal('NEEDS_RESPONSIBILITY', 'Not allowed to manage local needs', {
@@ -164,7 +202,9 @@ export class LocalNeedsService {
       };
       topic.usedWeek = mondayOf(best.weekStartDate);
       topic.usedAssignmentId = best.id;
+      topic.plannedWeek = null;
       await this.repo.save(topic);
+      await this.recordUse(tenantId, topic, topic.usedWeek, best.id);
       await this.auditLog.logUpdate({
         tenantId,
         entityType: 'local_need',
@@ -182,11 +222,366 @@ export class LocalNeedsService {
     }
   }
 
+  // ---------------------------------------------------------------------
+  // The history: every week a topic was given, for two years.
+  // ---------------------------------------------------------------------
+
+  /**
+   * Write down that the topic is given in `week` (its Monday). The speaker is
+   * the part's brother when there is a part, else the topic's intended one.
+   */
+  private async recordUse(
+    tenantId: string,
+    topic: LocalNeedsTopic,
+    week: string,
+    assignmentId: string | null,
+  ): Promise<void> {
+    let speaker = topic.speakerPublisherId;
+    if (assignmentId) {
+      const part = await this.assignmentsRepo.findOne({
+        where: { id: assignmentId, congregationId: tenantId },
+        select: { id: true, publisherId: true },
+      });
+      speaker = part?.publisherId ?? speaker;
+    }
+    await this.usesRepo
+      .createQueryBuilder()
+      .insert()
+      .into(LocalNeedsUse)
+      .values({
+        congregationId: tenantId,
+        topicId: topic.id,
+        weekStartDate: week,
+        assignmentId,
+        speakerPublisherId: speaker,
+      })
+      .orUpdate(
+        ['assignment_id', 'speaker_publisher_id'],
+        ['topic_id', 'week_start_date'],
+      )
+      .execute();
+  }
+
+  /**
+   * The topic was not given in `week` after all. Its last week becomes the
+   * one before, when it was given before — a subject taken in 2025 and
+   * placed again, then taken out, has still been given in 2025.
+   */
+  private async forgetUse(
+    tenantId: string,
+    topic: LocalNeedsTopic,
+    week: string | null,
+  ): Promise<void> {
+    if (week) {
+      await this.usesRepo.delete({
+        congregationId: tenantId,
+        topicId: topic.id,
+        weekStartDate: week,
+      });
+    }
+    const last = await this.usesRepo.findOne({
+      where: { congregationId: tenantId, topicId: topic.id },
+      order: { weekStartDate: 'DESC' },
+    });
+    topic.usedWeek = last ? String(last.weekStartDate).slice(0, 10) : null;
+    topic.usedAssignmentId = last?.assignmentId ?? null;
+  }
+
+  /** The nightly cut: uses older than two years are deleted. */
+  async pruneHistory(): Promise<number> {
+    const res = await this.usesRepo
+      .createQueryBuilder()
+      .delete()
+      .from(LocalNeedsUse)
+      .where(
+        `week_start_date < (current_date - make_interval(days => :days))`,
+        { days: LocalNeedsService.HISTORY_DAYS },
+      )
+      .execute();
+    return res.affected ?? 0;
+  }
+
+  /**
+   * Who wrote each topic down — «предложил Беккер Й.» on the row. The name
+   * of the card the sign-in is linked to, else the sign-in's own label.
+   */
+  private async authorsOf(
+    tenantId: string,
+    userIds: Array<string | null>,
+  ): Promise<Map<string, string>> {
+    const ids = [...new Set(userIds.filter((x): x is string => !!x))];
+    if (ids.length === 0) return new Map();
+    const rows: Array<{ id: string; name: string | null }> =
+      await this.usesRepo.query(
+        `SELECT u.id,
+                coalesce(p.display_name, u.display_label, u.login_name) AS name
+           FROM users u
+           LEFT JOIN publishers p
+             ON p.user_id = u.id AND p.deleted_at IS NULL
+          WHERE u.congregation_id = $1 AND u.id = ANY($2::uuid[])`,
+        [tenantId, ids],
+      );
+    return new Map(
+      rows.filter((r) => r.name).map((r) => [r.id, r.name as string]),
+    );
+  }
+
+  /** Each topic's uses within the two years, newest first. */
+  private async usesOf(
+    tenantId: string,
+    topicIds: string[],
+  ): Promise<Map<string, TopicUse[]>> {
+    const out = new Map<string, TopicUse[]>();
+    if (topicIds.length === 0) return out;
+    const today = await this.clock.todayFor(tenantId);
+    const since = addDaysISO(today, -LocalNeedsService.HISTORY_DAYS);
+    const rows: Array<{
+      topic_id: string;
+      week: string;
+      assignment_id: string | null;
+      part_title: string | null;
+      part_key: string | null;
+      speaker_id: string | null;
+      display_name: string | null;
+      first_name: string | null;
+      last_name: string | null;
+    }> = await this.usesRepo.query(
+      `SELECT u.topic_id,
+              to_char(u.week_start_date, 'YYYY-MM-DD') AS week,
+              CASE WHEN a.id IS NULL THEN NULL ELSE u.assignment_id END AS assignment_id,
+              a.part_title, a.part_key,
+              coalesce(a.publisher_id, u.speaker_publisher_id) AS speaker_id,
+              p.display_name, p.first_name, p.last_name
+         FROM local_needs_uses u
+         LEFT JOIN assignments a
+           ON a.id = u.assignment_id AND a.deleted_at IS NULL
+         LEFT JOIN publishers p
+           ON p.id = coalesce(a.publisher_id, u.speaker_publisher_id)
+        WHERE u.congregation_id = $1
+          AND u.topic_id = ANY($2::uuid[])
+          AND u.week_start_date >= $3
+        ORDER BY u.week_start_date DESC`,
+      [tenantId, topicIds, since],
+    );
+    const rules = await this.weekRules.forWeeks(tenantId, [
+      ...new Set(rows.map((r) => r.week)),
+    ]);
+    for (const r of rows) {
+      const list = out.get(r.topic_id) ?? [];
+      list.push({
+        weekStartDate: r.week,
+        meetingDate: rules.get(r.week)?.dateOf('midweek') ?? null,
+        assignmentId: r.assignment_id,
+        partKey: r.part_key,
+        speaker: r.speaker_id
+          ? {
+              id: r.speaker_id,
+              displayName: r.display_name,
+              firstName: r.first_name,
+              lastName: r.last_name,
+            }
+          : null,
+      });
+      out.set(r.topic_id, list);
+    }
+    return out;
+  }
+
+  /**
+   * The programme's weeks ahead, each with its «В жизни христианина» parts:
+   * which one is the local-needs part, which topic stands on which part.
+   * The screen's left column (28 October 2026).
+   */
+  async weeks(
+    tenantId: string,
+    user: AuthenticatedUser,
+  ): Promise<ProgrammeWeek[]> {
+    await this.assertCanView(user);
+    const today = await this.clock.todayFor(tenantId);
+    const from = mondayOf(today);
+    const until = addDaysISO(from, LocalNeedsService.WEEKS_AHEAD * 7);
+    const parts = await this.assignmentsRepo
+      .createQueryBuilder('a')
+      .leftJoin('a.publisher', 'p')
+      .select([
+        'a.id',
+        'a.weekStartDate',
+        'a.partKey',
+        'a.partOrder',
+        'a.partTitle',
+        'a.importedTitle',
+        'a.partDurationMin',
+        'a.status',
+        'p.id',
+        'p.displayName',
+        'p.firstName',
+        'p.lastName',
+      ])
+      .where('a.congregation_id = :tenantId', { tenantId })
+      .andWhere('a.event_type = :midweek', { midweek: 'midweek' })
+      .andWhere('a.part_key LIKE :key', { key: 'living_christians%' })
+      .andWhere('a.deleted_at IS NULL')
+      .andWhere('a.week_start_date >= :from AND a.week_start_date < :until', {
+        from,
+        until,
+      })
+      .orderBy('a.week_start_date', 'ASC')
+      .addOrderBy('a.part_order', 'ASC')
+      .getMany();
+    if (parts.length === 0) return [];
+
+    const bound = await this.repo.find({
+      where: {
+        congregationId: tenantId,
+        usedAssignmentId: In(parts.map((p) => p.id)),
+      },
+      select: { id: true, usedAssignmentId: true },
+    });
+    const topicOf = new Map(bound.map((t) => [t.usedAssignmentId!, t.id]));
+
+    const rulesOf = await this.weekRules.forWeeks(tenantId, [
+      ...new Set(parts.map((a) => String(a.weekStartDate).slice(0, 10))),
+    ]);
+    const byWeek = new Map<string, ProgrammeWeek>();
+    for (const a of parts) {
+      const week = String(a.weekStartDate).slice(0, 10);
+      let w = byWeek.get(week);
+      if (!w) {
+        w = {
+          weekStartDate: week,
+          meetingDate: rulesOf.get(week)?.dateOf('midweek') ?? null,
+          parts: [],
+        };
+        byWeek.set(week, w);
+      }
+      const topicId = topicOf.get(a.id) ?? null;
+      w.parts.push({
+        id: a.id,
+        partKey: a.partKey,
+        partTitle: a.partTitle,
+        partDurationMin: a.partDurationMin,
+        // The import's own name says «Местные потребности» even after a topic
+        // took the part's title.
+        localNeeds:
+          LocalNeedsService.isLocalNeedsTitle(a.importedTitle) ||
+          LocalNeedsService.isLocalNeedsTitle(a.partTitle),
+        topicId,
+        speaker: a.publisher
+          ? {
+              id: a.publisher.id,
+              displayName: a.publisher.displayName,
+              firstName: a.publisher.firstName,
+              lastName: a.publisher.lastName,
+            }
+          : null,
+      });
+    }
+    return [...byWeek.values()];
+  }
+
+  /**
+   * Weeks ahead whose local-needs part still has no topic — for the
+   * coordinator's reminder. A part counts as filled when a topic is bound to
+   * it or its title is no longer the workbook's generic one.
+   */
+  async unfilledWeeks(
+    tenantId: string,
+  ): Promise<{ weekStartDate: string; meetingDate: string | null }[]> {
+    const today = await this.clock.todayFor(tenantId);
+    const from = mondayOf(today);
+    const until = addDaysISO(from, 21);
+    const parts = await this.assignmentsRepo
+      .createQueryBuilder('a')
+      .select(['a.id', 'a.weekStartDate', 'a.partTitle', 'a.importedTitle'])
+      .where('a.congregation_id = :tenantId', { tenantId })
+      .andWhere('a.event_type = :midweek', { midweek: 'midweek' })
+      .andWhere('a.part_key LIKE :key', { key: 'living_christians%' })
+      .andWhere('a.deleted_at IS NULL')
+      .andWhere('a.week_start_date >= :from AND a.week_start_date < :until', {
+        from,
+        until,
+      })
+      .getMany();
+    const open = parts.filter(
+      (a) =>
+        LocalNeedsService.isLocalNeedsTitle(a.importedTitle ?? a.partTitle) &&
+        LocalNeedsService.isLocalNeedsTitle(a.partTitle),
+    );
+    if (open.length === 0) return [];
+    const bound = new Set(
+      (
+        await this.repo.find({
+          where: {
+            congregationId: tenantId,
+            usedAssignmentId: In(open.map((a) => a.id)),
+          },
+          select: { id: true, usedAssignmentId: true },
+        })
+      ).map((t) => t.usedAssignmentId),
+    );
+    const weeks = new Set(
+      open
+        .filter((a) => !bound.has(a.id))
+        .map((a) => String(a.weekStartDate).slice(0, 10)),
+    );
+    const out: { weekStartDate: string; meetingDate: string | null }[] = [];
+    for (const week of [...weeks].sort()) {
+      const rules = await this.weekRules.forWeek(tenantId, week);
+      if (!rules.meetingsHeld) continue;
+      out.push({ weekStartDate: week, meetingDate: rules.dateOf('midweek') });
+    }
+    return out;
+  }
+
+  /**
+   * Record that a topic now stands on a part — the placement's last step,
+   * done by LocalNeedsPlacementService after the part itself was written.
+   */
+  async bindToPart(
+    tenantId: string,
+    id: string,
+    week: string,
+    assignmentId: string,
+  ): Promise<LocalNeedsTopic> {
+    const found = await this.repo.findOne({
+      where: { id, congregationId: tenantId },
+    });
+    if (!found) {
+      throw new NotFoundException('Local needs topic not found');
+    }
+    const before = {
+      usedWeek: found.usedWeek,
+      usedAssignmentId: found.usedAssignmentId,
+      plannedWeek: found.plannedWeek,
+    };
+    found.usedWeek = mondayOf(week);
+    found.usedAssignmentId = assignmentId;
+    found.plannedWeek = null;
+    const saved = await this.repo.save(found);
+    await this.recordUse(tenantId, saved, saved.usedWeek!, assignmentId);
+    await this.auditLog.logUpdate({
+      tenantId,
+      entityType: 'local_need',
+      entityId: saved.id,
+      subjectId: saved.speakerPublisherId,
+      before,
+      after: {
+        usedWeek: saved.usedWeek,
+        usedAssignmentId: saved.usedAssignmentId,
+        plannedWeek: null,
+      },
+      fields: ['usedWeek', 'usedAssignmentId', 'plannedWeek'],
+    });
+    return saved;
+  }
+
   async findAll(
     tenantId: string,
     query: QueryLocalNeedsTopicsDto,
     user: AuthenticatedUser,
-  ): Promise<LocalNeedsTopic[]> {
+  ): Promise<
+    Array<LocalNeedsTopic & { uses: TopicUse[]; createdByName: string | null }>
+  > {
     await this.assertCanView(user);
     try {
       await this.reconcileWithProgramme(tenantId);
@@ -203,10 +598,26 @@ export class LocalNeedsService {
     }
 
     // Planned (used_week null) first, then used topics newest-week first.
-    return qb
+    const topics = await qb
       .orderBy('t.used_week', 'DESC', 'NULLS FIRST')
       .addOrderBy('t.created_at', 'ASC')
       .getMany();
+    const uses = await this.usesOf(
+      tenantId,
+      topics.map((t) => t.id),
+    );
+    const authors = await this.authorsOf(
+      tenantId,
+      topics.map((t) => t.createdById),
+    );
+    return topics.map((t) =>
+      Object.assign(t, {
+        uses: uses.get(t.id) ?? [],
+        createdByName: t.createdById
+          ? (authors.get(t.createdById) ?? null)
+          : null,
+      }),
+    );
   }
 
   async findOne(
@@ -233,10 +644,16 @@ export class LocalNeedsService {
     await this.assertCanManage(user);
     const entity = this.repo.create({
       ...dto,
+      usedWeek: dto.usedWeek ? mondayOf(dto.usedWeek) : null,
+      plannedWeek:
+        dto.plannedWeek && !dto.usedWeek ? mondayOf(dto.plannedWeek) : null,
       congregationId: tenantId,
       createdById: user.id,
     });
     const saved = await this.repo.save(entity);
+    if (saved.usedWeek) {
+      await this.recordUse(tenantId, saved, saved.usedWeek, null);
+    }
     await this.auditLog.logCreate({
       tenantId,
       entityType: 'local_need',
@@ -270,12 +687,30 @@ export class LocalNeedsService {
       notes: found.notes,
       speakerPublisherId: found.speakerPublisherId,
       usedWeek: found.usedWeek,
+      plannedWeek: found.plannedWeek,
     };
+    const weekBefore = found.usedWeek;
     Object.assign(found, dto);
     // A week is identified by its Monday everywhere else in the app; a topic
     // filed under a Wednesday would sort and group as its own private week.
     if (found.usedWeek) found.usedWeek = mondayOf(found.usedWeek);
-    if (!found.usedWeek) found.usedAssignmentId = null;
+    if (found.plannedWeek) found.plannedWeek = mondayOf(found.plannedWeek);
+    if (dto.usedWeek !== undefined && found.usedWeek !== weekBefore) {
+      if (found.usedWeek) {
+        if (weekBefore) {
+          await this.usesRepo.delete({
+            congregationId: tenantId,
+            topicId: found.id,
+            weekStartDate: weekBefore,
+          });
+        }
+        found.usedAssignmentId = null;
+        found.plannedWeek = null;
+        await this.recordUse(tenantId, found, found.usedWeek, null);
+      } else {
+        await this.forgetUse(tenantId, found, weekBefore);
+      }
+    }
     const saved = await this.repo.save(found);
     await this.auditLog.logUpdate({
       tenantId,
@@ -288,8 +723,15 @@ export class LocalNeedsService {
         notes: saved.notes,
         speakerPublisherId: saved.speakerPublisherId,
         usedWeek: saved.usedWeek,
+        plannedWeek: saved.plannedWeek,
       },
-      fields: ['title', 'notes', 'speakerPublisherId', 'usedWeek'],
+      fields: [
+        'title',
+        'notes',
+        'speakerPublisherId',
+        'usedWeek',
+        'plannedWeek',
+      ],
     });
     return saved;
   }
@@ -323,7 +765,14 @@ export class LocalNeedsService {
       dto.week ?? (await this.clock.todayFor(tenantId)),
     );
     found.usedAssignmentId = dto.assignmentId ?? null;
+    found.plannedWeek = null;
     const saved = await this.repo.save(found);
+    await this.recordUse(
+      tenantId,
+      saved,
+      saved.usedWeek!,
+      saved.usedAssignmentId,
+    );
     await this.auditLog.logUpdate({
       tenantId,
       entityType: 'local_need',
@@ -356,8 +805,7 @@ export class LocalNeedsService {
       usedWeek: found.usedWeek,
       usedAssignmentId: found.usedAssignmentId,
     };
-    found.usedWeek = null;
-    found.usedAssignmentId = null;
+    await this.forgetUse(tenantId, found, found.usedWeek);
     const saved = await this.repo.save(found);
     await this.auditLog.logUpdate({
       tenantId,
@@ -365,7 +813,10 @@ export class LocalNeedsService {
       entityId: saved.id,
       subjectId: saved.speakerPublisherId,
       before,
-      after: { usedWeek: null, usedAssignmentId: null },
+      after: {
+        usedWeek: saved.usedWeek,
+        usedAssignmentId: saved.usedAssignmentId,
+      },
       fields: ['usedWeek', 'usedAssignmentId'],
     });
     return saved;
@@ -407,8 +858,7 @@ export class LocalNeedsService {
         usedWeek: topic.usedWeek,
         usedAssignmentId: topic.usedAssignmentId,
       };
-      topic.usedWeek = null;
-      topic.usedAssignmentId = null;
+      await this.forgetUse(tenantId, topic, topic.usedWeek);
       await this.repo.save(topic);
       await this.auditLog.logUpdate({
         tenantId,
@@ -416,7 +866,10 @@ export class LocalNeedsService {
         entityId: topic.id,
         subjectId: topic.speakerPublisherId,
         before,
-        after: { usedWeek: null, usedAssignmentId: null },
+        after: {
+          usedWeek: topic.usedWeek,
+          usedAssignmentId: topic.usedAssignmentId,
+        },
         fields: ['usedWeek', 'usedAssignmentId'],
       });
     }
@@ -469,4 +922,40 @@ export class LocalNeedsService {
     });
     return this.findOne(tenantId, id, user);
   }
+}
+
+/** One week a topic was given, as the screen shows it. */
+export interface TopicUse {
+  weekStartDate: string;
+  /** The day the topic was given — the midweek meeting, the week's rules applied. */
+  meetingDate: string | null;
+  /** The part, while it still exists. */
+  assignmentId: string | null;
+  partKey: string | null;
+  speaker: SpeakerLite | null;
+}
+
+export interface SpeakerLite {
+  id: string;
+  displayName: string | null;
+  firstName: string | null;
+  lastName: string | null;
+}
+
+/** A week of the programme ahead, with its «В жизни христианина» parts. */
+export interface ProgrammeWeek {
+  weekStartDate: string;
+  /** The day of the midweek meeting, the week's rules applied. */
+  meetingDate: string | null;
+  parts: {
+    id: string;
+    partKey: string;
+    partTitle: string | null;
+    partDurationMin: number | null;
+    /** The workbook's «Местные потребности» part. */
+    localNeeds: boolean;
+    /** The topic standing on this part, if any. */
+    topicId: string | null;
+    speaker: SpeakerLite | null;
+  }[];
 }

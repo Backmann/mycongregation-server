@@ -22,8 +22,8 @@ import { TenantId } from '../common/decorators/tenant-id.decorator';
 
 /**
  * Local-needs topic backlog. Reading is for elders, writing for an
- * administrator or the Life & Ministry overseer — both enforced in the
- * service. (This comment used to name four managing responsibilities and open
+ * administrator, the Life & Ministry overseer or the body of elders'
+ * coordinator — both enforced in the service. (This comment used to name four managing responsibilities and open
  * reading to every member; neither has been true of the code.)
  */
 @Controller('local-needs')
@@ -37,6 +37,12 @@ export class LocalNeedsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.findAll(tenantId, query, user);
+  }
+
+  /** The programme's weeks ahead with their «В жизни христианина» parts. */
+  @Get('weeks')
+  weeks(@TenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.weeks(tenantId, user);
   }
 
   @Get(':id')

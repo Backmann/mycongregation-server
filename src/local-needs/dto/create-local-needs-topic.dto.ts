@@ -24,4 +24,9 @@ export class CreateLocalNeedsTopicDto {
   @IsOptional()
   @IsDateString()
   usedWeek?: string;
+
+  /** The week chosen for it, before that week's programme exists. */
+  @IsOptional()
+  @IsDateString()
+  plannedWeek?: string;
 }

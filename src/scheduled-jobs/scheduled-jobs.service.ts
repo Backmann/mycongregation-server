@@ -21,6 +21,8 @@ import { ProgrammeNoticeService } from '../assignments/programme-notice.service'
 import { TalkAttentionService } from '../talk-exchange/talk-attention.service';
 import { TalkConsistencyService } from '../talk-exchange/talk-consistency.service';
 import { FieldServiceConsistencyService } from '../field-service-meetings/field-service-consistency.service';
+import { LocalNeedsRemindersService } from '../local-needs/local-needs-reminders.service';
+import { LocalNeedsService } from '../local-needs/local-needs.service';
 import { SCHOOL_SYNC, type SchoolSync } from '../pioneer-school/school-sync';
 
 @Injectable()
@@ -52,6 +54,11 @@ export class ScheduledJobsService {
     private readonly talkConsistency?: TalkConsistencyService,
     @Optional()
     private readonly fieldServiceConsistency?: FieldServiceConsistencyService,
+    /** «Местные потребности» without a topic — the coordinator hears of it. */
+    @Optional()
+    private readonly localNeedsReminders?: LocalNeedsRemindersService,
+    @Optional()
+    private readonly localNeeds?: LocalNeedsService,
     /** The pioneer schools' absences, brought in line each night. */
     @Optional()
     @Inject(SCHOOL_SYNC)
@@ -71,6 +78,37 @@ export class ScheduledJobsService {
       await this.talkAttention.runDaily();
     } catch (e) {
       this.logger.error(`talk attention failed: ${String(e)}`);
+    }
+  }
+
+  /**
+   * A «Местные потребности» part still without a topic, 14 and 7 days
+   * before its meeting — to the body of elders' coordinator only
+   * (28 October 2026).
+   */
+  @Cron('20 8 * * *', {
+    name: 'local-needs-reminder',
+    timeZone: 'Europe/Berlin',
+  })
+  async handleLocalNeedsReminder(): Promise<void> {
+    try {
+      await this.localNeedsReminders?.runDaily();
+    } catch (e) {
+      this.logger.error(`local needs reminder failed: ${String(e)}`);
+    }
+  }
+
+  /** Each time a local-needs topic was given is kept two years. */
+  @Cron('25 3 * * *', {
+    name: 'local-needs-history',
+    timeZone: 'Europe/Berlin',
+  })
+  async handleLocalNeedsHistory(): Promise<void> {
+    try {
+      const n = (await this.localNeeds?.pruneHistory()) ?? 0;
+      if (n > 0) this.logger.log(`local needs: ${n} old uses deleted`);
+    } catch (e) {
+      this.logger.error(`local needs history failed: ${String(e)}`);
     }
   }
 

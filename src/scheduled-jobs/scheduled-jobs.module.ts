@@ -18,6 +18,7 @@ import { ConductRunsModule } from '../conduct-runs/conduct-runs.module';
 import { ConductLiveModule } from '../conduct-live/conduct-live.module';
 import { AssignmentsModule } from '../assignments/assignments.module';
 import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
+import { LocalNeedsModule } from '../local-needs/local-needs.module';
 import { PioneerSchoolModule } from '../pioneer-school/pioneer-school.module';
 
 @Module({
@@ -40,6 +41,7 @@ import { PioneerSchoolModule } from '../pioneer-school/pioneer-school.module';
     ConductLiveModule,
     AssignmentsModule,
     TalkExchangeModule,
+    LocalNeedsModule,
   ],
   controllers: [AdminController],
   providers: [ScheduledJobsService],
