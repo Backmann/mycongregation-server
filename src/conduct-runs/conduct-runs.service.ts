@@ -5,7 +5,8 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, LessThan, Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
+import { todayIn } from '../common/congregation-clock';
 import { ConductRun } from '../entities/conduct-run.entity';
 import { ConductLive } from '../entities/conduct-live.entity';
 import { Assignment } from '../entities/assignment.entity';
@@ -28,12 +29,21 @@ import { CongregationClock } from '../common/congregation-clock.service';
 import { addDaysISO } from '../common/week-rules';
 import { SaveConductRunDto } from './dto/save-conduct-run.dto';
 
-/** How long a run may be read and kept — Lionel, 14 October 2026. */
-export const CONDUCT_RUN_KEEP_DAYS = 7;
-const KEEP_MS = CONDUCT_RUN_KEEP_DAYS * 24 * 60 * 60 * 1000;
+/**
+ * How long a run may be read and kept: through the FOURTH day after the
+ * meeting's own day, in the congregation's calendar; it goes the night after
+ * (Lionel, 28 October 2026). A Wednesday's run is read until Sunday evening,
+ * a Sunday's until Thursday evening.
+ *
+ * It used to be seven times twenty-four hours from the moment it was saved —
+ * so on the next Wednesday at six in the evening last Wednesday's run was
+ * still there, and nobody could tell why. Days, not hours: the screen can say
+ * «хранится до воскресенья» and mean it.
+ */
+export const CONDUCT_RUN_KEEP_DAYS = 4;
 
 /**
- * The chairman's run of a midweek meeting, kept seven days
+ * The chairman's run of a meeting, kept through the 4th day after it
  * (entities/conduct-run.entity.ts).
  *
  * WHO WRITES: the chairman named in that week's programme, the timekeeper
@@ -247,9 +257,34 @@ export class ConductRunsService {
   }
 
   /**
-   * The run of that week — or null when there is none, or it is older than
-   * seven days. The age is checked HERE as well as by the nightly deletion:
-   * a night the job does not run must not stretch the seven days.
+   * The last day a run may be read, YYYY-MM-DD in the congregation's
+   * calendar: the meeting's day (the week rules') plus four. A week whose
+   * rules give no day counts from the day the run was saved.
+   */
+  async keepUntil(
+    run: Pick<
+      ConductRun,
+      'congregationId' | 'weekStartDate' | 'eventType' | 'savedAt'
+    >,
+  ): Promise<string> {
+    const day =
+      (await this.meetingDay.meetingDate(
+        run.congregationId,
+        String(run.weekStartDate).slice(0, 10),
+        run.eventType as ConductKind,
+      )) ??
+      todayIn(
+        new Date(run.savedAt),
+        await this.clock.timezoneOf(run.congregationId),
+      );
+    return addDaysISO(day, CONDUCT_RUN_KEEP_DAYS);
+  }
+
+  /**
+   * The run of that week — or null when there is none, or its days are over.
+   * The age is checked HERE as well as by the nightly deletion: a night the
+   * job does not run must not stretch the days. The answer carries
+   * `keepUntil`, so the screen says the same day the server keeps to.
    */
   async find(
     user: AuthenticatedUser,
@@ -275,15 +310,35 @@ export class ConductRunsService {
       },
     });
     if (!run) return null;
-    if (now.getTime() - new Date(run.savedAt).getTime() > KEEP_MS) return null;
-    return run;
+    const keepUntil = await this.keepUntil(run);
+    const today = todayIn(now, await this.clock.timezoneOf(run.congregationId));
+    if (today > keepUntil) return null;
+    return Object.assign(run, { keepUntil });
   }
 
-  /** Every run older than seven days, in every congregation. Returns how many. */
+  /** Every run whose days are over, in every congregation. Returns how many. */
   async deleteExpired(now = new Date()): Promise<number> {
-    const res = await this.runs.delete({
-      savedAt: LessThan(new Date(now.getTime() - KEEP_MS)),
+    const all = await this.runs.find({
+      select: {
+        id: true,
+        congregationId: true,
+        weekStartDate: true,
+        eventType: true,
+        savedAt: true,
+      },
     });
+    const today = new Map<string, string>();
+    const expired: string[] = [];
+    for (const run of all) {
+      let t = today.get(run.congregationId);
+      if (!t) {
+        t = todayIn(now, await this.clock.timezoneOf(run.congregationId));
+        today.set(run.congregationId, t);
+      }
+      if (t > (await this.keepUntil(run))) expired.push(run.id);
+    }
+    if (expired.length === 0) return 0;
+    const res = await this.runs.delete(expired);
     return res.affected ?? 0;
   }
 }

@@ -16,7 +16,7 @@ import { conductKind } from '../common/conduct-kind';
 
 /**
  * How a midweek meeting ran — saved by whoever ran it when he finishes, read
- * for seven days by the admins, the counsel brother and the Life and
+ * through the 4th day after the meeting by the admins, the counsel brother and the Life and
  * Ministry overseer. Who may do which is decided in the service, against
  * that week's programme and the reader's responsibilities — no role here:
  * the counsel brother is known by his responsibility, which a role guard

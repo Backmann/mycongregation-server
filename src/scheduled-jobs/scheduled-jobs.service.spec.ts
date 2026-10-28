@@ -85,7 +85,7 @@ describe('ScheduledJobsService', () => {
         announceDuties: jest.fn(async () => 0),
       } as never,
       users as never,
-      // How a midweek meeting ran, deleted after seven days.
+      // How a midweek meeting ran, deleted after the 4th day past the meeting.
       conductRuns as never,
       // The meeting as it ran live, deleted after a day.
       conductLive as never,
@@ -96,7 +96,7 @@ describe('ScheduledJobsService', () => {
     );
   });
 
-  describe('the nightly deletion of meeting runs older than seven days', () => {
+  describe('the nightly deletion of meeting runs whose days are over', () => {
     it('asks the conduct-runs service, once', async () => {
       await service.handleConductRunCleanup();
       expect(conductRuns.deleteExpired).toHaveBeenCalledTimes(1);
