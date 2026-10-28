@@ -1,3 +1,4 @@
+import { REPORT_CLOSING_DAY } from '../common/report-month-window';
 /**
  * Where each regular pioneer stands in the service year.
  *
@@ -221,11 +222,30 @@ export function reviewPioneerYear(
   const months = year.filter((m) => m <= through);
   const thisMonth = firstOf(today);
 
-  const counted = months.filter((m) => m < thisMonth);
+  /**
+   * The month whose reports are being handed in now (28 October 2026).
+   *
+   * It used to be the RUNNING month — «отчёты за октябрь ещё собираются» on
+   * 28 October, of a month that has not ended and is reported in November —
+   * while the month really being handed in, the one before, already counted
+   * as «missing» on the 5th, a fortnight before its reports were due. Now:
+   * the previous month, until its closing day (the 20th); after that it is
+   * settled, and a missing report is missing. The running month is simply
+   * not over yet ('upcoming') and is never counted.
+   */
+  const previousMonth = (() => {
+    const [y, m] = thisMonth.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m - 2, 1));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`;
+  })();
+  const stillHandedIn = Number(today.slice(8, 10)) < REPORT_CLOSING_DAY;
+  const collectingMonth =
+    stillHandedIn && previousMonth >= firstMonth && previousMonth <= through
+      ? previousMonth
+      : null;
+  const counted = months.filter((m) => m < thisMonth && m !== collectingMonth);
   const monthsElapsed = counted.length;
   const windowComplete = monthsElapsed === months.length;
-  const collectingMonth =
-    thisMonth >= firstMonth && thisMonth <= lastMonth ? thisMonth : null;
   const goalFor = (n: number) => PIONEER_MONTH_PACE * n;
   const minimumFor = (n: number) => Math.round((PIONEER_YEAR_MINIMUM * n) / 12);
 
@@ -272,9 +292,9 @@ export function reviewPioneerYear(
           ? 'reported'
           : r
             ? 'zero'
-            : m === thisMonth
+            : m === collectingMonth
               ? 'collecting'
-              : m > thisMonth
+              : m >= thisMonth
                 ? 'upcoming'
                 : 'missing';
       return {
@@ -303,7 +323,11 @@ export function reviewPioneerYear(
      * stopped in December, the months of the window that are over AND were his.
      * Until then such a man had no measure at all.
      */
-    const countedMine = mine.filter((l) => l.reportMonth < thisMonth).length;
+    // A month still being handed in is counted once it is in, not before:
+    // until then it would only make him look behind.
+    const countedMine = mine.filter(
+      (l) => l.reportMonth < thisMonth && l.state !== 'collecting',
+    ).length;
     const measured = countedMine > 0;
     const expectedMin = minimumFor(countedMine);
     const expectedGoal = goalFor(countedMine);

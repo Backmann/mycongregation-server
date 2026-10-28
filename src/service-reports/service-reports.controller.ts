@@ -137,6 +137,32 @@ export class ServiceReportsController {
     return this.serviceReportsService.myReportStanding(tenantId, user);
   }
 
+  /**
+   * Which form a month wants — hours or «did he share» — asked of his spells
+   * for that month, with the studies of his latest report as a hint.
+   */
+  @Get('form')
+  reportForm(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('reportMonth') reportMonthRaw?: string,
+    @Query('publisherId') publisherId?: string,
+  ) {
+    if (publisherId !== undefined && !/^[0-9a-f-]{36}$/i.test(publisherId)) {
+      throw new BadRequestException(
+        refusal('INVALID_FIELD', 'publisherId must be a UUID', {
+          fields: [{ field: 'publisherId', rules: ['isUuid'] }],
+        }),
+      );
+    }
+    return this.serviceReportsService.reportForm(
+      tenantId,
+      user,
+      requireMonth(reportMonthRaw),
+      publisherId,
+    );
+  }
+
   @Get('group')
   findGroup(
     @TenantId() tenantId: string,
