@@ -149,6 +149,8 @@ describe('local needs (real database)', () => {
     const r = await h.as('plain').get('/local-needs');
     const t = r.body.find((x: any) => x.id === topicId);
     expect(t.uses).toHaveLength(1);
+    // Who wrote it down: the coordinator's card.
+    expect(t.createdByName).toMatch(/Координатор|Карл/);
     expect(t.uses[0]).toMatchObject({
       weekStartDate: week,
       assignmentId: lnPart,

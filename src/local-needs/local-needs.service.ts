@@ -301,6 +301,31 @@ export class LocalNeedsService {
     return res.affected ?? 0;
   }
 
+  /**
+   * Who wrote each topic down — «предложил Беккер Й.» on the row. The name
+   * of the card the sign-in is linked to, else the sign-in's own label.
+   */
+  private async authorsOf(
+    tenantId: string,
+    userIds: Array<string | null>,
+  ): Promise<Map<string, string>> {
+    const ids = [...new Set(userIds.filter((x): x is string => !!x))];
+    if (ids.length === 0) return new Map();
+    const rows: Array<{ id: string; name: string | null }> =
+      await this.usesRepo.query(
+        `SELECT u.id,
+                coalesce(p.display_name, u.display_label, u.login_name) AS name
+           FROM users u
+           LEFT JOIN publishers p
+             ON p.user_id = u.id AND p.deleted_at IS NULL
+          WHERE u.congregation_id = $1 AND u.id = ANY($2::uuid[])`,
+        [tenantId, ids],
+      );
+    return new Map(
+      rows.filter((r) => r.name).map((r) => [r.id, r.name as string]),
+    );
+  }
+
   /** Each topic's uses within the two years, newest first. */
   private async usesOf(
     tenantId: string,
@@ -548,7 +573,9 @@ export class LocalNeedsService {
     tenantId: string,
     query: QueryLocalNeedsTopicsDto,
     user: AuthenticatedUser,
-  ): Promise<Array<LocalNeedsTopic & { uses: TopicUse[] }>> {
+  ): Promise<
+    Array<LocalNeedsTopic & { uses: TopicUse[]; createdByName: string | null }>
+  > {
     await this.assertCanView(user);
     try {
       await this.reconcileWithProgramme(tenantId);
@@ -573,7 +600,18 @@ export class LocalNeedsService {
       tenantId,
       topics.map((t) => t.id),
     );
-    return topics.map((t) => Object.assign(t, { uses: uses.get(t.id) ?? [] }));
+    const authors = await this.authorsOf(
+      tenantId,
+      topics.map((t) => t.createdById),
+    );
+    return topics.map((t) =>
+      Object.assign(t, {
+        uses: uses.get(t.id) ?? [],
+        createdByName: t.createdById
+          ? (authors.get(t.createdById) ?? null)
+          : null,
+      }),
+    );
   }
 
   async findOne(
