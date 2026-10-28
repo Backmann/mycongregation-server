@@ -55,6 +55,7 @@ describe('ServiceGroupsService — whose notes', () => {
       findOne: jest.fn(async () => null),
       resolvePrivateAccess: jest.fn(async () => privileged),
       findOwnServiceGroupId: jest.fn(async () => ownGroupId),
+      overseenServiceGroupIds: jest.fn(async () => new Set<string>()),
     };
     return new ServiceGroupsService(
       repo as never,
