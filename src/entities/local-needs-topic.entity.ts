@@ -41,6 +41,13 @@ export class LocalNeedsTopic {
   @Column({ type: 'text', nullable: true })
   notes!: string | null;
 
+  /**
+   * How many minutes the topic is meant for (28 October 2026) — so it can be
+   * matched to the minutes the workbook gives the part. Optional.
+   */
+  @Column({ type: 'smallint', nullable: true })
+  durationMin!: number | null;
+
   // ---- Optional intended speaker ----
   @Column({ type: 'uuid', nullable: true })
   @Index()

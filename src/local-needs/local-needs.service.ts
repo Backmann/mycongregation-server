@@ -237,12 +237,14 @@ export class LocalNeedsService {
     assignmentId: string | null,
   ): Promise<void> {
     let speaker = topic.speakerPublisherId;
+    let minutes: number | null = null;
     if (assignmentId) {
       const part = await this.assignmentsRepo.findOne({
         where: { id: assignmentId, congregationId: tenantId },
-        select: { id: true, publisherId: true },
+        select: { id: true, publisherId: true, partDurationMin: true },
       });
       speaker = part?.publisherId ?? speaker;
+      minutes = part?.partDurationMin ?? null;
     }
     await this.usesRepo
       .createQueryBuilder()
@@ -254,9 +256,10 @@ export class LocalNeedsService {
         weekStartDate: week,
         assignmentId,
         speakerPublisherId: speaker,
+        durationMin: minutes,
       })
       .orUpdate(
-        ['assignment_id', 'speaker_publisher_id'],
+        ['assignment_id', 'speaker_publisher_id', 'duration_min'],
         ['topic_id', 'week_start_date'],
       )
       .execute();
@@ -342,6 +345,7 @@ export class LocalNeedsService {
       part_title: string | null;
       part_key: string | null;
       speaker_id: string | null;
+      duration_min: number | null;
       display_name: string | null;
       first_name: string | null;
       last_name: string | null;
@@ -351,6 +355,7 @@ export class LocalNeedsService {
               CASE WHEN a.id IS NULL THEN NULL ELSE u.assignment_id END AS assignment_id,
               a.part_title, a.part_key,
               coalesce(a.publisher_id, u.speaker_publisher_id) AS speaker_id,
+              coalesce(a.part_duration_min, u.duration_min) AS duration_min,
               p.display_name, p.first_name, p.last_name
          FROM local_needs_uses u
          LEFT JOIN assignments a
@@ -373,6 +378,7 @@ export class LocalNeedsService {
         meetingDate: rules.get(r.week)?.dateOf('midweek') ?? null,
         assignmentId: r.assignment_id,
         partKey: r.part_key,
+        durationMin: r.duration_min,
         speaker: r.speaker_id
           ? {
               id: r.speaker_id,
@@ -663,6 +669,7 @@ export class LocalNeedsService {
         title: saved.title,
         notes: saved.notes,
         speakerPublisherId: saved.speakerPublisherId,
+        durationMin: saved.durationMin,
         usedWeek: saved.usedWeek,
       },
     });
@@ -686,6 +693,7 @@ export class LocalNeedsService {
       title: found.title,
       notes: found.notes,
       speakerPublisherId: found.speakerPublisherId,
+      durationMin: found.durationMin,
       usedWeek: found.usedWeek,
       plannedWeek: found.plannedWeek,
     };
@@ -722,6 +730,7 @@ export class LocalNeedsService {
         title: saved.title,
         notes: saved.notes,
         speakerPublisherId: saved.speakerPublisherId,
+        durationMin: saved.durationMin,
         usedWeek: saved.usedWeek,
         plannedWeek: saved.plannedWeek,
       },
@@ -729,6 +738,7 @@ export class LocalNeedsService {
         'title',
         'notes',
         'speakerPublisherId',
+        'durationMin',
         'usedWeek',
         'plannedWeek',
       ],
@@ -932,6 +942,8 @@ export interface TopicUse {
   /** The part, while it still exists. */
   assignmentId: string | null;
   partKey: string | null;
+  /** The part's minutes — as it stands now, or as it was. */
+  durationMin: number | null;
   speaker: SpeakerLite | null;
 }
 

@@ -339,12 +339,12 @@ export const PLAN: Record<string, TablePlan> = {
   ),
   local_needs_topics: table(
     copy(`id congregation_id speaker_publisher_id used_week created_by_id
-      created_at updated_at deleted_at used_assignment_id planned_week`),
+      created_at updated_at deleted_at used_assignment_id planned_week duration_min`),
     { title: 'label:Тема' },
     remove('notes'),
   ),
   local_needs_uses: copy(`id congregation_id topic_id week_start_date
-    assignment_id speaker_publisher_id created_at`),
+    assignment_id speaker_publisher_id duration_min created_at`),
 
   // ── the ministry and the reports ─────────────────────────────────────
   service_groups: table(

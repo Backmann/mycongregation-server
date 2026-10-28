@@ -1,5 +1,8 @@
 import {
   IsDateString,
+  IsInt,
+  Max,
+  Min,
   IsOptional,
   IsString,
   IsUUID,
@@ -29,4 +32,11 @@ export class CreateLocalNeedsTopicDto {
   @IsOptional()
   @IsDateString()
   plannedWeek?: string;
+
+  /** Minutes the topic is meant for. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(60)
+  durationMin?: number;
 }

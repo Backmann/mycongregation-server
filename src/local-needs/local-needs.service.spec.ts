@@ -57,7 +57,13 @@ describe('LocalNeedsService', () => {
     };
     responsibilities = { count: jest.fn().mockResolvedValue(0) };
     assignments = {
-      findOne: jest.fn().mockResolvedValue({ id: 'a', publisherId: 'pub-9' }),
+      findOne: jest
+        .fn()
+        .mockResolvedValue({
+          id: 'a',
+          publisherId: 'pub-9',
+          partDurationMin: 10,
+        }),
       createQueryBuilder: jest.fn().mockReturnValue({
         select: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
@@ -420,6 +426,7 @@ describe('LocalNeedsService', () => {
           weekStartDate: '2026-07-06',
           assignmentId: 'assignment-9',
           speakerPublisherId: 'pub-9',
+          durationMin: 10,
         }),
       );
     });
