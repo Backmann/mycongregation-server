@@ -56,6 +56,25 @@ export class AbsencesService {
    * Authorize a write. Managers may write any publisher's absence; anyone
    * else may only write their OWN (the publisher linked to their user).
    */
+  /**
+   * An absence that ends before it starts covers no day at all: every check
+   * («absent that day?») passes it by, and the brother reads as free. The
+   * form never sent one, but the server took it (found 28 October 2026).
+   */
+  private assertOrder(
+    startDate: string,
+    endDate: string | null | undefined,
+  ): void {
+    if (endDate && endDate.slice(0, 10) < startDate.slice(0, 10)) {
+      throw new BadRequestException(
+        refusal(
+          'ABSENCE_ENDS_BEFORE_START',
+          'An absence cannot end before it starts.',
+        ),
+      );
+    }
+  }
+
   private async assertCanWrite(
     user: AuthenticatedUser,
     targetPublisherId: string,
@@ -223,6 +242,7 @@ export class AbsencesService {
     user: AuthenticatedUser,
   ): Promise<Absence> {
     await this.assertCanWrite(user, dto.publisherId);
+    this.assertOrder(dto.startDate, dto.endDate);
     const entity = this.repo.create({ ...dto, congregationId: tenantId });
     const saved = await this.repo.save(entity);
     await this.auditLog.logCreate({
@@ -282,6 +302,10 @@ export class AbsencesService {
       startDate: found.startDate,
       endDate: found.endDate,
     };
+    this.assertOrder(
+      dto.startDate ?? found.startDate,
+      dto.endDate === undefined ? found.endDate : dto.endDate,
+    );
     Object.assign(found, dto);
     const saved = await this.repo.save(found);
     await this.auditLog.logUpdate({

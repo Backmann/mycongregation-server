@@ -183,6 +183,7 @@ export const REFUSAL_CODES = [
   // ---- elsewhere, coded before this list existed ----
   'ABSENCE_FROM_TRIP',
   'ABSENCE_FROM_SCHOOL',
+  'ABSENCE_ENDS_BEFORE_START',
   'PIONEER_KIND_CHANGE_DATE',
   'PIONEER_KIND_CORRECTION_INVALID',
   'ALREADY_MERGED',
