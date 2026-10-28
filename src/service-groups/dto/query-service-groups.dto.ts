@@ -7,6 +7,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { queryBool } from '../../common/query-bool';
 import { Transform, Type } from 'class-transformer';
 
 export enum ServiceGroupSortField {
@@ -19,20 +20,13 @@ export enum SortOrder {
   DESC = 'desc',
 }
 
-const toBool = ({ value }: { value: unknown }) =>
-  value === 'true' || value === true
-    ? true
-    : value === 'false' || value === false
-      ? false
-      : undefined;
-
 export class QueryServiceGroupsDto {
   @IsOptional()
   @IsString()
   search?: string;
 
   @IsOptional()
-  @Transform(toBool)
+  @Transform(queryBool)
   @IsBoolean()
   includeRemoved?: boolean;
 

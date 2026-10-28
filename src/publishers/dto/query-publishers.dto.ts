@@ -8,6 +8,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { queryBool } from '../../common/query-bool';
 import { Transform, Type } from 'class-transformer';
 import { PublisherAppointment } from '../../common/enums/publisher-appointment.enum';
 import { PioneerType } from '../../common/enums/pioneer-type.enum';
@@ -23,13 +24,6 @@ export enum SortOrder {
   ASC = 'asc',
   DESC = 'desc',
 }
-
-const toBool = ({ value }: { value: unknown }) =>
-  value === 'true' || value === true
-    ? true
-    : value === 'false' || value === false
-      ? false
-      : undefined;
 
 export class QueryPublishersDto {
   @IsOptional()
@@ -49,12 +43,12 @@ export class QueryPublishersDto {
   pioneerType?: PioneerType;
 
   @IsOptional()
-  @Transform(toBool)
+  @Transform(queryBool)
   @IsBoolean()
   isActive?: boolean;
 
   @IsOptional()
-  @Transform(toBool)
+  @Transform(queryBool)
   @IsBoolean()
   includeRemoved?: boolean;
 

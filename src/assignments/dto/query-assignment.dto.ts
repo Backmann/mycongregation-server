@@ -1,4 +1,5 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
+import { queryBool } from '../../common/query-bool';
 import {
   IsBoolean,
   IsDateString,
@@ -42,7 +43,7 @@ export class QueryAssignmentDto {
   partKey?: string;
 
   @IsOptional()
-  @Type(() => Boolean)
+  @Transform(queryBool)
   @IsBoolean()
   includeRemoved?: boolean;
 
