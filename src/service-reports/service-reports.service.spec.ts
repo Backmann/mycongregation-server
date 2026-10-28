@@ -408,7 +408,7 @@ describe('ServiceReportsService', () => {
       publishersRepo.findOne.mockResolvedValue(makePublisher());
       reportsRepo.findOne.mockResolvedValue(null);
       const r = await service.myReportStanding('cong-1', user);
-      expect(r).toEqual({
+      expect(r).toMatchObject({
         applicable: true,
         reportMonth: '2026-04-01',
         submitted: false,
@@ -428,7 +428,7 @@ describe('ServiceReportsService', () => {
         makeReport({ id: 'r-april', reportMonth: '2026-04-01' }),
       );
       const r = await service.myReportStanding('cong-1', user);
-      expect(r).toEqual({
+      expect(r).toMatchObject({
         applicable: true,
         reportMonth: '2026-04-01',
         submitted: true,
@@ -437,6 +437,11 @@ describe('ServiceReportsService', () => {
         daysLeft: 4,
         closed: false,
       });
+      // What was handed in, and whether he may still correct it himself.
+      expect(r.report).toMatchObject({ canEdit: expect.any(Boolean) });
+      // Not a pioneer: the plain question, no year card.
+      expect(r.form?.wantsHours).toBe(false);
+      expect(r.pioneerYear).toBeNull();
     });
 
     it('past the deadline a missing report is still owed — until the secretary closes the month', async () => {

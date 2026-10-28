@@ -218,10 +218,28 @@ describe('reviewPioneerYear', () => {
     const row = review.rows[0];
 
     expect(row.hours).toBe(550);
-    expect(row.missingMonths).toEqual(['2026-08-01']);
-    // Окончательного обвинения нет: год ещё не собран.
+    // 28 October 2026: до 20 сентября август ещё СДАЮТ — это не «нет
+    // отчёта», а «собирается», и в мерку он пока не входит.
+    expect(row.missingMonths).toEqual([]);
+    expect(row.months[11].state).toBe('collecting');
+    expect(review.collectingMonth).toBe('2026-08-01');
+    expect(row.countedMonths).toBe(11);
     expect(row.short).toBe(false);
-    // Но и молчать нельзя — пока не хватает, и это сказано отдельным словом.
+    expect(row.shortSoFar).toBe(false);
+  });
+
+  it('после 20-го несданный месяц — уже «нет отчёта»', () => {
+    const withoutAugust = { ...twelve(50) };
+    delete withoutAugust['2026-08-01'];
+
+    const review = reviewPioneerYear(2026, '2026-09-20', [
+      person({ months: months(withoutAugust) }),
+    ]);
+    const row = review.rows[0];
+
+    expect(review.collectingMonth).toBeNull();
+    expect(row.missingMonths).toEqual(['2026-08-01']);
+    expect(row.short).toBe(false);
     expect(row.shortSoFar).toBe(true);
   });
 
@@ -249,7 +267,7 @@ describe('reviewPioneerYear', () => {
   it('не требует месяцев до того, как он стал пионером', () => {
     // Он не был пионером в сентябре — и отчёта пионера за сентябрь быть не
     // может. Прежде такие месяцы попадали бы в недостающие все разом.
-    const review = reviewPioneerYear(2026, '2026-09-10', [
+    const review = reviewPioneerYear(2026, '2026-09-20', [
       person({
         pioneerSince: '2026-03-01',
         months: months({ '2026-03-01': 50, '2026-04-01': 50 }),
@@ -272,7 +290,7 @@ describe('reviewPioneerYear', () => {
     const withoutAugust = { ...twelve(40) };
     delete withoutAugust['2026-08-01'];
 
-    const review = reviewPioneerYear(2026, '2026-09-10', [
+    const review = reviewPioneerYear(2026, '2026-09-20', [
       person({
         publisherId: 'p-incomplete',
         displayName: 'Б',
@@ -291,20 +309,28 @@ describe('reviewPioneerYear', () => {
     ]);
   });
 
-  it('says which month is still being collected', () => {
-    // "Учтено 11 месяцев из 12, август ещё собирается" — without it, the whole
-    // list looks behind on 20 August.
-    const review = reviewPioneerYear(2026, '2026-08-20', []);
+  it('says which month is still being collected — the one before, until the 20th', () => {
+    // 28 October 2026: it used to name the RUNNING month («отчёты за октябрь
+    // ещё собираются» on 28 October). Reports are handed in for the month
+    // that ended, until the 20th.
+    const early = reviewPioneerYear(2026, '2026-08-10', []);
+    expect(early.collectingMonth).toBe('2026-07-01');
+    expect(early.monthsElapsed).toBe(10);
 
-    expect(review.monthsElapsed).toBe(11);
-    expect(review.collectingMonth).toBe('2026-08-01');
+    const late = reviewPioneerYear(2026, '2026-08-20', []);
+    expect(late.collectingMonth).toBeNull();
+    expect(late.monthsElapsed).toBe(11);
   });
 
-  it('says nothing is being collected once the year is over', () => {
-    const review = reviewPioneerYear(2026, '2026-09-05', []);
+  it('after the year: August is handed in until 20 September, then all is in', () => {
+    const early = reviewPioneerYear(2026, '2026-09-05', []);
+    expect(early.monthsElapsed).toBe(11);
+    expect(early.collectingMonth).toBe('2026-08-01');
 
-    expect(review.monthsElapsed).toBe(12);
-    expect(review.collectingMonth).toBeNull();
+    const late = reviewPioneerYear(2026, '2026-09-25', []);
+    expect(late.monthsElapsed).toBe(12);
+    expect(late.collectingMonth).toBeNull();
+    expect(late.windowComplete).toBe(true);
   });
 
   it('puts the notes in the order the service year runs', () => {
@@ -354,10 +380,10 @@ describe('reviewPioneerYear', () => {
       months(spec).slice(0, 6);
 
     it('looks at September to February and measures by the months counted', () => {
-      // 10 March: all six months are in. 6 × 50 = 300, 560 × 6/12 = 280.
+      // 20 March: all six months are in. 6 × 50 = 300, 560 × 6/12 = 280.
       const review = reviewPioneerYear(
         2026,
-        '2026-03-10',
+        '2026-03-20',
         [person({ months: half(twelve(45)) })],
         { through: '2026-02-01' },
       );
@@ -400,9 +426,10 @@ describe('reviewPioneerYear', () => {
     });
 
     it('says February is still being handed in, and does not require it', () => {
+      // 10 March: February's reports are due on the 20th.
       const review = reviewPioneerYear(
         2026,
-        '2026-02-20',
+        '2026-03-10',
         [person({ months: half(twelve(50)).slice(0, 5) })],
         { through: '2026-02-01' },
       );
@@ -456,17 +483,19 @@ describe('reviewPioneerYear', () => {
       }),
     ]);
     const lines = review.rows[0].months;
+    // 10 January: December is still being handed in (until the 20th);
+    // January is the running month.
     expect(lines.slice(0, 4).map((l) => l.state)).toEqual([
       'reported',
       'zero',
       'missing',
-      'missing',
+      'collecting',
     ]);
     expect(lines[0].bibleStudies).toBe(2);
     expect(lines[1].note).toBe('болел');
-    expect(lines[4].state).toBe('collecting');
+    expect(lines[4].state).toBe('upcoming');
     expect(lines[5].state).toBe('upcoming');
-    expect(review.rows[0].missingMonths).toEqual(['2025-11-01', '2025-12-01']);
+    expect(review.rows[0].missingMonths).toEqual(['2025-11-01']);
   });
 
   describe('what opens without a year in the link', () => {

@@ -18,6 +18,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import {
   Between,
   In,
+  LessThan,
   LessThanOrEqual,
   MoreThanOrEqual,
   Not,
@@ -44,6 +45,8 @@ import {
   PioneerYearReview,
   MID_YEAR_THROUGH_MONTH,
   pioneerReviewDefaults,
+  PIONEER_YEAR_GOAL,
+  PIONEER_MONTH_PACE,
 } from './pioneer-year-review';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import {
@@ -73,6 +76,52 @@ import { refusal } from '../common/errors/refusal';
  * anyone who does not submit reports, in which case the other fields are
  * empty and the home screen shows nothing.
  */
+/**
+ * A regular pioneer's service year, as a card (28 October 2026).
+ *
+ * The SAME arithmetic as the elders' review — one rule, so the pioneer and
+ * the brothers never see two different figures. For the pioneer himself only
+ * the goal (600) is told; the minimum that lets him carry on (560) is the
+ * elders' measure and is added only when an elder reads (Lionel, 28 October:
+ * «порог 560 — только для старейшин, для пионера 600»).
+ */
+export interface PioneerYearCard {
+  serviceYear: number;
+  goal: number;
+  /** 50 — the monthly pace that adds up to the goal. */
+  pace: number;
+  hours: number;
+  /** His months that are over and counted. */
+  countedMonths: number;
+  /** The twelve months, September first: state and hours. */
+  months: { reportMonth: string; state: string; hours: number | null }[];
+  /** The month whose reports are being handed in now, if any. */
+  collectingMonth: string | null;
+  /** Elders only. */
+  elders?: {
+    yearMinimum: number;
+    expectedGoal: number | null;
+    expectedMinimum: number | null;
+    toGoal: number | null;
+    toMinimum: number | null;
+  };
+}
+
+/** Which form a month wants, and a hint for it (28 October 2026). */
+export interface ReportFormVariant {
+  reportMonth: string;
+  /** Hours (a pioneer that month, or an auxiliary pioneer) or «did he share». */
+  wantsHours: boolean;
+  /** Hours because of an auxiliary month, not a permanent pioneer. */
+  auxiliary: boolean;
+  /** Studies in his latest report before this month — offered, never filled. */
+  lastStudies: number | null;
+  /** The month he reported them in. */
+  lastStudiesMonth: string | null;
+  /** A report for this month is already in. */
+  submitted: boolean;
+}
+
 export interface MyReportStanding {
   applicable: boolean;
   reportMonth: string | null;
@@ -101,6 +150,19 @@ export interface MyReportStanding {
    * «Сдать отчёт за август».
    */
   closed: boolean;
+  /** What was handed in for `reportMonth`, when it was. */
+  report?: {
+    servedThisMonth: boolean | null;
+    hoursReported: number | null;
+    bibleStudies: number;
+    submittedAt: string;
+    /** He may still correct it himself. */
+    canEdit: boolean;
+  } | null;
+  /** The form `reportMonth` wants, and the studies hint. */
+  form?: ReportFormVariant | null;
+  /** His service year, when he is a regular pioneer in it — goal only. */
+  pioneerYear?: PioneerYearCard | null;
 }
 
 export interface GroupReportsResponse {
@@ -194,6 +256,11 @@ export interface PublisherHistoryResponse {
    */
   canMarkAuxiliary: boolean;
   timeline: PublisherHistoryEntry[];
+  /**
+   * His service year as a regular pioneer, by the review's rule; the 560
+   * figures only for an elder (or an admin, the secretary).
+   */
+  pioneerYear: PioneerYearCard | null;
 }
 
 /**
@@ -818,7 +885,15 @@ export class ServiceReportsService {
     if (publisher.appointment === PublisherAppointment.STUDENT) return none;
     if (publisher.isActive === false) return none;
 
-    const reportMonth = this.previousReportMonthStart();
+    const timezone = await this.clock.timezoneOf(tenantId);
+    const today = todayIn(new Date(), timezone);
+    // The month that ended, by the congregation's own calendar — the server's
+    // clock put the 1st of the month a day late for anyone east of UTC.
+    const reportMonth = (() => {
+      const [y, m] = today.split('-').map(Number);
+      const d = new Date(Date.UTC(y, m - 2, 1));
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`;
+    })();
     const firstMonths = await this.firstReportMonths(tenantId, [publisher.id]);
     const startMonth = this.reportingStartMonthOf(
       publisher,
@@ -834,9 +909,24 @@ export class ServiceReportsService {
       },
     });
 
-    const timezone = await this.clock.timezoneOf(tenantId);
-    const today = todayIn(new Date(), timezone);
     const closesOn = lastDayToFile(reportMonth);
+    const closed = await this.isMonthClosed(tenantId, reportMonth);
+    let mine: MyReportStanding['report'] = null;
+    if (report) {
+      const ctx = await this.buildPermissionContext(tenantId, user);
+      mine = {
+        servedThisMonth: report.servedThisMonth,
+        hoursReported: report.hoursReported,
+        bibleStudies: report.bibleStudies,
+        submittedAt: report.createdAt.toISOString(),
+        canEdit: this.canEditWithCtx(
+          report,
+          ctx,
+          publisher.serviceGroupId ?? null,
+          closed,
+        ),
+      };
+    }
     return {
       applicable: true,
       reportMonth,
@@ -844,7 +934,152 @@ export class ServiceReportsService {
       reportId: report?.id ?? null,
       closesOn,
       daysLeft: daysBetween(today, closesOn),
-      closed: await this.isMonthClosed(tenantId, reportMonth),
+      closed,
+      report: mine,
+      form: await this.formVariantFor(tenantId, publisher.id, reportMonth),
+      pioneerYear: await this.pioneerYearFor(tenantId, publisher, today, false),
+    };
+  }
+
+  /**
+   * Which form a month wants for a person — asked of his spells for THAT
+   * month, exactly as `submitOwnReport` asks when it refuses the wrong shape
+   * (28 October 2026: the form judged by today's card, so a sister who
+   * stopped pioneering in September was offered «участвовал ли» for August
+   * and then refused).
+   */
+  private async formVariantFor(
+    tenantId: string,
+    publisherId: string,
+    reportMonth: string,
+  ): Promise<ReportFormVariant> {
+    const month = `${reportMonth.slice(0, 7)}-01`;
+    const spells = await this.pioneerSpellsRepo.find({
+      where: { congregationId: tenantId, publisherId },
+    });
+    const permanent = pioneerTypeInMonth(spells, month) !== PioneerType.NONE;
+    const auxiliary =
+      !permanent &&
+      (await this.auxiliaryPioneersService.isActiveAuxiliaryPioneer(
+        tenantId,
+        publisherId,
+        month,
+      ));
+    const [existing, previous] = await Promise.all([
+      this.reportsRepo.findOne({
+        where: { congregationId: tenantId, publisherId, reportMonth: month },
+      }),
+      this.reportsRepo.findOne({
+        where: {
+          congregationId: tenantId,
+          publisherId,
+          reportMonth: LessThan(month),
+        },
+        order: { reportMonth: 'DESC' },
+      }),
+    ]);
+    return {
+      reportMonth: month,
+      wantsHours: permanent || auxiliary,
+      auxiliary,
+      lastStudies: previous ? previous.bibleStudies : null,
+      lastStudiesMonth: previous ? previous.reportMonth.slice(0, 10) : null,
+      submitted: !!existing,
+    };
+  }
+
+  /** The form for a month, for whoever may file it (self or on behalf). */
+  async reportForm(
+    tenantId: string,
+    user: AuthenticatedUser,
+    reportMonth: string,
+    publisherId?: string,
+  ): Promise<ReportFormVariant> {
+    const { publisher } = await this.resolveSubmitTarget(
+      tenantId,
+      user,
+      publisherId,
+    );
+    return this.formVariantFor(tenantId, publisher.id, reportMonth);
+  }
+
+  /**
+   * His service year as a regular pioneer — the review's own arithmetic for
+   * one person. Null when he is not a regular pioneer in any month of it.
+   */
+  private async pioneerYearFor(
+    tenantId: string,
+    publisher: Publisher,
+    today: string,
+    forElders: boolean,
+  ): Promise<PioneerYearCard | null> {
+    const y = Number(today.slice(0, 4));
+    const serviceYear = Number(today.slice(5, 7)) >= 9 ? y + 1 : y;
+    const yearFrom = `${serviceYear - 1}-09-01`;
+    const yearTo = `${serviceYear}-08-01`;
+    const spells = (
+      await this.pioneerSpellsRepo.find({
+        where: {
+          congregationId: tenantId,
+          publisherId: publisher.id,
+          pioneerType: PioneerType.REGULAR,
+        },
+      })
+    ).filter(
+      (sp) =>
+        sp.startMonth.slice(0, 10) <= yearTo &&
+        (!sp.endMonth || sp.endMonth.slice(0, 10) >= yearFrom),
+    );
+    if (spells.length === 0) return null;
+    const reports = await this.reportsRepo.find({
+      where: {
+        congregationId: tenantId,
+        publisherId: publisher.id,
+        reportMonth: Between(yearFrom, yearTo),
+      },
+    });
+    const review = reviewPioneerYear(serviceYear, today, [
+      {
+        publisherId: publisher.id,
+        displayName: publisher.displayName,
+        pioneerSince: publisher.pioneerSince,
+        spans: spells.map((sp) => ({
+          start: sp.startMonth.slice(0, 10),
+          end: sp.endMonth ? sp.endMonth.slice(0, 10) : null,
+        })),
+        months: reports.map((r) => ({
+          reportMonth: r.reportMonth.slice(0, 10),
+          hours: r.hoursReported,
+          bibleStudies: r.bibleStudies,
+          note: r.notes,
+        })),
+      },
+    ]);
+    const row = review.rows[0];
+    if (!row) return null;
+    return {
+      serviceYear,
+      goal: PIONEER_YEAR_GOAL,
+      pace: PIONEER_MONTH_PACE,
+      hours: row.hours,
+      countedMonths: row.countedMonths,
+      months: row.months.map((m) => ({
+        reportMonth: m.reportMonth,
+        state: m.state,
+        hours: m.hours,
+      })),
+      collectingMonth: review.collectingMonth,
+      ...(forElders
+        ? {
+            elders: {
+              yearMinimum: row.yearMinimum,
+              expectedGoal: row.expectedGoal,
+              expectedMinimum: row.expectedMinimum,
+              toGoal: row.toGoal,
+              toMinimum: row.toMinimum,
+            },
+          }
+        : {}),
     };
   }
 
@@ -1678,6 +1913,12 @@ export class ServiceReportsService {
         user,
       ),
       timeline,
+      pioneerYear: await this.pioneerYearFor(
+        tenantId,
+        publisher,
+        todayIn(new Date(), await this.clock.timezoneOf(tenantId)),
+        ctx.alwaysView,
+      ),
     };
   }
 
