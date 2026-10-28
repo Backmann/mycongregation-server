@@ -166,4 +166,22 @@ describe('LocalNeedsPlacementService', () => {
     ).rejects.toThrow('no');
     expect(topics.findOne).not.toHaveBeenCalled();
   });
+
+  it('gives a new part the minutes the topic is meant for, unless asked otherwise', async () => {
+    topics.findOne.mockResolvedValue({
+      id: 't',
+      title: 'Чистота в зале',
+      speakerPublisherId: null,
+      durationMin: 7,
+    });
+    await service.place('c', 't', { weekStartDate: '2026-11-09' }, admin);
+    expect(assignments.create.mock.calls[0][1].partDurationMin).toBe(7);
+    await service.place(
+      'c',
+      't',
+      { weekStartDate: '2026-11-09', durationMin: 5 },
+      admin,
+    );
+    expect(assignments.create.mock.calls[1][1].partDurationMin).toBe(5);
+  });
 });

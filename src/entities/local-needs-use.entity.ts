@@ -42,6 +42,10 @@ export class LocalNeedsUse {
   @Column({ type: 'uuid', nullable: true })
   speakerPublisherId!: string | null;
 
+  /** The part's minutes when the topic was given. */
+  @Column({ type: 'smallint', nullable: true })
+  durationMin!: number | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }

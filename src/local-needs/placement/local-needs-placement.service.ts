@@ -142,7 +142,8 @@ export class LocalNeedsPlacementService {
         partKey: 'living_christians_extra',
         partOrder: order,
         partTitle: topic.title,
-        partDurationMin: dto.durationMin,
+        // Asked for, else what the topic is meant for, else none.
+        partDurationMin: dto.durationMin ?? topic.durationMin ?? undefined,
         status: published ? AssignmentStatus.PUBLISHED : AssignmentStatus.DRAFT,
         ...(topic.speakerPublisherId
           ? { publisherId: topic.speakerPublisherId }

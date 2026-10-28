@@ -56,6 +56,7 @@ describe('local needs (real database)', () => {
         partKey,
         partOrder,
         partTitle,
+        partDurationMin: 15,
         status: 'draft',
       });
       expect(res.status).toBe(201);
@@ -151,6 +152,8 @@ describe('local needs (real database)', () => {
     expect(t.uses).toHaveLength(1);
     // Who wrote it down: the coordinator's card.
     expect(t.createdByName).toMatch(/Координатор|Карл/);
+    // The part's minutes, as the workbook gave them.
+    expect(t.uses[0].durationMin).toBe(15);
     expect(t.uses[0]).toMatchObject({
       weekStartDate: week,
       assignmentId: lnPart,
@@ -221,5 +224,28 @@ describe('local needs (real database)', () => {
     );
     const n = await h.app.get(LocalNeedsService).pruneHistory();
     expect(n).toBe(1);
+  });
+
+  it('keeps the minutes a topic is meant for, within reason', async () => {
+    const ok = await h
+      .as('coord')
+      .post('/local-needs', { title: 'На 7 минут', durationMin: 7 });
+    expect(ok.status).toBe(201);
+    expect(ok.body.durationMin).toBe(7);
+    const cleared = await h
+      .as('coord')
+      .patch(`/local-needs/${ok.body.id}`, { durationMin: null });
+    expect(cleared.body.durationMin).toBeNull();
+    expect(
+      (await h.as('coord').post('/local-needs', { title: 'X', durationMin: 0 }))
+        .status,
+    ).toBe(400);
+    expect(
+      (
+        await h
+          .as('coord')
+          .post('/local-needs', { title: 'X', durationMin: 90 })
+      ).status,
+    ).toBe(400);
   });
 });
