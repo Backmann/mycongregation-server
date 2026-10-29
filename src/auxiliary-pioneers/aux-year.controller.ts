@@ -52,6 +52,36 @@ export class AuxYearController {
     return this.service.year(congregationId, year);
   }
 
+  /** ?from=YYYY-MM&to=YYYY-MM — at most twelve months, for the printed history. */
+  @Get('range')
+  async range(
+    @TenantId() congregationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    await this.aux.assertCanManage(congregationId, user);
+    const ym = /^\d{4}-(0[1-9]|1[0-2])$/;
+    const span = (a: string, b: string) => {
+      const [ya, ma] = a.split('-').map(Number);
+      const [yb, mb] = b.split('-').map(Number);
+      return (yb - ya) * 12 + (mb - ma);
+    };
+    if (!ym.test(from ?? '') || !ym.test(to ?? '') || span(from!, to!) < 0) {
+      throw new BadRequestException(
+        refusal('INVALID_FIELD', 'from and to are months, YYYY-MM, in order.', {
+          fields: [{ field: 'month', rules: ['isISO8601'] }],
+        }),
+      );
+    }
+    if (span(from!, to!) > 11) {
+      throw new BadRequestException(
+        refusal('AUX_RANGE_TOO_LONG', 'At most twelve months at a time.'),
+      );
+    }
+    return this.service.range(congregationId, from!, to!);
+  }
+
   /** One publisher's years of auxiliary service — for his card. */
   @Get('publisher/:publisherId')
   card(

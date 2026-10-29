@@ -166,7 +166,24 @@ export class AuxYearService {
     );
   }
 
-  async year(congregationId: string, asked?: number): Promise<AuxYearView> {
+  /**
+   * «С месяца по месяц» for the printed history (29 October 2026): the same
+   * reading as a service year, over any run of at most twelve months.
+   */
+  async range(
+    congregationId: string,
+    from: string,
+    to: string,
+  ): Promise<AuxYearView> {
+    const months = monthsInRange(`${from}-01`, `${to}-01`);
+    return this.year(congregationId, serviceYearOf(from), months);
+  }
+
+  async year(
+    congregationId: string,
+    asked?: number,
+    span?: string[],
+  ): Promise<AuxYearView> {
     const current = monthKeyOf(await this.clock.todayFor(congregationId));
     const thisYear = serviceYearOf(current);
     const all = await this.periods.find({ where: { congregationId } });
@@ -186,10 +203,13 @@ export class AuxYearService {
     const last = plannedNext ? thisYear + 1 : thisYear;
     const years: number[] = [];
     for (let y = last; y >= first; y--) years.push(y);
-    const year =
-      asked !== undefined && asked >= first && asked <= last ? asked : thisYear;
+    const year = span
+      ? (asked ?? thisYear)
+      : asked !== undefined && asked >= first && asked <= last
+        ? asked
+        : thisYear;
 
-    const months = yearMonths(year);
+    const months = span ?? yearMonths(year);
     const from = months[0];
     const to = months[months.length - 1];
     const inYear = all.filter((p) => months.some((m) => this.active(p, m)));

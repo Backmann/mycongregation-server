@@ -62,6 +62,8 @@ export interface ApplicationView {
   id: string;
   publisherId: string;
   publisherName: string;
+  /** For the form's words — «спланировал» or «спланировала» — on the S-205b print. */
+  publisherGender: string | null;
   groupName: string | null;
   months: string[];
   untilCancelled: boolean;
@@ -1215,6 +1217,7 @@ export class AuxApplicationsService {
       id: app.id,
       publisherId: app.publisherId,
       publisherName: card?.displayName ?? '—',
+      publisherGender: card?.gender ?? null,
       groupName:
         (card as unknown as { serviceGroup?: { name?: string } } | null)
           ?.serviceGroup?.name ?? null,
