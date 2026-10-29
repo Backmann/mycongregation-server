@@ -22,6 +22,7 @@ import {
   AuxApplicationDto,
   AuxApproveDto,
   AuxPaperDto,
+  AuxStopMineDto,
 } from './dto/aux-application.dto';
 import { COMMITTEE_SEATS } from '../entities/aux-pioneer-application.entity';
 import type { CommitteeSeat } from '../entities/aux-pioneer-application.entity';
@@ -59,6 +60,16 @@ export class AuxApplicationsController {
   @Get()
   list(@TenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser) {
     return this.service.list(tenantId, user);
+  }
+
+  /** He ends his own «until cancelled» himself (Lionel, 29 October 2026). */
+  @Post('stop-mine')
+  stopMine(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: AuxStopMineDto,
+  ) {
+    return this.service.stopOwn(tenantId, user, dto.endMonth);
   }
 
   /** A publisher's approved applications — for his card; elders and admins. */

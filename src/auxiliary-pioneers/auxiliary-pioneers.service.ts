@@ -989,6 +989,74 @@ export class AuxiliaryPioneersService {
     return saved;
   }
 
+  /**
+   * HE STOPS HIS OWN «UNTIL CANCELLED» (Lionel, 29 October 2026): a
+   * publisher may end it himself, with no one to approve — the committee is
+   * told. The last month is the previous one at the earliest (stopping on the
+   * 1st for the month just ended), never a closed one, never before the
+   * period began; at most a year ahead.
+   */
+  async stopOwn(
+    congregationId: string,
+    user: AuthenticatedUser,
+    endMonthIso: string,
+  ): Promise<{ period: AuxiliaryPioneer; publisherId: string }> {
+    const card = await this.publisherRepo.findOne({
+      where: { congregationId, userId: user.id },
+      select: ['id'],
+    });
+    const row = card
+      ? await this.repo.findOne({
+          where: { congregationId, publisherId: card.id, untilCancelled: true },
+        })
+      : null;
+    if (!card || !row) {
+      throw new NotFoundException(
+        refusal('AUX_STOP_NONE', 'You have no «until cancelled» period.'),
+      );
+    }
+    const current = await this.currentMonthKey(congregationId);
+    const end = monthKeyOf(endMonthIso);
+    if (
+      end < addMonthsKey(current, -1) ||
+      end > addMonthsKey(current, 12) ||
+      end < row.startMonth.slice(0, 7)
+    ) {
+      throw new BadRequestException(
+        refusal('AUX_STOP_MONTH', 'That month cannot be the last one.', {
+          month: end,
+        }),
+      );
+    }
+    const before = { endMonth: row.endMonth, untilCancelled: true };
+    const after = spanOf({
+      ...row,
+      endMonth: `${end}-01`,
+      untilCancelled: false,
+    });
+    await this.assertPeriodAllowed(
+      congregationId,
+      user,
+      row.publisherId,
+      after,
+      AuxiliaryPioneersService.changedMonths(spanOf(row), after, current),
+      row.id,
+    );
+    row.endMonth = `${end}-01`;
+    row.untilCancelled = false;
+    const saved = await this.repo.save(row);
+    await this.auditLog.logUpdate({
+      tenantId: congregationId,
+      entityType: 'auxiliary_pioneer',
+      entityId: saved.id,
+      subjectId: saved.publisherId,
+      before,
+      after: { endMonth: saved.endMonth, untilCancelled: false },
+      fields: ['endMonth', 'untilCancelled'],
+    });
+    return { period: saved, publisherId: card.id };
+  }
+
   async remove(
     congregationId: string,
     user: AuthenticatedUser,

@@ -48,6 +48,10 @@ export const NOTIFICATION_TYPES = [
   // an elder in an open place; and its approval, for the applicant.
   'aux_application',
   'aux_application_approved',
+  // A publisher ended his own «until cancelled» — for the committee.
+  'aux_stopped',
+  // A month became auxiliary after his report came in without hours.
+  'aux_report_hours',
   'test',
 ] as const;
 

@@ -87,3 +87,9 @@ export class AuxApproveDto {
   @IsIn(COMMITTEE_SEATS)
   seat?: (typeof COMMITTEE_SEATS)[number];
 }
+
+/** The last month of his own «until cancelled», YYYY-MM or YYYY-MM-DD. */
+export class AuxStopMineDto {
+  @Matches(/^\d{4}-\d{2}(-\d{2})?$/)
+  endMonth!: string;
+}
