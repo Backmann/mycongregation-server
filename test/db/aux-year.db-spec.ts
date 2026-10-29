@@ -250,4 +250,42 @@ describe('auxiliary service by years (real database)', () => {
       .get(`/auxiliary-pioneers/publisher/${cards.anna}`);
     expect(card.body.pending).toBeNull();
   });
+
+  it('a printed range: any run of up to twelve months, in order', async () => {
+    const from = add(now, -2);
+    const to = add(now, 1);
+    const r = await h
+      .as('secr')
+      .get(`/auxiliary-pioneers/range?from=${from}&to=${to}`);
+    expect(r.status).toBe(200);
+    expect(r.body.months).toEqual([from, add(now, -1), now, to]);
+    const anna = r.body.rows.find(
+      (x: { publisherId: string }) => x.publisherId === cards.anna,
+    );
+    expect(anna.cells.map((c: { month: string }) => c.month)).toEqual([
+      now,
+      to,
+    ]);
+    expect(
+      (
+        await h
+          .as('secr')
+          .get(`/auxiliary-pioneers/range?from=${from}&to=${add(from, 12)}`)
+      ).body.code,
+    ).toBe('AUX_RANGE_TOO_LONG');
+    expect(
+      (
+        await h
+          .as('secr')
+          .get(`/auxiliary-pioneers/range?from=${to}&to=${from}`)
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await h
+          .as('anna')
+          .get(`/auxiliary-pioneers/range?from=${from}&to=${to}`)
+      ).status,
+    ).toBe(403);
+  });
 });

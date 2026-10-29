@@ -155,6 +155,7 @@ export const REFUSAL_CODES = [
   'AUX_APP_SIGNERS',
   'AUX_STOP_NONE',
   'AUX_STOP_MONTH',
+  'AUX_RANGE_TOO_LONG',
   'SCHOOL_FOR_ELDERS',
   'SCHOOL_ONLY_OWN_ROLE',
   // ---- absences, annual report, assignments, the journal ----
