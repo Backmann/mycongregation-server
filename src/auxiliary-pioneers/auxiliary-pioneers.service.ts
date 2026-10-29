@@ -400,7 +400,10 @@ export class AuxiliaryPioneersService {
             }),
           );
         }
-        if (reducedReasons(m, events).length === 0) {
+        // A choice the period already holds stays, even where 15 is no
+        // longer open (the visit moved away): it was allowed when made.
+        const kept = previous?.reducedMonths?.includes(m) ?? false;
+        if (!kept && reducedReasons(m, events).length === 0) {
           throw new BadRequestException(
             refusal(
               'AUX_NORM_NOT_ALLOWED',

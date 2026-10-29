@@ -93,6 +93,38 @@ describe('the goal of an auxiliary month (real database)', () => {
     expect(sept.body.code).toBe('AUX_NORM_NOT_ALLOWED');
   });
 
+  it('a 15 already chosen stays when its campaign is gone', async () => {
+    const ev = await h.as('admin').post('/special-events', {
+      title: 'Кампания',
+      type: 'campaign',
+      date: '2032-06-01',
+      endDate: '2032-06-30',
+      auxReducedHours: true,
+    });
+    const r = await h.as('admin').post('/auxiliary-pioneers', {
+      publisherId: sister,
+      startMonth: '2032-06-01',
+      endMonth: '2032-07-01',
+      reducedMonths: ['2032-06'],
+    });
+    expect(r.status).toBe(201);
+    expect(
+      (await h.as('admin').delete(`/special-events/${ev.body.id}`)).status,
+    ).toBe(204);
+    const again = await h
+      .as('admin')
+      .patch(`/auxiliary-pioneers/${r.body.id}`, {
+        reducedMonths: ['2032-06'],
+        endMonth: '2032-08-01',
+      });
+    expect(again.status).toBe(200);
+    const [row] = await h.sql<{ reduced_months: string[] }>(
+      `SELECT reduced_months FROM auxiliary_pioneers WHERE id = $1`,
+      [r.body.id],
+    );
+    expect(row.reduced_months).toEqual(['2032-06']);
+  });
+
   it('only a campaign keeps the mark', async () => {
     const r = await h.as('admin').post('/special-events', {
       title: 'Конгресс',
