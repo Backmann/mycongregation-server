@@ -37,6 +37,16 @@ export class Congregation {
   })
   timezone!: string | null;
 
+  /**
+   * The first month («YYYY-MM») of the pioneers' own hours log here; null —
+   * the log is not on. Months before it are left alone entirely: a report
+   * for them is handed in as it always was (Lionel, 29 October 2026 — so
+   * that October's reports, collected in November, are not muddled with a
+   * log that only began at their end).
+   */
+  @Column({ type: 'varchar', length: 7, nullable: true })
+  hoursLogFrom!: string | null;
+
   @Column({
     type: 'boolean',
     default: false,

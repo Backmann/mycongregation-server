@@ -19,6 +19,7 @@ import { AuxiliaryPioneer } from '../entities/auxiliary-pioneer.entity';
 import { AuxPioneerApplication } from '../entities/aux-pioneer-application.entity';
 import { ServiceReport } from '../entities/service-report.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
+import { Congregation } from '../entities/congregation.entity';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { pioneerTypeInMonth } from '../common/pioneer-status';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
@@ -130,6 +131,8 @@ export class ServiceLogService {
     private readonly reports: Repository<ServiceReport>,
     @InjectRepository(ReportMonthClosure)
     private readonly closures: Repository<ReportMonthClosure>,
+    @InjectRepository(Congregation)
+    private readonly congregations: Repository<Congregation>,
     private readonly clock: CongregationClock,
   ) {}
 
@@ -147,6 +150,15 @@ export class ServiceLogService {
     publisherId: string,
     month: string,
   ): Promise<{ role: ServiceLogRole | null; goal: number | null }> {
+    // Before the month the log began in here — or with the log off — the
+    // month is nobody's to log: its report goes in as it always did.
+    const cong = await this.congregations.findOne({
+      where: { id: congregationId },
+      select: ['id', 'hoursLogFrom'],
+    });
+    if (!cong?.hoursLogFrom || month < cong.hoursLogFrom) {
+      return { role: null, goal: null };
+    }
     const spells = await this.spells.find({
       where: { congregationId, publisherId },
     });
@@ -249,6 +261,9 @@ export class ServiceLogService {
     const card = await this.cardOf(congregationId, user);
     if (!card) return empty;
     const { role, goal } = await this.roleIn(congregationId, card.id, month);
+    // A month that is not his to log shows nothing — not even entries left
+    // from before the log began.
+    if (role === null) return empty;
     const rows = await this.entries.find({
       where: {
         congregationId,

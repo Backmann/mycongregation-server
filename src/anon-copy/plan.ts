@@ -152,7 +152,7 @@ export const PLAN: Record<string, TablePlan> = {
   ),
   congregations: table(
     copy(`id country language timezone created_at updated_at deleted_at
-      assignment_automation_enabled`),
+      assignment_automation_enabled hours_log_from`),
     { name: 'label:Копия собрания' },
   ),
   responsibilities: copy(

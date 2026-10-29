@@ -50,6 +50,11 @@ describe('the personal hours log (real database)', () => {
     [{ congregation_id: tenantId }] = await h.sql<{ congregation_id: string }>(
       `SELECT congregation_id FROM users LIMIT 1`,
     );
+    // The log begins in a month of the congregation's choosing; here long ago.
+    await h.sql(
+      `UPDATE congregations SET hours_log_from = '2020-01' WHERE id = $1`,
+      [tenantId],
+    );
     today = await h.app.get(CongregationClock).todayFor(tenantId);
     now = today.slice(0, 7);
     await person('pio', 'Пётр', 'publisher', 'regular');
@@ -216,5 +221,29 @@ describe('the personal hours log (real database)', () => {
       (await h.sql(`SELECT 1 FROM service_log_entries WHERE id = $1`, [first]))
         .length,
     ).toBe(1);
+  });
+
+  it('nothing before the month the log began in, nor with the log off', async () => {
+    await h.sql(`UPDATE congregations SET hours_log_from = $2 WHERE id = $1`, [
+      tenantId,
+      `${Number(now.slice(0, 4)) + 1}-01`,
+    ]);
+    expect((await month('pio')).body).toMatchObject({
+      role: null,
+      open: false,
+    });
+    expect((await h.as('pio').get('/service-log')).body.months).toEqual([]);
+    expect(
+      (await put('pio', randomUUID(), { day: today, minutes: 30 })).body.code,
+    ).toBe('SERVICE_LOG_NOT_YOURS');
+    await h.sql(
+      `UPDATE congregations SET hours_log_from = NULL WHERE id = $1`,
+      [tenantId],
+    );
+    expect((await month('pio')).body.role).toBeNull();
+    await h.sql(
+      `UPDATE congregations SET hours_log_from = '2020-01' WHERE id = $1`,
+      [tenantId],
+    );
   });
 });
