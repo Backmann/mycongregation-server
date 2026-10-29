@@ -611,8 +611,35 @@ export class AuxApplicationsService {
         .filter((s) => s.seat !== seat && !s.openReason && !s.approvedBy)
         .flatMap((s) => holders[s.seat]),
     );
+    // A brother who passed his place on, or is away, does not answer in it.
+    const own = seats.find((s) => s.seat === seat);
+    const stepsAside = new Set(
+      own && (own.openReason === 'passed' || own.openReason === 'absent')
+        ? [...holders[seat], ...(own.openedBy ? [own.openedBy] : [])]
+        : [],
+    );
     return [...elders.keys()].filter(
-      (u) => u !== applicantUser && !answeredBy.has(u) && !holdingOther.has(u),
+      (u) =>
+        u !== applicantUser &&
+        !answeredBy.has(u) &&
+        !holdingOther.has(u) &&
+        !stepsAside.has(u),
+    );
+  }
+
+  /**
+   * His own place to answer: held by him and not yet answered — also when it
+   * was opened because he is away, for he may still answer from afar.
+   */
+  private isHisToAnswer(
+    s: AuxPioneerApplicationSeat,
+    holders: Record<CommitteeSeat, string[]>,
+    userId: string,
+  ): boolean {
+    return (
+      !s.approvedBy &&
+      holders[s.seat].includes(userId) &&
+      (!this.isOpen(s, holders) || s.openReason === 'absent')
     );
   }
 
@@ -646,9 +673,7 @@ export class AuxApplicationsService {
       );
     }
     // His own place first, then the open one he chose.
-    const mine = seats.find(
-      (s) => !s.approvedBy && !this.isOpen(s, h) && h[s.seat].includes(user.id),
-    );
+    const mine = seats.find((s) => this.isHisToAnswer(s, h, user.id));
     let target = mine;
     if (!target) {
       const open = seats.filter((s) => !s.approvedBy && this.isOpen(s, h));
@@ -716,9 +741,7 @@ export class AuxApplicationsService {
     const app = await this.pendingOf(congregationId, id);
     const seats = await this.seats.find({ where: { applicationId: app.id } });
     const h = await this.holders(congregationId);
-    const mine = seats.find(
-      (s) => !s.approvedBy && !this.isOpen(s, h) && h[s.seat].includes(user.id),
-    );
+    const mine = seats.find((s) => this.isHisToAnswer(s, h, user.id));
     if (!mine) {
       throw new ForbiddenException(
         refusal(
@@ -1111,9 +1134,7 @@ export class AuxApplicationsService {
     const ordered = COMMITTEE_SEATS.map(
       (s) => seats.find((x) => x.seat === s)!,
     ).filter(Boolean);
-    const mine = ordered.find(
-      (s) => !s.approvedBy && !this.isOpen(s, h) && h[s.seat].includes(user.id),
-    );
+    const mine = ordered.find((s) => this.isHisToAnswer(s, h, user.id));
     const openForMe =
       pending && !answeredByMe && user.id !== applicantUser
         ? ordered

@@ -277,4 +277,35 @@ describe('applications to serve as an auxiliary pioneer (real database)', () => 
       unfillable: true,
     });
   });
+  it('a place passed on, with nobody else to take it: two answers are enough', async () => {
+    cards.bro = await h.addPublisher({
+      firstName: 'Марк',
+      lastName: 'Тест',
+      gender: 'brother',
+      appointment: 'publisher',
+      baptismDate: '2012-01-01',
+    });
+    users.bro = await h.addUser({
+      login: 'bro',
+      role: 'publisher',
+      publisherId: cards.bro,
+    });
+    const r = await apply('bro', ['2032-01']);
+    expect([r.status, r.body.code]).toEqual([201, undefined]);
+    await h.as('coord').post(`/aux-applications/${r.body.id}/approve`, {});
+    await h.as('secr').post(`/aux-applications/${r.body.id}/pass`);
+    // Having passed it on, he does not answer in it after all.
+    expect(
+      (await h.as('secr').post(`/aux-applications/${r.body.id}/approve`, {}))
+        .body.code,
+    ).toBe('AUX_APP_NO_SEAT');
+    const done = await h
+      .as('over')
+      .post(`/aux-applications/${r.body.id}/approve`, {});
+    expect(done.body.status).toBe('approved');
+    expect(done.body.seats[1]).toMatchObject({
+      seat: 'secretary',
+      unfillable: true,
+    });
+  });
 });
