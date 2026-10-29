@@ -1,3 +1,4 @@
+import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneers.module';
 import { Module } from '@nestjs/common';
 import { AnnualReportModule } from '../annual-report/annual-report.module';
 import { ServiceReportsModule } from '../service-reports/service-reports.module';
@@ -42,6 +43,7 @@ import { PioneerSchoolModule } from '../pioneer-school/pioneer-school.module';
     AssignmentsModule,
     TalkExchangeModule,
     LocalNeedsModule,
+    AuxiliaryPioneersModule,
   ],
   controllers: [AdminController],
   providers: [ScheduledJobsService],

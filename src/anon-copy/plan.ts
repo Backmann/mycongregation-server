@@ -365,6 +365,16 @@ export const PLAN: Record<string, TablePlan> = {
       created_by created_at updated_at`),
     remove('note'),
   ),
+  aux_pioneer_applications: table(
+    copy(`id congregation_id publisher_id months until_cancelled
+      reduced_months status source created_by paper_date approved_at
+      period_ids created_at updated_at`),
+  ),
+  aux_pioneer_application_seats: table(
+    copy(`id congregation_id application_id seat open_reason opened_at
+      opened_by approved_by approved_at reminded_at`),
+    { approver_name: 'full' },
+  ),
   auxiliary_pioneers: table(
     copy(`id congregation_id publisher_id start_month end_month
       until_cancelled created_by created_at updated_at reduced_months`),

@@ -272,6 +272,121 @@ export class AuxiliaryPioneersService {
     }
   }
 
+  /**
+   * Whether these months could be served — no other period in them, no
+   * permanent pioneering. Refuses the first that cannot, by its name. For an
+   * application, before it is sent (aux-applications.service.ts).
+   */
+  async assertMonthsServable(
+    congregationId: string,
+    publisherId: string,
+    months: string[],
+    untilCancelled: boolean,
+  ): Promise<void> {
+    const sorted = [...months].sort();
+    if (sorted.length === 0) return;
+    if (untilCancelled) {
+      await this.assertPeriodAllowed(
+        congregationId,
+        null,
+        publisherId,
+        { start: sorted[0], end: OPEN_END },
+        [],
+        null,
+      );
+      return;
+    }
+    for (const m of sorted) {
+      await this.assertPeriodAllowed(
+        congregationId,
+        null,
+        publisherId,
+        { start: m, end: m },
+        [],
+        null,
+      );
+    }
+  }
+
+  /** Months among these that are closed report months. */
+  async closedAmong(
+    congregationId: string,
+    months: string[],
+  ): Promise<Set<string>> {
+    if (months.length === 0) return new Set();
+    const rows = await this.closuresRepo.find({
+      where: {
+        congregationId,
+        reportMonth: In([...new Set(months)].map((m) => `${m}-01`)),
+      },
+    });
+    return new Set(rows.map((r) => String(r.reportMonth).slice(0, 7)));
+  }
+
+  /** Whether a month allows 15 hours — for an application's choice. */
+  async allowsReduced(congregationId: string, month: string): Promise<boolean> {
+    return (
+      reducedReasons(month, await this.reducedHourEvents(congregationId))
+        .length > 0
+    );
+  }
+
+  /**
+   * A period made by an approved application — by the committee's decision,
+   * not by one brother's right to keep the list, so no manager is asked for.
+   * The rules of a period still hold; the closed months were left out before.
+   */
+  async createFromApplication(
+    congregationId: string,
+    actorUserId: string | null,
+    publisherId: string,
+    run: { start: string; end: string | null; untilCancelled: boolean },
+    reducedMonths: string[],
+  ): Promise<AuxiliaryPioneer> {
+    const startMonth = `${run.start}-01`;
+    const endMonth = run.untilCancelled || !run.end ? null : `${run.end}-01`;
+    const span = spanOf({
+      startMonth,
+      endMonth,
+      untilCancelled: run.untilCancelled,
+    });
+    await this.assertPeriodAllowed(
+      congregationId,
+      null,
+      publisherId,
+      span,
+      [],
+      null,
+    );
+    const row = this.repo.create({
+      congregationId,
+      publisherId,
+      startMonth,
+      endMonth,
+      untilCancelled: run.untilCancelled,
+      reducedMonths: reducedMonths.filter(
+        (m) => m >= span.start && m <= span.end,
+      ),
+      note: null,
+      createdBy: actorUserId,
+    });
+    const saved = await this.repo.save(row);
+    await this.auditLog.logCreate({
+      tenantId: congregationId,
+      entityType: 'auxiliary_pioneer',
+      entityId: saved.id,
+      actorUserId,
+      subjectId: saved.publisherId,
+      after: {
+        startMonth: saved.startMonth,
+        endMonth: saved.endMonth,
+        untilCancelled: saved.untilCancelled,
+        reducedMonths: saved.reducedMonths,
+      },
+    });
+    return saved;
+  }
+
   /** Admins and the secretary — the two who may change a closed month. */
   private async mayChangeClosed(
     congregationId: string,

@@ -1,3 +1,4 @@
+import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneers.module';
 import { Module } from '@nestjs/common';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
@@ -25,6 +26,7 @@ import { MePendingService } from './me-pending.service';
 @Module({
   imports: [
     TasksModule,
+    AuxiliaryPioneersModule,
     CongregationClockModule,
     NotificationsModule,
     AuditLogModule,

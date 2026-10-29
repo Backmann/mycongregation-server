@@ -1,3 +1,4 @@
+jest.mock('expo-server-sdk', () => ({ Expo: class {} }));
 import { MePendingService } from './me-pending.service';
 
 // Tasks reach expo-server-sdk through their reminders; it is ESM-only and Jest
@@ -42,6 +43,7 @@ function build(opts: {
     publishersRepo as never,
     tasks as never,
     clock as never,
+    { waitingFor: () => Promise.resolve([]) } as never,
   );
 }
 
