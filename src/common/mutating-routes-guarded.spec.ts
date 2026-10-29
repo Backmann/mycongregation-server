@@ -28,6 +28,7 @@ const CHECKED_IN_SERVICE: Record<string, string> = {
   me: 'the caller\u2019s own data',
   'pioneer-school': 'service: admin',
   'push-tokens': 'the caller\u2019s own device',
+  'service-log': 'the caller\u2019s own hours log, nobody else\u2019s',
   'service-reports': 'service: own report, group overseer, secretary',
   'talk-exchange': 'service: talk coordinators',
   tasks: 'service: elders, addressees',

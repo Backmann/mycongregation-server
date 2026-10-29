@@ -152,7 +152,7 @@ export const PLAN: Record<string, TablePlan> = {
   ),
   congregations: table(
     copy(`id country language timezone created_at updated_at deleted_at
-      assignment_automation_enabled`),
+      assignment_automation_enabled hours_log_from`),
     { name: 'label:Копия собрания' },
   ),
   responsibilities: copy(
@@ -359,6 +359,13 @@ export const PLAN: Record<string, TablePlan> = {
       submitted_on_behalf_of created_at updated_at deleted_at last_edited_at
       last_edited_by_id`),
     remove('notes'),
+  ),
+  // A pioneer's own hours log: the minutes stay (they are what the report
+  // sums), his note goes.
+  service_log_entries: table(
+    copy(`id congregation_id publisher_id user_id day minutes kind
+      created_at updated_at`),
+    remove('note'),
   ),
   pioneer_spells: table(
     copy(`id congregation_id publisher_id pioneer_type start_month end_month
