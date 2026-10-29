@@ -723,7 +723,7 @@ export class ServiceReportsService {
   ): Promise<void> {
     if (!spellId) return;
     try {
-      await this.auxiliaryPioneersService.remove(tenantId, user, spellId);
+      await this.auxiliaryPioneersService.undoJustCreated(tenantId, spellId);
     } catch (err) {
       this.logger.error(
         `auxiliary-pioneer month ${spellId} was written for a report that was ` +

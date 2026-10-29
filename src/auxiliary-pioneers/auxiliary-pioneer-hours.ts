@@ -44,8 +44,11 @@ export function monthsInRange(
   const out: MonthKey[] = [];
   let y = sy;
   let m = sm;
-  // Guard against malformed ranges producing an unbounded loop.
-  for (let i = 0; i < 24; i++) {
+  // Guard against malformed ranges producing an unbounded loop — and only
+  // that. It stood at 24 until 29 October 2026, which quietly cut every
+  // longer range short: a sister serving «until cancelled» for thirty months
+  // lost her first six from the history and the S-21. A hundred years.
+  for (let i = 0; i < 1200; i++) {
     out.push(`${y}-${String(m).padStart(2, '0')}`);
     if (y === ey && m === em) break;
     m += 1;

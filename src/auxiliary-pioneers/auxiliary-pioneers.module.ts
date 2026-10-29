@@ -7,6 +7,8 @@ import { AuxiliaryPioneer } from '../entities/auxiliary-pioneer.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
+import { ReportMonthClosure } from '../entities/report-month-closure.entity';
+import { PioneerSpell } from '../entities/pioneer-spell.entity';
 import { CongregationClockModule } from '../common/congregation-clock.module';
 
 @Module({
@@ -17,6 +19,8 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
       Publisher,
       Responsibility,
       SpecialEvent,
+      ReportMonthClosure,
+      PioneerSpell,
     ]),
     AuditLogModule,
   ],

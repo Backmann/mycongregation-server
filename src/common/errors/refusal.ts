@@ -133,6 +133,10 @@ export const REFUSAL_CODES = [
   'PUBLISHER_CARD_CLOSED',
   // ---- auxiliary pioneers, the pioneer school ----
   'AUX_PIONEERS_FORBIDDEN',
+  'AUX_OVERLAP',
+  'AUX_PERMANENT_PIONEER',
+  'AUX_MONTH_CLOSED',
+  'AUX_REMOVE_STARTED',
   'SCHOOL_FOR_ELDERS',
   'SCHOOL_ONLY_OWN_ROLE',
   // ---- absences, annual report, assignments, the journal ----

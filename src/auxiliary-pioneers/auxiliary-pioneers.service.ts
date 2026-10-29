@@ -28,6 +28,43 @@ import {
 } from './auxiliary-pioneer-hours';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { refusal } from '../common/errors/refusal';
+import { ReportMonthClosure } from '../entities/report-month-closure.entity';
+import { PioneerSpell } from '../entities/pioneer-spell.entity';
+import { pioneerTypeInMonth } from '../common/pioneer-status';
+
+/** «Until cancelled» has no last month; this one stands for it in comparisons. */
+const OPEN_END = '9999-12';
+
+/** A period as months: its first, and its last (OPEN_END when open). */
+interface MonthSpan {
+  start: string; // YYYY-MM
+  end: string; // YYYY-MM or OPEN_END
+}
+
+function spanOf(p: {
+  startMonth: string;
+  endMonth: string | null;
+  untilCancelled: boolean;
+}): MonthSpan {
+  return {
+    start: p.startMonth.slice(0, 7),
+    end: p.untilCancelled || !p.endMonth ? OPEN_END : p.endMonth.slice(0, 7),
+  };
+}
+
+/** The months a span covers, an open one taken up to `horizon`. */
+function monthsOfSpan(span: MonthSpan, horizon: string): string[] {
+  const end = span.end === OPEN_END ? horizon : span.end;
+  if (end < span.start) return [];
+  return monthsInRange(`${span.start}-01`, `${end}-01`);
+}
+
+/** «2026-10» plus n months. */
+function addMonthsKey(key: string, n: number): string {
+  const [y, m] = key.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + n, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
 
 /** The roles/responsibilities that may manage auxiliary pioneers. */
 const MANAGER_RESPONSIBILITIES = [
@@ -107,7 +144,155 @@ export class AuxiliaryPioneersService {
     private readonly eventRepo: Repository<SpecialEvent>,
     private readonly auditLog: AuditLogService,
     private readonly clock: CongregationClock,
+    @InjectRepository(ReportMonthClosure)
+    private readonly closuresRepo: Repository<ReportMonthClosure>,
+    @InjectRepository(PioneerSpell)
+    private readonly spellsRepo: Repository<PioneerSpell>,
   ) {}
+
+  /** The congregation's current month, «YYYY-MM». */
+  private async currentMonthKey(congregationId: string): Promise<string> {
+    return monthKeyOf(await this.clock.todayFor(congregationId));
+  }
+
+  /**
+   * THE RULES OF A PERIOD (29 October 2026). Every way a period is written —
+   * this screen, the month ticked while filling a card, and soon the
+   * application — comes through here, so the rules cannot part company.
+   *
+   *   • one person, one period a month: two rows for the same October made
+   *     him an auxiliary pioneer twice in the working list;
+   *   • a regular, special or missionary pioneer is not also an auxiliary
+   *     one — asked of the spells, month by month, so a sister who pioneered
+   *     years ago may serve as an auxiliary pioneer now;
+   *   • a CLOSED month stays as it was sent to the branch: the monthly
+   *     figures count auxiliary pioneers by these rows, so changing one moved
+   *     a sent figure without a word. As with reports, only an administrator
+   *     or the secretary may change it.
+   *
+   * `changed` are the months whose membership the write changes — not the
+   * whole period: moving the end of an open period does not touch a closed
+   * September in it.
+   */
+  private async assertPeriodAllowed(
+    congregationId: string,
+    user: AuthenticatedUser | null,
+    publisherId: string,
+    span: MonthSpan,
+    changed: string[],
+    excludeId: string | null,
+  ): Promise<void> {
+    const others = await this.repo.find({
+      where: { congregationId, publisherId },
+    });
+    for (const o of others) {
+      if (o.id === excludeId) continue;
+      const os = spanOf(o);
+      if (os.start <= span.end && span.start <= os.end) {
+        const first = os.start > span.start ? os.start : span.start;
+        throw new BadRequestException(
+          refusal(
+            'AUX_OVERLAP',
+            'This publisher already serves as an auxiliary pioneer in one of these months.',
+            { month: first },
+          ),
+        );
+      }
+    }
+
+    const spells = await this.spellsRepo.find({
+      where: { congregationId, publisherId },
+    });
+    if (spells.length > 0) {
+      // An open period is asked up to a year ahead: a regular appointment
+      // later than that closes the auxiliary period when it is entered.
+      const horizon = addMonthsKey(
+        await this.currentMonthKey(congregationId),
+        12,
+      );
+      for (const m of monthsOfSpan(
+        span,
+        horizon > span.start ? horizon : span.start,
+      )) {
+        if (pioneerTypeInMonth(spells, `${m}-01`) !== PioneerType.NONE) {
+          throw new BadRequestException(
+            refusal(
+              'AUX_PERMANENT_PIONEER',
+              'This publisher is a permanent pioneer in that month.',
+              { month: m },
+            ),
+          );
+        }
+      }
+    }
+
+    await this.assertMonthsOpen(congregationId, user, changed);
+  }
+
+  /**
+   * None of `changed` is a closed month — unless `user` may change one.
+   * `user` null: nobody may (a deletion is not let across a closed month).
+   */
+  private async assertMonthsOpen(
+    congregationId: string,
+    user: AuthenticatedUser | null,
+    changed: string[],
+  ): Promise<void> {
+    if (
+      changed.length > 0 &&
+      !(user && (await this.mayChangeClosed(congregationId, user)))
+    ) {
+      const closed = await this.closuresRepo.find({
+        where: {
+          congregationId,
+          reportMonth: In([...new Set(changed)].map((m) => `${m}-01`)),
+        },
+      });
+      if (closed.length > 0) {
+        const month = closed
+          .map((c) => String(c.reportMonth).slice(0, 7))
+          .sort()[0];
+        throw new ForbiddenException(
+          refusal(
+            'AUX_MONTH_CLOSED',
+            'That month is closed. Ask the secretary to change it.',
+            { month },
+          ),
+        );
+      }
+    }
+  }
+
+  /** Admins and the secretary — the two who may change a closed month. */
+  private async mayChangeClosed(
+    congregationId: string,
+    user: AuthenticatedUser,
+  ): Promise<boolean> {
+    if (user.role === UserRole.ADMIN) return true;
+    return (
+      (await this.responsibilityRepo.count({
+        where: {
+          congregationId,
+          userId: user.id,
+          type: ResponsibilityType.SECRETARY,
+        },
+      })) > 0
+    );
+  }
+
+  /** Months in one list and not the other, both taken up to `horizon`. */
+  private static changedMonths(
+    before: MonthSpan | null,
+    after: MonthSpan | null,
+    horizon: string,
+  ): string[] {
+    const a = new Set(before ? monthsOfSpan(before, horizon) : []);
+    const b = new Set(after ? monthsOfSpan(after, horizon) : []);
+    return [
+      ...[...a].filter((m) => !b.has(m)),
+      ...[...b].filter((m) => !a.has(m)),
+    ];
+  }
 
   /**
    * Managers: admins, body coordinator, secretary, service overseer — as a
@@ -285,7 +470,7 @@ export class AuxiliaryPioneersService {
   /** Full history — who serves now and who served before. */
   async journal(congregationId: string): Promise<AuxPioneerJournalRow[]> {
     const all = await this.repo.find({ where: { congregationId } });
-    const nowKey = monthKeyOf(new Date());
+    const nowKey = await this.currentMonthKey(congregationId);
     const names = await this.namesByIds(
       congregationId,
       all.map((p) => p.publisherId),
@@ -378,6 +563,17 @@ export class AuxiliaryPioneersService {
         refusal('END_BEFORE_START', 'End month cannot precede start month.'),
       );
     }
+    // A regular pioneer's card says so today; the spells say it per month.
+    const span = spanOf({ startMonth, endMonth, untilCancelled });
+    const horizon = await this.currentMonthKey(congregationId);
+    await this.assertPeriodAllowed(
+      congregationId,
+      user,
+      dto.publisherId,
+      span,
+      AuxiliaryPioneersService.changedMonths(null, span, horizon),
+      null,
+    );
     const row = this.repo.create({
       congregationId,
       publisherId: dto.publisherId,
@@ -437,6 +633,18 @@ export class AuxiliaryPioneersService {
         refusal('END_BEFORE_START', 'End month cannot precede start month.'),
       );
     }
+    {
+      const horizon = await this.currentMonthKey(congregationId);
+      const after = spanOf(row);
+      await this.assertPeriodAllowed(
+        congregationId,
+        user,
+        row.publisherId,
+        after,
+        AuxiliaryPioneersService.changedMonths(spanOf(before), after, horizon),
+        row.id,
+      );
+    }
     const saved = await this.repo.save(row);
     await this.auditLog.logUpdate({
       tenantId: congregationId,
@@ -478,6 +686,19 @@ export class AuxiliaryPioneersService {
       endMonth: row.endMonth,
       untilCancelled: row.untilCancelled,
     };
+    {
+      // Stopping in the past takes months away; a closed one stays.
+      const horizon = await this.currentMonthKey(congregationId);
+      const after = spanOf({ ...row, endMonth, untilCancelled: false });
+      await this.assertPeriodAllowed(
+        congregationId,
+        user,
+        row.publisherId,
+        after,
+        AuxiliaryPioneersService.changedMonths(spanOf(row), after, horizon),
+        row.id,
+      );
+    }
     row.endMonth = endMonth;
     row.untilCancelled = false;
     const saved = await this.repo.save(row);
@@ -501,6 +722,45 @@ export class AuxiliaryPioneersService {
     await this.assertCanManage(congregationId, user);
     const row = await this.repo.findOne({ where: { id, congregationId } });
     if (!row) throw new NotFoundException('Record not found.');
+    // A period that has begun is history: it is stopped, not deleted. Only
+    // the two who may change a closed month may delete one — to take back a
+    // row entered by mistake — and then not across a closed month.
+    const nowKey = await this.currentMonthKey(congregationId);
+    if (row.startMonth.slice(0, 7) <= nowKey) {
+      if (!(await this.mayChangeClosed(congregationId, user))) {
+        throw new ForbiddenException(
+          refusal(
+            'AUX_REMOVE_STARTED',
+            'This period has already begun. Stop it instead of deleting it.',
+          ),
+        );
+      }
+      await this.assertMonthsOpen(
+        congregationId,
+        null,
+        AuxiliaryPioneersService.changedMonths(spanOf(row), null, nowKey),
+      );
+    }
+    await this.writeDelete(congregationId, row);
+  }
+
+  /**
+   * Take back a month written a moment ago for a report that was then
+   * refused (ServiceReportsService.undoAuxSpell). Not a decision of anybody's
+   * — the half-state it ends was never meant to exist — so none of the rules
+   * of remove() apply; the journal still keeps it.
+   */
+  async undoJustCreated(congregationId: string, id: string): Promise<void> {
+    const row = await this.repo.findOne({ where: { id, congregationId } });
+    if (!row) return;
+    await this.writeDelete(congregationId, row);
+  }
+
+  private async writeDelete(
+    congregationId: string,
+    row: AuxiliaryPioneer,
+  ): Promise<void> {
+    const id = row.id;
     await this.auditLog.logEvent({
       tenantId: congregationId,
       entityType: 'auxiliary_pioneer',
@@ -591,7 +851,7 @@ export class AuxiliaryPioneersService {
       const start = monthKeyOf(p.startMonth);
       // An open-ended spell runs to today; a closed one to its last month.
       const end = p.untilCancelled
-        ? monthKeyOf(new Date())
+        ? await this.currentMonthKey(congregationId)
         : monthKeyOf(p.endMonth ?? p.startMonth);
       for (const m of monthsInRange(`${start}-01`, `${end}-01`)) out.add(m);
     }
@@ -700,6 +960,7 @@ export class AuxiliaryPioneersService {
     congregationId: string,
     publisherId: string,
     fromMonthIso: string,
+    reason: 'became_pioneer' | 'departed' = 'became_pioneer',
   ): Promise<number> {
     const fromKey = monthKeyOf(fromMonthIso);
     const [y, m] = fromKey.split('-').map((n) => parseInt(n, 10));
@@ -720,12 +981,39 @@ export class AuxiliaryPioneersService {
       if (!stillOpen) continue;
       // Don't create an inverted range: if the period starts on/after the new
       // pioneer month, remove it instead of ending it before it began.
+      // Journalled like any other change (29 October 2026): these two used
+      // to cut a period short, or take it away, without a line.
       if (row.startMonth >= `${fromKey}-01`) {
+        await this.auditLog.logEvent({
+          tenantId: congregationId,
+          entityType: 'auxiliary_pioneer',
+          entityId: row.id,
+          action: 'DELETE',
+          subjectId: row.publisherId,
+          detail: {
+            startMonth: row.startMonth,
+            endMonth: row.endMonth,
+            reason,
+          },
+        });
         await this.repo.remove(row);
       } else {
+        const before = {
+          endMonth: row.endMonth,
+          untilCancelled: row.untilCancelled,
+        };
         row.endMonth = endMonth;
         row.untilCancelled = false;
         await this.repo.save(row);
+        await this.auditLog.logUpdate({
+          tenantId: congregationId,
+          entityType: 'auxiliary_pioneer',
+          entityId: row.id,
+          subjectId: row.publisherId,
+          before,
+          after: { endMonth: row.endMonth, untilCancelled: false },
+          fields: ['endMonth', 'untilCancelled'],
+        });
       }
       closed++;
     }
