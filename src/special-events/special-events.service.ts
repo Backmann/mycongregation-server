@@ -338,6 +338,8 @@ export class SpecialEventsService {
     const event = this.specialEventsRepo.create({
       ...dto,
       congregationId: tenantId,
+      // Only a campaign gives the auxiliary pioneers 15 hours.
+      auxReducedHours: dto.type === 'campaign' && dto.auxReducedHours === true,
     });
     Object.assign(
       event,
@@ -483,6 +485,7 @@ export class SpecialEventsService {
     }
 
     Object.assign(event, dto, meeting);
+    if (event.type !== 'campaign') event.auxReducedHours = false;
     const saved = await this.specialEventsRepo.save(event);
     await this.auditLog.logUpdate({
       tenantId,

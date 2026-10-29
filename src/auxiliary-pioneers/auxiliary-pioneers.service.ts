@@ -21,7 +21,11 @@ import { StopAuxiliaryPioneerDto } from './dto/stop-auxiliary-pioneer.dto';
 import { UpdateAuxiliaryPioneerDto } from './dto/update-auxiliary-pioneer.dto';
 import {
   auxiliaryPioneerHourGoal,
+  goalOf,
   isActiveInMonth,
+  reducedReasons,
+  type ReducedEvent,
+  type ReducedReason,
   monthKeyOf,
   monthsInRange,
   REDUCED_HOUR_EVENT_TYPES,
@@ -80,7 +84,10 @@ export interface AuxPioneerMonthRow {
   startMonth: string;
   endMonth: string | null;
   untilCancelled: boolean;
+  /** HIS goal this month: 15 when he took the reduced one, else 30. */
   hourGoal: number;
+  /** The months of the period he took 15 in («YYYY-MM»). */
+  reducedMonths: string[];
 }
 
 export type AuxPioneerState = 'upcoming' | 'serving' | 'finished';
@@ -129,6 +136,8 @@ export interface MyAuxPioneerStatus {
   serving: boolean;
   current: MyAuxPioneerPeriod | null;
   upcoming: MyAuxPioneerPeriod | null;
+  /** His goal in the month asked about, when he serves in it: 15 or 30. */
+  hourGoal: number | null;
 }
 
 @Injectable()
@@ -338,25 +347,115 @@ export class AuxiliaryPioneersService {
     return `${iso.slice(0, 7)}-01`;
   }
 
-  /** Reduced-hour events (Memorial, CO visit) as bare {date, endDate}. */
+  /** The events that may open 15 hours: the Memorial, a visit, a campaign. */
   private async reducedHourEvents(
     congregationId: string,
-  ): Promise<{ date: string; endDate: string | null }[]> {
+  ): Promise<ReducedEvent[]> {
     const events = await this.eventRepo.find({
       where: {
         congregationId,
         type: In(REDUCED_HOUR_EVENT_TYPES as unknown as string[]),
       },
-      select: ['date', 'endDate'],
+      select: ['type', 'date', 'endDate', 'auxReducedHours'],
     });
-    return events.map((e) => ({ date: e.date, endDate: e.endDate }));
+    return events.map((e) => ({
+      type: e.type,
+      date: e.date,
+      endDate: e.endDate,
+      auxReducedHours: e.auxReducedHours,
+    }));
+  }
+
+  /**
+   * The months of a period that will hold 15 hours: what was asked for, or —
+   * when nothing was said (an older app, the month ticked on a paper card) —
+   * every month of it that allows 15, as the goal was before it became a
+   * choice. An open period is taken a year ahead. A month asked for that
+   * does not allow 15 is refused, by its name.
+   */
+  private async settleReducedMonths(
+    congregationId: string,
+    span: {
+      startMonth: string;
+      endMonth: string | null;
+      untilCancelled: boolean;
+    },
+    asked: string[] | undefined,
+    previous: AuxiliaryPioneer | null,
+  ): Promise<string[]> {
+    const events = await this.reducedHourEvents(congregationId);
+    const horizon = addMonthsKey(
+      await this.currentMonthKey(congregationId),
+      12,
+    );
+    const s = spanOf(span);
+    const inSpan = (m: string) => m >= s.start && m <= s.end;
+    if (asked !== undefined) {
+      const out = [...new Set(asked.map((m) => m.slice(0, 7)))].sort();
+      for (const m of out) {
+        if (!inSpan(m)) {
+          throw new BadRequestException(
+            refusal('AUX_NORM_OUTSIDE', 'That month is not in the period.', {
+              month: m,
+            }),
+          );
+        }
+        if (reducedReasons(m, events).length === 0) {
+          throw new BadRequestException(
+            refusal(
+              'AUX_NORM_NOT_ALLOWED',
+              'That month does not allow 15 hours.',
+              { month: m },
+            ),
+          );
+        }
+      }
+      return out;
+    }
+    // Nothing said. Months the period already had keep their choice; months
+    // it gains take 15 where 15 is open — as the goal was before it became a
+    // choice. An open period is filled a year ahead.
+    const before = previous ? spanOf(previous) : null;
+    const had = (m: string) => !!before && m >= before.start && m <= before.end;
+    const out = new Set(
+      (previous?.reducedMonths ?? []).filter((m) => inSpan(m)),
+    );
+    for (const m of monthsOfSpan(s, horizon > s.start ? horizon : s.start)) {
+      if (!had(m) && reducedReasons(m, events).length > 0) out.add(m);
+    }
+    return [...out].sort();
+  }
+
+  /**
+   * The months from `fromIso` to `toIso` (at most five years) that allow 15
+   * hours, each with its reasons — for the form that lets a person choose.
+   */
+  async reducibleMonths(
+    congregationId: string,
+    fromIso: string,
+    toIso: string,
+  ): Promise<{ month: string; reasons: ReducedReason[] }[]> {
+    const events = await this.reducedHourEvents(congregationId);
+    const from = monthKeyOf(fromIso);
+    let to = monthKeyOf(toIso);
+    if (to < from) to = from;
+    if (to > addMonthsKey(from, 60)) to = addMonthsKey(from, 60);
+    return monthsInRange(`${from}-01`, `${to}-01`)
+      .map((m) => ({ month: m, reasons: reducedReasons(m, events) }))
+      .filter((x) => x.reasons.length > 0);
   }
 
   /** Everyone serving in the given month, with the computed hour goal. */
   async listForMonth(
     congregationId: string,
     monthIso: string,
-  ): Promise<{ month: string; hourGoal: number; rows: AuxPioneerMonthRow[] }> {
+  ): Promise<{
+    month: string;
+    hourGoal: number;
+    /** Why this month allows 15 hours; empty when it does not. */
+    reasons: ReducedReason[];
+    rows: AuxPioneerMonthRow[];
+  }> {
     const monthKey = monthKeyOf(monthIso);
     const all = await this.repo.find({ where: { congregationId } });
     const active = all.filter((p) =>
@@ -370,7 +469,10 @@ export class AuxiliaryPioneersService {
       ),
     );
     const events = await this.reducedHourEvents(congregationId);
+    // The month's own answer, kept for the app on phones that reads one goal
+    // for everybody: 15 when the month allows it.
     const hourGoal = auxiliaryPioneerHourGoal(monthKey, events);
+    const reasons = reducedReasons(monthKey, events);
     const names = await this.namesByIds(
       congregationId,
       active.map((p) => p.publisherId),
@@ -382,10 +484,11 @@ export class AuxiliaryPioneersService {
       startMonth: p.startMonth,
       endMonth: p.endMonth,
       untilCancelled: p.untilCancelled,
-      hourGoal,
+      hourGoal: goalOf(p, monthKey),
+      reducedMonths: p.reducedMonths ?? [],
     }));
     rows.sort((a, b) => a.publisherName.localeCompare(b.publisherName));
-    return { month: `${monthKey}-01`, hourGoal, rows };
+    return { month: `${monthKey}-01`, hourGoal, reasons, rows };
   }
 
   /**
@@ -574,12 +677,19 @@ export class AuxiliaryPioneersService {
       AuxiliaryPioneersService.changedMonths(null, span, horizon),
       null,
     );
+    const reducedMonths = await this.settleReducedMonths(
+      congregationId,
+      { startMonth, endMonth, untilCancelled },
+      dto.reducedMonths,
+      null,
+    );
     const row = this.repo.create({
       congregationId,
       publisherId: dto.publisherId,
       startMonth,
       endMonth,
       untilCancelled,
+      reducedMonths,
       note: dto.note ?? null,
       createdBy: user.id,
     });
@@ -593,6 +703,7 @@ export class AuxiliaryPioneersService {
         startMonth: saved.startMonth,
         endMonth: saved.endMonth,
         untilCancelled: saved.untilCancelled,
+        reducedMonths: saved.reducedMonths,
       },
     });
     return saved;
@@ -615,7 +726,9 @@ export class AuxiliaryPioneersService {
       startMonth: row.startMonth,
       endMonth: row.endMonth,
       untilCancelled: row.untilCancelled,
+      reducedMonths: [...(row.reducedMonths ?? [])],
     };
+    const previous = { ...row, reducedMonths: [...(row.reducedMonths ?? [])] };
 
     if (dto.startMonth !== undefined) {
       row.startMonth = this.normalizeMonth(dto.startMonth);
@@ -633,15 +746,35 @@ export class AuxiliaryPioneersService {
         refusal('END_BEFORE_START', 'End month cannot precede start month.'),
       );
     }
+    row.reducedMonths = await this.settleReducedMonths(
+      congregationId,
+      row,
+      dto.reducedMonths,
+      previous,
+    );
     {
       const horizon = await this.currentMonthKey(congregationId);
       const after = spanOf(row);
+      // A month whose goal moves is a changed month too.
+      const a = new Set(before.reducedMonths);
+      const b = new Set(row.reducedMonths);
+      const goalMoved = [
+        ...[...a].filter((m) => !b.has(m)),
+        ...[...b].filter((m) => !a.has(m)),
+      ];
       await this.assertPeriodAllowed(
         congregationId,
         user,
         row.publisherId,
         after,
-        AuxiliaryPioneersService.changedMonths(spanOf(before), after, horizon),
+        [
+          ...AuxiliaryPioneersService.changedMonths(
+            spanOf(before),
+            after,
+            horizon,
+          ),
+          ...goalMoved,
+        ],
         row.id,
       );
     }
@@ -656,10 +789,34 @@ export class AuxiliaryPioneersService {
         startMonth: saved.startMonth,
         endMonth: saved.endMonth,
         untilCancelled: saved.untilCancelled,
+        reducedMonths: saved.reducedMonths,
       },
-      fields: ['startMonth', 'endMonth', 'untilCancelled'],
+      fields: ['startMonth', 'endMonth', 'untilCancelled', 'reducedMonths'],
     });
     return saved;
+  }
+
+  /**
+   * One month's goal, 15 or 30 — the person's choice in a month that allows
+   * 15 (29 October 2026). A closed month keeps what was sent, as everywhere.
+   */
+  async setNorm(
+    congregationId: string,
+    user: AuthenticatedUser,
+    id: string,
+    monthIso: string,
+    hours: 15 | 30,
+  ): Promise<AuxiliaryPioneer> {
+    await this.assertCanManage(congregationId, user);
+    const row = await this.repo.findOne({ where: { id, congregationId } });
+    if (!row) throw new NotFoundException('Record not found.');
+    const m = monthIso.slice(0, 7);
+    const now = new Set(row.reducedMonths ?? []);
+    if (hours === 15) now.add(m);
+    else now.delete(m);
+    return this.update(congregationId, user, id, {
+      reducedMonths: [...now],
+    });
   }
 
   /** Stop a period: set an end month (defaults to the current month). */
@@ -790,7 +947,8 @@ export class AuxiliaryPioneersService {
       where: { congregationId, userId: user.id },
       select: ['id'],
     });
-    if (!publisher) return { serving: false, current: null, upcoming: null };
+    if (!publisher)
+      return { serving: false, current: null, upcoming: null, hourGoal: null };
 
     const monthKey = monthKeyOf(monthIso);
     const rows = await this.repo.find({
@@ -811,6 +969,7 @@ export class AuxiliaryPioneersService {
       serving: !!current,
       current: current ? shape(current) : null,
       upcoming: upcoming ? shape(upcoming) : null,
+      hourGoal: current ? goalOf(current, monthKey) : null,
     };
   }
 

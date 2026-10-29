@@ -17,6 +17,11 @@ import {
 } from '../../entities/special-event.entity';
 
 export class CreateSpecialEventDto {
+  /** A campaign only: auxiliary pioneers may take 15 hours in its months. */
+  @IsOptional()
+  @IsBoolean()
+  auxReducedHours?: boolean;
+
   @IsString()
   @Length(1, 255)
   title!: string;

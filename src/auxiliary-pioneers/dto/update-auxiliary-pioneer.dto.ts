@@ -1,4 +1,5 @@
 import { IsISO8601, IsOptional, IsBoolean } from 'class-validator';
+import { ArrayMaxSize, IsArray, Matches } from 'class-validator';
 
 /**
  * Edit an auxiliary-pioneer period. The publisher is never changed here — to
@@ -17,4 +18,14 @@ export class UpdateAuxiliaryPioneerDto {
   @IsOptional()
   @IsBoolean()
   untilCancelled?: boolean;
+
+  /**
+   * The months («YYYY-MM») in which the person takes 15 hours — each must
+   * allow it. Left out: chosen for him as before (every month that allows 15).
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(120)
+  @Matches(/^\d{4}-\d{2}$/, { each: true })
+  reducedMonths?: string[];
 }

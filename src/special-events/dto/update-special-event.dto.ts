@@ -18,6 +18,11 @@ import {
 } from '../../entities/special-event.entity';
 
 export class UpdateSpecialEventDto {
+  /** A campaign only: auxiliary pioneers may take 15 hours in its months. */
+  @IsOptional()
+  @IsBoolean()
+  auxReducedHours?: boolean;
+
   // Left out is fine; sent as null is not — every event has a title and a
   // date. (IsOptional would let a null through and blank the row.)
   @ValidateIf((o: UpdateSpecialEventDto) => o.title !== undefined)

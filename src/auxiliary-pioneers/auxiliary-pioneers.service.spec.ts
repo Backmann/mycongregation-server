@@ -479,7 +479,12 @@ describe('AuxiliaryPioneersService', () => {
       publisherRepo.findOne.mockResolvedValue(null);
       await expect(
         service.myAuxiliaryPioneerStatus(CONG, plain, '2026-07-01'),
-      ).resolves.toEqual({ serving: false, current: null, upcoming: null });
+      ).resolves.toEqual({
+        serving: false,
+        current: null,
+        upcoming: null,
+        hourGoal: null,
+      });
     });
 
     it('returns the period covering the month', async () => {
@@ -557,7 +562,12 @@ describe('AuxiliaryPioneersService', () => {
       ]);
       await expect(
         service.myAuxiliaryPioneerStatus(CONG, plain, '2026-07-01'),
-      ).resolves.toEqual({ serving: false, current: null, upcoming: null });
+      ).resolves.toEqual({
+        serving: false,
+        current: null,
+        upcoming: null,
+        hourGoal: null,
+      });
     });
   });
 

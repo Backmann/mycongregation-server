@@ -1,5 +1,7 @@
 import {
   auxiliaryPioneerHourGoal,
+  goalOf,
+  reducedReasons,
   monthsInRange,
   isActiveInMonth,
   AUX_PIONEER_REDUCED_HOURS,
@@ -23,25 +25,88 @@ describe('auxiliary pioneer hour goal', () => {
   });
 
   it('the Memorial month is reduced', () => {
-    const events = [{ date: '2026-04-02', endDate: null }];
+    const events = [{ type: 'memorial', date: '2026-04-02', endDate: null }];
     // April is already reduced, so test the Memorial in a non-spring month too.
     expect(auxiliaryPioneerHourGoal('2026-04', events)).toBe(15);
-    const may = [{ date: '2026-05-01', endDate: null }];
+    const may = [{ type: 'memorial', date: '2026-05-01', endDate: null }];
     expect(auxiliaryPioneerHourGoal('2026-05', may)).toBe(15);
   });
 
   it('a circuit-overseer visit reduces its month', () => {
-    const events = [{ date: '2026-09-15', endDate: '2026-09-20' }];
+    const events = [
+      {
+        type: 'circuit_overseer_visit',
+        date: '2026-09-15',
+        endDate: '2026-09-20',
+      },
+    ];
     expect(auxiliaryPioneerHourGoal('2026-09', events)).toBe(15);
     expect(auxiliaryPioneerHourGoal('2026-10', events)).toBe(30);
   });
 
   it('a visit spanning a month boundary reduces BOTH months', () => {
     // Visit week runs Sep 29 – Oct 4.
-    const events = [{ date: '2026-09-29', endDate: '2026-10-04' }];
+    const events = [
+      {
+        type: 'circuit_overseer_visit',
+        date: '2026-09-29',
+        endDate: '2026-10-04',
+      },
+    ];
     expect(auxiliaryPioneerHourGoal('2026-09', events)).toBe(15);
     expect(auxiliaryPioneerHourGoal('2026-10', events)).toBe(15);
     expect(auxiliaryPioneerHourGoal('2026-11', events)).toBe(30);
+  });
+});
+
+describe('reducedReasons — why a month allows 15 hours (29 October 2026)', () => {
+  it('names every reason, and none for an ordinary month', () => {
+    const ev = [
+      { type: 'memorial', date: '2027-03-22', endDate: null },
+      {
+        type: 'circuit_overseer_visit',
+        date: '2027-01-19',
+        endDate: '2027-01-24',
+      },
+    ];
+    expect(reducedReasons('2027-03', ev).sort()).toEqual([
+      'march_april',
+      'memorial',
+    ]);
+    expect(reducedReasons('2027-01', ev)).toEqual(['co_visit']);
+    expect(reducedReasons('2027-02', ev)).toEqual([]);
+  });
+
+  it('a campaign counts only when it says so', () => {
+    const on = [
+      {
+        type: 'campaign',
+        date: '2027-06-15',
+        endDate: '2027-07-15',
+        auxReducedHours: true,
+      },
+    ];
+    const off = [
+      {
+        type: 'campaign',
+        date: '2027-06-15',
+        endDate: '2027-07-15',
+        auxReducedHours: false,
+      },
+    ];
+    expect(reducedReasons('2027-06', on)).toEqual(['campaign']);
+    expect(reducedReasons('2027-07', on)).toEqual(['campaign']);
+    expect(reducedReasons('2027-06', off)).toEqual([]);
+  });
+
+  it("the goal of a month is the person's own", () => {
+    expect(goalOf({ reducedMonths: ['2027-03'] }, '2027-03')).toBe(15);
+    expect(goalOf({ reducedMonths: ['2027-03'] }, '2027-04')).toBe(30);
+    expect(goalOf({ reducedMonths: [] }, '2027-03')).toBe(30);
+  });
+
+  it('a range longer than two years is not cut short', () => {
+    expect(monthsInRange('2024-01-01', '2026-12-01')).toHaveLength(36);
   });
 });
 

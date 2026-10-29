@@ -6,6 +6,7 @@ import {
   IsString,
   MaxLength,
 } from 'class-validator';
+import { ArrayMaxSize, IsArray, Matches } from 'class-validator';
 
 export class CreateAuxiliaryPioneerDto {
   @IsUUID()
@@ -29,4 +30,14 @@ export class CreateAuxiliaryPioneerDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+
+  /**
+   * The months («YYYY-MM») in which the person takes 15 hours — each must
+   * allow it. Left out: chosen for him as before (every month that allows 15).
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(120)
+  @Matches(/^\d{4}-\d{2}$/, { each: true })
+  reducedMonths?: string[];
 }

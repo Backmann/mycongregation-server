@@ -256,7 +256,7 @@ export const PLAN: Record<string, TablePlan> = {
     copy(`id congregation_id type date replaces_meeting created_at updated_at
       deleted_at end_date co_midweek_dow co_role
       co_accommodation_publisher_id time_end memorial_published_at
-      meeting_mode meeting_time`),
+      meeting_mode meeting_time aux_reduced_hours`),
     {
       title: 'eventTitle',
       time: 'time',
@@ -367,7 +367,7 @@ export const PLAN: Record<string, TablePlan> = {
   ),
   auxiliary_pioneers: table(
     copy(`id congregation_id publisher_id start_month end_month
-      until_cancelled created_by created_at updated_at`),
+      until_cancelled created_by created_at updated_at reduced_months`),
     remove('note'),
   ),
   absences: table(

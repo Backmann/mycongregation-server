@@ -17,9 +17,8 @@ import { Publisher } from './publisher.entity';
  * an optional end month. `untilCancelled = true` (endMonth null) means the
  * person serves indefinitely until stopped.
  *
- * The hour goal is NOT stored here — it is computed per month (15 in
- * March/April, the month(s) of a circuit-overseer visit and the Memorial
- * month; 30 otherwise), so it always reflects the current calendar and events.
+ * The hour goal is the person's choice per month — `reducedMonths` — within
+ * the months that allow 15 (auxiliary-pioneer-hours.ts); 30 otherwise.
  *
  * Months are stored as first-of-month dates (YYYY-MM-01) for easy range
  * comparisons. Only baptized publishers may hold this — enforced in the service.
@@ -60,6 +59,20 @@ export class AuxiliaryPioneer {
   /** True when there is no fixed end — serves until explicitly stopped. */
   @Column({ type: 'boolean', name: 'until_cancelled', default: false })
   untilCancelled!: boolean;
+
+  /**
+   * The months («YYYY-MM») of this period in which the person took the
+   * reduced goal of 15 hours — his choice, open in March, April, the
+   * Memorial's month, a month of the circuit overseer's visit and a campaign
+   * month that allows it (29 October 2026). Every other month is 30.
+   */
+  @Column({
+    type: 'text',
+    array: true,
+    name: 'reduced_months',
+    default: () => "'{}'",
+  })
+  reducedMonths!: string[];
 
   @Column({ type: 'text', nullable: true })
   note!: string | null;

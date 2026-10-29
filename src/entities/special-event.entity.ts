@@ -108,6 +108,13 @@ export class SpecialEvent {
   replacesMeeting!: boolean;
 
   /**
+   * A campaign only: auxiliary pioneers may take 15 hours in the months it
+   * touches (29 October 2026).
+   */
+  @Column({ type: 'boolean', name: 'aux_reduced_hours', default: false })
+  auxReducedHours!: boolean;
+
+  /**
    * Как идёт встреча собрания в день события: как обычно, с изменениями или
    * её нет. `replacesMeeting` держится равным «none» — его читают правила
    * недели. Только у визита представителя филиала и «Другого».
