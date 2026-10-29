@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -22,7 +23,9 @@ import type {
 import { CreateAuxiliaryPioneerDto } from './dto/create-auxiliary-pioneer.dto';
 import { StopAuxiliaryPioneerDto } from './dto/stop-auxiliary-pioneer.dto';
 import { UpdateAuxiliaryPioneerDto } from './dto/update-auxiliary-pioneer.dto';
+import { SetAuxNormDto } from './dto/set-norm.dto';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { refusal } from '../common/errors/refusal';
 
 @Controller('auxiliary-pioneers')
 @UseGuards(JwtAuthGuard)
@@ -52,6 +55,28 @@ export class AuxiliaryPioneersController {
     await this.service.assertCanManage(congregationId, user);
     const monthIso = month || (await this.clock.todayFor(congregationId));
     return this.service.listForMonth(congregationId, monthIso);
+  }
+
+  /**
+   * Which months in a range allow 15 hours, and why. Calendar facts, not
+   * anybody's data — open to everybody signed in: the publisher's own
+   * application will ask it too.
+   */
+  @Get('reducible')
+  reducible(
+    @TenantId() congregationId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+  ) {
+    const iso = /^\d{4}-\d{2}(-\d{2})?$/;
+    if (!iso.test(from ?? '') || !iso.test(to ?? '')) {
+      throw new BadRequestException(
+        refusal('INVALID_FIELD', 'from and to are months, YYYY-MM.', {
+          fields: [{ field: 'month', rules: ['isISO8601'] }],
+        }),
+      );
+    }
+    return this.service.reducibleMonths(congregationId, from, to);
   }
 
   /** This month's auxiliary pioneers by name — for everybody. */
@@ -114,6 +139,17 @@ export class AuxiliaryPioneersController {
     @Body() dto: CreateAuxiliaryPioneerDto,
   ) {
     return this.service.create(congregationId, user, dto);
+  }
+
+  /** One month's goal — 15 or 30 — where the month allows 15. */
+  @Patch(':id/norm')
+  setNorm(
+    @TenantId() congregationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetAuxNormDto,
+  ) {
+    return this.service.setNorm(congregationId, user, id, dto.month, dto.hours);
   }
 
   @Patch(':id/stop')

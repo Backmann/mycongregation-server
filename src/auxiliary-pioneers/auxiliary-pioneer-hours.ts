@@ -14,11 +14,62 @@
 export const AUX_PIONEER_REDUCED_HOURS = 15;
 export const AUX_PIONEER_STANDARD_HOURS = 30;
 
-/** Event `type` values that grant the reduced goal for their month(s). */
+/**
+ * Event `type` values that may open the reduced goal for their month(s). A
+ * campaign does so only when it says it does (`auxReducedHours`).
+ */
 export const REDUCED_HOUR_EVENT_TYPES = [
   'memorial',
   'circuit_overseer_visit',
+  'campaign',
 ] as const;
+
+/** Why a month allows 15 hours. */
+export type ReducedReason =
+  | 'march_april'
+  | 'memorial'
+  | 'co_visit'
+  | 'campaign';
+
+/** An event as these rules read it. */
+export interface ReducedEvent {
+  type: string | null;
+  date: string;
+  endDate: string | null;
+  /** A campaign only. */
+  auxReducedHours?: boolean;
+}
+
+/**
+ * The reasons a month allows an auxiliary pioneer to take 15 hours (29
+ * October 2026) — empty when it does not. Whether he TAKES them is his
+ * choice, kept on the period (`reducedMonths`).
+ */
+export function reducedReasons(
+  monthKey: MonthKey,
+  events: ReducedEvent[],
+): ReducedReason[] {
+  const out = new Set<ReducedReason>();
+  const month = Number(monthKey.split('-')[1]);
+  if (month === 3 || month === 4) out.add('march_april');
+  for (const e of events) {
+    if (!monthsInRange(e.date, e.endDate).includes(monthKey)) continue;
+    if (e.type === 'memorial') out.add('memorial');
+    else if (e.type === 'circuit_overseer_visit') out.add('co_visit');
+    else if (e.type === 'campaign' && e.auxReducedHours) out.add('campaign');
+  }
+  return [...out];
+}
+
+/** The goal a period holds for a month: the person's 15, or 30. */
+export function goalOf(
+  period: { reducedMonths?: string[] | null },
+  monthKey: MonthKey,
+): number {
+  return (period.reducedMonths ?? []).includes(monthKey)
+    ? AUX_PIONEER_REDUCED_HOURS
+    : AUX_PIONEER_STANDARD_HOURS;
+}
 
 /** A calendar month key like "2026-04". */
 export type MonthKey = string;
@@ -70,18 +121,11 @@ export function monthsInRange(
  */
 export function auxiliaryPioneerHourGoal(
   monthKey: MonthKey,
-  events: { date: string; endDate: string | null }[],
+  events: ReducedEvent[],
 ): number {
-  const month = Number(monthKey.split('-')[1]);
-  // March (3) and April (4) are always reduced.
-  if (month === 3 || month === 4) return AUX_PIONEER_REDUCED_HOURS;
-
-  for (const e of events) {
-    if (monthsInRange(e.date, e.endDate).includes(monthKey)) {
-      return AUX_PIONEER_REDUCED_HOURS;
-    }
-  }
-  return AUX_PIONEER_STANDARD_HOURS;
+  return reducedReasons(monthKey, events).length > 0
+    ? AUX_PIONEER_REDUCED_HOURS
+    : AUX_PIONEER_STANDARD_HOURS;
 }
 
 /**

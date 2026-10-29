@@ -15,6 +15,10 @@ export const EVENT_TYPES = [
   'memorial',
   'circuit_overseer_visit',
   'branch_representative_visit',
+  // A campaign of the congregation's ministry (29 October 2026): for
+  // everybody to see, and with `auxReducedHours` a month where auxiliary
+  // pioneers may take 15 hours. It changes no meeting.
+  'campaign',
   'other',
 ] as const;
 

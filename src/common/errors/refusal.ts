@@ -137,6 +137,8 @@ export const REFUSAL_CODES = [
   'AUX_PERMANENT_PIONEER',
   'AUX_MONTH_CLOSED',
   'AUX_REMOVE_STARTED',
+  'AUX_NORM_NOT_ALLOWED',
+  'AUX_NORM_OUTSIDE',
   'SCHOOL_FOR_ELDERS',
   'SCHOOL_ONLY_OWN_ROLE',
   // ---- absences, annual report, assignments, the journal ----
