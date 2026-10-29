@@ -85,6 +85,7 @@ describe('settleMeeting', () => {
       'circuit_assembly',
       'memorial',
       'circuit_overseer_visit',
+      'campaign',
     ]) {
       expect(takesMeetingMode(type)).toBe(false);
       expect(

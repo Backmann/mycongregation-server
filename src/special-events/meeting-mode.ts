@@ -12,6 +12,8 @@ const OWN_RULE_TYPES = new Set([
   'circuit_assembly',
   'memorial',
   'circuit_overseer_visit',
+  // A campaign leaves every meeting as it is (29 October 2026).
+  'campaign',
 ]);
 
 /** Whether an event of this kind carries the three-way meeting answer. */
