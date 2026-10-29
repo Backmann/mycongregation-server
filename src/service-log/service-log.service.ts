@@ -78,6 +78,8 @@ export interface ServiceLogMonth {
   report: { hours: number | null; byOther: boolean } | null;
   /** The congregation's today, «YYYY-MM-DD». */
   today: string;
+  /** The first month of the log here; null — the log is off. */
+  startsFrom: string | null;
 }
 
 /**
@@ -257,6 +259,13 @@ export class ServiceLogService {
       reportHours: 0,
       report: null,
       today,
+      startsFrom:
+        (
+          await this.congregations.findOne({
+            where: { id: congregationId },
+            select: ['id', 'hoursLogFrom'],
+          })
+        )?.hoursLogFrom ?? null,
     };
     const card = await this.cardOf(congregationId, user);
     if (!card) return empty;
@@ -302,6 +311,7 @@ export class ServiceLogService {
           }
         : null,
       today,
+      startsFrom: empty.startsFrom,
     };
   }
 
