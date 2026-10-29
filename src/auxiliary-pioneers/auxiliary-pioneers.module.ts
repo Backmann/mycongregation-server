@@ -19,6 +19,9 @@ import { Congregation } from '../entities/congregation.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AuxApplicationsService } from './aux-applications.service';
 import { AuxApplicationsController } from './aux-applications.controller';
+import { AuxYearService } from './aux-year.service';
+import { AuxYearController } from './aux-year.controller';
+import { ServiceReport } from '../entities/service-report.entity';
 
 @Module({
   imports: [
@@ -34,12 +37,17 @@ import { AuxApplicationsController } from './aux-applications.controller';
       AuxPioneerApplicationSeat,
       Absence,
       Congregation,
+      ServiceReport,
     ]),
     NotificationsModule,
     AuditLogModule,
   ],
-  controllers: [AuxiliaryPioneersController, AuxApplicationsController],
-  providers: [AuxiliaryPioneersService, AuxApplicationsService],
+  controllers: [
+    AuxiliaryPioneersController,
+    AuxApplicationsController,
+    AuxYearController,
+  ],
+  providers: [AuxiliaryPioneersService, AuxApplicationsService, AuxYearService],
   exports: [AuxiliaryPioneersService, AuxApplicationsService],
 })
 export class AuxiliaryPioneersModule {}

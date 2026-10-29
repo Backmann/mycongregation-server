@@ -35,6 +35,7 @@ import { CongregationClock } from '../common/congregation-clock.service';
 import { refusal } from '../common/errors/refusal';
 import type { SupportedLanguage } from '../common/i18n/supported-languages';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { AuxYearService } from './aux-year.service';
 import { AuxiliaryPioneersService } from './auxiliary-pioneers.service';
 
 /** Days a place waits for its brother before it is reminded — and may be opened. */
@@ -123,6 +124,8 @@ const STR: Record<
     reminder: string;
     withdrawn: string;
     approved: string;
+    stopped: string;
+    reportHours: string;
   }
 > = {
   ru: {
@@ -132,6 +135,8 @@ const STR: Record<
     reminder: 'Заявление всё ещё ждёт вашего ответа',
     withdrawn: 'Одно из заявлений отозвано',
     approved: 'Ваше заявление одобрено',
+    stopped: 'Подсобный пионер прекратил служение «до отмены»',
+    reportHours: 'Месяц стал подсобным — впишите часы в отчёт',
   },
   de: {
     title: 'Hilfspionierdienst',
@@ -140,6 +145,9 @@ const STR: Record<
     reminder: 'Eine Bewerbung wartet noch auf Ihre Antwort',
     withdrawn: 'Eine Bewerbung wurde zurückgezogen',
     approved: 'Ihre Bewerbung wurde genehmigt',
+    stopped: 'Ein Hilfspionier hat «bis auf Widerruf» beendet',
+    reportHours:
+      'Der Monat ist jetzt Hilfspionierdienst — bitte die Stunden im Bericht nachtragen',
   },
   en: {
     title: 'Auxiliary pioneering',
@@ -148,6 +156,9 @@ const STR: Record<
     reminder: 'An application is still waiting for your answer',
     withdrawn: 'An application has been withdrawn',
     approved: 'Your application has been approved',
+    stopped: 'An auxiliary pioneer has ended «until canceled»',
+    reportHours:
+      'The month is now auxiliary pioneering — please add the hours to your report',
   },
 };
 
@@ -194,6 +205,7 @@ export class AuxApplicationsService {
     private readonly audit: AuditLogService,
     private readonly notifications: NotificationsService,
     private readonly clock: CongregationClock,
+    private readonly year: AuxYearService,
   ) {}
 
   // ---------------------------------------------------------------- who
@@ -897,10 +909,43 @@ export class AuxApplicationsService {
       before: { status: 'pending' },
       after: { status: 'approved' },
     });
-    if (app.source === 'app') {
-      const u = await this.applicantUser(app);
-      if (u)
-        await this.tell(congregationId, [u], 'approved', app.id, 'approved');
+    const u = await this.applicantUser(app);
+    if (app.source === 'app' && u) {
+      await this.tell(congregationId, [u], 'approved', app.id, 'approved');
+    }
+    // A report already in for one of these months, without hours: he is
+    // asked to add them — the month now wants them.
+    if (u) {
+      const missing = (
+        await this.year.reportsWithoutHours(congregationId, app.publisherId, u)
+      ).filter((r) => months.includes(r.month));
+      for (const r of missing) {
+        await this.askHours(congregationId, u, r.reportId, r.month);
+      }
+    }
+  }
+
+  private async askHours(
+    congregationId: string,
+    userId: string,
+    reportId: string,
+    month: string,
+  ): Promise<void> {
+    try {
+      await this.notifications.notify({
+        tenantId: congregationId,
+        userIds: [userId],
+        text: (l) => ({ title: STR[l].title, body: STR[l].reportHours }),
+        kind: 'aux_application_approved',
+        key: `aux-hours:${reportId}`,
+        data: {
+          type: 'aux_report_hours',
+          reportId,
+          reportMonth: `${month}-01`,
+        },
+      });
+    } catch (err) {
+      this.logger.warn(`aux hours notice not sent: ${String(err)}`);
     }
   }
 
@@ -1042,12 +1087,19 @@ export class AuxApplicationsService {
   ): Promise<{
     applications: MyApplicationView[];
     committeeComplete: boolean;
+    /** His reports for months now of auxiliary service, without hours. */
+    reportsWithoutHours: { reportId: string; month: string }[];
   }> {
     const card = await this.publishers.findOne({
       where: { congregationId, userId: user.id, removedAt: IsNull() },
     });
     const state = await this.committeeState(congregationId);
-    if (!card) return { applications: [], committeeComplete: state.complete };
+    if (!card)
+      return {
+        applications: [],
+        committeeComplete: state.complete,
+        reportsWithoutHours: [],
+      };
     const rows = await this.apps.find({
       where: { congregationId, publisherId: card.id },
       order: { createdAt: 'DESC' },
@@ -1068,6 +1120,11 @@ export class AuxApplicationsService {
     return {
       applications: rows.map((r) => this.myView(r, answeredIds.has(r.id))),
       committeeComplete: state.complete,
+      reportsWithoutHours: await this.year.reportsWithoutHours(
+        congregationId,
+        card.id,
+        user.id,
+      ),
     };
   }
 
@@ -1387,6 +1444,29 @@ export class AuxApplicationsService {
     return true;
   }
 
+  // ---------------------------------------------------------------- stop
+
+  /**
+   * He ends his own «until cancelled» — no approval; the three brothers of
+   * the committee are told, without his name on a locked screen.
+   */
+  async stopOwn(
+    congregationId: string,
+    user: AuthenticatedUser,
+    endMonth: string,
+  ): Promise<{ endMonth: string | null }> {
+    const { period } = await this.aux.stopOwn(congregationId, user, endMonth);
+    const h = await this.holders(congregationId);
+    await this.tell(
+      congregationId,
+      COMMITTEE_SEATS.flatMap((s) => h[s]).filter((u) => u !== user.id),
+      'stopped',
+      null,
+      `stop:${period.id}:${String(period.endMonth).slice(0, 7)}`,
+    );
+    return { endMonth: period.endMonth };
+  }
+
   // ---------------------------------------------------------------- tell
 
   private async tellOpenSeat(
@@ -1418,7 +1498,13 @@ export class AuxApplicationsService {
   private async tell(
     congregationId: string,
     userIds: string[],
-    what: 'newApp' | 'seatOpen' | 'reminder' | 'withdrawn' | 'approved',
+    what:
+      | 'newApp'
+      | 'seatOpen'
+      | 'reminder'
+      | 'withdrawn'
+      | 'approved'
+      | 'stopped',
     appId: string | null,
     keyPart: string,
   ): Promise<void> {
@@ -1436,8 +1522,12 @@ export class AuxApplicationsService {
           type:
             what === 'approved'
               ? 'aux_application_approved'
-              : 'aux_application',
-          ...(appId && what !== 'withdrawn' ? { applicationId: appId } : {}),
+              : what === 'stopped'
+                ? 'aux_stopped'
+                : 'aux_application',
+          ...(appId && what !== 'withdrawn' && what !== 'stopped'
+            ? { applicationId: appId }
+            : {}),
         },
       });
     } catch (err) {
