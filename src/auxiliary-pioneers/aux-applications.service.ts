@@ -500,7 +500,7 @@ export class AuxApplicationsService {
     const card = await this.ownCard(congregationId, user);
     const app = await this.pendingOf(congregationId, id);
     if (app.publisherId !== card.id) throw new NotFoundException();
-    await this.erase(congregationId, app, user.id, 'applicant');
+    await this.erase(congregationId, app, user.id);
   }
 
   /**
@@ -532,7 +532,7 @@ export class AuxApplicationsService {
       ...new Set([...COMMITTEE_SEATS.flatMap((s) => h[s]), ...answered]),
     ].filter((u) => u !== user.id);
     const applicantUser = await this.applicantUser(app);
-    await this.erase(congregationId, app, user.id, 'committee');
+    await this.erase(congregationId, app, user.id);
     await this.tell(
       congregationId,
       told.filter((u) => u !== applicantUser),
@@ -546,7 +546,6 @@ export class AuxApplicationsService {
     congregationId: string,
     app: AuxPioneerApplication,
     actorUserId: string | null,
-    by: 'applicant' | 'committee' | 'expired',
   ): Promise<void> {
     await this.audit.logEvent({
       tenantId: congregationId,
@@ -555,7 +554,8 @@ export class AuxApplicationsService {
       action: 'DELETE',
       actorUserId,
       subjectId: app.publisherId,
-      detail: { by },
+      // A bare line: who did it is the actor (none when the night cleared
+      // it); why is nobody's business here.
     });
     await this.apps.delete({ id: app.id, congregationId });
   }
@@ -1310,7 +1310,7 @@ export class AuxApplicationsService {
         ? app.months[0]
         : app.months[app.months.length - 1];
       if (last < month) {
-        await this.erase(congregationId, app, null, 'expired');
+        await this.erase(congregationId, app, null);
         continue;
       }
       if (app.createdAt > cutoff) continue;
