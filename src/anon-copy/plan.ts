@@ -360,6 +360,13 @@ export const PLAN: Record<string, TablePlan> = {
       last_edited_by_id`),
     remove('notes'),
   ),
+  // A pioneer's own hours log: the minutes stay (they are what the report
+  // sums), his note goes.
+  service_log_entries: table(
+    copy(`id congregation_id publisher_id user_id day minutes kind
+      created_at updated_at`),
+    remove('note'),
+  ),
   pioneer_spells: table(
     copy(`id congregation_id publisher_id pioneer_type start_month end_month
       created_by created_at updated_at`),
