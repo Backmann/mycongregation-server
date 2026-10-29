@@ -231,6 +231,7 @@ describe('the personal hours log (real database)', () => {
     expect((await month('pio')).body).toMatchObject({
       role: null,
       open: false,
+      startsFrom: `${Number(now.slice(0, 4)) + 1}-01`,
     });
     expect((await h.as('pio').get('/service-log')).body.months).toEqual([]);
     expect(
