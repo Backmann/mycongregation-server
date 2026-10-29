@@ -1683,6 +1683,21 @@ export class PublishersService {
         fields: ['isActive'],
       });
     }
+    // An auxiliary period does not outlive the person's place here (29
+    // October 2026): «until cancelled» ran on for ever after a move, in the
+    // committee's working list. It ends with the month he left.
+    {
+      const d = publisher.removedAt;
+      const next = new Date(
+        Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1),
+      );
+      await this.auxiliaryPioneersService.closeActiveForPublisher(
+        tenantId,
+        id,
+        next.toISOString().slice(0, 10),
+        'departed',
+      );
+    }
     // A departure moves every report about the months after it, and the day
     // it is ENTERED is not the day he left. Both are kept: the entry's own
     // time, and the day and reason as typed. The note stays out — it is the

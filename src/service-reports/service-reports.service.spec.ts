@@ -117,6 +117,7 @@ describe('ServiceReportsService', () => {
     auxiliaryMonthsForPublisher: jest.Mock;
     create: jest.Mock;
     remove: jest.Mock;
+    undoJustCreated: jest.Mock;
     canManage: jest.Mock;
   };
 
@@ -180,6 +181,7 @@ describe('ServiceReportsService', () => {
       auxiliaryMonthsForPublisher: jest.fn().mockResolvedValue(new Set()),
       create: jest.fn().mockResolvedValue({ id: 'aux-new' }),
       remove: jest.fn().mockResolvedValue(undefined),
+      undoJustCreated: jest.fn().mockResolvedValue(undefined),
       canManage: jest.fn().mockResolvedValue(true),
     };
     service = new ServiceReportsService(
@@ -615,9 +617,10 @@ describe('ServiceReportsService', () => {
           }),
         ).rejects.toThrow();
 
-        expect(auxiliaryPioneersService.remove).toHaveBeenCalledWith(
+        // Taken back past the rules of remove(): a month already begun
+        // cannot be deleted by a group overseer, but this one was never meant.
+        expect(auxiliaryPioneersService.undoJustCreated).toHaveBeenCalledWith(
           'cong-1',
-          expect.objectContaining({ id: 'user-self' }),
           'aux-new',
         );
       });
@@ -638,9 +641,10 @@ describe('ServiceReportsService', () => {
           }),
         ).rejects.toThrow();
 
-        expect(auxiliaryPioneersService.remove).toHaveBeenCalledWith(
+        // Taken back past the rules of remove(): a month already begun
+        // cannot be deleted by a group overseer, but this one was never meant.
+        expect(auxiliaryPioneersService.undoJustCreated).toHaveBeenCalledWith(
           'cong-1',
-          expect.objectContaining({ id: 'user-self' }),
           'aux-new',
         );
         expect(reportsRepo.create).not.toHaveBeenCalled();

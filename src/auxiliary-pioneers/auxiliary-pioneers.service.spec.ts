@@ -7,6 +7,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { AuxiliaryPioneersService } from './auxiliary-pioneers.service';
+import { ReportMonthClosure } from '../entities/report-month-closure.entity';
+import { PioneerSpell } from '../entities/pioneer-spell.entity';
 import { AuxiliaryPioneer } from '../entities/auxiliary-pioneer.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Responsibility } from '../entities/responsibility.entity';
@@ -35,6 +37,8 @@ describe('AuxiliaryPioneersService', () => {
   let publisherRepo: { find: jest.Mock; findOne: jest.Mock };
   let responsibilityRepo: { count: jest.Mock };
   let eventRepo: { find: jest.Mock };
+  let closuresRepo: { find: jest.Mock };
+  let spellsRepo: { find: jest.Mock };
 
   afterEach(() => restoreNow());
 
@@ -53,6 +57,8 @@ describe('AuxiliaryPioneersService', () => {
     };
     responsibilityRepo = { count: jest.fn().mockResolvedValue(0) };
     eventRepo = { find: jest.fn().mockResolvedValue([]) };
+    closuresRepo = { find: jest.fn().mockResolvedValue([]) };
+    spellsRepo = { find: jest.fn().mockResolvedValue([]) };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -65,6 +71,11 @@ describe('AuxiliaryPioneersService', () => {
           useValue: responsibilityRepo,
         },
         { provide: getRepositoryToken(SpecialEvent), useValue: eventRepo },
+        {
+          provide: getRepositoryToken(ReportMonthClosure),
+          useValue: closuresRepo,
+        },
+        { provide: getRepositoryToken(PioneerSpell), useValue: spellsRepo },
         {
           provide: AuditLogService,
           useValue: {
