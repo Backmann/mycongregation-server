@@ -1390,6 +1390,16 @@ export class ServiceReportsService {
     if (dto.hoursReported !== undefined) {
       report.hoursReported = dto.hoursReported;
     }
+    // The form changed under the report (29 October 2026): a month became
+    // auxiliary after it came in as «participated», and he now gives hours —
+    // the hours take the place of the yes/no, not sit beside it. And the
+    // other way, should a month stop being one of pioneering.
+    if (isPioneer && dto.hoursReported !== undefined) {
+      report.servedThisMonth = null;
+    }
+    if (!isPioneer && dto.servedThisMonth !== undefined) {
+      report.hoursReported = null;
+    }
     if (dto.bibleStudies !== undefined) {
       report.bibleStudies = dto.bibleStudies;
     }

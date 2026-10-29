@@ -59,11 +59,19 @@ describe('auxiliary service by years (real database)', () => {
         reduced,
       ],
     );
-  const report = (card: string, month: string, hours: number | null) =>
+  // Filed by the person himself, as from his own phone.
+  const report = (login: string, month: string, hours: number | null) =>
     h.sql(
-      `INSERT INTO service_reports (congregation_id, publisher_id, report_month, served_this_month, hours_reported)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [tenantId, card, `${month}-01`, hours === null ? true : null, hours],
+      `INSERT INTO service_reports (congregation_id, publisher_id, report_month, served_this_month, hours_reported, submitted_by_id)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        tenantId,
+        cards[login],
+        `${month}-01`,
+        hours === null ? true : null,
+        hours,
+        users[login],
+      ],
     );
 
   beforeAll(async () => {
@@ -96,7 +104,7 @@ describe('auxiliary service by years (real database)', () => {
     const last = add(now, -1);
     // Anna served last month (15 taken) and reported; this month awaited.
     await period(cards.anna, last, now, [last]);
-    await report(cards.anna, last, 17);
+    await report('anna', last, 17);
     // Lena: an open period from this month.
     await period(cards.lena, now, null);
 
@@ -195,7 +203,7 @@ describe('auxiliary service by years (real database)', () => {
     await h.sql(`DELETE FROM auxiliary_pioneers WHERE publisher_id = $1`, [
       cards.anna,
     ]);
-    await report(cards.anna, now, null);
+    await report('anna', now, null);
     const app = await h.as('anna').post('/aux-applications', {
       months: [now, add(now, 1)],
       confirmed: true,
@@ -220,6 +228,22 @@ describe('auxiliary service by years (real database)', () => {
     );
     expect(stopped.length).toBeGreaterThan(0);
     expect(stopped.every((x) => !x.body.includes('Лена'))).toBe(true);
+    // She adds them: the hours take the place of «participated».
+    const fixed = await h
+      .as('anna')
+      .patch(`/service-reports/${mine.body.reportsWithoutHours[0].reportId}`, {
+        hoursReported: 12,
+      });
+    expect(fixed.status).toBe(200);
+    const [row] = await h.sql<{ served: boolean | null; hours: number | null }>(
+      `SELECT served_this_month AS served, hours_reported AS hours FROM service_reports WHERE id = $1`,
+      [mine.body.reportsWithoutHours[0].reportId],
+    );
+    expect(row).toEqual({ served: null, hours: 12 });
+    expect(
+      (await h.as('anna').get('/aux-applications/mine')).body
+        .reportsWithoutHours,
+    ).toEqual([]);
     // The card shows the application pending no more, and the month awaited.
     const card = await h
       .as('coord')

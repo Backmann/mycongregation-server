@@ -6,6 +6,7 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceReport } from '../entities/service-report.entity';
 import { AuxPioneerApplication } from '../entities/aux-pioneer-application.entity';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { lastClosedReportMonth, monthKey } from '../common/report-month-window';
 import { AuxiliaryPioneersService } from './auxiliary-pioneers.service';
 import {
   goalOf,
@@ -354,14 +355,23 @@ export class AuxYearService {
   /**
    * His reports that came in without hours for a month that is now one of
    * auxiliary service — filed before the application was approved. Only
-   * months still open: a closed one is the secretary's to correct.
+   * months he may still correct himself: a closed one, or one past its
+   * collection, is the secretary's.
    */
   async reportsWithoutHours(
     congregationId: string,
     publisherId: string,
+    userId: string,
   ): Promise<{ reportId: string; month: string }[]> {
+    // His own filing only: a report handed in for him by his group overseer
+    // is the overseer's to correct, and he would be refused.
     const rows = await this.reports.find({
-      where: { congregationId, publisherId, hoursReported: IsNull() },
+      where: {
+        congregationId,
+        publisherId,
+        submittedById: userId,
+        hoursReported: IsNull(),
+      },
       select: ['id', 'reportMonth'],
     });
     if (rows.length === 0) return [];
@@ -379,8 +389,17 @@ export class AuxYearService {
       congregationId,
       candidates.map((c) => c.month),
     );
+    // And only while the month is still collected: past its closing day
+    // (the 20th of the next month) he can no longer correct his own report,
+    // so asking him would lead to a refusal (found on the stand).
+    const lastShut = monthKey(
+      lastClosedReportMonth(
+        new Date(Date.now()),
+        await this.clock.timezoneOf(congregationId),
+      ),
+    ).slice(0, 7);
     return candidates
-      .filter((c) => !closed.has(c.month))
+      .filter((c) => !closed.has(c.month) && c.month > lastShut)
       .sort((a, b) => a.month.localeCompare(b.month));
   }
 

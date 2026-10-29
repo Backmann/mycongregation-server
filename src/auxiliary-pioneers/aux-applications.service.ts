@@ -917,7 +917,7 @@ export class AuxApplicationsService {
     // asked to add them — the month now wants them.
     if (u) {
       const missing = (
-        await this.year.reportsWithoutHours(congregationId, app.publisherId)
+        await this.year.reportsWithoutHours(congregationId, app.publisherId, u)
       ).filter((r) => months.includes(r.month));
       for (const r of missing) {
         await this.askHours(congregationId, u, r.reportId, r.month);
@@ -1123,6 +1123,7 @@ export class AuxApplicationsService {
       reportsWithoutHours: await this.year.reportsWithoutHours(
         congregationId,
         card.id,
+        user.id,
       ),
     };
   }
