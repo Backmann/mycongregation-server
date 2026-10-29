@@ -108,6 +108,7 @@ describe('MeService.myPublisher', () => {
         lastName: 'Backmann',
         pioneerType: 'none',
         appointment: null,
+        gender: null,
         serviceGroupId: 'g1',
         mobilePhone: '+49 151 000',
         email: 'private@example.org',

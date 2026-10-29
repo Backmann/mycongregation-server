@@ -104,6 +104,8 @@ export interface MyPublisherResponse {
     lastName: string;
     pioneerType: string | null;
     appointment: string | null;
+    /** Own — the application's words say «спланировал» or «спланировала». */
+    gender: string | null;
     serviceGroupId: string | null;
     /** Own contacts — the publisher keeps these up to date themselves. */
     mobilePhone: string | null;
@@ -213,6 +215,7 @@ export class MeService {
         // here so a man can be told his own standing on his own screen without
         // fetching the whole roster to find himself in it.
         appointment: me.appointment ?? null,
+        gender: me.gender ?? null,
         serviceGroupId: me.serviceGroupId ?? null,
         // Own contacts: the publisher edits these themselves.
         mobilePhone: me.mobilePhone ?? null,

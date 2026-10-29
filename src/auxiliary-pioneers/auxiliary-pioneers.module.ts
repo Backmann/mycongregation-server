@@ -10,6 +10,15 @@ import { SpecialEvent } from '../entities/special-event.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
 import { PioneerSpell } from '../entities/pioneer-spell.entity';
 import { CongregationClockModule } from '../common/congregation-clock.module';
+import {
+  AuxPioneerApplication,
+  AuxPioneerApplicationSeat,
+} from '../entities/aux-pioneer-application.entity';
+import { Absence } from '../entities/absence.entity';
+import { Congregation } from '../entities/congregation.entity';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { AuxApplicationsService } from './aux-applications.service';
+import { AuxApplicationsController } from './aux-applications.controller';
 
 @Module({
   imports: [
@@ -21,11 +30,16 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
       SpecialEvent,
       ReportMonthClosure,
       PioneerSpell,
+      AuxPioneerApplication,
+      AuxPioneerApplicationSeat,
+      Absence,
+      Congregation,
     ]),
+    NotificationsModule,
     AuditLogModule,
   ],
-  controllers: [AuxiliaryPioneersController],
-  providers: [AuxiliaryPioneersService],
-  exports: [AuxiliaryPioneersService],
+  controllers: [AuxiliaryPioneersController, AuxApplicationsController],
+  providers: [AuxiliaryPioneersService, AuxApplicationsService],
+  exports: [AuxiliaryPioneersService, AuxApplicationsService],
 })
 export class AuxiliaryPioneersModule {}

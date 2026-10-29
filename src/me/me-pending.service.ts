@@ -5,6 +5,7 @@ import { Publisher } from '../entities/publisher.entity';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { todayIn } from '../common/congregation-clock';
 import { TasksService } from '../tasks/tasks.service';
+import { AuxApplicationsService } from '../auxiliary-pioneers/aux-applications.service';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
 /**
@@ -43,7 +44,12 @@ const TASK_HORIZON_DAYS = 7;
 /** Beyond this the block would drown the screen it sits on. */
 const MAX_ITEMS = 5;
 
-export type PendingKind = 'contacts' | 'task';
+/**
+ * 'aux_application': an application to serve as an auxiliary pioneer waiting
+ * for THIS brother's answer — his place on the committee, or an open one he
+ * may take (29 October 2026). `title` is the applicant's name: data.
+ */
+export type PendingKind = 'contacts' | 'task' | 'aux_application';
 
 export interface PendingItem {
   kind: PendingKind;
@@ -70,6 +76,7 @@ export class MePendingService {
     private readonly publishersRepo: Repository<Publisher>,
     private readonly tasks: TasksService,
     private readonly clock: CongregationClock,
+    private readonly auxApplications: AuxApplicationsService,
   ) {}
 
   async pending(
@@ -104,6 +111,17 @@ export class MePendingService {
         title: task.title,
         dueOn: task.dueDate,
         overdue: task.dueDate < today,
+      });
+    }
+
+    for (const a of await this.auxApplications.waitingFor(tenantId, user)) {
+      const firstDay = `${a.firstMonth}-01`;
+      items.push({
+        kind: 'aux_application',
+        id: a.id,
+        title: a.name,
+        dueOn: firstDay,
+        overdue: false,
       });
     }
 

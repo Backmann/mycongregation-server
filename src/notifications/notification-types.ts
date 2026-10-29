@@ -44,6 +44,10 @@ export const NOTIFICATION_TYPES = [
   'talk_exchange_attention',
   // A «Местные потребности» part still without a topic — the coordinator.
   'local_needs_reminder',
+  // An application to serve as an auxiliary pioneer: for the committee and
+  // an elder in an open place; and its approval, for the applicant.
+  'aux_application',
+  'aux_application_approved',
   'test',
 ] as const;
 

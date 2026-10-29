@@ -22,6 +22,7 @@ import { TalkAttentionService } from '../talk-exchange/talk-attention.service';
 import { TalkConsistencyService } from '../talk-exchange/talk-consistency.service';
 import { FieldServiceConsistencyService } from '../field-service-meetings/field-service-consistency.service';
 import { LocalNeedsRemindersService } from '../local-needs/local-needs-reminders.service';
+import { AuxApplicationsService } from '../auxiliary-pioneers/aux-applications.service';
 import { LocalNeedsService } from '../local-needs/local-needs.service';
 import { SCHOOL_SYNC, type SchoolSync } from '../pioneer-school/school-sync';
 
@@ -59,6 +60,9 @@ export class ScheduledJobsService {
     private readonly localNeedsReminders?: LocalNeedsRemindersService,
     @Optional()
     private readonly localNeeds?: LocalNeedsService,
+    /** Applications to serve as an auxiliary pioneer: reminders, open places. */
+    @Optional()
+    private readonly auxApplications?: AuxApplicationsService,
     /** The pioneer schools' absences, brought in line each night. */
     @Optional()
     @Inject(SCHOOL_SYNC)
@@ -95,6 +99,24 @@ export class ScheduledJobsService {
       await this.localNeedsReminders?.runDaily();
     } catch (e) {
       this.logger.error(`local needs reminder failed: ${String(e)}`);
+    }
+  }
+
+  /**
+   * Applications to serve as an auxiliary pioneer (29 October 2026): one
+   * whose months are over leaves quietly; a place three days without an
+   * answer is reminded once, and opened to the other elders when its holder
+   * is written away.
+   */
+  @Cron('30 8 * * *', {
+    name: 'aux-applications',
+    timeZone: 'Europe/Berlin',
+  })
+  async handleAuxApplications(): Promise<void> {
+    try {
+      await this.auxApplications?.runDaily();
+    } catch (e) {
+      this.logger.error(`aux applications failed: ${String(e)}`);
     }
   }
 

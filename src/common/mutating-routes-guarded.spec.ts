@@ -13,6 +13,8 @@ import { join } from 'node:path';
  */
 const CHECKED_IN_SERVICE: Record<string, string> = {
   absences: 'service: a person for himself, planners for others',
+  'aux-applications':
+    'service: the applicant his own, the committee\u2019s places, an elder in an open one, the secretary for a paper',
   auth: 'sign-in, reset and one\u2019s own account — public or self by design',
   'auxiliary-pioneers': 'service: self-application, managers for others',
   'conduct-live': 'service: chairman, timekeeper or admin of that week',
