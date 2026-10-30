@@ -18,6 +18,7 @@ import { CreatePublisherDto } from './dto/create-publisher.dto';
 import { UpdatePublisherDto } from './dto/update-publisher.dto';
 import { QueryPublishersDto } from './dto/query-publishers.dto';
 import { RemovePublisherDto } from './dto/remove-publisher.dto';
+import { PastPioneerSpellDto } from './dto/past-pioneer-spell.dto';
 import { CorrectPioneerKindDto } from './dto/correct-pioneer-kind.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -321,6 +322,86 @@ export class PublishersController {
       tenantId,
       id,
       dto.pioneerType,
+      user?.id,
+    );
+  }
+
+  /**
+   * The pioneer history on the card (30 October 2026): every spell of
+   * regular, special and missionary pioneering and the months in all. Seen
+   * by whoever may open the card; written by the secretary.
+   */
+  @Get(':id/pioneer-history')
+  async pioneerHistory(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const privileged = await this.publishersService.resolvePrivateAccess(
+      tenantId,
+      user,
+    );
+    if (!privileged) {
+      throw new ForbiddenException(
+        refusal(
+          'PUBLISHER_CARD_CLOSED',
+          'Publisher cards are visible to admins, elders, and members granted ' +
+            'access to private data.',
+        ),
+      );
+    }
+    return this.publishersService.pioneerHistory(tenantId, id);
+  }
+
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(ResponsibilityType.SECRETARY)
+  @Post(':id/pioneer-history')
+  addPastPioneerSpell(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PastPioneerSpellDto,
+  ) {
+    return this.publishersService.addPastPioneerSpell(
+      tenantId,
+      id,
+      dto,
+      user?.id,
+    );
+  }
+
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(ResponsibilityType.SECRETARY)
+  @Patch(':id/pioneer-history/:spellId')
+  updatePastPioneerSpell(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('spellId', ParseUUIDPipe) spellId: string,
+    @Body() dto: PastPioneerSpellDto,
+  ) {
+    return this.publishersService.updatePastPioneerSpell(
+      tenantId,
+      id,
+      spellId,
+      dto,
+      user?.id,
+    );
+  }
+
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(ResponsibilityType.SECRETARY)
+  @Delete(':id/pioneer-history/:spellId')
+  removePastPioneerSpell(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('spellId', ParseUUIDPipe) spellId: string,
+  ) {
+    return this.publishersService.removePastPioneerSpell(
+      tenantId,
+      id,
+      spellId,
       user?.id,
     );
   }

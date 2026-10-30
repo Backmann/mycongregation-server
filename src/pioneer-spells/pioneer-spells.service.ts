@@ -1,9 +1,50 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { refusal } from '../common/errors/refusal';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { PioneerSpell } from '../entities/pioneer-spell.entity';
 import { PioneerType } from '../common/enums/pioneer-type.enum';
+import {
+  monthOf,
+  monthsInclusive,
+  overlaps,
+  servedMonths,
+} from './pioneer-history';
+
+/** One spell as the card's history shows it — months as YYYY-MM. */
+export interface PioneerHistorySpell {
+  id: string;
+  kind: PioneerType;
+  start: string;
+  /** Null while it runs — the open spell, which follows the card. */
+  end: string | null;
+  /** Months in it, up to the current month for the open one. */
+  months: number;
+}
+
+export interface PioneerHistory {
+  spells: PioneerHistorySpell[];
+  /** Every permanent month, counted once, up to the current month. */
+  totalMonths: number;
+  /** The earliest month the app knows of; null when there is no spell. */
+  knownFrom: string | null;
+}
+
+/** What the secretary writes for a past spell. */
+export interface PastSpellInput {
+  kind: PioneerType;
+  /** YYYY-MM */
+  start: string;
+  /** YYYY-MM */
+  end: string;
+}
+
+const MONTH = /^(19|20)\d{2}-(0[1-9]|1[0-2])$/;
 
 /** The kinds of pioneering a spell records. Auxiliary has its own table. */
 const PERMANENT: PioneerType[] = [
@@ -225,5 +266,190 @@ export class PioneerSpellsService {
     }
     open.pioneerType = opts.pioneerType;
     return this.repo.save(open);
+  }
+
+  // ---- The history on the card (30 October 2026) ----------------------
+  //
+  // The secretary copies earlier pioneering in from the paper S-21 — an
+  // earlier stretch, years in another congregation. Only CLOSED spells are
+  // written here; the open one follows the card and nothing else, so the
+  // two can never disagree about «now».
+
+  /** The whole history of one publisher, as the card shows it. */
+  async history(
+    congregationId: string,
+    publisherId: string,
+    todayIso: string,
+  ): Promise<PioneerHistory> {
+    const rows = (await this.forPublisher(congregationId, publisherId)).filter(
+      (r) => PERMANENT.includes(r.pioneerType),
+    );
+    const now = monthOf(todayIso);
+    const spells = rows
+      .map((r) => {
+        const start = monthOf(String(r.startMonth));
+        const end = r.endMonth ? monthOf(String(r.endMonth)) : null;
+        return {
+          id: r.id,
+          kind: r.pioneerType,
+          start,
+          end,
+          months: start > now ? 0 : monthsInclusive(start, end ?? now),
+        };
+      })
+      // Newest first: the card reads from now backwards.
+      .sort((a, b) => b.start.localeCompare(a.start));
+    return {
+      spells,
+      totalMonths: servedMonths(rows, `${now}-01`),
+      knownFrom: rows.length
+        ? rows.map((r) => monthOf(String(r.startMonth))).sort()[0]
+        : null,
+    };
+  }
+
+  /** A past spell, copied in from paper. */
+  async addPast(opts: {
+    congregationId: string;
+    publisherId: string;
+    input: PastSpellInput;
+    todayIso: string;
+    actorUserId?: string | null;
+  }): Promise<PioneerSpell> {
+    const others = await this.forPublisher(
+      opts.congregationId,
+      opts.publisherId,
+    );
+    this.assertPast(opts.input, others, opts.todayIso);
+    return this.repo.save(
+      this.repo.create({
+        congregationId: opts.congregationId,
+        publisherId: opts.publisherId,
+        pioneerType: opts.input.kind,
+        startMonth: `${opts.input.start}-01`,
+        endMonth: `${opts.input.end}-01`,
+        createdBy: opts.actorUserId ?? null,
+      }),
+    );
+  }
+
+  /** A closed spell, corrected. Returns it as it was and as it is now. */
+  async updatePast(opts: {
+    congregationId: string;
+    publisherId: string;
+    spellId: string;
+    input: PastSpellInput;
+    todayIso: string;
+  }): Promise<{ before: PioneerSpell; after: PioneerSpell }> {
+    const all = await this.forPublisher(opts.congregationId, opts.publisherId);
+    const spell = this.closedSpell(all, opts.spellId);
+    const before = { ...spell };
+    this.assertPast(
+      opts.input,
+      all.filter((s) => s.id !== spell.id),
+      opts.todayIso,
+    );
+    spell.pioneerType = opts.input.kind;
+    spell.startMonth = `${opts.input.start}-01`;
+    spell.endMonth = `${opts.input.end}-01`;
+    const after = await this.repo.save(spell);
+    return { before, after };
+  }
+
+  /** A closed spell written in error. Returns what was removed. */
+  async removePast(opts: {
+    congregationId: string;
+    publisherId: string;
+    spellId: string;
+  }): Promise<PioneerSpell> {
+    const all = await this.forPublisher(opts.congregationId, opts.publisherId);
+    const spell = this.closedSpell(all, opts.spellId);
+    await this.repo.delete({
+      id: spell.id,
+      congregationId: opts.congregationId,
+    });
+    return spell;
+  }
+
+  private closedSpell(all: PioneerSpell[], spellId: string): PioneerSpell {
+    const spell = all.find((s) => s.id === spellId);
+    if (!spell) {
+      throw new NotFoundException(
+        refusal('PIONEER_SPELL_NOT_FOUND', 'No such spell on this card.'),
+      );
+    }
+    if (!spell.endMonth) {
+      throw new BadRequestException(
+        refusal(
+          'PIONEER_SPELL_OPEN',
+          'The spell still running follows the card: change the card instead.',
+        ),
+      );
+    }
+    return spell;
+  }
+
+  /**
+   * A past spell must be a real stretch of the past: a permanent kind, a
+   * start not after its end, over by this month, and sharing no month with
+   * any other spell — a month is one kind of service or none.
+   */
+  private assertPast(
+    input: PastSpellInput,
+    others: PioneerSpell[],
+    todayIso: string,
+  ): void {
+    if (
+      !PERMANENT.includes(input.kind) ||
+      !MONTH.test(input.start ?? '') ||
+      !MONTH.test(input.end ?? '')
+    ) {
+      throw new BadRequestException(
+        refusal(
+          'PIONEER_SPELL_INVALID',
+          'A past spell is a regular, special or missionary pioneering with a first and a last month (YYYY-MM).',
+        ),
+      );
+    }
+    if (input.start > input.end) {
+      throw new BadRequestException(
+        refusal(
+          'PIONEER_SPELL_ORDER',
+          'The first month comes before the last one.',
+        ),
+      );
+    }
+    if (input.end > monthOf(todayIso)) {
+      throw new BadRequestException(
+        refusal(
+          'PIONEER_SPELL_FUTURE',
+          'A past spell is over by this month; the one running now is set on the card.',
+        ),
+      );
+    }
+    const clash = others
+      .filter((o) => PERMANENT.includes(o.pioneerType))
+      .find((o) =>
+        overlaps(
+          { start: input.start, end: input.end },
+          {
+            start: String(o.startMonth),
+            end: o.endMonth ? String(o.endMonth) : null,
+          },
+        ),
+      );
+    if (clash) {
+      throw new BadRequestException(
+        refusal(
+          'PIONEER_SPELL_OVERLAP',
+          'These months are already in another spell.',
+          {
+            start: monthOf(String(clash.startMonth)),
+            end: clash.endMonth ? monthOf(String(clash.endMonth)) : null,
+            kind: clash.pioneerType,
+          },
+        ),
+      );
+    }
   }
 }
