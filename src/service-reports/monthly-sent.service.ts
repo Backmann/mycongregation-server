@@ -106,10 +106,19 @@ export interface S21TotalsMonth {
   month: string;
   /**
    * sent — kept by a person as what went to the branch; frozen — kept by the
-   * app; collecting — reports still coming in; open — past and never kept;
-   * none — nothing recorded; future — not yet.
+   * app; collecting — reports still coming in; closed — closed but never
+   * kept (before sheets began, 1 October 2026): its figures are the reports
+   * as they are now; open — past, never closed nor kept; none — nothing
+   * recorded; future — not yet.
    */
-  state: 'sent' | 'frozen' | 'collecting' | 'open' | 'none' | 'future';
+  state:
+    | 'sent'
+    | 'frozen'
+    | 'collecting'
+    | 'closed'
+    | 'open'
+    | 'none'
+    | 'future';
   /** Card 1: regular, special pioneers and missionaries in the field. */
   pioneers: {
     count: number;
@@ -444,13 +453,18 @@ export class MonthlySentService {
         (shown.carriedIn ?? []).filter((c) => keys.includes(c.category)).length;
       rows.push({
         month,
+        // Months before 1 October 2026 were never kept — sheets began then —
+        // yet most were closed and sent. «Closed» says so; only a past month
+        // nobody closed is «open».
         state: shown.sent
           ? shown.sent.confirmed
             ? 'sent'
             : 'frozen'
           : month === collecting
             ? 'collecting'
-            : 'open',
+            : live.closed
+              ? 'closed'
+              : 'open',
         pioneers: {
           count: regular.count + special.count + missionary.count,
           hours:

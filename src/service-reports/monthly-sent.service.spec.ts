@@ -538,6 +538,28 @@ describe('MonthlySentService.s21Totals — the three totals cards (plan B)', () 
     expect(reports.computeSummary).not.toHaveBeenCalled();
   });
 
+  it('a month closed before sheets began is «closed», not «not sent»', async () => {
+    const { service, reports } = make();
+    const closedJune = live('2026-06', cats({ none: [60, null, 10] }), {
+      closed: true,
+    });
+    reports.computeSummary.mockImplementation(
+      async (_t: string, m: string) => ({
+        summary: m.startsWith('2026-06')
+          ? closedJune
+          : live(m.slice(0, 7), cats({ none: [1, null, 0] })),
+        members: {},
+      }),
+    );
+    const out = await service.s21Totals(TENANT, { id: 'u' } as never, 2026);
+    const june = out.months.find((m) => m.month === '2026-06')!;
+    const july = out.months.find((m) => m.month === '2026-07')!;
+    expect(june.state).toBe('closed');
+    expect(june.publishers.count).toBe(60);
+    // Past, never closed nor kept: that one is «open».
+    expect(july.state).toBe('open');
+  });
+
   it('a past year shows all twelve months, none in the future', async () => {
     const { service } = make();
     const out = await service.s21Totals(TENANT, { id: 'u' } as never, 2026);
