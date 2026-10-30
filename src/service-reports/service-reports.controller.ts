@@ -176,6 +176,23 @@ export class ServiceReportsController {
     );
   }
 
+  /**
+   * The three totals cards (S-21) of a service year — the months as they
+   * went to the branch (instruction, point 14). Every elder reads them.
+   */
+  @Get('s21-totals')
+  getS21Totals(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('year') yearRaw?: string,
+  ) {
+    return this.monthlySent.s21Totals(
+      tenantId,
+      user,
+      yearRaw ? parseInt(yearRaw, 10) || undefined : undefined,
+    );
+  }
+
   @Get('summary')
   async getSummary(
     @TenantId() tenantId: string,

@@ -2426,6 +2426,12 @@ export class ServiceReportsService {
       ]),
     );
 
+    // Special pioneers and missionaries hand their reports to the branch
+    // themselves; the congregation's sheet never carries them, so nothing of
+    // theirs is ever «late» to it — a report stays in its own month.
+    const direct = (category: ServiceSummaryCategoryKey) =>
+      category === PioneerType.SPECIAL || category === PioneerType.MISSIONARY;
+
     /** Does this report count on a line of its category at all? */
     const counts = (
       report: ServiceReport,
@@ -2446,7 +2452,7 @@ export class ServiceReportsService {
         sheets,
         new Date(report.createdAt),
       );
-      if (place.late && counts(report, category)) {
+      if (place.late && counts(report, category) && !direct(category)) {
         lateOut.push({
           publisherId: report.publisherId,
           name: nameOf.get(report.publisherId) ?? '',
@@ -2508,7 +2514,7 @@ export class ServiceReportsService {
           : auxByMonth.get(own)!.has(card.id)
             ? 'auxiliary'
             : 'none';
-      if (!counts(report, category)) continue;
+      if (!counts(report, category) || direct(category)) continue;
       counted.push({ report, category });
       carriedIn.push({
         publisherId: card.id,

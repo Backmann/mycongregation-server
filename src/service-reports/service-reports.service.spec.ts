@@ -2870,6 +2870,32 @@ describe('ServiceReportsService', () => {
       expect(line(jun.summary, 'none').count).toBe(0);
     });
 
+    it('a special pioneer reports to the branch himself: his report stays in its own month', async () => {
+      kept = [{ period: '2026-09', members: { 'reported:none': ['a'] } }];
+      pioneerSpellsRepo.find.mockResolvedValue([
+        {
+          publisherId: 'b',
+          startMonth: '2020-09-01',
+          endMonth: null,
+          pioneerType: PioneerType.SPECIAL,
+        },
+      ]);
+      rows = [
+        report('b', '2026-09-01', { hoursReported: 100, bibleStudies: 2 }),
+      ];
+
+      const sep = await service.computeSummary('cong-1', '2026-09');
+      const oct = await service.computeSummary('cong-1', '2026-10');
+
+      expect(line(sep.summary, 'special')).toMatchObject({
+        count: 1,
+        hours: 100,
+      });
+      expect(sep.summary.lateOut).toEqual([]);
+      expect(oct.summary.carriedIn).toEqual([]);
+      expect(line(oct.summary, 'special').count).toBe(0);
+    });
+
     it('marks the lines of the form: no special pioneers or missionaries on it', async () => {
       const { summary } = await service.computeSummary('cong-1', '2026-10');
       expect(
