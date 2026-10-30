@@ -336,6 +336,110 @@ describe('people: departure, sign-in, pioneer spells (real database)', () => {
       expect(got.body.totalMonths).toBe(48 + got.body.spells[0].months);
     });
 
+    it('point 9: the decision frees the year on the review and the S-21, and is noted', async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const sy =
+        Number(today.slice(5, 7)) >= 9
+          ? Number(today.slice(0, 4)) + 1
+          : Number(today.slice(0, 4));
+      const id = await h.addPublisher({
+        firstName: 'Хельга',
+        lastName: 'Беккер',
+        gender: 'sister',
+        birthDate: '1960-03-01',
+        baptismDate: '1980-01-01',
+        pioneerType: 'regular',
+        pioneerSince: '2005-09-01',
+      });
+      const before = await h
+        .as('admin')
+        .get(`/publishers/${id}/pioneer-history`);
+      expect(before.body.eligibility).toMatchObject({
+        ageOk: true,
+        yearsOk: true,
+        eligible: true,
+      });
+      const set = await h
+        .as('admin')
+        .put(`/publishers/${id}/pioneer-no-quota`, { decidedOn: today });
+      expect(set.status).toBe(200);
+      expect(set.body.spells[0].noQuotaDecidedOn).toBe(today);
+
+      const review = await h
+        .as('admin')
+        .get(`/service-reports/pioneer-year-review?year=${sy}&window=year`);
+      const row = review.body.rows.find(
+        (r: { publisherId: string }) => r.publisherId === id,
+      );
+      expect(row).toMatchObject({
+        noQuota: today,
+        short: false,
+        toMinimum: null,
+      });
+
+      const s21 = await h
+        .as('admin')
+        .get(`/service-reports/s21/${id}?year=${sy}`);
+      expect(s21.status).toBe(200);
+      expect(s21.body.noQuota).toBe(today);
+      expect(s21.body.publisher.pioneerType).toBe('regular');
+      expect(s21.body.remarks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ kind: 'noQuota', date: today }),
+        ]),
+      );
+      // Ten years before his pioneering: no pioneer mark on that card.
+      const old = await h
+        .as('admin')
+        .get(`/service-reports/s21/${id}?year=1995`);
+      expect(old.body.publisher.pioneerType).toBe('none');
+
+      // Taken back today: this year stays free.
+      const end = await h
+        .as('admin')
+        .delete(`/publishers/${id}/pioneer-no-quota`);
+      expect(end.body.spells[0].noQuotaEndedOn).toBe(today);
+      const again = await h
+        .as('admin')
+        .get(`/service-reports/pioneer-year-review?year=${sy}&window=year`);
+      expect(
+        again.body.rows.find(
+          (r: { publisherId: string }) => r.publisherId === id,
+        ).noQuota,
+      ).toBe(today);
+      const journal = await h.sql<{ n: number }>(
+        `SELECT count(*)::int AS n FROM audit_logs WHERE entity_id = $1 AND 'pioneerNoQuota' = ANY(changed_fields)`,
+        [id],
+      );
+      expect(journal[0].n).toBe(2);
+    });
+
+    it('the card’s «since» cannot move back into a stretch of the history', async () => {
+      const id = await h.addPublisher({
+        firstName: 'Марта',
+        lastName: 'Кун',
+        gender: 'sister',
+        baptismDate: '1990-01-01',
+        pioneerType: 'regular',
+        pioneerSince: '2020-09-01',
+      });
+      await h.as('admin').post(`/publishers/${id}/pioneer-history`, {
+        kind: 'regular',
+        start: '2010-01',
+        end: '2015-06',
+      });
+      const r = await h
+        .as('admin')
+        .patch(`/publishers/${id}`, { pioneerSince: '2014-01-01' });
+      expect(r.status).toBe(400);
+      expect(r.body.code).toBe('PIONEER_SPELL_OVERLAP');
+      // Just after the stretch is fine.
+      const ok = await h
+        .as('admin')
+        .patch(`/publishers/${id}`, { pioneerSince: '2015-07-01' });
+      expect(ok.status).toBe(200);
+    });
+
     it('the impact names months already sent with him on a pioneer line', async () => {
       const id = await h.addPublisher({
         firstName: 'Йорг',

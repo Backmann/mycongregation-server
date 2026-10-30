@@ -94,3 +94,98 @@ export function overlaps(
   const bEnd = b.end ? monthOf(b.end) : '9999-12';
   return monthOf(a.start) <= bEnd && monthOf(b.start) <= aEnd;
 }
+
+// ---- Without the hours requirement (instructions, point 9) ---------------
+
+/** The service year a day or month falls in: September opens the next one. */
+export function serviceYearOf(iso: string): number {
+  const y = Number(iso.slice(0, 4));
+  const m = Number(iso.slice(5, 7));
+  return m >= 9 ? y + 1 : y;
+}
+
+export interface NoQuotaLike {
+  pioneerType: PioneerType | string;
+  noQuotaDecidedOn?: string | null;
+  noQuotaEndedOn?: string | null;
+}
+
+/**
+ * Whether the spell is free of the hours requirement in a service year
+ * (Lionel, 30 October 2026): from the year the elders decided it — the
+ * whole of it — through the year it was taken back in, if ever.
+ */
+export function noQuotaInServiceYear(
+  spell: NoQuotaLike,
+  serviceYear: number,
+): boolean {
+  if (spell.pioneerType !== PioneerType.REGULAR || !spell.noQuotaDecidedOn) {
+    return false;
+  }
+  if (serviceYearOf(String(spell.noQuotaDecidedOn)) > serviceYear) return false;
+  return (
+    !spell.noQuotaEndedOn ||
+    serviceYearOf(String(spell.noQuotaEndedOn)) >= serviceYear
+  );
+}
+
+/** The age of 50 the instructions name — reached on the 50th birthday. */
+export const NO_QUOTA_MIN_AGE = 50;
+/** Fifteen years of pioneering in all. */
+export const NO_QUOTA_MIN_MONTHS = 15 * 12;
+
+export interface NoQuotaEligibility {
+  /** Full years on `today`; null without a birth date. */
+  age: number | null;
+  ageOk: boolean;
+  /** Months of permanent pioneering the app knows of, up to this month. */
+  servedMonths: number;
+  yearsOk: boolean;
+  /** The first month the app knows of — earlier service may be on paper. */
+  knownFrom: string | null;
+  /** Both conditions the app can see. Health and the wish are the elders'. */
+  eligible: boolean;
+}
+
+/**
+ * Points 1 and 2 of the three (point 9): 50 and older (Lionel: «с 50 можно
+ * начать»), and fifteen years of regular, special or missionary pioneering in
+ * all. The third — the wish to go on — and the health behind it are for the
+ * elders, with the circuit overseer; nothing here judges them.
+ */
+export function noQuotaEligibility(
+  birthDate: string | null,
+  spells: SpellLike[],
+  today: string,
+): NoQuotaEligibility {
+  let age: number | null = null;
+  if (birthDate) {
+    const [by, bm, bd] = birthDate.slice(0, 10).split('-').map(Number);
+    const [ty, tm, td] = today.slice(0, 10).split('-').map(Number);
+    age = ty - by - (tm < bm || (tm === bm && td < bd) ? 1 : 0);
+  }
+  const served = servedMonths(spells, `${monthOf(today)}-01`);
+  const known = spells
+    .filter((s) => PERMANENT_KINDS.includes(s.pioneerType as PioneerType))
+    .map((s) => monthOf(s.startMonth))
+    .sort();
+  const ageOk = age !== null && age >= NO_QUOTA_MIN_AGE;
+  const yearsOk = served >= NO_QUOTA_MIN_MONTHS;
+  return {
+    age,
+    ageOk,
+    servedMonths: served,
+    yearsOk,
+    knownFrom: known[0] ?? null,
+    eligible: ageOk && yearsOk,
+  };
+}
+
+/** The elders' decision (YYYY-MM-DD) that frees this service year, or null. */
+export function noQuotaDecisionIn(
+  spells: NoQuotaLike[],
+  serviceYear: number,
+): string | null {
+  const s = spells.find((sp) => noQuotaInServiceYear(sp, serviceYear));
+  return s?.noQuotaDecidedOn ? String(s.noQuotaDecidedOn).slice(0, 10) : null;
+}

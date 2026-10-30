@@ -16,3 +16,9 @@ export class PastPioneerSpellDto {
   @Matches(/^\d{4}-\d{2}$/)
   end!: string;
 }
+
+/** Point 9: the day the elders decided he may serve without the norm. */
+export class PioneerNoQuotaDto {
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  decidedOn!: string;
+}

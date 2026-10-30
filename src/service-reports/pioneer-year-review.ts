@@ -140,6 +140,19 @@ export interface PioneerYearRow {
   notes: { reportMonth: string; note: string }[];
   /** Every month of the window, in the order the service year runs. */
   months: PioneerMonthLine[];
+  /**
+   * Point 9: the elders let him serve without the hours requirement this
+   * year — the day they decided. He is measured against nothing: no goal,
+   * no minimum, never «short». Null for everybody else.
+   */
+  noQuota: string | null;
+  /**
+   * Point 9 again, as a hint for the elders only: below the measure, and 50
+   * or older with fifteen years of pioneering the app knows of. Health and
+   * the wish to go on are not the app's to know; this only says the two
+   * conditions it can see are met. Null when they are not, or not asked.
+   */
+  noQuotaHint: { age: number; servedMonths: number } | null;
 }
 
 export interface PioneerYearReview {
@@ -209,6 +222,14 @@ export function reviewPioneerYear(
     /** His regular-pioneer spells; when absent, «since pioneerSince». */
     spans?: PioneerSpan[];
     months: PioneerMonthHours[];
+    /** Point 9: the decision's day when this year is free of the norm. */
+    noQuota?: string | null;
+    /** Points 1 and 2 of point 9, as the app sees them. */
+    eligibility?: {
+      age: number | null;
+      servedMonths: number;
+      eligible: boolean;
+    };
   }[],
   opts: { through?: string } = {},
 ): PioneerYearReview {
@@ -328,7 +349,8 @@ export function reviewPioneerYear(
     const countedMine = mine.filter(
       (l) => l.reportMonth < thisMonth && l.state !== 'collecting',
     ).length;
-    const measured = countedMine > 0;
+    const free = person.noQuota ?? null;
+    const measured = countedMine > 0 && !free;
     const expectedMin = minimumFor(countedMine);
     const expectedGoal = goalFor(countedMine);
     const below = measured && hours < expectedMin;
@@ -338,7 +360,7 @@ export function reviewPioneerYear(
     const hisYear = year.filter(pioneerIn);
     const hisMonthsLeft = hisYear.filter((m) => m >= thisMonth).length;
     const yearLeft =
-      !yearOver && hisMonthsLeft > 0
+      !free && !yearOver && hisMonthsLeft > 0
         ? Math.max(0, minimumFor(hisYear.length) - hours)
         : null;
 
@@ -368,6 +390,15 @@ export function reviewPioneerYear(
           .filter((l) => l.note !== null && l.state !== 'notPioneer')
           .map((l) => ({ reportMonth: l.reportMonth, note: l.note as string })),
         months: lines,
+        noQuota: free,
+        noQuotaHint:
+          // Below on reports that came — not merely missing ones.
+          !free && below && monthsReported > 0 && person.eligibility?.eligible
+            ? {
+                age: person.eligibility.age ?? 0,
+                servedMonths: person.eligibility.servedMonths,
+              }
+            : null,
       },
     ];
   });
@@ -379,12 +410,15 @@ export function reviewPioneerYear(
    * За ними те, кому не хватает по сданному, но год ещё не полон: с ними
    * разговор другой — сперва спросить про отчёт. Остальные по имени.
    */
-  const rank = (r: PioneerYearRow) => (r.short ? 0 : r.shortSoFar ? 1 : 2);
+  // Those without the norm last, by themselves: nothing to measure.
+  const rank = (r: PioneerYearRow) =>
+    r.noQuota ? 3 : r.short ? 0 : r.shortSoFar ? 1 : 2;
   rows.sort((a, b) => {
     const ra = rank(a);
     const rb = rank(b);
     if (ra !== rb) return ra - rb;
     if (ra < 2) return a.hours - b.hours;
+    if (ra === 3) return a.displayName.localeCompare(b.displayName);
     return a.displayName.localeCompare(b.displayName);
   });
 

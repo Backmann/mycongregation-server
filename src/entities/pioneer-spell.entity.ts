@@ -68,6 +68,22 @@ export class PioneerSpell {
   @Column({ type: 'text', nullable: true })
   note!: string | null;
 
+  /**
+   * Instructions, point 9 (Lionel, 30 October 2026): the elders allow a
+   * regular pioneer to serve without the hours requirement. The day of the
+   * decision, as the S-21 notes it. It frees the whole service year it falls
+   * in, and every year after while it stands.
+   */
+  @Column({ type: 'date', name: 'no_quota_decided_on', nullable: true })
+  noQuotaDecidedOn!: string | null;
+
+  /**
+   * The day the decision was taken back. The service year it falls in stays
+   * free; the requirement returns with the next one.
+   */
+  @Column({ type: 'date', name: 'no_quota_ended_on', nullable: true })
+  noQuotaEndedOn!: string | null;
+
   @Column({ type: 'uuid', name: 'created_by', nullable: true })
   createdBy!: string | null;
 

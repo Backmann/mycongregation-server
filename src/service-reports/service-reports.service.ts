@@ -49,6 +49,10 @@ import {
   PIONEER_YEAR_GOAL,
   PIONEER_MONTH_PACE,
 } from './pioneer-year-review';
+import {
+  noQuotaDecisionIn,
+  noQuotaEligibility,
+} from '../pioneer-spells/pioneer-history';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import {
   PublishersService,
@@ -88,7 +92,19 @@ import { refusal } from '../common/errors/refusal';
  */
 export interface PioneerYearCard {
   serviceYear: number;
-  goal: number;
+  /**
+   * The year's goal for HIS months: 50 for each month of the year he is a
+   * regular pioneer (600 for the whole year, 400 from January). Null when
+   * he serves without the norm (point 9), or his pioneering ended this year
+   * — then the card shows his hours and no measure.
+   */
+  goal: number | null;
+  /** Point 9: the elders' decision, when this year is free of the norm. */
+  noQuota: string | null;
+  /** The last month of his pioneering when it ended within this year. */
+  endedIn: string | null;
+  /** The first month of his pioneering when it began within this year. */
+  startedIn: string | null;
   /** 50 — the monthly pace that adds up to the goal. */
   pace: number;
   hours: number;
@@ -362,8 +378,26 @@ export interface S21MonthRow {
   wasAuxiliaryPioneer: boolean;
 }
 
+/**
+ * A line the S-21's «Примечания» should carry in a month (30 October 2026):
+ * pioneering began or ended, or the elders' decision of point 9 was made or
+ * taken back. Worded by the app in the reader's language.
+ */
+export interface S21Remark {
+  /** YYYY-MM */
+  month: string;
+  kind: 'pioneerFrom' | 'pioneerUntil' | 'noQuota' | 'noQuotaEnded';
+  pioneerType: PioneerType;
+  /** The day, for the decisions. */
+  date?: string;
+}
+
 export interface S21DataResponse {
   serviceYear: number;
+  /** Notes the year's months carry besides the reports' own. */
+  remarks: S21Remark[];
+  /** Point 9: the decision that frees THIS year of the norm, if any. */
+  noQuota: string | null;
   publisher: {
     id: string;
     firstName: string;
@@ -1105,9 +1139,23 @@ export class ServiceReportsService {
     ]);
     const row = review.rows[0];
     if (!row) return null;
+    const free = noQuotaDecisionIn(spells, serviceYear);
+    const hisMonths = row.months.filter((m) => m.state !== 'notPioneer').length;
     return {
       serviceYear,
-      goal: PIONEER_YEAR_GOAL,
+      goal:
+        free || row.endedIn
+          ? null
+          : hisMonths === 12
+            ? PIONEER_YEAR_GOAL
+            : PIONEER_MONTH_PACE * hisMonths,
+      noQuota: free,
+      endedIn: row.endedIn ? row.endedIn.slice(0, 7) : null,
+      startedIn: row.startedMidYear
+        ? (row.months
+            .find((m) => m.state !== 'notPioneer')
+            ?.reportMonth.slice(0, 7) ?? null)
+        : null,
       pace: PIONEER_MONTH_PACE,
       hours: row.hours,
       countedMonths: row.countedMonths,
@@ -2074,6 +2122,60 @@ export class ServiceReportsService {
       detail: { document: 'S-21', serviceYear },
     });
 
+    // What he was IN THAT YEAR as a pioneer — from the spells, not the card
+    // of today (30 October 2026): the card put «Общий пионер» on the years
+    // before an appointment, and took it off the years of a man who has
+    // since stopped.
+    const yearSpells = (
+      await this.pioneerSpellsRepo.find({
+        where: { congregationId: tenantId, publisherId },
+        order: { startMonth: 'ASC' },
+      })
+    ).filter(
+      (sp) =>
+        sp.startMonth.slice(0, 10) <= last &&
+        (!sp.endMonth || sp.endMonth.slice(0, 10) >= first),
+    );
+    const kindThen =
+      yearSpells.length > 0
+        ? yearSpells[yearSpells.length - 1].pioneerType
+        : PioneerType.NONE;
+    const inYear = (iso: string) =>
+      iso.slice(0, 7) >= first.slice(0, 7) &&
+      iso.slice(0, 7) <= last.slice(0, 7);
+    const remarks: S21Remark[] = [];
+    for (const sp of yearSpells) {
+      const start = sp.startMonth.slice(0, 7);
+      if (inYear(start)) {
+        remarks.push({
+          month: start,
+          kind: 'pioneerFrom',
+          pioneerType: sp.pioneerType,
+        });
+      }
+      if (sp.endMonth && inYear(sp.endMonth)) {
+        remarks.push({
+          month: sp.endMonth.slice(0, 7),
+          kind: 'pioneerUntil',
+          pioneerType: sp.pioneerType,
+        });
+      }
+      for (const [day, kind] of [
+        [sp.noQuotaDecidedOn, 'noQuota'],
+        [sp.noQuotaEndedOn, 'noQuotaEnded'],
+      ] as const) {
+        if (day && inYear(String(day))) {
+          remarks.push({
+            month: String(day).slice(0, 7),
+            kind,
+            pioneerType: sp.pioneerType,
+            date: String(day).slice(0, 10),
+          });
+        }
+      }
+    }
+    remarks.sort((a, b) => a.month.localeCompare(b.month));
+
     const months: S21MonthRow[] = reports.map((r) => ({
       reportMonth: r.reportMonth,
       servedThisMonth: r.servedThisMonth,
@@ -2095,9 +2197,11 @@ export class ServiceReportsService {
         baptismDate: publisher.baptismDate,
         spiritualStatus: publisher.spiritualStatus,
         appointment: appointmentThen ?? publisher.appointment,
-        pioneerType: publisher.pioneerType,
+        pioneerType: kindThen,
       },
       months,
+      remarks,
+      noQuota: noQuotaDecisionIn(yearSpells, serviceYear),
     };
   }
 
@@ -2846,6 +2950,14 @@ export class ServiceReportsService {
       list.push(r);
       byPublisher.set(r.publisherId, list);
     }
+    // Point 9: the whole history of each, of every permanent kind — the
+    // fifteen years count special and missionary years too.
+    const allSpells = await this.pioneerSpellsRepo.find({
+      where: {
+        congregationId: tenantId,
+        publisherId: In(pioneers.map((p) => p.id)),
+      },
+    });
 
     return reviewPioneerYear(
       serviceYear,
@@ -2879,6 +2991,15 @@ export class ServiceReportsService {
           bibleStudies: r.bibleStudies,
           note: r.notes,
         })),
+        noQuota: noQuotaDecisionIn(
+          allSpells.filter((sp) => sp.publisherId === p.id),
+          serviceYear,
+        ),
+        eligibility: noQuotaEligibility(
+          p.birthDate ?? null,
+          allSpells.filter((sp) => sp.publisherId === p.id),
+          today,
+        ),
       })),
       { through },
     );
