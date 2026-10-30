@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -351,6 +352,25 @@ export class PublishersController {
       );
     }
     return this.publishersService.pioneerHistory(tenantId, id);
+  }
+
+  /** What ending his pioneering with this last month would meet. */
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(ResponsibilityType.SECRETARY)
+  @Get(':id/pioneer-end-impact')
+  pioneerEndImpact(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('lastMonth') lastMonth: string,
+  ) {
+    if (!/^\d{4}-\d{2}$/.test(lastMonth ?? '')) {
+      throw new BadRequestException(
+        refusal('INVALID_FIELD', 'lastMonth is YYYY-MM', {
+          fields: [{ field: 'lastMonth', rules: ['matches'] }],
+        }),
+      );
+    }
+    return this.publishersService.pioneerEndImpact(tenantId, id, lastMonth);
   }
 
   @UseGuards(ResponsibilityGuard)

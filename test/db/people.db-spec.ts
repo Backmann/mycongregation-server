@@ -239,5 +239,125 @@ describe('people: departure, sign-in, pioneer spells (real database)', () => {
       );
       expect(spells).toEqual([{ k: 'special', s: '2024-09', e: null }]);
     });
+    // ---- the history on the card, and ending it (30 October 2026) ----
+    const ym = (n: number) => {
+      const d = new Date();
+      d.setUTCDate(15);
+      d.setUTCMonth(d.getUTCMonth() + n);
+      return d.toISOString().slice(0, 7);
+    };
+
+    it('ending pioneering keeps the last month the secretary names', async () => {
+      const id = await h.addPublisher({
+        firstName: 'Ида',
+        lastName: 'Фукс',
+        gender: 'sister',
+        baptismDate: '2000-01-01',
+        pioneerType: 'regular',
+        pioneerSince: '2020-09-01',
+      });
+      const r = await h.as('admin').patch(`/publishers/${id}`, {
+        pioneerType: 'none',
+        pioneerSince: null,
+        pioneerEndMonth: ym(-2),
+      });
+      expect(r.status).toBe(200);
+      const spells = await h.sql<{ s: string; e: string | null }>(
+        `SELECT to_char(start_month,'YYYY-MM') AS s, to_char(end_month,'YYYY-MM') AS e
+           FROM pioneer_spells WHERE publisher_id = $1`,
+        [id],
+      );
+      expect(spells).toEqual([{ s: '2020-09', e: ym(-2) }]);
+      const journal = await h.sql<{ f: string[] }>(
+        `SELECT changed_fields AS f FROM audit_logs WHERE entity_id = $1 AND 'pioneerHistory' = ANY(changed_fields)`,
+        [id],
+      );
+      expect(journal).toHaveLength(1);
+    });
+
+    it('a last month before the start, or still to come, is refused and nothing changes', async () => {
+      const id = await h.addPublisher({
+        firstName: 'Ула',
+        lastName: 'Ланге',
+        gender: 'sister',
+        baptismDate: '2000-01-01',
+        pioneerType: 'regular',
+        pioneerSince: '2024-09-01',
+      });
+      for (const [month, code] of [
+        ['2024-08', 'PIONEER_END_BEFORE_START'],
+        [ym(1), 'PIONEER_END_FUTURE'],
+      ]) {
+        const r = await h.as('admin').patch(`/publishers/${id}`, {
+          pioneerType: 'none',
+          pioneerEndMonth: month,
+        });
+        expect(r.status).toBe(400);
+        expect(r.body.code).toBe(code);
+      }
+      const [card] = await h.sql<{ t: string }>(
+        `SELECT pioneer_type AS t FROM publishers WHERE id = $1`,
+        [id],
+      );
+      expect(card.t).toBe('regular');
+    });
+
+    it('the history takes earlier stretches, refuses a month twice, and sums them', async () => {
+      const id = await h.addPublisher({
+        firstName: 'Хельга',
+        lastName: 'Майер',
+        gender: 'sister',
+        baptismDate: '1980-01-01',
+        pioneerType: 'regular',
+        pioneerSince: '2012-03-01',
+      });
+      const add = await h
+        .as('admin')
+        .post(`/publishers/${id}/pioneer-history`, {
+          kind: 'special',
+          start: '1999-09',
+          end: '2003-08',
+        });
+      expect(add.status).toBe(201);
+      const clash = await h
+        .as('admin')
+        .post(`/publishers/${id}/pioneer-history`, {
+          kind: 'regular',
+          start: '2003-01',
+          end: '2004-01',
+        });
+      expect(clash.body.code).toBe('PIONEER_SPELL_OVERLAP');
+      const got = await h.as('admin').get(`/publishers/${id}/pioneer-history`);
+      expect(got.body.knownFrom).toBe('1999-09');
+      expect(got.body.spells.map((s: { kind: string }) => s.kind)).toEqual([
+        'regular',
+        'special',
+      ]);
+      expect(got.body.totalMonths).toBe(48 + got.body.spells[0].months);
+    });
+
+    it('the impact names months already sent with him on a pioneer line', async () => {
+      const id = await h.addPublisher({
+        firstName: 'Йорг',
+        lastName: 'Винтер',
+        baptismDate: '2000-01-01',
+        pioneerType: 'regular',
+        pioneerSince: '2020-09-01',
+      });
+      const [cong] = await h.sql<{ c: string }>(
+        `SELECT congregation_id AS c FROM publishers WHERE id = $1`,
+        [id],
+      );
+      await h.sql(
+        `INSERT INTO report_snapshots (congregation_id, kind, period, figures, members)
+         VALUES ($1, 'monthly', $2, '{}'::jsonb, $3::jsonb)`,
+        [cong.c, ym(-2), JSON.stringify({ 'reported:regular': [id] })],
+      );
+      const r = await h
+        .as('admin')
+        .get(`/publishers/${id}/pioneer-end-impact?lastMonth=${ym(-3)}`);
+      expect(r.status).toBe(200);
+      expect(r.body.sentAsPioneer).toEqual([ym(-2)]);
+    });
   });
 });

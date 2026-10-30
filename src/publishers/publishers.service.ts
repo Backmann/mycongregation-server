@@ -17,6 +17,7 @@ import { CongregationClock } from '../common/congregation-clock.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, IsNull, LessThanOrEqual, Repository } from 'typeorm';
 import { PioneerSpell } from '../entities/pioneer-spell.entity';
+import { ReportSnapshot } from '../entities/report-snapshot.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { User } from '../entities/user.entity';
@@ -1253,6 +1254,46 @@ export class PublishersService {
     );
   }
 
+  /**
+   * What ending his pioneering with this last month would meet (30 October
+   * 2026): months after it that already went to the branch with him on a
+   * pioneer line, and months after it whose reports came with hours. Nothing
+   * of it changes — the sent sheets stay as sent — but the secretary is told
+   * before he says it.
+   */
+  async pioneerEndImpact(
+    tenantId: string,
+    id: string,
+    lastMonth: string,
+  ): Promise<{ sentAsPioneer: string[]; reportedHours: string[] }> {
+    await this.findOne(tenantId, id);
+    const after = `${lastMonth.slice(0, 7)}-01`;
+    const sheets = await this.reportsRepo.manager
+      .getRepository(ReportSnapshot)
+      .find({ where: { congregationId: tenantId, kind: 'monthly' } });
+    const sentAsPioneer = sheets
+      .filter((s) => s.period > lastMonth.slice(0, 7))
+      .filter((s) =>
+        ['reported:regular', 'reported:special', 'reported:missionary'].some(
+          (line) => (s.members?.[line] ?? []).includes(id),
+        ),
+      )
+      .map((s) => s.period)
+      .sort();
+    const reports = await this.reportsRepo.find({
+      where: { congregationId: tenantId, publisherId: id },
+    });
+    const reportedHours = reports
+      .filter(
+        (r) =>
+          String(r.reportMonth).slice(0, 10) > after &&
+          (r.hoursReported ?? 0) > 0,
+      )
+      .map((r) => String(r.reportMonth).slice(0, 7))
+      .sort();
+    return { sentAsPioneer, reportedHours };
+  }
+
   /** A past spell copied in from the paper S-21. */
   async addPastPioneerSpell(
     tenantId: string,
@@ -1458,7 +1499,10 @@ export class PublishersService {
       email: publisher.email ?? null,
       address: publisher.address ?? null,
     };
-    Object.assign(publisher, dto);
+    // The last month of pioneering is not a field of the card: it goes to
+    // the spell that ends, below.
+    const { pioneerEndMonth, ...cardFields } = dto;
+    Object.assign(publisher, cardFields);
     publisher.pioneerMonthGoal = monthGoalFor(publisher);
     const contactsChanged =
       (publisher.mobilePhone ?? null) !== contactsBefore.mobilePhone ||
@@ -1499,6 +1543,25 @@ export class PublishersService {
     // BEFORE the card saves (23 October 2026). The spell sync below only
     // logs, so a refusal there would leave the card changed and the
     // history rewritten.
+    const PERMANENT_KINDS: PioneerType[] = [
+      PioneerType.REGULAR,
+      PioneerType.SPECIAL,
+      PioneerType.MISSIONARY,
+    ];
+    // He stops pioneering: the secretary's last month, checked before the
+    // card saves. One path for every screen that ends it (30 October 2026).
+    const endsPioneering =
+      PERMANENT_KINDS.includes(prevPioneerType) &&
+      !PERMANENT_KINDS.includes(publisher.pioneerType);
+    const endMonth = endsPioneering ? (pioneerEndMonth ?? null) : null;
+    if (endMonth) {
+      await this.pioneerSpells.assertEndMonth({
+        congregationId: tenantId,
+        publisherId: publisher.id,
+        endMonth,
+        todayIso: await this.clock.todayFor(tenantId),
+      });
+    }
     if (publisher.pioneerType !== prevPioneerType) {
       await this.pioneerSpells.assertCardChange({
         congregationId: tenantId,
@@ -1552,6 +1615,20 @@ export class PublishersService {
         pioneerSince: saved.pioneerSince ?? null,
         todayIso: await this.clock.todayFor(tenantId),
         actorUserId: actorUserId ?? null,
+        endMonth,
+      })
+      .then(async (out) => {
+        // The stretch that ended, said in the journal as the history says
+        // it: «Общий пионер · март 2012 – декабрь 2026».
+        if (out.closed && endsPioneering) {
+          await this.journalPioneerHistory(
+            tenantId,
+            saved,
+            actorUserId,
+            { ...out.closed, endMonth: null } as PioneerSpell,
+            out.closed,
+          );
+        }
       })
       .catch((err: unknown) => {
         this.logger.warn(
