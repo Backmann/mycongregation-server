@@ -26,6 +26,8 @@ const CHECKED_IN_SERVICE: Record<string, string> = {
   journal: 'service: assertMayAsk (admin)',
   'local-needs': 'service: life-and-ministry overseer',
   me: 'the caller\u2019s own data',
+  'pioneer-meetings':
+    'service: admin, coordinator of the body of elders, service overseer',
   'pioneer-school': 'service: admin',
   'print-docs':
     'any signed-in person hands over a sheet the app already showed him, for Safari to print; it reads nothing',

@@ -73,7 +73,10 @@ export type TaskKind =
   // Raised when a month of field-service meetings has been prepared as a
   // draft by the app itself: «check the month, then publish it». Closes
   // itself once the month holds no draft. Lives in field-service-meetings.
-  | 'field_service_month';
+  | 'field_service_month'
+  // «Who conducts the annual meeting with the pioneers» — 1 to 30 November,
+  // closing itself when the meeting is set. Lives in pioneer-meetings.
+  | 'pioneer_meeting';
 
 @Entity('elder_tasks')
 @Index(['congregationId', 'status'])

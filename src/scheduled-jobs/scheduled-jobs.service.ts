@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { PioneerMeetingsService } from '../pioneer-meetings/pioneer-meetings.service';
 import { Cron } from '@nestjs/schedule';
 import { MemorialService } from '../memorial/memorial.service';
 import { PublishersService } from '../publishers/publishers.service';
@@ -67,7 +68,43 @@ export class ScheduledJobsService {
     @Optional()
     @Inject(SCHOOL_SYNC)
     private readonly schools?: SchoolSync,
+    /** The annual meeting with the pioneers: the body's task, reminders. */
+    @Optional()
+    private readonly pioneerMeetings?: PioneerMeetingsService,
   ) {}
+
+  /**
+   * The annual meeting of the elders with the pioneers (S-211): the body's
+   * task in November, and — each evening — tomorrow's meeting to everyone it
+   * concerns, the one a week away to the elder who prepares it.
+   */
+  @Cron('40 8 * * *', {
+    name: 'pioneer-meeting-task',
+    timeZone: 'Europe/Berlin',
+  })
+  async handlePioneerMeetingTask(): Promise<void> {
+    try {
+      await this.pioneerMeetings?.ensureTasks();
+    } catch (err) {
+      this.logger.error(
+        `pioneer-meeting task failed: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  @Cron('5 18 * * *', {
+    name: 'pioneer-meeting-remind',
+    timeZone: 'Europe/Berlin',
+  })
+  async handlePioneerMeetingRemind(): Promise<void> {
+    try {
+      await this.pioneerMeetings?.remindEvening();
+    } catch (err) {
+      this.logger.error(
+        `pioneer-meeting reminders failed: ${(err as Error).message}`,
+      );
+    }
+  }
 
   /**
    * Trips of ours that need a brother, 14 and 7 days before, and trips that
