@@ -53,7 +53,9 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
     // much as a part at home is.
     kind === 'outgoing_talk' ||
     // The lunch bag one brings for the guest speaker (25 October 2026).
-    kind === 'guest_lunch'
+    kind === 'guest_lunch' ||
+    // The elder who conducts the meeting with the pioneers.
+    kind === 'pioneer_meeting_conduct'
   ) {
     return 'assignments';
   }
@@ -63,7 +65,9 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
     kind === 'field_service_notice' ||
     // A meeting moved, called off, or on again — the same Saturday.
     kind === 'field_service_change' ||
-    kind.startsWith('cart')
+    kind.startsWith('cart') ||
+    // A pioneer invited to the annual meeting with the elders.
+    kind === 'pioneer_meeting'
   ) {
     return 'ministry';
   }

@@ -1,4 +1,5 @@
 import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneers.module';
+import { PioneerMeetingsModule } from '../pioneer-meetings/pioneer-meetings.module';
 import { Module } from '@nestjs/common';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
@@ -30,6 +31,7 @@ import { MePendingService } from './me-pending.service';
     CongregationClockModule,
     NotificationsModule,
     AuditLogModule,
+    PioneerMeetingsModule,
     TypeOrmModule.forFeature([
       Publisher,
       ServiceGroup,

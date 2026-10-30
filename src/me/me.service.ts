@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, Between, Brackets } from 'typeorm';
 import { Publisher } from '../entities/publisher.entity';
@@ -15,6 +15,7 @@ import { CartAssignment } from '../entities/cart-assignment.entity';
 import { CoVisitItem } from '../entities/co-visit-item.entity';
 import { MemorialItem } from '../entities/memorial-item.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
+import { PioneerMeetingsService } from '../pioneer-meetings/pioneer-meetings.service';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { mondayOf } from '../common/week';
 import { memorialTakesKind } from '../common/week-rules';
@@ -27,7 +28,10 @@ export type MyAssignmentKind =
   | 'field_service'
   | 'outgoing_talk'
   | 'co_lunch'
-  | 'guest_lunch';
+  | 'guest_lunch'
+  // The annual meeting of the elders with the pioneers: invited, or the
+  // elder who conducts it (label «invited» | «conduct»).
+  | 'pioneer_meeting';
 
 export interface MyAssignmentItem {
   kind: MyAssignmentKind;
@@ -189,6 +193,8 @@ export class MeService {
     @InjectRepository(SpecialEvent)
     private readonly specialEventsRepo: Repository<SpecialEvent>,
     private readonly clock: CongregationClock,
+    @Optional()
+    private readonly pioneerMeetings?: PioneerMeetingsService,
   ) {}
 
   /**
@@ -865,6 +871,26 @@ export class MeService {
         date: String(e.date).slice(0, 10),
         label: name,
         congregationName: cong?.trim() || undefined,
+      });
+    }
+
+    // ---- The annual meeting with the pioneers (S-211) ----
+    // Invited while he pioneers on its day; the elder who conducts it too.
+    for (const m of (await this.pioneerMeetings?.forHome(
+      tenantId,
+      pid,
+      today,
+      horizon,
+    )) ?? []) {
+      items.push({
+        kind: 'pioneer_meeting',
+        sortDate: m.date,
+        date: m.date,
+        time: m.timeStart ?? undefined,
+        endTime: m.timeEnd ?? undefined,
+        label: m.role,
+        location: m.place ?? undefined,
+        partnerName: m.role === 'invited' ? m.conductorName : undefined,
       });
     }
 

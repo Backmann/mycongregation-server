@@ -52,6 +52,8 @@ export const NOTIFICATION_TYPES = [
   'aux_stopped',
   // A month became auxiliary after his report came in without hours.
   'aux_report_hours',
+  // The annual meeting of the elders with the pioneers — invited, conducting.
+  'pioneer_meeting',
   'test',
 ] as const;
 

@@ -32,6 +32,7 @@ import { AbsencesModule } from './absences/absences.module';
 import { LocalNeedsModule } from './local-needs/local-needs.module';
 import { LocalNeedsPlacementModule } from './local-needs/placement/local-needs-placement.module';
 import { PioneerSchoolModule } from './pioneer-school/pioneer-school.module';
+import { PioneerMeetingsModule } from './pioneer-meetings/pioneer-meetings.module';
 import { AuditRevertModule } from './audit-revert/audit-revert.module';
 import { AppVersionModule } from './app-version/app-version.module';
 import { ExternalCongregationsModule } from './external-congregations/external-congregations.module';
@@ -124,6 +125,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     LocalNeedsModule,
     LocalNeedsPlacementModule,
     PioneerSchoolModule,
+    PioneerMeetingsModule,
     AuditRevertModule,
     AppVersionModule,
     ExternalCongregationsModule,
