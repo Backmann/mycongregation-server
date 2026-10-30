@@ -25,6 +25,9 @@ export interface PioneerHistorySpell {
   end: string | null;
   /** Months in it, up to the current month for the open one. */
   months: number;
+  /** Serving without the hours requirement: the elders' decision, its end. */
+  noQuotaDecidedOn: string | null;
+  noQuotaEndedOn: string | null;
 }
 
 export interface PioneerHistory {
@@ -219,11 +222,30 @@ export class PioneerSpellsService {
       },
       order: { startMonth: 'DESC' },
     });
-    this.assertKindChangeDate(
-      open,
-      opts.pioneerType,
-      monthStart(opts.pioneerSince ?? opts.todayIso),
+    const startsAt = monthStart(opts.pioneerSince ?? opts.todayIso);
+    this.assertKindChangeDate(open, opts.pioneerType, startsAt);
+    // The spell running from `startsAt` on must not reach back into a
+    // stretch of the history (30 October 2026): the card's date moved before
+    // a past spell's end, or an appointment dated inside one.
+    const closed = (
+      await this.forPublisher(opts.congregationId, opts.publisherId)
+    ).filter((s) => s.endMonth && PERMANENT.includes(s.pioneerType));
+    const clash = closed.find(
+      (s) => String(s.endMonth).slice(0, 10) >= startsAt,
     );
+    if (clash) {
+      throw new BadRequestException(
+        refusal(
+          'PIONEER_SPELL_OVERLAP',
+          'These months are already in another spell.',
+          {
+            start: monthOf(String(clash.startMonth)),
+            end: clash.endMonth ? monthOf(String(clash.endMonth)) : null,
+            kind: clash.pioneerType,
+          },
+        ),
+      );
+    }
   }
 
   private assertKindChangeDate(
@@ -313,6 +335,12 @@ export class PioneerSpellsService {
       );
     }
     open.pioneerType = opts.pioneerType;
+    // Point 9 is a regular pioneer's: a spell that was never regular never
+    // had it.
+    if (opts.pioneerType !== PioneerType.REGULAR) {
+      open.noQuotaDecidedOn = null;
+      open.noQuotaEndedOn = null;
+    }
     return this.repo.save(open);
   }
 
@@ -343,6 +371,12 @@ export class PioneerSpellsService {
           start,
           end,
           months: start > now ? 0 : monthsInclusive(start, end ?? now),
+          noQuotaDecidedOn: r.noQuotaDecidedOn
+            ? String(r.noQuotaDecidedOn).slice(0, 10)
+            : null,
+          noQuotaEndedOn: r.noQuotaEndedOn
+            ? String(r.noQuotaEndedOn).slice(0, 10)
+            : null,
         };
       })
       // Newest first: the card reads from now backwards.
@@ -354,6 +388,78 @@ export class PioneerSpellsService {
         ? rows.map((r) => monthOf(String(r.startMonth))).sort()[0]
         : null,
     };
+  }
+
+  // ---- Without the hours requirement (point 9, 30 October 2026) --------
+
+  /**
+   * The elders allow the regular pioneer serving now to go on without the
+   * hours requirement, from the day they decided. Said again, the day is
+   * corrected and a taking-back undone. Returns the spell as it was and is.
+   */
+  async setNoQuota(opts: {
+    congregationId: string;
+    publisherId: string;
+    decidedOn: string;
+    todayIso: string;
+  }): Promise<{ before: PioneerSpell; after: PioneerSpell }> {
+    const open = await this.openSpell(opts.congregationId, opts.publisherId);
+    if (!open || open.pioneerType !== PioneerType.REGULAR) {
+      throw new BadRequestException(
+        refusal(
+          'PIONEER_NO_QUOTA_NOT_REGULAR',
+          'Only a regular pioneer serving now can serve without the hours requirement.',
+        ),
+      );
+    }
+    const day = opts.decidedOn.slice(0, 10);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(day) ||
+      day > opts.todayIso.slice(0, 10) ||
+      monthOf(day) < monthOf(String(open.startMonth))
+    ) {
+      throw new BadRequestException(
+        refusal(
+          'PIONEER_NO_QUOTA_DATE',
+          'The decision is a day of his present pioneering, today at the latest.',
+          { since: monthOf(String(open.startMonth)) },
+        ),
+      );
+    }
+    const before = { ...open };
+    open.noQuotaDecidedOn = day;
+    open.noQuotaEndedOn = null;
+    const after = await this.repo.save(open);
+    return { before, after };
+  }
+
+  /**
+   * The decision taken back today. The service year this falls in stays
+   * free (Lionel, 30 October 2026); the requirement returns with the next.
+   */
+  async endNoQuota(opts: {
+    congregationId: string;
+    publisherId: string;
+    todayIso: string;
+  }): Promise<{ before: PioneerSpell; after: PioneerSpell } | null> {
+    const open = await this.openSpell(opts.congregationId, opts.publisherId);
+    if (!open?.noQuotaDecidedOn || open.noQuotaEndedOn) return null;
+    const before = { ...open };
+    const today = opts.todayIso.slice(0, 10);
+    const decided = String(open.noQuotaDecidedOn).slice(0, 10);
+    open.noQuotaEndedOn = today < decided ? decided : today;
+    const after = await this.repo.save(open);
+    return { before, after };
+  }
+
+  private openSpell(
+    congregationId: string,
+    publisherId: string,
+  ): Promise<PioneerSpell | null> {
+    return this.repo.findOne({
+      where: { congregationId, publisherId, endMonth: IsNull() },
+      order: { startMonth: 'DESC' },
+    });
   }
 
   /** A past spell, copied in from paper. */

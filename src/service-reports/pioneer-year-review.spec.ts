@@ -523,4 +523,64 @@ describe('reviewPioneerYear', () => {
       });
     });
   });
+
+  describe('point 9: without the hours requirement', () => {
+    it('measures him against nothing, and puts him last, by himself', () => {
+      const out = reviewPioneerYear(2026, '2026-10-01', [
+        person({
+          publisherId: 'free',
+          displayName: 'Аникина',
+          months: months(twelve(20)),
+          noQuota: '2026-01-18',
+        }),
+        person({
+          publisherId: 'short',
+          displayName: 'Борисов',
+          months: months(twelve(30)),
+        }),
+      ]);
+      const free = out.rows.find((r) => r.publisherId === 'free')!;
+      expect(free).toMatchObject({
+        noQuota: '2026-01-18',
+        short: false,
+        shortSoFar: false,
+        toGoal: null,
+        toMinimum: null,
+        expectedMinimum: null,
+        hours: 240,
+      });
+      expect(out.rows.map((r) => r.publisherId)).toEqual(['short', 'free']);
+    });
+
+    it('hints the elders only where he is below the measure and the two conditions are met', () => {
+      const out = reviewPioneerYear(2026, '2026-10-01', [
+        person({
+          publisherId: 'hint',
+          months: months(twelve(30)),
+          eligibility: { age: 63, servedMonths: 277, eligible: true },
+        }),
+        person({
+          publisherId: 'fine',
+          months: months(twelve(55)),
+          eligibility: { age: 63, servedMonths: 277, eligible: true },
+        }),
+        person({
+          publisherId: 'young',
+          months: months(twelve(30)),
+          eligibility: { age: 41, servedMonths: 277, eligible: false },
+        }),
+      ]);
+      const by = (id: string) => out.rows.find((r) => r.publisherId === id)!;
+      expect(by('hint').noQuotaHint).toEqual({ age: 63, servedMonths: 277 });
+      expect(by('fine').noQuotaHint).toBeNull();
+      expect(by('young').noQuotaHint).toBeNull();
+    });
+
+    it('says nothing while no report has come — the gap is the missing report', () => {
+      const out = reviewPioneerYear(2026, '2026-10-01', [
+        person({ eligibility: { age: 63, servedMonths: 277, eligible: true } }),
+      ]);
+      expect(out.rows[0].noQuotaHint).toBeNull();
+    });
+  });
 });

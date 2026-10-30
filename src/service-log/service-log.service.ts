@@ -1,4 +1,8 @@
 import {
+  noQuotaDecisionIn,
+  serviceYearOf,
+} from '../pioneer-spells/pioneer-history';
+import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -170,8 +174,14 @@ export class ServiceLogService {
       where: { congregationId, publisherId },
     });
     const type = pioneerTypeInMonth(spells, `${month}-01`);
-    if (type === PioneerType.REGULAR)
-      return { role: 'regular', goal: REGULAR_PIONEER_MONTH_GOAL };
+    if (type === PioneerType.REGULAR) {
+      // Point 9: a year free of the norm has no goal to fill a bar towards.
+      const free = noQuotaDecisionIn(spells, serviceYearOf(`${month}-01`));
+      return {
+        role: 'regular',
+        goal: free ? null : REGULAR_PIONEER_MONTH_GOAL,
+      };
+    }
     if (type === PioneerType.SPECIAL || type === PioneerType.MISSIONARY) {
       // The card's own figure is today's: a change from 100 to 90 shows in
       // the months before it too — only on this screen, never in a report.

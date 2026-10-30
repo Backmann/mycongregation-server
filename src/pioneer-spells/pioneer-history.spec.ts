@@ -2,6 +2,9 @@ import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { PioneerSpellsService } from './pioneer-spells.service';
 import {
   monthsInclusive,
+  noQuotaEligibility,
+  noQuotaInServiceYear,
+  serviceYearOf,
   overlaps,
   servedMonths,
   yearsAndMonths,
@@ -222,5 +225,120 @@ describe('PioneerSpellsService — past spells on the card', () => {
     expect(h.spells[0]).toMatchObject({ end: null, months: 176 });
     expect(h.totalMonths).toBe(48 + 48 + 176);
     expect(h.knownFrom).toBe('1995-09');
+  });
+});
+
+describe('point 9: serving without the hours requirement', () => {
+  it('a service year starts in September', () => {
+    expect(serviceYearOf('2026-08-31')).toBe(2026);
+    expect(serviceYearOf('2026-09-01')).toBe(2027);
+  });
+
+  it('frees the whole year of the decision, and every year until the one it is taken back in', () => {
+    const spell = {
+      pioneerType: PioneerType.REGULAR,
+      noQuotaDecidedOn: '2027-01-18',
+      noQuotaEndedOn: '2028-03-02',
+    };
+    expect(noQuotaInServiceYear(spell, 2026)).toBe(false);
+    // Decided in January: September to December are free too.
+    expect(noQuotaInServiceYear(spell, 2027)).toBe(true);
+    // Taken back in March 2028: that year stays free…
+    expect(noQuotaInServiceYear(spell, 2028)).toBe(true);
+    // …and the norm returns with the next.
+    expect(noQuotaInServiceYear(spell, 2029)).toBe(false);
+    expect(noQuotaInServiceYear({ ...spell, noQuotaEndedOn: null }, 2035)).toBe(
+      true,
+    );
+  });
+
+  it('is a regular pioneer’s only', () => {
+    expect(
+      noQuotaInServiceYear(
+        { pioneerType: PioneerType.SPECIAL, noQuotaDecidedOn: '2027-01-18' },
+        2027,
+      ),
+    ).toBe(false);
+  });
+
+  it('50 from the birthday on, and fifteen years of every permanent kind', () => {
+    const spells = [
+      spell(PioneerType.SPECIAL, '1999-09-01', '2003-08-01'),
+      spell(PioneerType.REGULAR, '2015-11-01', null),
+    ];
+    const day = noQuotaEligibility('1976-10-30', spells, '2026-10-30');
+    expect(day).toMatchObject({ age: 50, ageOk: true, knownFrom: '1999-09' });
+    // 48 + (2015-11 … 2026-10 = 132) = 180 — fifteen years exactly.
+    expect(day.servedMonths).toBe(180);
+    expect(day.eligible).toBe(true);
+    const dayBefore = noQuotaEligibility('1976-10-31', spells, '2026-10-30');
+    expect(dayBefore).toMatchObject({ age: 49, ageOk: false, eligible: false });
+    const noBirth = noQuotaEligibility(null, spells, '2026-10-30');
+    expect(noBirth).toMatchObject({ age: null, eligible: false });
+  });
+});
+
+describe('PioneerSpellsService — point 9', () => {
+  const make = (open: Record<string, unknown> | null) => {
+    const repo = {
+      findOne: jest.fn().mockResolvedValue(open),
+      save: jest.fn().mockImplementation((x: unknown) => Promise.resolve(x)),
+    };
+    return new PioneerSpellsService(repo as never);
+  };
+  const base = {
+    congregationId: 'c1',
+    publisherId: 'p1',
+    todayIso: '2026-10-30',
+  };
+
+  it('refuses anyone but a regular pioneer serving now', async () => {
+    await expect(
+      make({
+        pioneerType: PioneerType.SPECIAL,
+        startMonth: '2020-01-01',
+        endMonth: null,
+      }).setNoQuota({ ...base, decidedOn: '2026-10-01' }),
+    ).rejects.toMatchObject({
+      response: { code: 'PIONEER_NO_QUOTA_NOT_REGULAR' },
+    });
+    await expect(
+      make(null).setNoQuota({ ...base, decidedOn: '2026-10-01' }),
+    ).rejects.toMatchObject({
+      response: { code: 'PIONEER_NO_QUOTA_NOT_REGULAR' },
+    });
+  });
+
+  it('refuses a decision before his pioneering or after today', async () => {
+    const svc = make({
+      pioneerType: PioneerType.REGULAR,
+      startMonth: '2020-01-01',
+      endMonth: null,
+    });
+    for (const decidedOn of ['2019-12-31', '2026-10-31']) {
+      await expect(
+        svc.setNoQuota({ ...base, decidedOn }),
+      ).rejects.toMatchObject({
+        response: { code: 'PIONEER_NO_QUOTA_DATE' },
+      });
+    }
+  });
+
+  it('a decision said again undoes a taking-back', async () => {
+    const svc = make({
+      pioneerType: PioneerType.REGULAR,
+      startMonth: '2020-01-01',
+      endMonth: null,
+      noQuotaDecidedOn: '2025-01-01',
+      noQuotaEndedOn: '2026-02-01',
+    });
+    const { after } = await svc.setNoQuota({
+      ...base,
+      decidedOn: '2026-10-01',
+    });
+    expect(after).toMatchObject({
+      noQuotaDecidedOn: '2026-10-01',
+      noQuotaEndedOn: null,
+    });
   });
 });

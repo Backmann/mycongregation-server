@@ -10,6 +10,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -19,7 +20,10 @@ import { CreatePublisherDto } from './dto/create-publisher.dto';
 import { UpdatePublisherDto } from './dto/update-publisher.dto';
 import { QueryPublishersDto } from './dto/query-publishers.dto';
 import { RemovePublisherDto } from './dto/remove-publisher.dto';
-import { PastPioneerSpellDto } from './dto/past-pioneer-spell.dto';
+import {
+  PastPioneerSpellDto,
+  PioneerNoQuotaDto,
+} from './dto/past-pioneer-spell.dto';
 import { CorrectPioneerKindDto } from './dto/correct-pioneer-kind.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -352,6 +356,35 @@ export class PublishersController {
       );
     }
     return this.publishersService.pioneerHistory(tenantId, id);
+  }
+
+  /** Point 9: serving without the hours requirement, from the decision. */
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(ResponsibilityType.SECRETARY)
+  @Put(':id/pioneer-no-quota')
+  setPioneerNoQuota(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PioneerNoQuotaDto,
+  ) {
+    return this.publishersService.setPioneerNoQuota(
+      tenantId,
+      id,
+      dto.decidedOn,
+      user?.id,
+    );
+  }
+
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(ResponsibilityType.SECRETARY)
+  @Delete(':id/pioneer-no-quota')
+  endPioneerNoQuota(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.publishersService.endPioneerNoQuota(tenantId, id, user?.id);
   }
 
   /** What ending his pioneering with this last month would meet. */

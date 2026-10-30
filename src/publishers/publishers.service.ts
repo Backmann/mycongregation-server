@@ -44,6 +44,10 @@ import {
   type PastSpellInput,
   type PioneerHistory,
 } from '../pioneer-spells/pioneer-spells.service';
+import {
+  noQuotaEligibility,
+  type NoQuotaEligibility,
+} from '../pioneer-spells/pioneer-history';
 import { GrantAccessDto } from './dto/grant-access.dto';
 import {
   addMonthKey,
@@ -1245,13 +1249,88 @@ export class PublishersService {
   // ---- The pioneer history on the card (30 October 2026) ---------------
 
   /** Every spell of permanent pioneering, newest first, and the sum. */
-  async pioneerHistory(tenantId: string, id: string): Promise<PioneerHistory> {
-    await this.findOne(tenantId, id);
-    return this.pioneerSpells.history(
+  async pioneerHistory(
+    tenantId: string,
+    id: string,
+  ): Promise<PioneerHistory & { eligibility: NoQuotaEligibility }> {
+    const publisher = await this.findOne(tenantId, id);
+    const today = await this.clock.todayFor(tenantId);
+    const history = await this.pioneerSpells.history(tenantId, id, today);
+    return {
+      ...history,
+      // Points 1 and 2 of point 9, as far as the card and the history know.
+      eligibility: noQuotaEligibility(
+        publisher.birthDate ?? null,
+        await this.pioneerSpells.forPublisher(tenantId, id),
+        today,
+      ),
+    };
+  }
+
+  /**
+   * Point 9: the elders allow him to serve without the hours requirement,
+   * from the day they decided (the secretary writes it down).
+   */
+  async setPioneerNoQuota(
+    tenantId: string,
+    id: string,
+    decidedOn: string,
+    actorUserId?: string,
+  ) {
+    const publisher = await this.findOne(tenantId, id);
+    const { before, after } = await this.pioneerSpells.setNoQuota({
+      congregationId: tenantId,
+      publisherId: id,
+      decidedOn,
+      todayIso: await this.clock.todayFor(tenantId),
+    });
+    await this.journalNoQuota(tenantId, publisher, actorUserId, before, after);
+    return this.pioneerHistory(tenantId, id);
+  }
+
+  /** The decision taken back: this service year stays free, then the norm. */
+  async endPioneerNoQuota(tenantId: string, id: string, actorUserId?: string) {
+    const publisher = await this.findOne(tenantId, id);
+    const changed = await this.pioneerSpells.endNoQuota({
+      congregationId: tenantId,
+      publisherId: id,
+      todayIso: await this.clock.todayFor(tenantId),
+    });
+    if (changed) {
+      await this.journalNoQuota(
+        tenantId,
+        publisher,
+        actorUserId,
+        changed.before,
+        changed.after,
+      );
+    }
+    return this.pioneerHistory(tenantId, id);
+  }
+
+  private async journalNoQuota(
+    tenantId: string,
+    publisher: Publisher,
+    actorUserId: string | undefined,
+    before: PioneerSpell,
+    after: PioneerSpell,
+  ): Promise<void> {
+    const line = (s: PioneerSpell) =>
+      s.noQuotaDecidedOn
+        ? `${String(s.noQuotaDecidedOn).slice(0, 10)}–${
+            s.noQuotaEndedOn ? String(s.noQuotaEndedOn).slice(0, 10) : ''
+          }`
+        : null;
+    await this.auditLogService.logRawUpdate({
       tenantId,
-      id,
-      await this.clock.todayFor(tenantId),
-    );
+      entityType: 'publisher',
+      entityId: publisher.id,
+      actorUserId: actorUserId ?? null,
+      subjectId: publisher.userId ?? null,
+      changedFields: ['pioneerNoQuota'],
+      before: { pioneerNoQuota: line(before) },
+      after: { pioneerNoQuota: line(after) },
+    });
   }
 
   /**
@@ -1481,6 +1560,7 @@ export class PublishersService {
   ): Promise<Publisher> {
     const publisher = await this.findOne(tenantId, id);
     const prevPioneerType = publisher.pioneerType;
+    const prevPioneerSince = publisher.pioneerSince ?? null;
     // The three fields the service status is counted from. When one of them
     // moves, the standing on the card is stale from that moment — and it used
     // to stay stale until the next nightly sweep, so a corrected baptism date
@@ -1562,7 +1642,12 @@ export class PublishersService {
         todayIso: await this.clock.todayFor(tenantId),
       });
     }
-    if (publisher.pioneerType !== prevPioneerType) {
+    // A corrected «since» is checked too (30 October 2026): moved back into
+    // a stretch of the history, it would put one month into two spells.
+    if (
+      publisher.pioneerType !== prevPioneerType ||
+      (publisher.pioneerSince ?? null) !== prevPioneerSince
+    ) {
       await this.pioneerSpells.assertCardChange({
         congregationId: tenantId,
         publisherId: publisher.id,

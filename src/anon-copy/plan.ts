@@ -369,7 +369,7 @@ export const PLAN: Record<string, TablePlan> = {
   ),
   pioneer_spells: table(
     copy(`id congregation_id publisher_id pioneer_type start_month end_month
-      created_by created_at updated_at`),
+      no_quota_decided_on no_quota_ended_on created_by created_at updated_at`),
     remove('note'),
   ),
   aux_pioneer_applications: table(
