@@ -202,6 +202,24 @@ describe('MonthlySentService', () => {
     );
   });
 
+  it('does not freeze a month on its deadline day — the 20th is still a day to send it', async () => {
+    const asked = (r: { computeSummary: jest.Mock }) =>
+      r.computeSummary.mock.calls.map((c) => String(c[1]).slice(0, 7));
+
+    // 03:35 in Berlin on 20 October: September may still go to the branch
+    // today, with whatever is entered this morning.
+    setNow(Date.UTC(2026, 9, 20, 1, 35));
+    const today = setup();
+    await today.service.nightly();
+    expect(asked(today.reports as never)).not.toContain('2026-09');
+
+    // The night after: September's deadline is behind it.
+    setNow(Date.UTC(2026, 9, 21, 1, 35));
+    const next = setup();
+    expect(await next.service.nightly()).toBe(1);
+    expect(asked(next.reports as never)).toEqual(['2026-09']);
+  });
+
   it('never freezes over a month somebody closed', async () => {
     setNow(Date.UTC(2026, 8, 21, 2));
     const { service, snapshots } = setup({
