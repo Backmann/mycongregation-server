@@ -1,3 +1,4 @@
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
 import { ValidationPipe, Logger } from '@nestjs/common';
@@ -10,7 +11,9 @@ import { isTrustedHop } from './common/client-ip';
 import { validationRefusal } from './common/errors/refusal';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: false });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: false,
+  });
 
   const config = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
@@ -116,6 +119,10 @@ async function bootstrap() {
   app.use(httpRefusalLogger());
 
   app.setGlobalPrefix(apiPrefix);
+
+  // A sheet handed to Safari for printing (print-docs) comes as text/html,
+  // larger than the JSON limit allows; nothing else sends text/html.
+  app.useBodyParser('text', { type: 'text/html', limit: '3mb' });
 
   // Outside production an empty or wildcard value stays permissive so that
   // local development and Expo's changing ports keep working.

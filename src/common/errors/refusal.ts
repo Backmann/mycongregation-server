@@ -227,6 +227,8 @@ export const REFUSAL_CODES = [
   'SAME_CARD',
   'SAME_SPEAKER',
   'WEEK_ALREADY_PAST',
+  'PRINT_DOC_EMPTY',
+  'PRINT_DOC_TOO_LARGE',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];

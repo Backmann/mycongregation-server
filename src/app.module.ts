@@ -1,3 +1,4 @@
+import { PrintDocsModule } from './print-docs/print-docs.module';
 import { Module } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -107,6 +108,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     UsersModule,
     AuthModule,
     PresenceModule,
+    PrintDocsModule,
     PublishersModule,
     ServiceGroupsModule,
     AssignmentsModule,
