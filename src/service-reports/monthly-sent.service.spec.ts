@@ -106,6 +106,9 @@ function setup(
     service,
     snapshots,
     audit,
+    reports,
+    publishersRepo,
+    reportsRepo,
     stored: () => stored,
     setCurrent: (s: ServiceReportSummary, m: Record<string, string[]>) => {
       current = s;
@@ -233,6 +236,89 @@ describe('MonthlySentService', () => {
     );
   });
 
+  it('confirming a month the app froze takes in what came after the freeze', async () => {
+    const frozen = {
+      id: 'snap-1',
+      confirmed: false,
+      figures: {},
+      members: {},
+      createdAt: new Date('2026-09-21T02:00:00Z'),
+      updatedAt: new Date('2026-09-21T02:00:00Z'),
+    };
+    const { service, reports } = setup({ stored: frozen });
+
+    await service.saveSent(TENANT, 'user-1', '2026-08-01');
+
+    expect(reports.computeSummary).toHaveBeenCalledWith(TENANT, '2026-08-01', {
+      absorbLate: true,
+    });
+  });
+
+  it('closing a sent month again does not pull in reports handed in late', async () => {
+    const { service, reports } = setup();
+    await service.saveSent(TENANT, 'user-1', '2026-08-01');
+    await service.saveSent(TENANT, 'user-1', '2026-08-01');
+
+    expect(reports.computeSummary).toHaveBeenLastCalledWith(
+      TENANT,
+      '2026-08-01',
+      { absorbLate: false },
+    );
+  });
+
+  it('keeps the appointment of a person a late report brought in, by card id', async () => {
+    const { service, stored, setCurrent, publishersRepo } = setup();
+    setCurrent(summary(86), {
+      active: ['a'],
+      inactive: [],
+      carried: ['p-late@2026-07'],
+    });
+
+    await service.saveSent(TENANT, 'user-1', '2026-08-01');
+
+    const asked = (publishersRepo.find.mock.calls as any[]).at(-1)[0].where.id
+      ._value as string[];
+    expect(asked).toEqual(['a', 'p-late']);
+    expect((stored()!.appointments as Record<string, string>)['p-late']).toBe(
+      'publisher',
+    );
+  });
+
+  it('marks a late «did not share» as going nowhere, and nobody the sheet knew', async () => {
+    const { service, setCurrent, reportsRepo } = setup();
+    setCurrent(summary(85, 2, 19), {
+      active: ['a'],
+      inactive: [],
+      'reported:none': ['a'],
+      filed: ['a'],
+    });
+    await service.saveSent(TENANT, 'user-1', '2026-08-01');
+    // After sending: «a» withdrew and handed in again (a new row), and
+    // «p-late» handed in «did not share» for the first time.
+    const after = new Date('2026-09-25T10:00:00Z');
+    (reportsRepo.find as jest.Mock).mockResolvedValue([
+      {
+        id: 'r-a',
+        publisherId: 'a',
+        reportMonth: '2026-08-01',
+        createdAt: after,
+      },
+      {
+        id: 'r-late',
+        publisherId: 'p-late',
+        reportMonth: '2026-08-01',
+        createdAt: after,
+      },
+    ]);
+
+    const out = await service.withSent(TENANT, summary(85, 2, 20));
+
+    const byWho = Object.fromEntries(
+      out.late.map((f) => [f.publisherId, f.notCounted ?? false]),
+    );
+    expect(byWho).toEqual({ a: false, 'p-late': true });
+  });
+
   it('names every line of the form', () => {
     expect(MONTHLY_KEYS).toEqual([
       'publishers',
@@ -243,12 +329,8 @@ describe('MonthlySentService', () => {
       'regular',
       'regularHours',
       'regularStudies',
-      'special',
-      'specialHours',
-      'specialStudies',
-      'missionary',
-      'missionaryHours',
-      'missionaryStudies',
+      // No special pioneers or missionaries: they report to the branch
+      // themselves, and the form has no block for them (point 14).
       'active',
       'inactive',
     ]);

@@ -96,7 +96,7 @@ function makeReport(overrides: Partial<ServiceReport> = {}): ServiceReport {
 describe('ServiceReportsService', () => {
   let service: ServiceReportsService;
   let reportsRepo: jest.Mocked<Repository<ServiceReport>>;
-  let snapshotsRepo: { findOne: jest.Mock };
+  let snapshotsRepo: { findOne: jest.Mock; find: jest.Mock };
   let publishersRepo: jest.Mocked<Repository<Publisher>>;
   let serviceGroupsRepo: jest.Mocked<Repository<ServiceGroup>>;
   let responsibilitiesRepo: jest.Mocked<Repository<Responsibility>>;
@@ -122,7 +122,11 @@ describe('ServiceReportsService', () => {
   };
 
   beforeEach(() => {
-    snapshotsRepo = { findOne: jest.fn(async () => null) };
+    snapshotsRepo = {
+      findOne: jest.fn(async () => null),
+      // The summary reads the kept monthly sheets to place late reports.
+      find: jest.fn(async () => []),
+    };
     reportsRepo = {
       findOne: jest.fn(),
       find: jest.fn(),
@@ -2636,6 +2640,252 @@ describe('ServiceReportsService', () => {
   // =========================================================
   // Year summary — service year Sep..Aug
   // =========================================================
+  /**
+   * Late reports (instruction, point 14, 30 October 2026): a report handed in
+   * after its month was sent goes into the next month's S-1 — its reporter,
+   * hours and studies — and the sent month keeps what it sent.
+   */
+  describe('getSummary — a late report goes into the next sheet', () => {
+    const admin = () => makeUser({ id: 'admin-id', role: UserRole.ADMIN });
+    const line = (result: any, key: string) =>
+      result.categories.find((c: any) => c.pioneerType === key);
+
+    let rows: ServiceReport[] = [];
+    let kept: {
+      period: string;
+      members: Record<string, string[]>;
+      createdAt?: Date;
+    }[] = [];
+
+    beforeEach(() => {
+      rows = [];
+      kept = [];
+      publishersRepo.find.mockResolvedValue([
+        makePublisher({ id: 'a', firstName: 'Анна', lastName: 'Вебер' }),
+        makePublisher({ id: 'b', firstName: 'Борис', lastName: 'Лангe' }),
+        makePublisher({ id: 'c', firstName: 'Вера', lastName: 'Кох' }),
+      ]);
+      // Reports by month, as the repository would answer each query.
+      reportsRepo.find.mockImplementation((async (opts: any) => {
+        const m = opts?.where?.reportMonth;
+        if (typeof m === 'string')
+          return rows.filter((r) => r.reportMonth === m);
+        if (m?.type === 'between') {
+          const [from, to] = m.value as [string, string];
+          return rows.filter(
+            (r) => r.reportMonth >= from && r.reportMonth <= to,
+          );
+        }
+        return rows;
+      }) as never);
+      (snapshotsRepo as any).find.mockImplementation(async () => kept);
+    });
+
+    const report = (
+      publisherId: string,
+      reportMonth: string,
+      extra: Partial<ServiceReport> = {},
+    ) =>
+      makeReport({
+        id: `${publisherId}-${reportMonth}`,
+        publisherId,
+        reportMonth,
+        servedThisMonth: true,
+        bibleStudies: 1,
+        ...extra,
+      });
+
+    it('counts a September report handed in after September was sent on the October sheet', async () => {
+      kept = [{ period: '2026-09', members: { 'reported:none': ['a'] } }];
+      rows = [
+        report('a', '2026-09-01'),
+        report('b', '2026-09-01', { bibleStudies: 2 }),
+        report('a', '2026-10-01'),
+      ];
+
+      const { summary, members } = await service.computeSummary(
+        'cong-1',
+        '2026-10',
+      );
+
+      // Two reporters on the October line: his own October and her late
+      // September — and her studies with her.
+      expect(line(summary, 'none')).toMatchObject({
+        count: 2,
+        bibleStudies: 3,
+      });
+      expect(summary.carriedIn).toEqual([
+        expect.objectContaining({
+          publisherId: 'b',
+          reportMonth: '2026-09-01',
+          category: 'none',
+        }),
+      ]);
+      // She is not one of October's own reporters — the sheet names her
+      // under what it carried, so September and October never both claim her.
+      expect(members['reported:none']).toEqual(['a']);
+      expect(members.carried).toEqual(['b@2026-09']);
+    });
+
+    it('leaves it off the September sheet and says where it went', async () => {
+      kept = [{ period: '2026-09', members: { 'reported:none': ['a'] } }];
+      rows = [report('a', '2026-09-01'), report('b', '2026-09-01')];
+
+      const result = await service.getSummary('cong-1', admin(), '2026-09');
+
+      expect(line(result, 'none').count).toBe(1);
+      expect(result.lateOut).toEqual([
+        expect.objectContaining({
+          publisherId: 'b',
+          carriedTo: '2026-10-01',
+          carriedKept: false,
+        }),
+      ]);
+    });
+
+    it('keeps an auxiliary pioneer of September on the auxiliary line in October', async () => {
+      kept = [{ period: '2026-09', members: { 'reported:none': ['a'] } }];
+      auxiliaryPioneersService.activePublisherIdsForMonth.mockImplementation(
+        async (_t: string, month: string) =>
+          month.startsWith('2026-09') ? new Set(['b']) : new Set(),
+      );
+      rows = [
+        report('b', '2026-09-01', { hoursReported: 30, bibleStudies: 0 }),
+      ];
+
+      const { summary } = await service.computeSummary('cong-1', '2026-10');
+
+      expect(line(summary, 'auxiliary')).toMatchObject({ count: 1, hours: 30 });
+      expect(line(summary, 'none').count).toBe(0);
+    });
+
+    it('counts it once: October kept with it, November does not take it again', async () => {
+      kept = [
+        { period: '2026-09', members: { 'reported:none': ['a'] } },
+        {
+          period: '2026-10',
+          members: { 'reported:none': [], carried: ['b@2026-09'] },
+        },
+      ];
+      rows = [report('b', '2026-09-01')];
+
+      const nov = await service.computeSummary('cong-1', '2026-11');
+      expect(line(nov.summary, 'none').count).toBe(0);
+      expect(nov.summary.carriedIn).toEqual([]);
+
+      const oct = await service.computeSummary('cong-1', '2026-10');
+      expect(line(oct.summary, 'none').count).toBe(1);
+
+      const sep = await service.computeSummary('cong-1', '2026-09');
+      expect(sep.summary.lateOut![0]).toMatchObject({
+        carriedTo: '2026-10-01',
+        carriedKept: true,
+      });
+    });
+
+    it('a late «did not share» goes nowhere, like one on time', async () => {
+      kept = [{ period: '2026-09', members: { 'reported:none': ['a'] } }];
+      rows = [report('b', '2026-09-01', { servedThisMonth: false })];
+
+      const oct = await service.computeSummary('cong-1', '2026-10');
+      const sep = await service.computeSummary('cong-1', '2026-09');
+
+      expect(oct.summary.carriedIn).toEqual([]);
+      expect(sep.summary.lateOut).toEqual([]);
+    });
+
+    it('an on-time «did not share» changed to «shared» is a correction, not late', async () => {
+      // She handed in «нет» on time; the sheet knows her under «filed».
+      kept = [
+        {
+          period: '2026-09',
+          members: { 'reported:none': ['a'], filed: ['a', 'c'] },
+        },
+      ];
+      rows = [report('a', '2026-09-01'), report('c', '2026-09-01')];
+
+      const sep = await service.computeSummary('cong-1', '2026-09');
+      const oct = await service.computeSummary('cong-1', '2026-10');
+
+      expect(line(sep.summary, 'none').count).toBe(2);
+      expect(sep.summary.lateOut).toEqual([]);
+      expect(oct.summary.carriedIn).toEqual([]);
+    });
+
+    it('confirming a sheet the app froze takes in everything handed in by then', async () => {
+      kept = [{ period: '2026-09', members: { 'reported:none': ['a'] } }];
+      rows = [report('a', '2026-09-01'), report('b', '2026-09-01')];
+
+      const { summary, members } = await service.computeSummary(
+        'cong-1',
+        '2026-09',
+        { absorbLate: true },
+      );
+
+      expect(line(summary, 'none').count).toBe(2);
+      expect(summary.lateOut).toEqual([]);
+      expect(members.filed).toEqual(['a', 'b']);
+    });
+
+    it('moves no figure of the sent month — not even «Все активные»', async () => {
+      kept = [{ period: '2026-09', members: { 'reported:none': ['a'] } }];
+      rows = [report('a', '2026-09-01'), report('b', '2026-09-01')];
+
+      const sep = await service.computeSummary('cong-1', '2026-09');
+      const oct = await service.computeSummary('cong-1', '2026-10');
+
+      // September went with one active; her late report makes her active on
+      // the sheet it went into, October.
+      expect(sep.summary.totalActivePublishers).toBe(1);
+      expect(oct.summary.totalActivePublishers).toBe(2);
+    });
+
+    it('does not pour an old late report into the month open now', async () => {
+      // Kept before the rule: June to September. A June report came in on 25
+      // July — after June went, before July went — and July took nothing in.
+      const keptAt = (d: string) => new Date(`${d}T10:00:00Z`);
+      kept = ['06', '07', '08', '09'].map((m, i) => ({
+        period: `2026-${m}`,
+        members: { 'reported:none': ['a'] },
+        createdAt: keptAt(`2026-${String(7 + i).padStart(2, '0')}-19`),
+      })) as never;
+      rows = [
+        report('b', '2026-06-01', { createdAt: keptAt('2026-07-25') }),
+        report('a', '2026-09-01'),
+      ];
+
+      const oct = await service.computeSummary('cong-1', '2026-10');
+      const jun = await service.computeSummary('cong-1', '2026-06');
+
+      expect(oct.summary.carriedIn).toEqual([]);
+      expect(line(oct.summary, 'none').count).toBe(0);
+      // Named on its own month: late, and in no sheet.
+      expect(jun.summary.lateOut).toEqual([
+        expect.objectContaining({
+          publisherId: 'b',
+          carriedTo: null,
+          carriedKept: false,
+        }),
+      ]);
+      expect(line(jun.summary, 'none').count).toBe(0);
+    });
+
+    it('marks the lines of the form: no special pioneers or missionaries on it', async () => {
+      const { summary } = await service.computeSummary('cong-1', '2026-10');
+      expect(
+        Object.fromEntries(
+          summary.categories.map((c) => [c.pioneerType, c.onForm]),
+        ),
+      ).toEqual({
+        none: true,
+        auxiliary: true,
+        regular: true,
+        special: false,
+        missionary: false,
+      });
+    });
+  });
+
   describe('getS21Data', () => {
     it('forbids a plain publisher', async () => {
       await expect(
@@ -3479,6 +3729,10 @@ async function activeFor(
   windowRows: object[],
 ): Promise<number> {
   const reportsRepo = {
+    // No monthly sheet kept yet, so no report is late.
+    manager: {
+      getRepository: () => ({ find: jest.fn().mockResolvedValue([]) }),
+    },
     find: jest.fn().mockResolvedValueOnce([]).mockResolvedValue(windowRows),
     findOne: jest.fn(),
   };
@@ -3582,6 +3836,10 @@ describe('getSummary — «все активные» counts sharing, by members'
 describe('getSummary — the six-month window', () => {
   it('counts distinct publishers who shared in the last six months', async () => {
     const reportsRepo = {
+      // No monthly sheet kept yet, so no report is late.
+      manager: {
+        getRepository: () => ({ find: jest.fn().mockResolvedValue([]) }),
+      },
       find: jest
         .fn()
         // The month itself.
