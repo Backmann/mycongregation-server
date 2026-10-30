@@ -11,6 +11,7 @@ import { CongregationClock } from '../common/congregation-clock.service';
 import { todayIn } from '../common/congregation-clock';
 import { lastClosedReportMonth, monthKey } from '../common/report-month-window';
 import { addMonthKey } from '../common/service-status-rule';
+import { carryKeyPublisher } from './late-carry';
 import {
   publishersAsOf,
   reportsAsOf,
@@ -22,7 +23,7 @@ import {
   type SummaryMembers,
 } from './service-reports.service';
 
-/** The form's lines, by the names the journal shows. */
+/** The S-1 form's lines, by the names the journal shows. */
 const LINES = [
   {
     type: 'none',
@@ -42,19 +43,11 @@ const LINES = [
     hours: 'regularHours',
     studies: 'regularStudies',
   },
-  {
-    type: 'special',
-    count: 'special',
-    hours: 'specialHours',
-    studies: 'specialStudies',
-  },
-  {
-    type: 'missionary',
-    count: 'missionary',
-    hours: 'missionaryHours',
-    studies: 'missionaryStudies',
-  },
 ] as const;
+// Special pioneers and missionaries are not lines of the form: they report to
+// the branch themselves (instruction, point 14; the form for September 2026
+// has these three blocks only). Sheets kept before 30 October 2026 still hold
+// their figures under 'special…' and 'missionary…'; nothing reads them.
 
 export const MONTHLY_KEYS = [
   ...LINES.flatMap((l) => [l.count, l.hours, l.studies].filter(Boolean)),
@@ -260,8 +253,18 @@ export class MonthlySentService {
       changedPeople.set(key, people);
     }
 
+    // A report of this month handed in after it was sent has its own place
+    // (lateOut: it goes into the next sheet) — not named twice.
+    const lateOut = new Set((live.lateOut ?? []).map((l) => l.publisherId));
     const late = keys.length
-      ? await this.lateSince(tenantId, month, row.updatedAt, ids)
+      ? (await this.lateSince(tenantId, month, row.updatedAt, ids)).filter(
+          (f) =>
+            !(
+              f.kind === 'report_filed' &&
+              f.reportMonth?.slice(0, 7) === month &&
+              lateOut.has(f.publisherId)
+            ),
+        )
       : [];
     late.forEach((f) => ids.add(f.publisherId));
     const names = await this.namesOf(tenantId, [...ids]);
@@ -307,12 +310,17 @@ export class MonthlySentService {
     reportMonth: string,
     userId: string | null,
   ): Promise<void> {
+    const before = await this.find(tenantId, reportMonth.slice(0, 7));
+    // Confirming what the app froze: the secretary is saying what really
+    // went, so whatever came in after the freeze belongs to this month — it
+    // is not late. A sheet a person kept is late-proof the other way round:
+    // closing it again never pulls in reports handed in after it was sent.
     const { summary, members } = await this.reports.computeSummary(
       tenantId,
       reportMonth,
+      { absorbLate: !!before && !before.confirmed && userId !== null },
     );
     const month = summary.reportMonth.slice(0, 7);
-    const before = await this.find(tenantId, month);
     // The app never overwrites what a person saved.
     if (before?.confirmed && userId === null) return;
 
@@ -431,7 +439,14 @@ export class MonthlySentService {
     tenantId: string,
     members: SummaryMembers,
   ): Promise<Record<string, string>> {
-    const ids = [...new Set(Object.values(members).flat())];
+    // `carried` holds «card@month» keys; the card id is before the @.
+    const ids = [
+      ...new Set(
+        Object.entries(members).flatMap(([line, list]) =>
+          line === 'carried' ? list.map(carryKeyPublisher) : list,
+        ),
+      ),
+    ];
     if (ids.length === 0) return {};
     const cards = await this.publishersRepo.find({
       where: { congregationId: tenantId, id: In(ids) },

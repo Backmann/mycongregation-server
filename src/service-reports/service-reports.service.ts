@@ -27,6 +27,7 @@ import {
 import { ServiceReport } from '../entities/service-report.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ReportSnapshot } from '../entities/report-snapshot.entity';
+import { addMonth, carryKey, keptSheetsOf, placeLate } from './late-carry';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
@@ -300,6 +301,43 @@ export interface ServiceReportSummaryCategory {
   count: number;
   hours: number | null;
   bibleStudies: number;
+  /**
+   * A line of the S-1 form. Special pioneers and missionaries are not: they
+   * hand their reports to the branch themselves, and the congregation's
+   * report leaves them out (instruction, point 14; the form as filed for
+   * September 2026 has three blocks — publishers, auxiliary, regular). Their
+   * lines stay on the screen, said to be not for the form: the secretary
+   * still enters their reports on their S-21 cards.
+   */
+  onForm: boolean;
+}
+
+/** The S-1 form's own blocks, in its order. */
+export const S1_FORM_LINES: readonly ServiceSummaryCategoryKey[] = [
+  'none',
+  'auxiliary',
+  PioneerType.REGULAR,
+];
+
+/** A late report of an earlier month, counted on this month's sheet. */
+export interface CarriedInReport {
+  publisherId: string;
+  name: string;
+  /** The month the report is for, YYYY-MM-01. */
+  reportMonth: string;
+  category: ServiceSummaryCategoryKey;
+}
+
+/** A report of this month handed in after the month was sent. */
+export interface LateOutReport {
+  publisherId: string;
+  name: string;
+  /** When it was entered. */
+  filedAt: string;
+  /** The month whose sheet takes it, YYYY-MM-01. */
+  carriedTo: string;
+  /** True when that month is already kept with it. */
+  carriedKept: boolean;
 }
 
 /**
@@ -370,6 +408,13 @@ export interface ServiceReportSummary {
    * named so the secretary can settle them from the paper cards.
    */
   inactiveUnknown?: { id: string; name: string }[];
+  /** Late reports of earlier months that this month's sheet takes in. */
+  carriedIn?: CarriedInReport[];
+  /**
+   * This month's reports handed in after it was sent — not on its sheet,
+   * and where they go instead.
+   */
+  lateOut?: LateOutReport[];
   averages: {
     /** Average hours among pioneers who reported hours this month. */
     pioneerHours: number;
@@ -2155,6 +2200,8 @@ export class ServiceReportsService {
     tenantId: string,
     reportMonth: string,
     members: Publisher[],
+    /** A late report of `month` that goes into a later sheet — not counted here. */
+    heldBack: (publisherId: string, month: string) => boolean = () => false,
   ): Promise<{ inactive: string[]; unknown: Publisher[] }> {
     if (members.length === 0) return { inactive: [], unknown: [] };
     const month = reportMonth.slice(0, 7);
@@ -2186,6 +2233,7 @@ export class ServiceReportsService {
     for (const r of rows) {
       const m = String(r.reportMonth).slice(0, 7);
       const was = first.get(r.publisherId);
+      if (heldBack(r.publisherId, m)) continue;
       if (!was || m < was) first.set(r.publisherId, m);
       if (!reportedMinistry(r)) continue;
       const set = shared.get(r.publisherId) ?? new Set<string>();
@@ -2261,6 +2309,13 @@ export class ServiceReportsService {
   async computeSummary(
     tenantId: string,
     reportMonthInput: string,
+    opts: {
+      /**
+       * Confirming a sheet the app froze: everything in by now belongs to the
+       * month itself (see the late reports below).
+       */
+      absorbLate?: boolean;
+    } = {},
   ): Promise<{ summary: ServiceReportSummary; members: SummaryMembers }> {
     const reportMonth = this.normalizeReportMonth(reportMonthInput);
     // Everyone who has ever held a card here, the departed included, so that a
@@ -2329,9 +2384,126 @@ export class ServiceReportsService {
       publishers.map((p) => [p.id, categoryOf(p)]),
     );
 
-    const reports = await this.reportsRepo.find({
+    const monthReports = await this.reportsRepo.find({
       where: { congregationId: tenantId, reportMonth },
     });
+
+    // LATE REPORTS (instruction, point 14). The sheets already kept say whom
+    // they counted; a report of a kept month whose person is not on it was
+    // handed in after the month was sent, and goes into the next sheet
+    // instead — see late-carry.ts. Confirming a sheet the app froze is the
+    // secretary saying what really went: everything in by then belongs to
+    // the month itself, so this month's own frozen sheet is set aside.
+    const monthKey7 = reportMonth.slice(0, 7);
+    const keptRows = await this.reportsRepo.manager
+      .getRepository(ReportSnapshot)
+      .find({
+        where: { congregationId: tenantId, kind: 'monthly' },
+        select: { id: true, period: true, members: true },
+      });
+    const sheets = keptSheetsOf(keptRows ?? []);
+    if (opts.absorbLate) sheets.delete(monthKey7);
+    const nameOf = new Map(
+      everyone.map((p) => [
+        p.id,
+        [p.lastName, p.firstName].filter(Boolean).join(' ').trim(),
+      ]),
+    );
+
+    /** Does this report count on a line of its category at all? */
+    const counts = (
+      report: ServiceReport,
+      category: ServiceSummaryCategoryKey,
+    ): boolean => category !== 'none' || reportedMinistry(report);
+
+    const counted: {
+      report: ServiceReport;
+      category: ServiceSummaryCategoryKey;
+    }[] = [];
+    const lateOut: LateOutReport[] = [];
+    for (const report of monthReports) {
+      const category = categoryByPubId.get(report.publisherId);
+      if (category === undefined) continue;
+      const place = placeLate(report.publisherId, monthKey7, sheets);
+      if (place.late && counts(report, category)) {
+        lateOut.push({
+          publisherId: report.publisherId,
+          name: nameOf.get(report.publisherId) ?? '',
+          filedAt: new Date(report.createdAt).toISOString(),
+          carriedTo: `${place.into}-01`,
+          carriedKept: place.kept,
+        });
+        continue;
+      }
+      counted.push({ report, category });
+    }
+
+    // Late reports of the twelve months before, that this sheet takes in.
+    const carriedIn: CarriedInReport[] = [];
+    // Nothing kept, nothing late: a congregation before its first sheet has
+    // no late report to look for.
+    const earlier =
+      sheets.size === 0
+        ? []
+        : await this.reportsRepo.find({
+            where: {
+              congregationId: tenantId,
+              reportMonth: Between(
+                `${addMonth(monthKey7, -12)}-01`,
+                `${addMonth(monthKey7, -1)}-01`,
+              ),
+            },
+          });
+    const auxByMonth = new Map<string, Set<string>>();
+    for (const report of earlier) {
+      const own = String(report.reportMonth).slice(0, 7);
+      const place = placeLate(report.publisherId, own, sheets);
+      if (!place.late || place.into !== monthKey7) continue;
+      const card = everyone.find((p) => p.id === report.publisherId);
+      if (!card || !memberAtEndOf(`${own}-01`)(card)) continue;
+      if (!auxByMonth.has(own)) {
+        auxByMonth.set(
+          own,
+          await this.auxiliaryPioneersService.activePublisherIdsForMonth(
+            tenantId,
+            `${own}-01`,
+          ),
+        );
+      }
+      // His category in the month the report is FOR: an auxiliary pioneer
+      // of September stays one on the October sheet.
+      const kind = pioneerTypeInMonth(
+        spellsByPubId.get(card.id) ?? [],
+        `${own}-01`,
+      );
+      const category: ServiceSummaryCategoryKey =
+        kind !== PioneerType.NONE
+          ? kind
+          : auxByMonth.get(own)!.has(card.id)
+            ? 'auxiliary'
+            : 'none';
+      if (!counts(report, category)) continue;
+      counted.push({ report, category });
+      carriedIn.push({
+        publisherId: card.id,
+        name: nameOf.get(card.id) ?? '',
+        reportMonth: `${own}-01`,
+        category,
+      });
+    }
+    carriedIn.sort(
+      (a, b) =>
+        a.reportMonth.localeCompare(b.reportMonth) ||
+        a.name.localeCompare(b.name, 'ru'),
+    );
+    // A late report belongs to a LATER sheet: on this one it moves no figure
+    // at all — not a line, not «Все активные», not «Неактивные». Otherwise a
+    // sent September would show «по отчётам сейчас: 4 (отправлено 3)» for a
+    // report that went, as it should, into October.
+    const heldBack = (publisherId: string, month: string): boolean => {
+      const place = placeLate(publisherId, month.slice(0, 7), sheets);
+      return place.late && place.into! > monthKey7;
+    };
 
     const order: ServiceSummaryCategoryKey[] = [
       'none',
@@ -2348,11 +2520,17 @@ export class ServiceReportsService {
     const reportersOf = new Map<ServiceSummaryCategoryKey, string[]>(
       order.map((t) => [t, []]),
     );
-    for (const report of reports) {
-      const category = categoryByPubId.get(report.publisherId);
-      if (category === undefined) continue;
+    const carriedKeys = new Set(
+      carriedIn.map((c) => carryKey(c.publisherId, c.reportMonth)),
+    );
+    for (const { report, category } of counted) {
       const bucket = acc.get(category);
       if (!bucket) continue;
+      // A carried report counts on the line, but its person is not one of
+      // THIS month's reporters — the sheet names him under `carried`.
+      const own = !carriedKeys.has(
+        carryKey(report.publisherId, String(report.reportMonth)),
+      );
 
       if (category === 'none') {
         // Ordinary publishers: count only those who shared in the ministry.
@@ -2363,12 +2541,12 @@ export class ServiceReportsService {
         if (reportedMinistry(report)) {
           bucket.count += 1;
           bucket.bibleStudies += report.bibleStudies ?? 0;
-          reportersOf.get(category)!.push(report.publisherId);
+          if (own) reportersOf.get(category)!.push(report.publisherId);
         }
       } else {
         // Auxiliary pioneers report hours just as permanent ones do.
         bucket.count += 1;
-        reportersOf.get(category)!.push(report.publisherId);
+        if (own) reportersOf.get(category)!.push(report.publisherId);
         bucket.hours += report.hoursReported ?? 0;
         bucket.bibleStudies += report.bibleStudies ?? 0;
       }
@@ -2383,6 +2561,7 @@ export class ServiceReportsService {
         hours: key === 'none' ? null : bucket.hours,
         count: bucket.count,
         bibleStudies: bucket.bibleStudies,
+        onForm: S1_FORM_LINES.includes(key),
       };
     });
 
@@ -2410,12 +2589,22 @@ export class ServiceReportsService {
         congregationId: tenantId,
         reportMonth: Between(`${sixMonthFloor}-01`, reportMonth),
       },
-      select: ['publisherId', 'servedThisMonth', 'hoursReported'],
+      select: [
+        'publisherId',
+        'reportMonth',
+        'servedThisMonth',
+        'hoursReported',
+      ],
     });
     const activeIds = [
       ...new Set(
         recentRows
-          .filter((r) => memberIds.has(r.publisherId) && reportedMinistry(r))
+          .filter(
+            (r) =>
+              memberIds.has(r.publisherId) &&
+              reportedMinistry(r) &&
+              !heldBack(r.publisherId, String(r.reportMonth)),
+          )
           .map((r) => r.publisherId),
       ),
     ];
@@ -2436,6 +2625,7 @@ export class ServiceReportsService {
         publishers.filter(
           (p) => p.appointment !== PublisherAppointment.STUDENT,
         ),
+        heldBack,
       );
     const totalInactivePublishers = inactiveIds.length;
 
@@ -2446,9 +2636,7 @@ export class ServiceReportsService {
     let pioneerHoursCount = 0;
     let studiesSum = 0;
     let reportedCount = 0;
-    for (const report of reports) {
-      const category = categoryByPubId.get(report.publisherId);
-      if (category === undefined) continue;
+    for (const { report, category } of counted) {
       const shared = reportedMinistry(report);
       if (shared) {
         reportedCount += 1;
@@ -2491,6 +2679,8 @@ export class ServiceReportsService {
             name: [p.lastName, p.firstName].filter(Boolean).join(' ').trim(),
           }))
           .sort((a, b) => a.name.localeCompare(b.name, 'ru')),
+        carriedIn,
+        lateOut: lateOut.sort((a, b) => a.filedAt.localeCompare(b.filedAt)),
         averages,
         closed,
       },
@@ -2500,6 +2690,16 @@ export class ServiceReportsService {
         ...Object.fromEntries(
           order.map((k) => [`reported:${k}`, [...reportersOf.get(k)!].sort()]),
         ),
+        // Every report that was in for this month — a «did not share» one
+        // too — so a later change to it reads as a correction, not as late.
+        filed: [
+          ...new Set(
+            monthReports
+              .filter((r) => !placeLate(r.publisherId, monthKey7, sheets).late)
+              .map((r) => r.publisherId),
+          ),
+        ].sort(),
+        carried: [...carriedKeys].sort(),
       },
     };
   }
