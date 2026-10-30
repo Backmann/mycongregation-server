@@ -2651,7 +2651,11 @@ describe('ServiceReportsService', () => {
       result.categories.find((c: any) => c.pioneerType === key);
 
     let rows: ServiceReport[] = [];
-    let kept: { period: string; members: Record<string, string[]> }[] = [];
+    let kept: {
+      period: string;
+      members: Record<string, string[]>;
+      createdAt?: Date;
+    }[] = [];
 
     beforeEach(() => {
       rows = [];
@@ -2834,6 +2838,36 @@ describe('ServiceReportsService', () => {
       // the sheet it went into, October.
       expect(sep.summary.totalActivePublishers).toBe(1);
       expect(oct.summary.totalActivePublishers).toBe(2);
+    });
+
+    it('does not pour an old late report into the month open now', async () => {
+      // Kept before the rule: June to September. A June report came in on 25
+      // July — after June went, before July went — and July took nothing in.
+      const keptAt = (d: string) => new Date(`${d}T10:00:00Z`);
+      kept = ['06', '07', '08', '09'].map((m, i) => ({
+        period: `2026-${m}`,
+        members: { 'reported:none': ['a'] },
+        createdAt: keptAt(`2026-${String(7 + i).padStart(2, '0')}-19`),
+      })) as never;
+      rows = [
+        report('b', '2026-06-01', { createdAt: keptAt('2026-07-25') }),
+        report('a', '2026-09-01'),
+      ];
+
+      const oct = await service.computeSummary('cong-1', '2026-10');
+      const jun = await service.computeSummary('cong-1', '2026-06');
+
+      expect(oct.summary.carriedIn).toEqual([]);
+      expect(line(oct.summary, 'none').count).toBe(0);
+      // Named on its own month: late, and in no sheet.
+      expect(jun.summary.lateOut).toEqual([
+        expect.objectContaining({
+          publisherId: 'b',
+          carriedTo: null,
+          carriedKept: false,
+        }),
+      ]);
+      expect(line(jun.summary, 'none').count).toBe(0);
     });
 
     it('marks the lines of the form: no special pioneers or missionaries on it', async () => {

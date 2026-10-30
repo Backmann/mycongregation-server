@@ -334,8 +334,11 @@ export interface LateOutReport {
   name: string;
   /** When it was entered. */
   filedAt: string;
-  /** The month whose sheet takes it, YYYY-MM-01. */
-  carriedTo: string;
+  /**
+   * The month whose sheet takes it, YYYY-MM-01 — null when it went into no
+   * sheet: handed in before the rule, after the next month was sent too.
+   */
+  carriedTo: string | null;
   /** True when that month is already kept with it. */
   carriedKept: boolean;
 }
@@ -2201,7 +2204,11 @@ export class ServiceReportsService {
     reportMonth: string,
     members: Publisher[],
     /** A late report of `month` that goes into a later sheet — not counted here. */
-    heldBack: (publisherId: string, month: string) => boolean = () => false,
+    heldBack: (
+      publisherId: string,
+      month: string,
+      filedAt?: Date,
+    ) => boolean = () => false,
   ): Promise<{ inactive: string[]; unknown: Publisher[] }> {
     if (members.length === 0) return { inactive: [], unknown: [] };
     const month = reportMonth.slice(0, 7);
@@ -2226,6 +2233,7 @@ export class ServiceReportsService {
         'reportMonth',
         'servedThisMonth',
         'hoursReported',
+        'createdAt',
       ],
     });
     const shared = new Map<string, Set<string>>();
@@ -2233,7 +2241,15 @@ export class ServiceReportsService {
     for (const r of rows) {
       const m = String(r.reportMonth).slice(0, 7);
       const was = first.get(r.publisherId);
-      if (heldBack(r.publisherId, m)) continue;
+      if (
+        heldBack(
+          r.publisherId,
+          m,
+          r.createdAt ? new Date(r.createdAt) : undefined,
+        )
+      ) {
+        continue;
+      }
       if (!was || m < was) first.set(r.publisherId, m);
       if (!reportedMinistry(r)) continue;
       const set = shared.get(r.publisherId) ?? new Set<string>();
@@ -2399,7 +2415,7 @@ export class ServiceReportsService {
       .getRepository(ReportSnapshot)
       .find({
         where: { congregationId: tenantId, kind: 'monthly' },
-        select: { id: true, period: true, members: true },
+        select: { id: true, period: true, members: true, createdAt: true },
       });
     const sheets = keptSheetsOf(keptRows ?? []);
     if (opts.absorbLate) sheets.delete(monthKey7);
@@ -2424,13 +2440,18 @@ export class ServiceReportsService {
     for (const report of monthReports) {
       const category = categoryByPubId.get(report.publisherId);
       if (category === undefined) continue;
-      const place = placeLate(report.publisherId, monthKey7, sheets);
+      const place = placeLate(
+        report.publisherId,
+        monthKey7,
+        sheets,
+        new Date(report.createdAt),
+      );
       if (place.late && counts(report, category)) {
         lateOut.push({
           publisherId: report.publisherId,
           name: nameOf.get(report.publisherId) ?? '',
           filedAt: new Date(report.createdAt).toISOString(),
-          carriedTo: `${place.into}-01`,
+          carriedTo: place.into ? `${place.into}-01` : null,
           carriedKept: place.kept,
         });
         continue;
@@ -2457,7 +2478,12 @@ export class ServiceReportsService {
     const auxByMonth = new Map<string, Set<string>>();
     for (const report of earlier) {
       const own = String(report.reportMonth).slice(0, 7);
-      const place = placeLate(report.publisherId, own, sheets);
+      const place = placeLate(
+        report.publisherId,
+        own,
+        sheets,
+        new Date(report.createdAt),
+      );
       if (!place.late || place.into !== monthKey7) continue;
       const card = everyone.find((p) => p.id === report.publisherId);
       if (!card || !memberAtEndOf(`${own}-01`)(card)) continue;
@@ -2500,9 +2526,14 @@ export class ServiceReportsService {
     // at all — not a line, not «Все активные», not «Неактивные». Otherwise a
     // sent September would show «по отчётам сейчас: 4 (отправлено 3)» for a
     // report that went, as it should, into October.
-    const heldBack = (publisherId: string, month: string): boolean => {
-      const place = placeLate(publisherId, month.slice(0, 7), sheets);
-      return place.late && place.into! > monthKey7;
+    const heldBack = (
+      publisherId: string,
+      month: string,
+      filedAt?: Date,
+    ): boolean => {
+      const place = placeLate(publisherId, month.slice(0, 7), sheets, filedAt);
+      // Into a later sheet, or into none: either way not this one's.
+      return place.late && (place.into === null || place.into > monthKey7);
     };
 
     const order: ServiceSummaryCategoryKey[] = [
@@ -2594,6 +2625,7 @@ export class ServiceReportsService {
         'reportMonth',
         'servedThisMonth',
         'hoursReported',
+        'createdAt',
       ],
     });
     const activeIds = [
@@ -2603,7 +2635,11 @@ export class ServiceReportsService {
             (r) =>
               memberIds.has(r.publisherId) &&
               reportedMinistry(r) &&
-              !heldBack(r.publisherId, String(r.reportMonth)),
+              !heldBack(
+                r.publisherId,
+                String(r.reportMonth),
+                r.createdAt ? new Date(r.createdAt) : undefined,
+              ),
           )
           .map((r) => r.publisherId),
       ),
@@ -2695,7 +2731,15 @@ export class ServiceReportsService {
         filed: [
           ...new Set(
             monthReports
-              .filter((r) => !placeLate(r.publisherId, monthKey7, sheets).late)
+              .filter(
+                (r) =>
+                  !placeLate(
+                    r.publisherId,
+                    monthKey7,
+                    sheets,
+                    new Date(r.createdAt),
+                  ).late,
+              )
               .map((r) => r.publisherId),
           ),
         ].sort(),

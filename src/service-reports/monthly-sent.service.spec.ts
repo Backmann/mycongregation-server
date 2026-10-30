@@ -108,6 +108,7 @@ function setup(
     audit,
     reports,
     publishersRepo,
+    reportsRepo,
     stored: () => stored,
     setCurrent: (s: ServiceReportSummary, m: Record<string, string[]>) => {
       current = s;
@@ -281,6 +282,41 @@ describe('MonthlySentService', () => {
     expect((stored()!.appointments as Record<string, string>)['p-late']).toBe(
       'publisher',
     );
+  });
+
+  it('marks a late «did not share» as going nowhere, and nobody the sheet knew', async () => {
+    const { service, setCurrent, reportsRepo } = setup();
+    setCurrent(summary(85, 2, 19), {
+      active: ['a'],
+      inactive: [],
+      'reported:none': ['a'],
+      filed: ['a'],
+    });
+    await service.saveSent(TENANT, 'user-1', '2026-08-01');
+    // After sending: «a» withdrew and handed in again (a new row), and
+    // «p-late» handed in «did not share» for the first time.
+    const after = new Date('2026-09-25T10:00:00Z');
+    (reportsRepo.find as jest.Mock).mockResolvedValue([
+      {
+        id: 'r-a',
+        publisherId: 'a',
+        reportMonth: '2026-08-01',
+        createdAt: after,
+      },
+      {
+        id: 'r-late',
+        publisherId: 'p-late',
+        reportMonth: '2026-08-01',
+        createdAt: after,
+      },
+    ]);
+
+    const out = await service.withSent(TENANT, summary(85, 2, 20));
+
+    const byWho = Object.fromEntries(
+      out.late.map((f) => [f.publisherId, f.notCounted ?? false]),
+    );
+    expect(byWho).toEqual({ a: false, 'p-late': true });
   });
 
   it('names every line of the form', () => {

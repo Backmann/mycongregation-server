@@ -11,7 +11,7 @@ import { CongregationClock } from '../common/congregation-clock.service';
 import { todayIn } from '../common/congregation-clock';
 import { lastClosedReportMonth, monthKey } from '../common/report-month-window';
 import { addMonthKey } from '../common/service-status-rule';
-import { carryKeyPublisher } from './late-carry';
+import { carryKeyPublisher, keptSheetsOf } from './late-carry';
 import {
   publishersAsOf,
   reportsAsOf,
@@ -81,6 +81,11 @@ export interface MonthlyDrift {
 /** What was entered after the month was sent, with the person's name. */
 export interface MonthlyLateFact extends LateFact {
   name: string;
+  /**
+   * A report of this month handed in after sending that goes on no line —
+   * «did not share». The counted ones are under the summary's lateOut.
+   */
+  notCounted?: boolean;
 }
 
 export type SummaryWithSent = ServiceReportSummary & {
@@ -256,6 +261,9 @@ export class MonthlySentService {
     // A report of this month handed in after it was sent has its own place
     // (lateOut: it goes into the next sheet) — not named twice.
     const lateOut = new Set((live.lateOut ?? []).map((l) => l.publisherId));
+    const sentReporters =
+      keptSheetsOf([{ period: month, members: row.members }]).get(month)
+        ?.reporters ?? new Set<string>();
     const late = keys.length
       ? (await this.lateSince(tenantId, month, row.updatedAt, ids)).filter(
           (f) =>
@@ -290,7 +298,17 @@ export class MonthlySentService {
           .map((p) => ({ ...p, name: names.get(p.id) ?? '' }))
           .sort((a, b) => a.name.localeCompare(b.name, 'ru')),
       })),
-      late: late.map((f) => ({ ...f, name: names.get(f.publisherId) ?? '' })),
+      late: late.map((f) => ({
+        ...f,
+        name: names.get(f.publisherId) ?? '',
+        // Handed in after sending by somebody the sheet does not know, and
+        // not among the counted late ones: a late «did not share».
+        ...(f.kind === 'report_filed' &&
+        f.reportMonth?.slice(0, 7) === month &&
+        !sentReporters.has(f.publisherId)
+          ? { notCounted: true }
+          : {}),
+      })),
     };
   }
 
