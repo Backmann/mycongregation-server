@@ -10,10 +10,12 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { todayIn } from '../common/congregation-clock';
 import {
+  collectedReportMonth,
   lastClosedReportMonth,
   monthKey,
   REPORT_CLOSING_DAY,
 } from '../common/report-month-window';
+import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { addMonthKey } from '../common/service-status-rule';
 import { carryKeyPublisher, keptSheetsOf } from './late-carry';
 import {
@@ -97,6 +99,54 @@ export type SummaryWithSent = ServiceReportSummary & {
   drift: MonthlyDrift[];
   late: MonthlyLateFact[];
 };
+
+/** One month on the three totals cards. */
+export interface S21TotalsMonth {
+  /** YYYY-MM. */
+  month: string;
+  /**
+   * sent — kept by a person as what went to the branch; frozen — kept by the
+   * app; collecting — reports still coming in; open — past and never kept;
+   * none — nothing recorded; future — not yet.
+   */
+  state: 'sent' | 'frozen' | 'collecting' | 'open' | 'none' | 'future';
+  /** Card 1: regular, special pioneers and missionaries in the field. */
+  pioneers: {
+    count: number;
+    hours: number;
+    studies: number;
+    /** Of the count: special pioneers and missionaries. */
+    directToBranch: number;
+  };
+  /** Card 2: auxiliary pioneers. */
+  auxiliary: { count: number; hours: number; studies: number };
+  /** Card 3: all other publishers. Their reports carry no hours. */
+  publishers: { count: number; studies: number };
+  /** Late reports of earlier months counted in this month, per card. */
+  late: { pioneers: number; auxiliary: number; publishers: number };
+}
+
+export interface S21Totals {
+  /** The service year, named by its end: 2027 is September 2026–August 2027. */
+  serviceYear: number;
+  /** The month whose reports are being handed in now, YYYY-MM. */
+  collecting: string;
+  months: S21TotalsMonth[];
+}
+
+function emptyTotalsMonth(
+  month: string,
+  state: 'none' | 'future',
+): S21TotalsMonth {
+  return {
+    month,
+    state,
+    pioneers: { count: 0, hours: 0, studies: 0, directToBranch: 0 },
+    auxiliary: { count: 0, hours: 0, studies: 0 },
+    publishers: { count: 0, studies: 0 },
+    late: { pioneers: 0, auxiliary: 0, publishers: 0 },
+  };
+}
 
 function flatten(s: ServiceReportSummary): Record<string, number | null> {
   const out: Record<string, number | null> = {};
@@ -321,6 +371,112 @@ export class MonthlySentService {
           : {}),
       })),
     };
+  }
+
+  /**
+   * THE THREE TOTALS CARDS (S-21) OF A SERVICE YEAR (instruction, point 14;
+   * Lionel, 30 October 2026: «план Б»).
+   *
+   * Besides each person's card the secretary keeps three cards with the
+   * congregation's total for every month: (1) regular, special pioneers and
+   * missionaries in the field, (2) auxiliary pioneers, (3) all other
+   * publishers. A month stands on them as it went to the branch: the
+   * figures kept when it was sent, a late report in the month whose sheet
+   * took it — so cards 2 and 3 are the S-1's own lines, and card 1 is the
+   * S-1's regular pioneers plus the special pioneers and missionaries, who
+   * report to the branch themselves and are counted by their own month
+   * (plus any of theirs that came in late, in the month it was counted).
+   */
+  async s21Totals(
+    tenantId: string,
+    user: AuthenticatedUser,
+    requestedYear?: number,
+  ): Promise<S21Totals> {
+    const tz = await this.clock.timezoneOf(tenantId);
+    const collecting = monthKey(collectedReportMonth(new Date(), tz)).slice(
+      0,
+      7,
+    );
+    const [cy, cm] = collecting.split('-').map(Number);
+    const serviceYear =
+      requestedYear && requestedYear > 2000 && requestedYear < 3000
+        ? requestedYear
+        : cm >= 9
+          ? cy + 1
+          : cy;
+    const months: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      months.push(addMonthKey(`${serviceYear - 1}-09`, i));
+    }
+    // The permission is the summary's: every elder reads, nobody else.
+    const first = await this.reports.getSummary(tenantId, user, months[0]);
+
+    const rows: S21TotalsMonth[] = [];
+    for (const month of months) {
+      if (month > collecting) {
+        rows.push(emptyTotalsMonth(month, 'future'));
+        continue;
+      }
+      const live =
+        month === months[0]
+          ? first
+          : (await this.reports.computeSummary(tenantId, month)).summary;
+      const shown = await this.withSent(tenantId, live);
+      const line = (k: string) =>
+        shown.categories.find((c) => c.pioneerType === k) ?? {
+          count: 0,
+          hours: 0,
+          bibleStudies: 0,
+        };
+      const regular = line('regular');
+      const special = line('special');
+      const missionary = line('missionary');
+      const aux = line('auxiliary');
+      const pubs = line('none');
+      const anything =
+        !!shown.sent ||
+        [regular, special, missionary, aux, pubs].some((c) => c.count > 0);
+      if (!anything) {
+        rows.push(emptyTotalsMonth(month, 'none'));
+        continue;
+      }
+      const lateOf = (keys: string[]) =>
+        (shown.carriedIn ?? []).filter((c) => keys.includes(c.category)).length;
+      rows.push({
+        month,
+        state: shown.sent
+          ? shown.sent.confirmed
+            ? 'sent'
+            : 'frozen'
+          : month === collecting
+            ? 'collecting'
+            : 'open',
+        pioneers: {
+          count: regular.count + special.count + missionary.count,
+          hours:
+            (regular.hours ?? 0) +
+            (special.hours ?? 0) +
+            (missionary.hours ?? 0),
+          studies:
+            regular.bibleStudies +
+            special.bibleStudies +
+            missionary.bibleStudies,
+          directToBranch: special.count + missionary.count,
+        },
+        auxiliary: {
+          count: aux.count,
+          hours: aux.hours ?? 0,
+          studies: aux.bibleStudies,
+        },
+        publishers: { count: pubs.count, studies: pubs.bibleStudies },
+        late: {
+          pioneers: lateOf(['regular', 'special', 'missionary']),
+          auxiliary: lateOf(['auxiliary']),
+          publishers: lateOf(['none']),
+        },
+      });
+    }
+    return { serviceYear, collecting, months: rows };
   }
 
   find(tenantId: string, month: string): Promise<ReportSnapshot | null> {

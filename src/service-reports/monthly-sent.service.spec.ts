@@ -354,3 +354,194 @@ describe('MonthlySentService', () => {
     ]);
   });
 });
+
+describe('MonthlySentService.s21Totals — the three totals cards (plan B)', () => {
+  beforeEach(() => setNow(Date.UTC(2026, 10, 5, 12)));
+  afterEach(() => restoreNow());
+
+  const cats = (
+    over: Record<string, [number, number | null, number]>,
+  ): ServiceReportSummary['categories'] =>
+    (['none', 'auxiliary', 'regular', 'special', 'missionary'] as const).map(
+      (k) => {
+        const [count, hours, studies] = over[k] ?? [
+          0,
+          k === 'none' ? null : 0,
+          0,
+        ];
+        return {
+          pioneerType: k,
+          count,
+          hours,
+          bibleStudies: studies,
+          onForm: !['special', 'missionary'].includes(k),
+        };
+      },
+    ) as ServiceReportSummary['categories'];
+
+  const live = (
+    month: string,
+    categories: ServiceReportSummary['categories'],
+    extra: Partial<ServiceReportSummary> = {},
+  ): ServiceReportSummary => ({
+    reportMonth: `${month}-01`,
+    categories,
+    totalActivePublishers: 84,
+    totalInactivePublishers: 2,
+    averages: {
+      pioneerHours: 0,
+      bibleStudies: 0,
+      submittedPct: 0,
+      activePct: 0,
+    },
+    closed: false,
+    ...extra,
+  });
+
+  function make() {
+    // September went to the branch as 63/13, 10/205/2, 10/449/6. The
+    // reports today say 64 publishers (a correction since) and a special
+    // pioneer with 100 hours, who reports to the branch himself.
+    const sept = {
+      id: 'snap-sep',
+      period: '2026-09',
+      confirmed: true,
+      sentOn: '2026-10-19',
+      savedById: null,
+      figures: {
+        publishers: 63,
+        publishersStudies: 13,
+        auxiliary: 10,
+        auxiliaryHours: 205,
+        auxiliaryStudies: 2,
+        regular: 10,
+        regularHours: 449,
+        regularStudies: 6,
+        active: 84,
+        inactive: 2,
+      },
+      members: { active: [], inactive: [] },
+      createdAt: new Date('2026-10-19T10:00:00Z'),
+      updatedAt: new Date('2026-10-19T10:00:00Z'),
+    };
+    const byMonth: Record<string, ServiceReportSummary> = {
+      '2026-09': live(
+        '2026-09',
+        cats({
+          none: [64, null, 13],
+          auxiliary: [10, 205, 2],
+          regular: [10, 449, 6],
+          special: [1, 100, 3],
+        }),
+      ),
+      '2026-10': live(
+        '2026-10',
+        cats({
+          none: [60, null, 12],
+          regular: [9, 400, 5],
+          special: [1, 95, 2],
+        }),
+        {
+          carriedIn: [
+            {
+              publisherId: 'k',
+              name: 'Кох',
+              reportMonth: '2026-09-01',
+              category: 'none',
+            },
+          ],
+        },
+      ),
+    };
+    const summaryOf = (month: string) =>
+      byMonth[month.slice(0, 7)] ?? live(month.slice(0, 7), cats({}));
+    const reports = {
+      getSummary: jest.fn(async (_t: string, _u: unknown, m: string) =>
+        summaryOf(m),
+      ),
+      computeSummary: jest.fn(async (_t: string, m: string) => ({
+        summary: summaryOf(m),
+        members: {},
+      })),
+    };
+    const snapshots = {
+      findOne: jest.fn(async (q: { where: { period: string } }) =>
+        q.where.period === '2026-09' ? sept : null,
+      ),
+    };
+    const service = new MonthlySentService(
+      snapshots as never,
+      { find: jest.fn(async () => []) } as never,
+      {
+        find: jest.fn(async () => []),
+        findOne: jest.fn(async () => null),
+      } as never,
+      { find: jest.fn(async () => []) } as never,
+      { find: jest.fn(async () => []) } as never,
+      reports as never,
+      { logCreate: jest.fn(), logRawUpdate: jest.fn() } as never,
+      clockStub(),
+    );
+    return { service, reports };
+  }
+
+  it('shows a sent month as it went, special pioneers and missionaries added to card 1', async () => {
+    const { service } = make();
+    const out = await service.s21Totals(TENANT, { id: 'u' } as never);
+
+    expect(out.serviceYear).toBe(2027);
+    expect(out.collecting).toBe('2026-10');
+    const sep = out.months[0];
+    expect(sep).toMatchObject({
+      month: '2026-09',
+      state: 'sent',
+      // As sent — not the 64 the reports say today.
+      publishers: { count: 63, studies: 13 },
+      auxiliary: { count: 10, hours: 205, studies: 2 },
+      // The S-1's regular pioneers plus the special pioneer.
+      pioneers: { count: 11, hours: 549, studies: 9, directToBranch: 1 },
+    });
+  });
+
+  it('puts a late report in the month that counted it, and leaves the future blank', async () => {
+    const { service } = make();
+    const out = await service.s21Totals(TENANT, { id: 'u' } as never);
+
+    expect(out.months[1]).toMatchObject({
+      month: '2026-10',
+      state: 'collecting',
+      late: { publishers: 1, auxiliary: 0, pioneers: 0 },
+    });
+    expect(out.months.slice(2).every((m) => m.state === 'future')).toBe(true);
+    expect(out.months.map((m) => m.month)).toEqual([
+      '2026-09',
+      '2026-10',
+      '2026-11',
+      '2026-12',
+      '2027-01',
+      '2027-02',
+      '2027-03',
+      '2027-04',
+      '2027-05',
+      '2027-06',
+      '2027-07',
+      '2027-08',
+    ]);
+  });
+
+  it('asks the summary for permission first — every elder, nobody else', async () => {
+    const { service, reports } = make();
+    reports.getSummary.mockRejectedValueOnce(new Error('forbidden'));
+    await expect(
+      service.s21Totals(TENANT, { id: 'u' } as never),
+    ).rejects.toThrow('forbidden');
+    expect(reports.computeSummary).not.toHaveBeenCalled();
+  });
+
+  it('a past year shows all twelve months, none in the future', async () => {
+    const { service } = make();
+    const out = await service.s21Totals(TENANT, { id: 'u' } as never, 2026);
+    expect(out.months[0].month).toBe('2025-09');
+    expect(out.months.some((m) => m.state === 'future')).toBe(false);
+  });
+});
