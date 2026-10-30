@@ -115,6 +115,12 @@ export class PioneerSpellsService {
     pioneerSince: string | null;
     todayIso: string;
     actorUserId?: string | null;
+    /**
+     * When the card stops being a pioneer's: his last month, YYYY-MM, as the
+     * secretary said it (checked by assertEndMonth first). Left out, the
+     * month the change is made in.
+     */
+    endMonth?: string | null;
   }): Promise<{
     opened?: PioneerSpell;
     closed?: PioneerSpell;
@@ -138,7 +144,9 @@ export class PioneerSpellsService {
     // No longer a pioneer: close what is open, at the month it ended in.
     if (!isPioneerNow) {
       if (!open) return {};
-      open.endMonth = monthStart(todayIso);
+      open.endMonth = opts.endMonth
+        ? `${opts.endMonth.slice(0, 7)}-01`
+        : monthStart(todayIso);
       const closed = await this.repo.save(open);
       return { closed };
     }
@@ -235,6 +243,46 @@ export class PioneerSpellsService {
         },
       ),
     );
+  }
+
+  /**
+   * The last month of the spell that is ending must be one of its own
+   * months, and not one still to come (30 October 2026): it may not end
+   * before it began, and «he stopped in March» is not said in January.
+   */
+  async assertEndMonth(opts: {
+    congregationId: string;
+    publisherId: string;
+    endMonth: string;
+    todayIso: string;
+  }): Promise<void> {
+    const open = await this.repo.findOne({
+      where: {
+        congregationId: opts.congregationId,
+        publisherId: opts.publisherId,
+        endMonth: IsNull(),
+      },
+      order: { startMonth: 'DESC' },
+    });
+    if (!open) return;
+    const end = monthOf(opts.endMonth);
+    if (end < monthOf(String(open.startMonth))) {
+      throw new BadRequestException(
+        refusal(
+          'PIONEER_END_BEFORE_START',
+          'The last month of pioneering cannot come before its first.',
+          { start: monthOf(String(open.startMonth)) },
+        ),
+      );
+    }
+    if (end > monthOf(opts.todayIso)) {
+      throw new BadRequestException(
+        refusal(
+          'PIONEER_END_FUTURE',
+          'The last month of pioneering is this month at the latest.',
+        ),
+      );
+    }
   }
 
   /**
