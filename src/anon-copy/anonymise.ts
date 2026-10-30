@@ -200,12 +200,21 @@ function passesText(rule: Rule): boolean {
 }
 
 /** Every string inside a value, however deep. */
+/**
+ * A key the code itself wrote: lower-case Latin, digits and «_» —
+ * «christian_life», «reported:regular», a card id. Read as a name it made
+ * the live copy refuse itself on 30 October 2026: «Christian» is somebody's
+ * first name, and nine cards had the «christian_life» capability. A real
+ * name used as a key would carry a capital or a letter of its own language.
+ */
+const CODE_KEY = /^[a-z0-9_:.-]+$/;
+
 function strings(value: unknown, into: string[]): void {
   if (typeof value === 'string') into.push(value);
   else if (Array.isArray(value)) for (const v of value) strings(v, into);
   else if (value !== null && typeof value === 'object') {
     for (const [k, v] of Object.entries(value)) {
-      into.push(k);
+      if (!CODE_KEY.test(k)) into.push(k);
       strings(v, into);
     }
   }

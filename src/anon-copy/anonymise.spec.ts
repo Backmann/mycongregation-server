@@ -182,6 +182,40 @@ describe('anonymise', () => {
       expect(findLeaks(copy, names, plan)).toEqual([]);
     });
 
+    it('does not read the code’s own keys as names — a value still is', () => {
+      // 30 October 2026: a brother named Christian and nine cards with the
+      // «christian_life» capability stopped the live copy.
+      const names = new Map([['christian', 'male' as const]]);
+      const plan: Record<string, TablePlan> = {
+        publishers: { capabilities: 'copy' },
+      };
+      expect(
+        findLeaks(
+          { publishers: [{ capabilities: { christian_life: true } }] },
+          names,
+          plan,
+        ),
+      ).toEqual([]);
+      expect(
+        findLeaks(
+          { publishers: [{ capabilities: { Christian: true } }] },
+          names,
+          plan,
+        ),
+      ).toEqual([
+        { table: 'publishers', column: 'capabilities', what: 'name', count: 1 },
+      ]);
+      expect(
+        findLeaks(
+          { publishers: [{ capabilities: { note: 'Christian' } }] },
+          names,
+          plan,
+        ),
+      ).toEqual([
+        { table: 'publishers', column: 'capabilities', what: 'name', count: 1 },
+      ]);
+    });
+
     it('does not take its own stand-ins for names', () => {
       const { tables, leaks } = anonymise({
         assignments: [
