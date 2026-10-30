@@ -9,7 +9,11 @@ import { Congregation } from '../entities/congregation.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { todayIn } from '../common/congregation-clock';
-import { lastClosedReportMonth, monthKey } from '../common/report-month-window';
+import {
+  lastClosedReportMonth,
+  monthKey,
+  REPORT_CLOSING_DAY,
+} from '../common/report-month-window';
 import { addMonthKey } from '../common/service-status-rule';
 import { carryKeyPublisher, keptSheetsOf } from './late-carry';
 import {
@@ -198,7 +202,14 @@ export class MonthlySentService {
     let frozen = 0;
     for (const cong of all) {
       const tz = await this.clock.timezoneOf(cong.id);
-      const month = monthKey(lastClosedReportMonth(new Date(), tz)).slice(0, 7);
+      // The day AFTER the deadline: the form may go to the branch on the
+      // 20th itself (instruction, point 14), and a frozen sheet is where late
+      // reports are counted from — freezing on the night going INTO the 20th
+      // made a report entered and sent that day «late», and it went to the
+      // branch twice: in its own month and in the next.
+      const month = monthKey(
+        lastClosedReportMonth(new Date(), tz, REPORT_CLOSING_DAY + 1),
+      ).slice(0, 7);
       if (await this.find(cong.id, month)) continue;
       // Only a month the congregation actually collected: a congregation that
       // started using the app last week has no S-1 for last spring to freeze.
