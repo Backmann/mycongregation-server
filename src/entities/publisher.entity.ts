@@ -149,6 +149,15 @@ export class Publisher {
   @Column({ type: 'date', nullable: true })
   pioneerSince!: string | null;
 
+  /**
+   * The monthly hours of a special pioneer or a missionary when it is not
+   * the usual 100 — 90 is the only other one (Lionel, 30 October 2026). Null
+   * means 100, and it is null for every other kind: it is reset when the
+   * kind changes. Set on the card by whoever sets the kind.
+   */
+  @Column({ type: 'smallint', nullable: true })
+  pioneerMonthGoal!: number | null;
+
   @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   notes!: string | null;
 

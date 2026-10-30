@@ -103,7 +103,7 @@ export const PLAN: Record<string, TablePlan> = {
   publishers: table(
     copy(`id congregation_id user_id service_group_id gender birth_date
       is_active appointment baptism_date ministry_start_date pioneer_type
-      pioneer_since removal_reason removed_at restored_at created_at
+      pioneer_since pioneer_month_goal removal_reason removed_at restored_at created_at
       updated_at deleted_at capabilities status status_manually_overridden
       status_overridden_by_id status_overridden_at last_edited_by_id
       public_talk_numbers anonymized_at spiritual_status

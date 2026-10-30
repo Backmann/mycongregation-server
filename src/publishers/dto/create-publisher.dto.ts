@@ -6,6 +6,7 @@ import {
   IsDateString,
   IsEmail,
   IsEnum,
+  IsIn,
   IsInt,
   IsObject,
   IsOptional,
@@ -120,6 +121,14 @@ export class CreatePublisherDto {
   )
   @IsDateString()
   pioneerSince?: string;
+
+  /**
+   * A special pioneer's or missionary's hours a month: 100 (or null) is the
+   * usual, 90 the other (Lionel, 30 October 2026).
+   */
+  @IsOptional()
+  @IsIn([90, 100])
+  pioneerMonthGoal?: number | null;
 
   @IsOptional()
   @IsString()

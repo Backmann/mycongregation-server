@@ -36,6 +36,11 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 
 /** The monthly pace of a regular pioneer — the same 50 the committee's year uses. */
 export const REGULAR_PIONEER_MONTH_GOAL = 50;
+/**
+ * A special pioneer's and a missionary's monthly hours; the card may say 90
+ * instead (Lionel, 30 October 2026). Credit hours are not in it.
+ */
+export const SPECIAL_PIONEER_MONTH_GOAL = 100;
 /** One entry: at most twelve hours. */
 export const MAX_ENTRY_MINUTES = 720;
 /** One day: never more than its own twenty-four hours. */
@@ -44,7 +49,7 @@ export const MAX_DAY_MINUTES = 1440;
 /**
  * Who he is in a month, for the log: what his report will ask, and so
  * whether the log is open to him at all. Special pioneers and missionaries
- * have a goal too — it is not set here yet (Lionel, 29 October 2026).
+ * have 100 a month, or 90 where the card says so.
  */
 export type ServiceLogRole =
   | 'regular'
@@ -167,9 +172,18 @@ export class ServiceLogService {
     const type = pioneerTypeInMonth(spells, `${month}-01`);
     if (type === PioneerType.REGULAR)
       return { role: 'regular', goal: REGULAR_PIONEER_MONTH_GOAL };
-    if (type === PioneerType.SPECIAL) return { role: 'special', goal: null };
-    if (type === PioneerType.MISSIONARY)
-      return { role: 'missionary', goal: null };
+    if (type === PioneerType.SPECIAL || type === PioneerType.MISSIONARY) {
+      // The card's own figure is today's: a change from 100 to 90 shows in
+      // the months before it too — only on this screen, never in a report.
+      const card = await this.publishers.findOne({
+        where: { congregationId, id: publisherId },
+        select: ['id', 'pioneerMonthGoal'],
+      });
+      return {
+        role: type === PioneerType.SPECIAL ? 'special' : 'missionary',
+        goal: card?.pioneerMonthGoal ?? SPECIAL_PIONEER_MONTH_GOAL,
+      };
+    }
     const periods = await this.auxPeriods.find({
       where: { congregationId, publisherId },
     });

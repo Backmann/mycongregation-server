@@ -1215,6 +1215,7 @@ export class PublishersService {
       displayName,
       capabilities,
     });
+    publisher.pioneerMonthGoal = monthGoalFor(publisher);
     const saved = await this.publishersRepo.save(publisher);
     /**
      * A card made as a pioneer gets its spell at once (23 October 2026).
@@ -1271,6 +1272,7 @@ export class PublishersService {
       pioneerType,
     });
     publisher.pioneerType = pioneerType;
+    publisher.pioneerMonthGoal = monthGoalFor(publisher);
     publisher.lastEditedById = actorUserId ?? publisher.lastEditedById;
     const saved = await this.publishersRepo.save(publisher);
     await this.auditLogService.logUpdate({
@@ -1329,6 +1331,7 @@ export class PublishersService {
       address: publisher.address ?? null,
     };
     Object.assign(publisher, dto);
+    publisher.pioneerMonthGoal = monthGoalFor(publisher);
     const contactsChanged =
       (publisher.mobilePhone ?? null) !== contactsBefore.mobilePhone ||
       (publisher.email ?? null) !== contactsBefore.email ||
@@ -1858,6 +1861,10 @@ const RECORD_FIELDS = [
   'appointment',
   'pioneerType',
   'pioneerSince',
+  'pioneerMonthGoal',
+  // Printed on the S-21; was wiped silently by every save of the card form
+  // until 30 October 2026, with no trace of what it had been.
+  'spiritualStatus',
   'baptismDate',
   'ministryStartDate',
   'serviceGroupId',
@@ -1873,4 +1880,19 @@ function recordFieldsOf(p: Publisher): Record<string, unknown> {
     out[f] = v instanceof Date ? v.toISOString().slice(0, 10) : (v ?? null);
   }
   return out;
+}
+
+/**
+ * The card's own monthly goal, as it may be stored: 90 for a special pioneer
+ * or a missionary who has it; null otherwise — 100 is the usual and is not
+ * written down, and no other kind carries one (Lionel, 30 October 2026).
+ */
+export function monthGoalFor(p: {
+  pioneerType: PioneerType;
+  pioneerMonthGoal?: number | null;
+}): number | null {
+  const own =
+    p.pioneerType === PioneerType.SPECIAL ||
+    p.pioneerType === PioneerType.MISSIONARY;
+  return own && p.pioneerMonthGoal === 90 ? 90 : null;
 }
