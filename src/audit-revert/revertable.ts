@@ -43,6 +43,7 @@ export const REVERTABLE_FIELDS: Record<string, string[]> = {
     'ministryStartDate',
     'pioneerType',
     'pioneerSince',
+    'pioneerMonthGoal',
     'notes',
   ],
   service_group: ['name', 'overseerPublisherId', 'assistantPublisherId'],

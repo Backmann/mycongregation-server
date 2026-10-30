@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Harness, startHarness } from './harness';
 import { CongregationClock } from '../../src/common/congregation-clock.service';
+import { PRIVATE_PUBLISHER_FIELDS } from '../../src/publishers/publisher-privacy';
 import {
   ServiceLogService,
   reportHoursOf,
@@ -221,6 +222,44 @@ describe('the personal hours log (real database)', () => {
       (await h.sql(`SELECT 1 FROM service_log_entries WHERE id = $1`, [first]))
         .length,
     ).toBe(1);
+  });
+
+  it('a special pioneer has 100 a month, 90 where the card says, reset with the kind', async () => {
+    await person('spec', 'Семён', 'publisher', 'special');
+    await h.sql(
+      `UPDATE publishers SET pioneer_type = 'special', pioneer_since = '2020-09-01' WHERE id = $1`,
+      [cards.spec],
+    );
+    expect((await month('spec')).body).toMatchObject({
+      role: 'special',
+      goal: 100,
+    });
+
+    // The secretary (here an admin) writes 90 on the card.
+    const set = await h
+      .as('admin')
+      .patch(`/publishers/${cards.spec}`, { pioneerMonthGoal: 90 });
+    expect(set.status).toBe(200);
+    expect((await month('spec')).body.goal).toBe(90);
+
+    // Only 90 or 100 exist.
+    const odd = await h
+      .as('admin')
+      .patch(`/publishers/${cards.spec}`, { pioneerMonthGoal: 70 });
+    expect(odd.status).toBe(400);
+
+    // A fellow publisher never receives it: it is a private field.
+    expect(PRIVATE_PUBLISHER_FIELDS).toContain('pioneerMonthGoal');
+
+    // The kind changes — the 90 goes with it, nothing stays to surprise.
+    await h
+      .as('admin')
+      .patch(`/publishers/${cards.spec}`, { pioneerType: 'none' });
+    const [card] = await h.sql<{ pioneer_month_goal: number | null }>(
+      `SELECT pioneer_month_goal FROM publishers WHERE id = $1`,
+      [cards.spec],
+    );
+    expect(card.pioneer_month_goal).toBeNull();
   });
 
   it('nothing before the month the log began in, nor with the log off', async () => {

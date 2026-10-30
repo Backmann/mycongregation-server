@@ -22,6 +22,8 @@ export const PRIVATE_PUBLISHER_FIELDS = [
   'baptismDate',
   'ministryStartDate',
   'pioneerSince',
+  // A special pioneer's own monthly hours — his and the elders' business.
+  'pioneerMonthGoal',
   'removalReason',
   'removedAt',
   // The circumstances the annual report asks about. More personal than a
