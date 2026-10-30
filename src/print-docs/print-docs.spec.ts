@@ -39,7 +39,7 @@ describe('print-docs — a sheet handed to Safari for ten minutes', () => {
   it('refuses nothing to print and a sheet far too large', () => {
     const s = new PrintDocsService();
     expect(() => s.create('u1', '   ')).toThrow();
-    expect(() => s.create('u1', 'x'.repeat(4 * 1024 * 1024 + 1))).toThrow();
+    expect(() => s.create('u1', 'x'.repeat(2 * 1024 * 1024 + 1))).toThrow();
   });
 
   it('a person keeps at most ten sheets; the oldest goes first', () => {
@@ -49,6 +49,19 @@ describe('print-docs — a sheet handed to Safari for ten minutes', () => {
       s.create('u1', `<p>${i}</p>`, 1);
     expect(s.read(first, 2)).toBeNull();
     expect(s.size(2)).toBe(PRINT_DOC_PER_USER);
+  });
+
+  it('all live sheets together stay within the memory budget; the oldest go first', () => {
+    const s = new PrintDocsService();
+    const big = 'x'.repeat(2 * 1024 * 1024); // the largest a sheet may be
+    const tokens: string[] = [];
+    // 30 people, one large sheet each: 60 M characters asked, 48 M allowed.
+    for (let i = 0; i < 30; i++) tokens.push(s.create(`u${i}`, big, i));
+    const kept = tokens.filter((t) => s.read(t, 100) !== null);
+    expect(kept.length).toBe(24);
+    // The first ones went, the latest stayed.
+    expect(s.read(tokens[0], 100)).toBeNull();
+    expect(s.read(tokens[29], 100)).not.toBeNull();
   });
 
   it('serves the sheet in a sandbox: no origin, no cookies, only its own nonce script', () => {

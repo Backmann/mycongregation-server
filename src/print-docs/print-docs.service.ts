@@ -18,7 +18,12 @@ import { refusal } from '../common/errors/refusal';
  */
 export const PRINT_DOC_TTL_MS = 10 * 60 * 1000;
 /** A sheet as the app makes it: a few tens of kilobytes; the cap is generous. */
-export const PRINT_DOC_MAX_CHARS = 4 * 1024 * 1024;
+export const PRINT_DOC_MAX_CHARS = 2 * 1024 * 1024;
+/**
+ * All live sheets together — the server has 4 GB for everything, and a few
+ * people printing at once need a few hundred kilobytes. The oldest go first.
+ */
+export const PRINT_DOC_BUDGET_CHARS = 48 * 1024 * 1024;
 /** Live sheets per person and overall — the oldest goes first. */
 export const PRINT_DOC_PER_USER = 10;
 export const PRINT_DOC_TOTAL = 300;
@@ -55,6 +60,12 @@ export class PrintDocsService {
     }
     while (this.docs.size >= PRINT_DOC_TOTAL) {
       this.docs.delete(this.docs.keys().next().value as string);
+    }
+    let held = [...this.docs.values()].reduce((n, d) => n + d.html.length, 0);
+    while (held + html.length > PRINT_DOC_BUDGET_CHARS && this.docs.size > 0) {
+      const oldest = this.docs.keys().next().value as string;
+      held -= this.docs.get(oldest)!.html.length;
+      this.docs.delete(oldest);
     }
     const token = randomBytes(32).toString('base64url');
     this.docs.set(token, { html, userId, expiresAt: now + PRINT_DOC_TTL_MS });

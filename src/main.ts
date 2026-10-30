@@ -122,7 +122,7 @@ async function bootstrap() {
 
   // A sheet handed to Safari for printing (print-docs) comes as text/html,
   // larger than the JSON limit allows; nothing else sends text/html.
-  app.useBodyParser('text', { type: 'text/html', limit: '5mb' });
+  app.useBodyParser('text', { type: 'text/html', limit: '3mb' });
 
   // Outside production an empty or wildcard value stays permissive so that
   // local development and Expo's changing ports keep working.
