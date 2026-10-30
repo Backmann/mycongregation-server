@@ -16,6 +16,7 @@ import {
 import { CongregationClock } from '../common/congregation-clock.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, IsNull, LessThanOrEqual, Repository } from 'typeorm';
+import { PioneerSpell } from '../entities/pioneer-spell.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { User } from '../entities/user.entity';
@@ -37,7 +38,11 @@ import { deriveRoleFromAppointment } from './derive-role';
 import { UsersService } from '../users/users.service';
 import type { SignedInPlace } from '../users/users.service';
 import { AuxiliaryPioneersService } from '../auxiliary-pioneers/auxiliary-pioneers.service';
-import { PioneerSpellsService } from '../pioneer-spells/pioneer-spells.service';
+import {
+  PioneerSpellsService,
+  type PastSpellInput,
+  type PioneerHistory,
+} from '../pioneer-spells/pioneer-spells.service';
 import { GrantAccessDto } from './dto/grant-access.dto';
 import {
   addMonthKey,
@@ -1234,6 +1239,129 @@ export class PublishersService {
       actorUserId: null,
     });
     return saved;
+  }
+
+  // ---- The pioneer history on the card (30 October 2026) ---------------
+
+  /** Every spell of permanent pioneering, newest first, and the sum. */
+  async pioneerHistory(tenantId: string, id: string): Promise<PioneerHistory> {
+    await this.findOne(tenantId, id);
+    return this.pioneerSpells.history(
+      tenantId,
+      id,
+      await this.clock.todayFor(tenantId),
+    );
+  }
+
+  /** A past spell copied in from the paper S-21. */
+  async addPastPioneerSpell(
+    tenantId: string,
+    id: string,
+    input: PastSpellInput,
+    actorUserId?: string,
+  ): Promise<PioneerHistory> {
+    const publisher = await this.findOne(tenantId, id);
+    const today = await this.clock.todayFor(tenantId);
+    const spell = await this.pioneerSpells.addPast({
+      congregationId: tenantId,
+      publisherId: id,
+      input,
+      todayIso: today,
+      actorUserId: actorUserId ?? null,
+    });
+    await this.journalPioneerHistory(
+      tenantId,
+      publisher,
+      actorUserId,
+      null,
+      spell,
+    );
+    return this.pioneerSpells.history(tenantId, id, today);
+  }
+
+  /** A closed spell corrected — kind, first or last month. */
+  async updatePastPioneerSpell(
+    tenantId: string,
+    id: string,
+    spellId: string,
+    input: PastSpellInput,
+    actorUserId?: string,
+  ): Promise<PioneerHistory> {
+    const publisher = await this.findOne(tenantId, id);
+    const today = await this.clock.todayFor(tenantId);
+    const { before, after } = await this.pioneerSpells.updatePast({
+      congregationId: tenantId,
+      publisherId: id,
+      spellId,
+      input,
+      todayIso: today,
+    });
+    await this.journalPioneerHistory(
+      tenantId,
+      publisher,
+      actorUserId,
+      before,
+      after,
+    );
+    return this.pioneerSpells.history(tenantId, id, today);
+  }
+
+  /** A closed spell written in error, taken out. */
+  async removePastPioneerSpell(
+    tenantId: string,
+    id: string,
+    spellId: string,
+    actorUserId?: string,
+  ): Promise<PioneerHistory> {
+    const publisher = await this.findOne(tenantId, id);
+    const removed = await this.pioneerSpells.removePast({
+      congregationId: tenantId,
+      publisherId: id,
+      spellId,
+    });
+    await this.journalPioneerHistory(
+      tenantId,
+      publisher,
+      actorUserId,
+      removed,
+      null,
+    );
+    return this.pioneerSpells.history(
+      tenantId,
+      id,
+      await this.clock.todayFor(tenantId),
+    );
+  }
+
+  /**
+   * One line in the card's journal: which stretch, before and after. The
+   * history decides S-21 notes and the years a pioneer has served, so a
+   * change to it is said like any other change to the card — but it is not
+   * put back from the journal: the spell itself is corrected or removed.
+   */
+  private async journalPioneerHistory(
+    tenantId: string,
+    publisher: Publisher,
+    actorUserId: string | undefined,
+    before: PioneerSpell | null,
+    after: PioneerSpell | null,
+  ): Promise<void> {
+    const line = (s: PioneerSpell | null) =>
+      s
+        ? `${s.pioneerType} ${String(s.startMonth).slice(0, 7)}–${
+            s.endMonth ? String(s.endMonth).slice(0, 7) : ''
+          }`
+        : null;
+    await this.auditLogService.logRawUpdate({
+      tenantId,
+      entityType: 'publisher',
+      entityId: publisher.id,
+      actorUserId: actorUserId ?? null,
+      subjectId: publisher.userId ?? null,
+      changedFields: ['pioneerHistory'],
+      before: { pioneerHistory: line(before) },
+      after: { pioneerHistory: line(after) },
+    });
   }
 
   /**
