@@ -1,5 +1,6 @@
 import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneers.module';
-import { PioneerMeetingsModule } from '../pioneer-meetings/pioneer-meetings.module';
+import { PioneerMeeting } from '../entities/pioneer-meeting.entity';
+import { PioneerSpell } from '../entities/pioneer-spell.entity';
 import { Module } from '@nestjs/common';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
@@ -31,7 +32,6 @@ import { MePendingService } from './me-pending.service';
     CongregationClockModule,
     NotificationsModule,
     AuditLogModule,
-    PioneerMeetingsModule,
     TypeOrmModule.forFeature([
       Publisher,
       ServiceGroup,
@@ -46,6 +46,8 @@ import { MePendingService } from './me-pending.service';
       CoVisitItem,
       MemorialItem,
       SpecialEvent,
+      PioneerMeeting,
+      PioneerSpell,
     ]),
   ],
   controllers: [MeController],

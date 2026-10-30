@@ -60,17 +60,6 @@ export interface PioneerMeetingView {
   invitedCount: number;
 }
 
-/** A meeting as Home shows it to the invited and the conductor. */
-export interface HomeMeeting {
-  id: string;
-  date: string;
-  timeStart: string | null;
-  timeEnd: string | null;
-  place: string | null;
-  role: 'conduct' | 'invited';
-  conductorName: string;
-}
-
 export interface PioneerMeetingDetail extends PioneerMeetingView {
   /** Those pioneering on its day; for the conductor and the elders. */
   invited: { id: string; name: string; kind: string; away: boolean }[];
@@ -733,48 +722,5 @@ export class PioneerMeetingsService {
     }
     void actorUserId;
     return 0;
-  }
-
-  // ---- Home ------------------------------------------------------------------
-
-  /**
-   * For Home: the coming meetings this person is invited to or conducts —
-   * from today on, up to `horizon`.
-   */
-  async forHome(
-    tenantId: string,
-    publisherId: string,
-    today: string,
-    horizon: string,
-  ): Promise<HomeMeeting[]> {
-    const rows = await this.meetings.find({
-      where: { congregationId: tenantId, date: Between(today, horizon) },
-      order: { date: 'ASC' },
-    });
-    if (rows.length === 0) return [];
-    const spells = await this.spells.find({
-      where: { congregationId: tenantId, publisherId },
-    });
-    const out: HomeMeeting[] = [];
-    for (const m of rows) {
-      const day = String(m.date).slice(0, 10);
-      const conducts = m.conductorPublisherId === publisherId;
-      const invited = invitedOn(spells, day).includes(publisherId);
-      if (!conducts && !invited) continue;
-      const conductor = await this.publishers.findOne({
-        where: { id: m.conductorPublisherId, congregationId: tenantId },
-        withDeleted: true,
-      });
-      out.push({
-        id: m.id,
-        date: day,
-        timeStart: m.timeStart,
-        timeEnd: m.timeEnd,
-        place: m.place,
-        role: conducts ? ('conduct' as const) : ('invited' as const),
-        conductorName: conductor ? nameOf(conductor) : '',
-      });
-    }
-    return out;
   }
 }

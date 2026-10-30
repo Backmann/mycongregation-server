@@ -15,7 +15,9 @@ import { CartAssignment } from '../entities/cart-assignment.entity';
 import { CoVisitItem } from '../entities/co-visit-item.entity';
 import { MemorialItem } from '../entities/memorial-item.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
-import { PioneerMeetingsService } from '../pioneer-meetings/pioneer-meetings.service';
+import { PioneerMeeting } from '../entities/pioneer-meeting.entity';
+import { PioneerSpell } from '../entities/pioneer-spell.entity';
+import { invitedOn } from '../pioneer-meetings/pioneer-meeting-rules';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { mondayOf } from '../common/week';
 import { memorialTakesKind } from '../common/week-rules';
@@ -193,8 +195,14 @@ export class MeService {
     @InjectRepository(SpecialEvent)
     private readonly specialEventsRepo: Repository<SpecialEvent>,
     private readonly clock: CongregationClock,
+    // The annual meeting with the pioneers — read here, not through its
+    // service: that one sends notifications, and Home only needs the rows.
     @Optional()
-    private readonly pioneerMeetings?: PioneerMeetingsService,
+    @InjectRepository(PioneerMeeting)
+    private readonly pioneerMeetingsRepo?: Repository<PioneerMeeting>,
+    @Optional()
+    @InjectRepository(PioneerSpell)
+    private readonly pioneerSpellsRepo?: Repository<PioneerSpell>,
   ) {}
 
   /**
@@ -876,22 +884,41 @@ export class MeService {
 
     // ---- The annual meeting with the pioneers (S-211) ----
     // Invited while he pioneers on its day; the elder who conducts it too.
-    for (const m of (await this.pioneerMeetings?.forHome(
-      tenantId,
-      pid,
-      today,
-      horizon,
-    )) ?? []) {
-      items.push({
-        kind: 'pioneer_meeting',
-        sortDate: m.date,
-        date: m.date,
-        time: m.timeStart ?? undefined,
-        endTime: m.timeEnd ?? undefined,
-        label: m.role,
-        location: m.place ?? undefined,
-        partnerName: m.role === 'invited' ? m.conductorName : undefined,
+    if (this.pioneerMeetingsRepo && this.pioneerSpellsRepo) {
+      const meetings = await this.pioneerMeetingsRepo.find({
+        where: { congregationId: tenantId, date: Between(today, horizon) },
+        order: { date: 'ASC' },
       });
+      const mySpells = meetings.length
+        ? await this.pioneerSpellsRepo.find({
+            where: { congregationId: tenantId, publisherId: pid },
+          })
+        : [];
+      for (const m of meetings) {
+        const day = String(m.date).slice(0, 10);
+        const conducts = m.conductorPublisherId === pid;
+        if (!conducts && !invitedOn(mySpells, day).includes(pid)) continue;
+        const conductor = conducts
+          ? null
+          : await this.publishersRepo.findOne({
+              where: { id: m.conductorPublisherId, congregationId: tenantId },
+              withDeleted: true,
+            });
+        items.push({
+          kind: 'pioneer_meeting',
+          sortDate: day,
+          date: day,
+          time: m.timeStart ?? undefined,
+          endTime: m.timeEnd ?? undefined,
+          label: conducts ? 'conduct' : 'invited',
+          location: m.place ?? undefined,
+          partnerName: conductor
+            ? [conductor.lastName, conductor.firstName]
+                .filter(Boolean)
+                .join(' ')
+            : undefined,
+        });
+      }
     }
 
     items.sort((x, y) => x.sortDate.localeCompare(y.sortDate));
