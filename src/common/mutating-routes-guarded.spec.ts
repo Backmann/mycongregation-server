@@ -27,6 +27,8 @@ const CHECKED_IN_SERVICE: Record<string, string> = {
   'local-needs': 'service: life-and-ministry overseer',
   me: 'the caller\u2019s own data',
   'pioneer-school': 'service: admin',
+  'print-docs':
+    'any signed-in person hands over a sheet the app already showed him, for Safari to print; it reads nothing',
   'push-tokens': 'the caller\u2019s own device',
   'service-log': 'the caller\u2019s own hours log, nobody else\u2019s',
   'service-reports': 'service: own report, group overseer, secretary',
