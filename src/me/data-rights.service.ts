@@ -1,3 +1,4 @@
+import { withoutEldersOnly } from '../publishers/publisher-privacy';
 import {
   BadRequestException,
   ConflictException,
@@ -108,7 +109,10 @@ export class DataRightsService {
 
     return {
       exportedAt: new Date().toISOString(),
-      note: 'Personal data export under GDPR Art. 15/20.',
+      note:
+        "Personal data export under GDPR Art. 15/20. The elders' notes about " +
+        'you and your service status are not part of this download; ask the ' +
+        'elders for them — they handle such requests with the branch.',
       controller: {
         name: 'Lionel Backmann',
         email: 'info@mycongregation.org',
@@ -125,7 +129,7 @@ export class DataRightsService {
             lastLoginAt: account.lastLoginAt,
           }
         : null,
-      publisher: publisher ?? null,
+      publisher: publisher ? ownCardForExport(publisher) : null,
       absences,
       serviceReports,
       assignments,
@@ -317,4 +321,20 @@ export class DataRightsService {
 
     return { erased: true };
   }
+}
+
+/**
+ * One's own card as the self-service download gives it (31 October 2026).
+ *
+ * The elders' notes about a person (`notes`, `removedNote`) and what only
+ * elders read (the service status; deaf, blind, in prison) stay out. The
+ * person keeps the right to them — but a request for them goes through the
+ * elders, who take it to the branch's legal desk (sfga §20), rather than
+ * leaving through a button.
+ */
+export function ownCardForExport(card: Publisher): Partial<Publisher> {
+  const copy = withoutEldersOnly({ ...card }) as Partial<Publisher>;
+  delete copy.notes;
+  delete copy.removedNote;
+  return copy;
 }

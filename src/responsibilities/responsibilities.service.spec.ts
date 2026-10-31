@@ -18,6 +18,7 @@ describe('ResponsibilitiesService', () => {
     remove: jest.Mock;
   };
   let usersRepo: { findOne: jest.Mock; find: jest.Mock };
+  let publishersRepo: { findOne: jest.Mock; find: jest.Mock };
 
   beforeEach(async () => {
     responsibilitiesRepo = {
@@ -28,6 +29,10 @@ describe('ResponsibilitiesService', () => {
       remove: jest.fn(),
     };
     usersRepo = { findOne: jest.fn(), find: jest.fn().mockResolvedValue([]) };
+    publishersRepo = {
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue({ appointment: 'elder' }),
+    };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -39,8 +44,9 @@ describe('ResponsibilitiesService', () => {
         { provide: getRepositoryToken(User), useValue: usersRepo },
         {
           provide: getRepositoryToken(Publisher),
-          // Names are resolved for the screen; assignment does not read them.
-          useValue: { find: jest.fn().mockResolvedValue([]) },
+          // Names are resolved for the screen. Assignment reads the card for
+          // one thing: the three S-21 duties go to elders only (31 Oct 2026).
+          useValue: publishersRepo,
         },
         {
           provide: AuditLogService,
@@ -336,6 +342,47 @@ describe('ResponsibilitiesService', () => {
       const [row] = await service.findAll('t1');
 
       expect(row.holderName).toBe('backmann.lionel');
+    });
+  });
+
+  describe('the S-21 duties go to elders only (31 October 2026)', () => {
+    for (const type of [
+      ResponsibilityType.SECRETARY,
+      ResponsibilityType.BODY_COORDINATOR,
+      ResponsibilityType.SERVICE_OVERSEER,
+    ]) {
+      it(`refuses ${type} to a ministerial servant and to an account with no card`, async () => {
+        usersRepo.findOne.mockResolvedValue({ id: 'u1', congregationId: 't1' });
+        responsibilitiesRepo.findOne.mockResolvedValue(null);
+        for (const card of [{ appointment: 'ministerial_servant' }, null]) {
+          publishersRepo.findOne.mockResolvedValueOnce(card);
+          await expect(
+            service.assign('t1', { type, userId: 'u1' }, 'admin'),
+          ).rejects.toMatchObject({
+            response: { code: 'RESPONSIBILITY_ELDERS_ONLY' },
+          });
+        }
+      });
+    }
+
+    it('lets a ministerial servant carry other duties', async () => {
+      usersRepo.findOne.mockResolvedValue({ id: 'u1', congregationId: 't1' });
+      responsibilitiesRepo.findOne.mockResolvedValue(null);
+      responsibilitiesRepo.find.mockResolvedValue([]);
+      publishersRepo.findOne.mockResolvedValue({
+        appointment: 'ministerial_servant',
+      });
+      responsibilitiesRepo.create.mockImplementation((x: unknown) => x);
+      responsibilitiesRepo.save.mockImplementation((x: unknown) =>
+        Promise.resolve({ id: 'r1', ...(x as object) }),
+      );
+      await expect(
+        service.assign(
+          't1',
+          { type: ResponsibilityType.ATTENDANCE_RECORDER, userId: 'u1' },
+          'admin',
+        ),
+      ).resolves.toBeDefined();
     });
   });
 });

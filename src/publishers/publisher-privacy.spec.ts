@@ -113,7 +113,8 @@ describe('redactPrivateFields', () => {
     expect(redacted.firstName).toBe('Иван');
     expect(redacted.displayName).toBe('Иван Петров');
     expect(redacted.pioneerType).toBe('none');
-    expect(redacted.status).toBe('active');
+    // The status went to elders only on 31 October 2026.
+    expect(redacted).not.toHaveProperty('status');
     expect(redacted.serviceGroupId).toBe('g1');
     expect(redacted.capabilities).toEqual({ microphone: true });
   });
