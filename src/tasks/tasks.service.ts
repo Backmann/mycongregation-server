@@ -16,6 +16,26 @@ export interface TaskPerson {
   lastName: string;
 }
 
+/** People as they leave the server on a task: id and name, nothing else. */
+export function namesOnly(people: Publisher[]): TaskPerson[] {
+  return people.map(({ id, firstName, lastName }) => ({
+    id,
+    firstName,
+    lastName,
+  }));
+}
+
+/**
+ * A task as a route answers it: the people on it named, not carded. The
+ * service keeps whole Publisher rows for its own work — reminders, the
+ * journal — but none of that goes out (31 October 2026).
+ */
+export function taskForResponse<T extends { assignees?: Publisher[] | null }>(
+  task: T,
+): Omit<T, 'assignees'> & { assignees: TaskPerson[] } {
+  return { ...task, assignees: namesOnly(task.assignees ?? []) };
+}
+
 export interface AgendaResult {
   meeting: EldersMeeting | null;
   /** Put on this meeting on purpose. */
@@ -314,12 +334,7 @@ export class TasksService {
     // and `/me/tasks` hands this list to ANY brother on a task, a ministerial
     // servant included, about every other brother on it. The screens use the
     // id and the name; nothing more crosses.
-    const named = (people: Publisher[]): TaskPerson[] =>
-      people.map(({ id, firstName, lastName }) => ({
-        id,
-        firstName,
-        lastName,
-      }));
+    const named = namesOnly;
     const committeeNamed = named(committee);
     const bodyNamed = named(body);
 

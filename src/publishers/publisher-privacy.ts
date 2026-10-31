@@ -177,3 +177,30 @@ export function publicRosterView<T extends object>(publisher: T): T {
   );
   return { ...redactPrivateFields(publisher), pioneerActive } as T;
 }
+
+/**
+ * The three things the annual report asks about — deaf, blind, in prison —
+ * are for elders and admins alone (31 October 2026).
+ *
+ * A trusted member with canViewPrivateData sees contacts and dates, and
+ * GET /publishers/:id already took these three out for him. The list, the
+ * service groups and their members did not: there he got them for the whole
+ * congregation. One function now, called wherever a privileged answer leaves
+ * for someone who is not an elder.
+ */
+export const ELDERS_ONLY_PUBLISHER_FIELDS = [
+  'isDeaf',
+  'isBlind',
+  'isImprisoned',
+] as const;
+
+export function readsEldersOnly(role: string | undefined | null): boolean {
+  return role === 'admin' || role === 'elder';
+}
+
+export function withoutEldersOnly<T>(publisher: T): T {
+  if (!publisher || typeof publisher !== 'object') return publisher;
+  const copy = { ...publisher } as Record<string, unknown>;
+  for (const f of ELDERS_ONLY_PUBLISHER_FIELDS) delete copy[f];
+  return copy as T;
+}

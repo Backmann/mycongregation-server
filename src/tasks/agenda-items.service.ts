@@ -142,8 +142,10 @@ export class AgendaItemsService {
     if (!meeting.approvedAt && !(await this.mayBuild(user))) return [];
     return this.items.find({
       where: { congregationId: user.congregationId, meetingId },
+      // No `relations: { presenter: true }`: it sent the presenter's whole
+      // card with every item, and the screen reads presenterPublisherId and
+      // names him from the roster (31 October 2026).
       order: { position: 'ASC', createdAt: 'ASC' },
-      relations: { presenter: true },
     });
   }
 
