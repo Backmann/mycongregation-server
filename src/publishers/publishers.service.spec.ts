@@ -585,11 +585,14 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
         statusManuallyOverridden: false,
         serviceGroupId: 'grp-9',
       });
-      publishersRepo.findOne
-        .mockResolvedValueOnce(pub)
-        .mockResolvedValueOnce(
-          makePublisher({ id: 'ovr-1', userId: 'user-overseer' }),
-        );
+      publishersRepo.findOne.mockResolvedValueOnce(pub).mockResolvedValueOnce(
+        makePublisher({
+          id: 'ovr-1',
+          userId: 'user-overseer',
+          // Told only because he is an elder (31 October 2026).
+          appointment: PublisherAppointment.ELDER,
+        }),
+      );
       (publishersRepo.manager.findOne as jest.Mock)
         .mockResolvedValueOnce({ id: 'grp-9', overseerPublisherId: 'ovr-1' })
         .mockResolvedValueOnce({ userId: 'user-secretary' });

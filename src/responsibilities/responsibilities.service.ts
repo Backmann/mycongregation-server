@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -14,6 +15,7 @@ import {
   pairedWith,
 } from '../common/enums/responsibility-type.enum';
 import { refusal } from '../common/errors/refusal';
+import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { AssignResponsibilityDto } from './dto/assign-responsibility.dto';
 
 /**
@@ -69,6 +71,16 @@ export function publicResponsibility(
  */
 const MULTI_HOLDER: ResponsibilityType[] = [
   ResponsibilityType.WT_STUDY_CONDUCTOR_BACKUP,
+];
+
+/**
+ * Responsibilities that open the service records (S-21): elders only
+ * (31 October 2026).
+ */
+export const ELDERS_ONLY_RESPONSIBILITIES: readonly ResponsibilityType[] = [
+  ResponsibilityType.SECRETARY,
+  ResponsibilityType.BODY_COORDINATOR,
+  ResponsibilityType.SERVICE_OVERSEER,
 ];
 
 @Injectable()
@@ -190,6 +202,26 @@ export class ResponsibilitiesService {
 
     // A duty and its own assistant are two men: the same brother in both
     // would be standing in for himself (23 October 2026).
+    // The secretary, the coordinator of the body of elders and the service
+    // overseer read the congregation's service records (S-21), which the
+    // branch keeps for elders (sfga §28). Lionel, 31 October 2026: these
+    // three go to elders only — not a warning, a refusal. Judged by the
+    // card, where the appointment lives; an account with no card is no one.
+    if (ELDERS_ONLY_RESPONSIBILITIES.includes(dto.type)) {
+      const card = await this.publishersRepo.findOne({
+        where: { congregationId: tenantId, userId: dto.userId },
+      });
+      if (card?.appointment !== PublisherAppointment.ELDER) {
+        throw new ForbiddenException(
+          refusal(
+            'RESPONSIBILITY_ELDERS_ONLY',
+            'Only an elder can hold this responsibility.',
+            { type: dto.type },
+          ),
+        );
+      }
+    }
+
     const pair = pairedWith(dto.type);
     if (pair) {
       const holdsPair = await this.responsibilitiesRepo.findOne({

@@ -217,6 +217,7 @@ export const REFUSAL_CODES = [
   'GROUP_ALREADY_REMOVED',
   'GROUP_NOT_REMOVED',
   'RESPONSIBILITY_OWN_ASSISTANT',
+  'RESPONSIBILITY_ELDERS_ONLY',
   'GROUP_LEADER_SISTER',
   // ---- elsewhere, coded before this list existed ----
   'ABSENCE_FROM_TRIP',

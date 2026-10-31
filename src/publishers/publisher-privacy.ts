@@ -51,6 +51,13 @@ export const PRIVATE_PUBLISHER_FIELDS = [
   // about the elders' own work, the same kind as contactsConfirmedAt above.
   'contactsConfirmedByUserId',
   'lastEditedById',
+  // Regular, irregular, inactive — worked out from the service reports, so
+  // part of the S-21 record, which the branch keeps for elders (sfga §28).
+  // Until 31 October 2026 every publisher saw who was irregular (decision
+  // of 15 September); Lionel moved it to elders only that day. The inactive
+  // are still left out of the roster altogether (publicRosterPage).
+  'status',
+  'statusManuallyOverridden',
   'statusOverriddenById',
   'statusOverriddenAt',
   // «Was restored on…» says a person had been removed. «Was anonymised»
@@ -80,11 +87,6 @@ export const ROSTER_PUBLISHER_FIELDS = [
   'appointment',
   'pioneerType',
   'capabilities',
-  // Regular, irregular, inactive. The inactive are left out of the roster
-  // altogether (publicRosterPage); the irregular stay, by the owner's
-  // decision of 15 September.
-  'status',
-  'statusManuallyOverridden',
   'publicTalkNumbers',
   'createdAt',
   'updatedAt',
@@ -180,7 +182,7 @@ export function publicRosterView<T extends object>(publisher: T): T {
 
 /**
  * The three things the annual report asks about — deaf, blind, in prison —
- * are for elders and admins alone (31 October 2026).
+ * and the service status are for elders and admins alone (31 October 2026).
  *
  * A trusted member with canViewPrivateData sees contacts and dates, and
  * GET /publishers/:id already took these three out for him. The list, the
@@ -192,6 +194,11 @@ export const ELDERS_ONLY_PUBLISHER_FIELDS = [
   'isDeaf',
   'isBlind',
   'isImprisoned',
+  // The service status too (31 October 2026): see PRIVATE_PUBLISHER_FIELDS.
+  'status',
+  'statusManuallyOverridden',
+  'statusOverriddenById',
+  'statusOverriddenAt',
 ] as const;
 
 export function readsEldersOnly(role: string | undefined | null): boolean {

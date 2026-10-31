@@ -1,3 +1,4 @@
+import { readsEldersOnly } from '../publishers/publisher-privacy';
 import {
   BadRequestException,
   ConflictException,
@@ -247,8 +248,9 @@ export interface PublisherHistoryResponse {
   publisher: {
     id: string;
     displayName: string;
-    status: PublisherStatus | null;
-    statusManuallyOverridden: boolean;
+    /** Elders and admins only (31 October 2026); absent for anyone else. */
+    status?: PublisherStatus | null;
+    statusManuallyOverridden?: boolean;
     isPioneer: boolean;
     pioneerType: PioneerType;
     pioneerSince: string | null;
@@ -1995,8 +1997,14 @@ export class ServiceReportsService {
       publisher: {
         id: publisher.id,
         displayName: publisher.displayName,
-        status: publisher.status,
-        statusManuallyOverridden: publisher.statusManuallyOverridden,
+        // The service status is for elders and admins (31 October 2026) —
+        // not for the publisher himself, not for his group overseer.
+        ...(readsEldersOnly(user.role)
+          ? {
+              status: publisher.status,
+              statusManuallyOverridden: publisher.statusManuallyOverridden,
+            }
+          : {}),
         isPioneer: isActivePermanentPioneer(
           publisher.pioneerType,
           publisher.pioneerSince,

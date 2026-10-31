@@ -39,7 +39,18 @@ describe('auxiliary-pioneer periods keep their history (real database)', () => {
       pioneerSince: month(-6),
     });
     // The service overseer manages the list but is not the secretary.
-    const so = await h.addUser({ login: 'overseer', role: 'elder' });
+    // An elder by his card: the service overseer must be one (31 Oct 2026).
+    const soCard = await h.addPublisher({
+      firstName: 'overseer',
+      lastName: 'Тест',
+      baptismDate: '1990-01-01',
+      appointment: 'elder',
+    });
+    const so = await h.addUser({
+      login: 'overseer',
+      role: 'elder',
+      publisherId: soCard,
+    });
     const r = await h
       .as('admin')
       .post('/responsibilities', { type: 'service_overseer', userId: so });

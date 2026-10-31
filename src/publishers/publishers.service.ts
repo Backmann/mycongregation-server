@@ -500,7 +500,14 @@ export class PublishersService {
             congregationId: tenantId,
           },
         });
-        if (overseer?.userId) userIds.add(overseer.userId);
+        // Only when he is an elder: the service status is for elders and
+        // admins (31 October 2026), and a group may be led by a ministerial
+        // servant.
+        if (
+          overseer?.userId &&
+          overseer.appointment === PublisherAppointment.ELDER
+        )
+          userIds.add(overseer.userId);
       }
     }
 
