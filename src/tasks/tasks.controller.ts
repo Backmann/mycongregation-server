@@ -22,7 +22,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { TasksService } from './tasks.service';
+import { TasksService, taskForResponse } from './tasks.service';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -353,30 +353,34 @@ export class TasksController {
   }
 
   @Post()
-  create(
+  async create(
     @TenantId() tenantId: string,
     @Body() dto: UpsertTaskDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.createTask(
-      tenantId,
-      { ...dto, title: dto.title as string } as never,
-      user?.id ?? null,
+    return taskForResponse(
+      await this.service.createTask(
+        tenantId,
+        { ...dto, title: dto.title as string } as never,
+        user?.id ?? null,
+      ),
     );
   }
 
   @Patch(':id')
-  update(
+  async update(
     @TenantId() tenantId: string,
     @Param('id') id: string,
     @Body() dto: UpsertTaskDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.updateTask(
-      tenantId,
-      id,
-      dto as never,
-      user?.id ?? null,
+    return taskForResponse(
+      await this.service.updateTask(
+        tenantId,
+        id,
+        dto as never,
+        user?.id ?? null,
+      ),
     );
   }
 

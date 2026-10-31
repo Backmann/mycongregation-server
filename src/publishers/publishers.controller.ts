@@ -35,7 +35,11 @@ import { OverrideStatusDto } from './dto/override-status.dto';
 import { GrantAccessDto } from './dto/grant-access.dto';
 import { UpdateAccessDto } from './dto/update-access.dto';
 import { ResendInviteDto } from './dto/resend-invite.dto';
-import { publicRosterPage } from './publisher-privacy';
+import {
+  publicRosterPage,
+  readsEldersOnly,
+  withoutEldersOnly,
+} from './publisher-privacy';
 import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
@@ -120,7 +124,9 @@ export class PublishersController {
     }
     const result = await this.publishersService.findAll(tenantId, query);
     if (privileged) {
-      return result;
+      return readsEldersOnly(user.role)
+        ? result
+        : { ...result, data: result.data.map(withoutEldersOnly) };
     }
     return publicRosterPage(
       result,

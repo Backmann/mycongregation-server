@@ -43,6 +43,14 @@ describe('my tasks show people by name only (real database)', () => {
       assigneePublisherIds: [ids.servant, ids.elder],
     });
     expect([200, 201]).toContain(made.status);
+    // The elders' own answer to creating it names them too, nothing more.
+    for (const person of made.body.assignees as Record<string, unknown>[]) {
+      expect(Object.keys(person).sort()).toEqual([
+        'firstName',
+        'id',
+        'lastName',
+      ]);
+    }
 
     const res = await h.as('servant').get('/me/tasks');
     expect(res.status).toBe(200);

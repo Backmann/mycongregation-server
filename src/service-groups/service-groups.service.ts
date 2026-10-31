@@ -21,7 +21,9 @@ import { QueryPublishersDto } from '../publishers/dto/query-publishers.dto';
 import {
   publicRosterPage,
   publicRosterView,
+  readsEldersOnly,
   redactPrivateFields,
+  withoutEldersOnly,
 } from '../publishers/publisher-privacy';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
@@ -217,7 +219,11 @@ export class ServiceGroupsService {
       tenantId,
       user,
     );
-    const page = await this.findAll(tenantId, query, privileged);
+    const found = await this.findAll(tenantId, query, privileged);
+    const page =
+      privileged && !readsEldersOnly(user.role)
+        ? { ...found, data: found.data.map(leadersWithoutEldersOnly) }
+        : found;
     /**
      * Какая группа — ТВОЯ.
      *
@@ -341,7 +347,10 @@ export class ServiceGroupsService {
       user,
     );
     const group = await this.findOne(tenantId, id, privileged);
-    if (privileged) return group;
+    if (privileged)
+      return readsEldersOnly(user.role)
+        ? group
+        : leadersWithoutEldersOnly(group);
     const ownGroupId = await this.publishersService.findOwnServiceGroupId(
       tenantId,
       user.id,
@@ -527,7 +536,10 @@ export class ServiceGroupsService {
       ...query,
       serviceGroupId: id,
     });
-    if (privileged) return result;
+    if (privileged)
+      return readsEldersOnly(user.role)
+        ? result
+        : { ...result, data: result.data.map(withoutEldersOnly) };
     return publicRosterPage(
       result,
       await this.publishersService.overseenServiceGroupIds(tenantId, user.id),
@@ -601,4 +613,15 @@ export class ServiceGroupsService {
   ): Promise<void> {
     await this.publishersService.findOne(tenantId, publisherId);
   }
+}
+
+/** A group's two leaders, minus what only elders read (31 October 2026). */
+function leadersWithoutEldersOnly<
+  G extends { overseer?: unknown; assistant?: unknown },
+>(group: G): G {
+  return {
+    ...group,
+    overseer: withoutEldersOnly(group.overseer),
+    assistant: withoutEldersOnly(group.assistant),
+  };
 }
