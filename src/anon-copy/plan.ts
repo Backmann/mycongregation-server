@@ -399,8 +399,8 @@ export const PLAN: Record<string, TablePlan> = {
     remove('note'),
   ),
   meeting_attendance: table(
-    copy(`id congregation_id date event_type count not_held recorded_by
-      created_at updated_at`),
+    copy(`id congregation_id date event_type count online_count not_held
+      not_held_reason recorded_by created_at updated_at`),
     remove('note'),
   ),
   report_month_closures: copy(

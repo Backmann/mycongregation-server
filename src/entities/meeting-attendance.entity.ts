@@ -12,6 +12,9 @@ import {
 import { Congregation } from './congregation.entity';
 import { EventType } from '../common/enums/event-type.enum';
 
+export const NOT_HELD_REASONS = ['weather', 'hall', 'other'] as const;
+export type NotHeldReason = (typeof NOT_HELD_REASONS)[number];
+
 /**
  * Attendance at one meeting — form S-3, «Отчёт о посещаемости встреч».
  *
@@ -59,6 +62,23 @@ export class MeetingAttendance {
    */
   @Column({ type: 'boolean', name: 'not_held', default: false })
   notHeld!: boolean;
+
+  /**
+   * The part of `count` that joined by video (31 October 2026). Kept «для
+   * понимания»: what goes into every form is `count`, the sum. Null when
+   * nobody said — older rows, or a congregation without a video link.
+   */
+  @Column({ type: 'integer', nullable: true, name: 'online_count' })
+  onlineCount!: number | null;
+
+  /** Why a meeting was not held: 'weather' | 'hall' | 'other'. */
+  @Column({
+    type: 'varchar',
+    length: 16,
+    nullable: true,
+    name: 'not_held_reason',
+  })
+  notHeldReason!: NotHeldReason | null;
 
   @Column({ type: 'text', nullable: true })
   note!: string | null;

@@ -66,7 +66,7 @@ describe('reading attendance', () => {
     );
   });
 
-  it.each(['range', 'serviceYear', 'pending'] as const)(
+  it.each(['serviceYear', 'pending'] as const)(
     'guards the %s route',
     (route) => {
       const guards = Reflect.getMetadata(

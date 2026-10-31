@@ -472,22 +472,13 @@ export class AnnualSentService {
     startYear: number,
     known?: AnnualFigures,
   ): Promise<AnnualNumbers> {
-    const [figures, attendance, today] = await Promise.all([
+    const [figures, attendance] = await Promise.all([
       known ?? this.annual.figures(tenantId, startYear),
       this.attendance.serviceYear(tenantId, startYear),
-      this.clock.todayFor(tenantId),
     ]);
-    // The form: add the monthly averages and divide. A month still ahead is
-    // not a gap — the same reading the screen has always given.
-    const started = attendance.months.filter(
-      (m) => m.month <= `${today.slice(0, 7)}-01`,
-    );
-    const avg = (pick: (m: (typeof started)[number]) => number | null) => {
-      const have = started.map(pick).filter((v): v is number => v !== null);
-      return have.length
-        ? Math.round(have.reduce((a, b) => a + b, 0) / have.length)
-        : null;
-    };
+    // The year's attendance line is worked out in ONE place — the attendance
+    // service — so the sheet, the S-10 page and this snapshot cannot drift
+    // apart again (31 October 2026).
     return {
       active: figures.active.length,
       becameInactive: figures.becameInactive.length,
@@ -495,8 +486,8 @@ export class AnnualSentService {
       deaf: figures.deaf.length,
       blind: figures.blind.length,
       imprisoned: figures.imprisoned.length,
-      midweekAverage: avg((m) => m.midweekAverage),
-      weekendAverage: avg((m) => m.weekendAverage),
+      midweekAverage: attendance.yearly.midweekAverage,
+      weekendAverage: attendance.yearly.weekendAverage,
     };
   }
 

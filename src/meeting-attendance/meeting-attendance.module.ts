@@ -7,6 +7,12 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { Publisher } from '../entities/publisher.entity';
+import { ReportSnapshot } from '../entities/report-snapshot.entity';
+import { Congregation } from '../entities/congregation.entity';
+import { Absence } from '../entities/absence.entity';
+import { User } from '../entities/user.entity';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { AttendanceReminderService } from './attendance-reminder.service';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { AttendanceReadGuard } from './attendance-read.guard';
 import { AuditLogModule } from '../audit-log/audit-log.module';
@@ -20,16 +26,22 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
       MeetingSettings,
       SpecialEvent,
       Publisher,
+      ReportSnapshot,
+      Congregation,
+      Absence,
+      User,
     ]),
     AuditLogModule,
     CongregationClockModule,
+    NotificationsModule,
   ],
   controllers: [MeetingAttendanceController],
   providers: [
     MeetingAttendanceService,
+    AttendanceReminderService,
     ResponsibilityGuard,
     AttendanceReadGuard,
   ],
-  exports: [MeetingAttendanceService],
+  exports: [MeetingAttendanceService, AttendanceReminderService],
 })
 export class MeetingAttendanceModule {}

@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PioneerMeetingsService } from '../pioneer-meetings/pioneer-meetings.service';
+import { AttendanceReminderService } from '../meeting-attendance/attendance-reminder.service';
 import { Cron } from '@nestjs/schedule';
 import { MemorialService } from '../memorial/memorial.service';
 import { PublishersService } from '../publishers/publishers.service';
@@ -71,6 +72,8 @@ export class ScheduledJobsService {
     /** The annual meeting with the pioneers: the body's task, reminders. */
     @Optional()
     private readonly pioneerMeetings?: PioneerMeetingsService,
+    @Optional()
+    private readonly attendanceReminder?: AttendanceReminderService,
   ) {}
 
   /**
@@ -88,6 +91,25 @@ export class ScheduledJobsService {
     } catch (err) {
       this.logger.error(
         `pioneer-meeting task failed: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * «Посещаемость встречи — … сегодня ещё не внесена», at 20:00 in the
+   * congregation's own time (31 October 2026). Every quarter of an hour; the
+   * service acts only in that hour, and its key keeps it to once a meeting.
+   */
+  @Cron('*/15 * * * *', {
+    name: 'attendance-reminder',
+    timeZone: 'UTC',
+  })
+  async handleAttendanceReminder(): Promise<void> {
+    try {
+      await this.attendanceReminder?.run();
+    } catch (err) {
+      this.logger.error(
+        `attendance reminder failed: ${(err as Error).message}`,
       );
     }
   }
