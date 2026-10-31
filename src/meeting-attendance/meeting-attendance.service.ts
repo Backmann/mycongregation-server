@@ -1,7 +1,18 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, LessThanOrEqual, Repository } from 'typeorm';
-import { MeetingAttendance } from '../entities/meeting-attendance.entity';
+import {
+  MeetingAttendance,
+  type NotHeldReason,
+} from '../entities/meeting-attendance.entity';
+import { ReportSnapshot } from '../entities/report-snapshot.entity';
+import { User } from '../entities/user.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { Publisher } from '../entities/publisher.entity';
@@ -18,7 +29,12 @@ export interface AttendanceRow {
   date: string;
   eventType: EventType;
   count: number | null;
+  /** The part of `count` that joined by video; null when nobody said. */
+  onlineCount?: number | null;
   notHeld: boolean;
+  /** Why it was not held: 'weather' | 'hall' | 'other'. */
+  notHeldReason?: NotHeldReason | null;
+  note?: string | null;
   /** Who put the figure there, and when — a report handed on should say. */
   recordedByName?: string | null;
   recordedAt?: string | null;
@@ -66,12 +82,88 @@ export interface AttendanceMonth {
    */
   memorial: AttendanceRow[];
   memorialTotal: number;
+  /**
+   * Meetings of the month that took place and still have no figure — the
+   * month's average is then built on fewer meetings than it had, and every
+   * sheet that reads it says so (31 October 2026).
+   */
+  midweekMissing: number;
+  weekendMissing: number;
+  /** The video part of the month's average, where it was given. */
+  midweekOnlineAverage: number | null;
+  weekendOnlineAverage: number | null;
+}
+
+/** The year's line, worked out HERE and nowhere else (31 October 2026). */
+export interface AttendanceYearly {
+  /**
+   * The monthly averages added up and divided by the months that hold one.
+   * The form's «divide by twelve» is written for a finished year, where every
+   * month has a figure and the two agree; in the middle of a year dividing by
+   * twelve turned 96 into 16 — which is what the printed sheet did, while the
+   * screen, the S-10 page and the server each counted it their own way.
+   */
+  midweekAverage: number | null;
+  weekendAverage: number | null;
+  midweekMonths: number;
+  weekendMonths: number;
+  midweekOnlineAverage: number | null;
+  weekendOnlineAverage: number | null;
+  /** Meetings that took place by today, and how many of them have an entry. */
+  expected: number;
+  recorded: number;
 }
 
 export interface AttendanceYear {
   /** The September the service year starts in. */
   startYear: number;
   months: AttendanceMonth[];
+  yearly: AttendanceYearly;
+  /** Meetings that took place with no figure, oldest first. */
+  gaps: { date: string; eventType: EventType }[];
+  /** The year before, month by month — for «прошлый октябрь: 98». */
+  previous: {
+    months: {
+      month: string;
+      midweekAverage: number | null;
+      weekendAverage: number | null;
+    }[];
+    midweekAverage: number | null;
+    weekendAverage: number | null;
+  } | null;
+  /**
+   * What already went to the branch: the S-10 of this year with its two
+   * averages, and the months whose S-1 was sent. A figure changed after that
+   * is asked about first — the form went out with the old one.
+   */
+  sent: {
+    annual: {
+      midweekAverage: number | null;
+      weekendAverage: number | null;
+    } | null;
+    months: string[];
+  };
+}
+
+/** What Home needs (31 October 2026). */
+export interface PendingAttendance {
+  /** Today's meetings open for a figure and still without one, newest first. */
+  meetings: { date: string; eventType: EventType }[];
+  /**
+   * Today's open meetings that HAVE a figure — the card stays until midnight
+   * as «Записано: 96 · изменить», so a slip of the finger is put right on the
+   * spot instead of being looked for in the sheet.
+   */
+  recordedToday: AttendanceRow[];
+  /**
+   * Every meeting still without a figure: the current service year, and
+   * until 20 September the year that just ended too — its August is what the
+   * S-10 due by then is made from, and it used to vanish on the 1st.
+   */
+  outstandingThisYear: number;
+  outstandingPreviousYear: number;
+  /** The newest few of them, for Home to name. */
+  gaps: { date: string; eventType: EventType }[];
 }
 
 interface WeekContext {
@@ -80,7 +172,12 @@ interface WeekContext {
   cancelling: SpecialEvent[];
   memorials: SpecialEvent[];
   flagged: SpecialEvent[];
+  /** Events whose day keeps its meeting «with changes» — maybe another hour. */
+  changed: SpecialEvent[];
 }
+
+/** The S-10's own deadline: the closed year's debt is shown until then. */
+const PREVIOUS_YEAR_UNTIL_DAY = 20;
 
 @Injectable()
 export class MeetingAttendanceService {
@@ -95,6 +192,12 @@ export class MeetingAttendanceService {
     private readonly publishersRepo: Repository<Publisher>,
     private readonly auditLog: AuditLogService,
     private readonly clock: CongregationClock,
+    @Optional()
+    @InjectRepository(ReportSnapshot)
+    private readonly snapshots?: Repository<ReportSnapshot>,
+    @Optional()
+    @InjectRepository(User)
+    private readonly users?: Repository<User>,
   ) {}
 
   /**
@@ -110,8 +213,12 @@ export class MeetingAttendanceService {
       date: string;
       eventType: EventType;
       count?: number | null;
+      onlineCount?: number | null;
       notHeld?: boolean;
+      notHeldReason?: NotHeldReason | null;
       note?: string | null;
+      expectNew?: boolean;
+      expectedRecordedAt?: string;
     },
     userId: string,
   ): Promise<MeetingAttendance> {
@@ -129,6 +236,15 @@ export class MeetingAttendanceService {
         refusal('ATTENDANCE_NEGATIVE', 'Attendance cannot be negative.'),
       );
     }
+    const online = notHeld ? null : (dto.onlineCount ?? null);
+    if (online !== null && online > (dto.count as number)) {
+      throw new BadRequestException(
+        refusal(
+          'ATTENDANCE_ONLINE_TOO_MANY',
+          'Those by video are part of the figure, not more than it.',
+        ),
+      );
+    }
 
     const existing = await this.repo.findOne({
       where: {
@@ -138,9 +254,74 @@ export class MeetingAttendanceService {
       },
     });
 
+    // A meeting still ahead has nobody to count, and a day with no meeting
+    // of that kind has nothing to count at (31 October 2026). The app only
+    // ever offers real meetings; this is the server keeping to it. A figure
+    // already standing on such a day (a visit moved after it was entered)
+    // may still be corrected — that is what it is there for.
+    if (!existing)
+      await this.assertIsMeeting(tenantId, dto.date, dto.eventType);
+
+    // Two people at once: the second is told, not quietly written over.
+    if (existing && dto.expectNew === true) {
+      throw new ConflictException(
+        refusal(
+          'ATTENDANCE_ALREADY_RECORDED',
+          'Somebody has already recorded this meeting.',
+          await this.alreadyRecorded(existing),
+        ),
+      );
+    }
+    if (
+      existing &&
+      dto.expectedRecordedAt &&
+      Math.abs(
+        new Date(existing.updatedAt).getTime() -
+          new Date(dto.expectedRecordedAt).getTime(),
+      ) > 1000
+    ) {
+      throw new ConflictException(
+        refusal(
+          'ATTENDANCE_ALREADY_RECORDED',
+          'Somebody has already recorded this meeting.',
+          await this.alreadyRecorded(existing),
+        ),
+      );
+    }
+
+    const next = {
+      count: notHeld ? null : (dto.count as number),
+      onlineCount: online,
+      notHeld,
+      notHeldReason: notHeld ? (dto.notHeldReason ?? null) : null,
+      note:
+        dto.note === undefined
+          ? (existing?.note ?? null)
+          : dto.note?.trim()
+            ? dto.note.trim()
+            : null,
+    };
     const before = existing
-      ? { count: existing.count, notHeld: existing.notHeld }
+      ? {
+          count: existing.count,
+          onlineCount: existing.onlineCount ?? null,
+          notHeld: existing.notHeld,
+          notHeldReason: existing.notHeldReason ?? null,
+          note: existing.note ?? null,
+        }
       : null;
+    // Saving the same thing again changes nothing — and must not mark the
+    // figure «изменено» on the sheet or move its stamp.
+    if (
+      before &&
+      before.count === next.count &&
+      before.onlineCount === next.onlineCount &&
+      before.notHeld === next.notHeld &&
+      before.notHeldReason === next.notHeldReason &&
+      before.note === next.note
+    ) {
+      return existing as MeetingAttendance;
+    }
 
     const row =
       existing ??
@@ -149,9 +330,11 @@ export class MeetingAttendanceService {
         date: dto.date,
         eventType: dto.eventType,
       });
-    row.count = notHeld ? null : (dto.count as number);
-    row.notHeld = notHeld;
-    if (dto.note !== undefined) row.note = dto.note ?? null;
+    row.count = next.count;
+    row.onlineCount = next.onlineCount;
+    row.notHeld = next.notHeld;
+    row.notHeldReason = next.notHeldReason;
+    row.note = next.note;
     row.recordedBy = userId;
     const saved = await this.repo.save(row);
 
@@ -163,8 +346,8 @@ export class MeetingAttendanceService {
         entityType: 'meeting_attendance',
         entityId: saved.id,
         before,
-        after: { count: saved.count, notHeld: saved.notHeld },
-        fields: ['count', 'notHeld'],
+        after: next,
+        fields: ['count', 'onlineCount', 'notHeld', 'notHeldReason', 'note'],
       });
     } else {
       await this.auditLog.logCreate({
@@ -175,11 +358,148 @@ export class MeetingAttendanceService {
           date: saved.date,
           eventType: saved.eventType,
           count: saved.count,
+          onlineCount: saved.onlineCount,
           notHeld: saved.notHeld,
+          notHeldReason: saved.notHeldReason,
         },
       });
     }
     return saved;
+  }
+
+  /**
+   * Take a figure away — one entered on the wrong day, which «not held»
+   * could only grey out while it kept standing in the month (31 October 2026).
+   */
+  async remove(
+    tenantId: string,
+    dto: { date: string; eventType: EventType },
+  ): Promise<{ removed: true }> {
+    const row = await this.repo.findOne({
+      where: {
+        congregationId: tenantId,
+        date: dto.date,
+        eventType: dto.eventType,
+      },
+    });
+    if (!row) {
+      throw new NotFoundException(
+        refusal('ATTENDANCE_NOT_FOUND', 'There is no such figure.'),
+      );
+    }
+    await this.repo.delete({ id: row.id });
+    await this.auditLog.logEvent({
+      tenantId,
+      entityType: 'meeting_attendance',
+      entityId: row.id,
+      action: 'DELETE',
+      detail: {
+        date: row.date,
+        eventType: row.eventType,
+        count: row.count,
+        notHeld: row.notHeld,
+      },
+    });
+    return { removed: true };
+  }
+
+  /**
+   * Move a figure to the meeting it belongs to.
+   *
+   * The day of a meeting can change after its figure is in — the settings
+   * changed backwards, a visit moved. The figure then stood on a day with no
+   * meeting and the true day showed a hole, both in the same month, with no
+   * way to bring them together (31 October 2026). Only onto a meeting of the
+   * same kind that took place and has no figure of its own.
+   */
+  async move(
+    tenantId: string,
+    dto: { date: string; eventType: EventType; toDate: string },
+  ): Promise<MeetingAttendance> {
+    const row = await this.repo.findOne({
+      where: {
+        congregationId: tenantId,
+        date: dto.date,
+        eventType: dto.eventType,
+      },
+    });
+    if (!row) {
+      throw new NotFoundException(
+        refusal('ATTENDANCE_NOT_FOUND', 'There is no such figure.'),
+      );
+    }
+    const taken = await this.repo.findOne({
+      where: {
+        congregationId: tenantId,
+        date: dto.toDate,
+        eventType: dto.eventType,
+      },
+    });
+    if (taken) {
+      throw new BadRequestException(
+        refusal('ATTENDANCE_MOVE_TARGET', 'That meeting already has a figure.'),
+      );
+    }
+    await this.assertIsMeeting(tenantId, dto.toDate, dto.eventType);
+    const from = row.date;
+    row.date = dto.toDate;
+    const saved = await this.repo.save(row);
+    await this.auditLog.logUpdate({
+      tenantId,
+      entityType: 'meeting_attendance',
+      entityId: saved.id,
+      before: { date: from },
+      after: { date: dto.toDate },
+      fields: ['date'],
+    });
+    return saved;
+  }
+
+  /** «Already recorded by …: 96» — what the second person is told. */
+  private async alreadyRecorded(
+    existing: MeetingAttendance,
+  ): Promise<Record<string, unknown>> {
+    const names = await this.namesOfRecorders([existing]);
+    return {
+      current: {
+        count: existing.count,
+        onlineCount: existing.onlineCount ?? null,
+        notHeld: existing.notHeld,
+        recordedByName: names.get(existing.recordedBy ?? '') ?? null,
+        recordedAt: existing.updatedAt
+          ? new Date(existing.updatedAt).toISOString()
+          : null,
+      },
+    };
+  }
+
+  /** Refuse a day still ahead, or a day with no meeting of that kind. */
+  private async assertIsMeeting(
+    tenantId: string,
+    date: string,
+    eventType: EventType,
+  ): Promise<void> {
+    const today = await this.clock.todayFor(tenantId);
+    if (date.slice(0, 10) > today) {
+      throw new BadRequestException(
+        refusal('ATTENDANCE_FUTURE', 'That meeting has not taken place yet.'),
+      );
+    }
+    const ctx = await this.weekContext(tenantId);
+    // A congregation with no meeting days yet has nothing to check against.
+    if (!ctx) return;
+    const day = date.slice(0, 10);
+    const ok = this.meetingsOfWeek(mondayOf(day), ctx).some(
+      (m) => m.date === day && m.eventType === eventType,
+    );
+    if (!ok) {
+      throw new BadRequestException(
+        refusal(
+          'ATTENDANCE_NOT_A_MEETING',
+          'There is no meeting of that kind on that day.',
+        ),
+      );
+    }
   }
 
   /**
@@ -193,81 +513,118 @@ export class MeetingAttendanceService {
    * this one, and the two would disagree about which meeting a figure belongs
    * to — the one mistake this table's unique constraint cannot catch.
    */
-  async pending(
-    tenantId: string,
-    weeksBack = 8,
-  ): Promise<{
-    meetings: { date: string; eventType: EventType }[];
-    /**
-     * Everything still unrecorded in the CURRENT service year, not just in the
-     * eight weeks the card offers.
-     *
-     * The card asks about a recent meeting because a figure is worth having
-     * while it is fresh. But a meeting missed nine weeks ago stopped being
-     * mentioned anywhere on the home screen, and the count beside it said
-     * "three" when the year held fourteen holes — understating exactly the
-     * thing it existed to surface. The offer stays recent; the count tells the
-     * truth about the year.
-     */
-    outstandingThisYear: number;
-  }> {
+  async pending(tenantId: string): Promise<PendingAttendance> {
     const ctx = await this.weekContext(tenantId);
-    if (!ctx) return { meetings: [], outstandingThisYear: 0 };
+    if (!ctx) {
+      return {
+        meetings: [],
+        recordedToday: [],
+        outstandingThisYear: 0,
+        outstandingPreviousYear: 0,
+        gaps: [],
+      };
+    }
 
     const timezone = await this.clock.timezoneOf(tenantId);
     const now = new Date(Date.now());
     const today = todayIn(now, timezone);
     const nowMinutes = minutesOfDayIn(now, timezone);
-    const thisMonday = mondayOf(today);
-    const wanted: { date: string; eventType: EventType }[] = [];
+    // Only today's meetings can be open (attendanceOpen), so only this week
+    // is looked at — it used to walk eight weeks to find them.
+    const open = this.meetingsOfWeek(mondayOf(today), ctx).filter((m) =>
+      attendanceOpen(
+        m.date,
+        this.startTimeOf(m.date, m.eventType, ctx),
+        today,
+        nowMinutes,
+      ),
+    );
+    const todays = open.length
+      ? await this.repo.find({
+          where: { congregationId: tenantId, date: today },
+        })
+      : [];
+    const byKey = new Map(todays.map((r) => [`${r.date}|${r.eventType}`, r]));
+    const names = await this.namesOfRecorders(todays);
+    const meetings = open
+      .filter((m) => !byKey.has(`${m.date}|${m.eventType}`))
+      .sort((a, b) => (a.date < b.date ? 1 : -1));
+    const recordedToday = open
+      .filter((m) => byKey.has(`${m.date}|${m.eventType}`))
+      .map((m) => this.rowOf(m, byKey.get(`${m.date}|${m.eventType}`), names));
 
-    for (let back = 0; back < weeksBack; back++) {
-      const weekStart = addDaysISO(thisMonday, -7 * back);
-      for (const m of this.meetingsOfWeek(weekStart, ctx)) {
-        if (
-          !attendanceOpen(
-            m.date,
-            this.startTimeOf(m.date, m.eventType, ctx),
-            today,
-            nowMinutes,
+    const y = Number(today.slice(0, 4));
+    const month = Number(today.slice(5, 7));
+    const startYear = month >= 9 ? y : y - 1;
+    const thisYear = await this.gapsBetween(
+      tenantId,
+      ctx,
+      `${startYear}-09-01`,
+      today,
+    );
+    // The year just closed stays in view until its S-10 is due.
+    const previous =
+      month === 9 && Number(today.slice(8, 10)) <= PREVIOUS_YEAR_UNTIL_DAY
+        ? await this.gapsBetween(
+            tenantId,
+            ctx,
+            `${startYear - 1}-09-01`,
+            `${startYear}-08-31`,
           )
-        ) {
-          continue;
-        }
-        wanted.push(m);
-      }
-    }
-
+        : [];
+    const all = [...previous, ...thisYear];
     return {
-      meetings: await this.dropAlreadyRecorded(tenantId, wanted),
-      outstandingThisYear: await this.outstandingThisYear(tenantId, ctx, today),
+      meetings,
+      recordedToday,
+      outstandingThisYear: all.length,
+      outstandingPreviousYear: previous.length,
+      gaps: all.slice(-6).reverse(),
     };
   }
 
-  /** How many meetings of the current service year still have no figure. */
-  private async outstandingThisYear(
+  /** Meetings between two days that took place and have no figure. */
+  private async gapsBetween(
     tenantId: string,
     ctx: WeekContext,
-    today: string,
-  ): Promise<number> {
-    // Before September the year in progress began last autumn.
-    const y = Number(today.slice(0, 4));
-    const startYear = Number(today.slice(5, 7)) >= 9 ? y : y - 1;
-    const from = `${startYear}-09-01`;
-    const rows = await this.range(tenantId, from, today);
+    from: string,
+    to: string,
+  ): Promise<{ date: string; eventType: EventType }[]> {
+    const rows = await this.range(tenantId, from, to);
     const done = new Set(rows.map((r) => `${r.date}|${r.eventType}`));
-
-    let count = 0;
+    const out: { date: string; eventType: EventType }[] = [];
     let week = mondayOf(from);
-    const lastWeek = mondayOf(today);
+    const lastWeek = mondayOf(to);
     while (week <= lastWeek) {
       for (const m of this.meetingsOfWeek(week, ctx)) {
-        if (m.date > today || m.date < from) continue;
-        if (!done.has(`${m.date}|${m.eventType}`)) count += 1;
+        if (m.date > to || m.date < from) continue;
+        if (!done.has(`${m.date}|${m.eventType}`)) out.push(m);
       }
       week = addDaysISO(week, 7);
     }
-    return count;
+    return out;
+  }
+
+  /**
+   * Today's meetings that took place and still have no figure — for the
+   * evening reminder (31 October 2026), with the hour each began.
+   */
+  async unrecordedToday(
+    tenantId: string,
+    today: string,
+  ): Promise<{ date: string; eventType: EventType; time: string | null }[]> {
+    const ctx = await this.weekContext(tenantId);
+    if (!ctx) return [];
+    const mine = this.meetingsOfWeek(mondayOf(today), ctx).filter(
+      (m) => m.date === today,
+    );
+    if (mine.length === 0) return [];
+    const rows = await this.repo.find({
+      where: { congregationId: tenantId, date: today },
+    });
+    const done = new Set(rows.map((r) => r.eventType));
+    return mine
+      .filter((m) => !done.has(m.eventType))
+      .map((m) => ({ ...m, time: this.startTimeOf(m.date, m.eventType, ctx) }));
   }
 
   /**
@@ -401,16 +758,32 @@ export class MeetingAttendanceService {
     const flagged = await this.eventsRepo.find({
       where: { congregationId: tenantId, replacesMeeting: true },
     });
-    return { versions, visits, cancelling, memorials, flagged };
+    const changed = await this.eventsRepo.find({
+      where: { congregationId: tenantId, meetingMode: 'changed' },
+    });
+    return { versions, visits, cancelling, memorials, flagged, changed };
   }
 
-  /** Which meetings that week held, and on which dates. */
-  /** The start time in force for that week, or null when none is recorded. */
+  /**
+   * The hour the meeting began: an event that keeps the meeting «with
+   * changes» may move it (31 October 2026 — the card opened by the usual
+   * hour while the cleaning reminder already followed the event's), else the
+   * settings version in force for that week; null when none is recorded.
+   */
   private startTimeOf(
     date: string,
     kind: EventType,
     ctx: WeekContext,
   ): string | null {
+    if (kind !== EventType.MEMORIAL) {
+      const e = (ctx.changed ?? []).find(
+        (c) => c.meetingTime && c.date <= date && (c.endDate ?? c.date) >= date,
+      );
+      if (e?.meetingTime) return e.meetingTime;
+    } else {
+      const memorial = ctx.memorials.find((e) => e.date === date);
+      if (memorial) return memorial.time ?? null;
+    }
     const weekStart = mondayOf(date);
     let version: MeetingSettings | null = null;
     for (const v of ctx.versions) {
@@ -501,6 +874,23 @@ export class MeetingAttendanceService {
         [c.lastName, c.firstName].filter(Boolean).join(' ').trim(),
       );
     }
+    // An account with no publisher card — an administrator's — was signed
+    // with nothing at all (31 October 2026); its own label says who.
+    const rest = (ids as string[]).filter((id) => !out.get(id));
+    if (rest.length && this.users) {
+      const accounts = await this.users.find({
+        where: { id: In(rest) },
+        select: { id: true, displayLabel: true, loginName: true, email: true },
+      });
+      for (const u of accounts) {
+        const label =
+          u.displayLabel?.trim() ||
+          u.loginName?.trim() ||
+          u.email?.split('@')[0] ||
+          '';
+        if (label) out.set(u.id, label);
+      }
+    }
     return out;
   }
 
@@ -516,6 +906,38 @@ export class MeetingAttendanceService {
     });
   }
 
+  /** One meeting as the sheet reads it, from its expected slot and its row. */
+  private rowOf(
+    m: { date: string; eventType: EventType },
+    saved: MeetingAttendance | undefined,
+    names: Map<string, string>,
+  ): AttendanceRow {
+    return {
+      date: m.date,
+      eventType: m.eventType,
+      count: saved?.count ?? null,
+      onlineCount: saved?.onlineCount ?? null,
+      notHeld: saved?.notHeld ?? false,
+      notHeldReason: saved?.notHeldReason ?? null,
+      note: saved?.note ?? null,
+      recorded: saved !== undefined,
+      recordedByName: saved
+        ? (names.get(saved.recordedBy ?? '') ?? null)
+        : null,
+      recordedAt: saved?.updatedAt
+        ? new Date(saved.updatedAt).toISOString()
+        : null,
+      // A second's grace: the same save writes both stamps, and they can
+      // differ by a hair without anything having been revised.
+      corrected:
+        saved?.updatedAt && saved?.createdAt
+          ? new Date(saved.updatedAt).getTime() -
+              new Date(saved.createdAt).getTime() >
+            1000
+          : false,
+    };
+  }
+
   /**
    * The S-3 sheet for one service year, which runs September to August.
    *
@@ -527,6 +949,42 @@ export class MeetingAttendanceService {
     tenantId: string,
     startYear: number,
   ): Promise<AttendanceYear> {
+    if (!Number.isInteger(startYear) || startYear < 2000 || startYear > 2200) {
+      throw new BadRequestException(
+        refusal('ATTENDANCE_YEAR_INVALID', 'No such service year.'),
+      );
+    }
+    const ctx = await this.weekContext(tenantId);
+    const today = await this.clock.todayFor(tenantId);
+    const year = await this.yearOf(tenantId, startYear, ctx, today);
+    const before = await this.yearOf(tenantId, startYear - 1, ctx, today);
+    const hadAny = before.months.some(
+      (m) => m.midweekAverage !== null || m.weekendAverage !== null,
+    );
+    return {
+      ...year,
+      previous: hadAny
+        ? {
+            months: before.months.map((m) => ({
+              month: m.month,
+              midweekAverage: m.midweekAverage,
+              weekendAverage: m.weekendAverage,
+            })),
+            midweekAverage: before.yearly.midweekAverage,
+            weekendAverage: before.yearly.weekendAverage,
+          }
+        : null,
+      sent: await this.sentFor(tenantId, startYear),
+    };
+  }
+
+  /** The months, the year's line and the holes of one service year. */
+  private async yearOf(
+    tenantId: string,
+    startYear: number,
+    ctx: WeekContext | null,
+    today: string,
+  ): Promise<Omit<AttendanceYear, 'previous' | 'sent'>> {
     const from = `${startYear}-09-01`;
     const to = `${startYear + 1}-08-31`;
     const rows = await this.range(tenantId, from, to);
@@ -536,8 +994,6 @@ export class MeetingAttendanceService {
     // Every meeting the year should have held, worked out from the same rules
     // the home card uses — so a week nobody entered still appears, as a hole.
     const names = await this.namesOfRecorders(rows);
-    const ctx = await this.weekContext(tenantId);
-    const today = await this.clock.todayFor(tenantId);
     const expected: AttendanceRow[] = [];
     if (ctx) {
       let week = mondayOf(from);
@@ -547,47 +1003,26 @@ export class MeetingAttendanceService {
           // Meetings still ahead are not gaps; they simply have not happened.
           if (m.date > today) continue;
           if (m.date < from || m.date > to) continue;
-          const saved = byMeeting.get(`${m.date}|${m.eventType}`);
-          expected.push({
-            date: m.date,
-            eventType: m.eventType,
-            count: saved?.count ?? null,
-            notHeld: saved?.notHeld ?? false,
-            recorded: saved !== undefined,
-            recordedByName: saved
-              ? (names.get(saved.recordedBy ?? '') ?? null)
-              : null,
-            recordedAt: saved?.updatedAt
-              ? new Date(saved.updatedAt).toISOString()
-              : null,
-            // A second's grace: the same save writes both stamps, and they can
-            // differ by a hair without anything having been revised.
-            corrected:
-              saved?.updatedAt && saved?.createdAt
-                ? new Date(saved.updatedAt).getTime() -
-                    new Date(saved.createdAt).getTime() >
-                  1000
-                : false,
-          });
+          expected.push(
+            this.rowOf(m, byMeeting.get(`${m.date}|${m.eventType}`), names),
+          );
         }
         week = addDaysISO(week, 7);
       }
     }
+    const scheduled = expected.length;
+    const recordedCount = expected.filter((r) => r.recorded).length;
+    const gaps = expected
+      .filter((r) => !r.recorded)
+      .map((r) => ({ date: r.date, eventType: r.eventType }));
+
     // Figures that no expected meeting claims: kept, not dropped.
     const claimed = new Set(expected.map((r) => `${r.date}|${r.eventType}`));
     for (const saved of rows) {
       const key = `${saved.date}|${saved.eventType}`;
       if (claimed.has(key) || saved.date < from || saved.date > to) continue;
       expected.push({
-        date: saved.date,
-        eventType: saved.eventType,
-        count: saved.count ?? null,
-        notHeld: saved.notHeld ?? false,
-        recorded: true,
-        recordedByName: names.get(saved.recordedBy ?? '') ?? null,
-        recordedAt: saved.updatedAt
-          ? new Date(saved.updatedAt).toISOString()
-          : null,
+        ...this.rowOf(saved, saved, names),
         offSchedule: true,
       });
     }
@@ -620,9 +1055,82 @@ export class MeetingAttendanceService {
         // and a number that always equals the total only invites doubt about
         // which of the two to read.
         memorialTotal: me.total,
+        midweekMissing: midweek.filter((r) => !r.recorded).length,
+        weekendMissing: weekend.filter((r) => !r.recorded).length,
+        midweekOnlineAverage: mw.online,
+        weekendOnlineAverage: we.online,
       });
     }
-    return { startYear, months };
+
+    // The year's line: the months that have begun and hold an average.
+    const started = months.filter(
+      (mo) => mo.month <= `${today.slice(0, 7)}-01`,
+    );
+    const avgOf = (xs: (number | null)[]) => {
+      const have = xs.filter((v): v is number => v !== null);
+      return {
+        value: have.length
+          ? Math.round(have.reduce((a, b) => a + b, 0) / have.length)
+          : null,
+        n: have.length,
+      };
+    };
+    const mwy = avgOf(started.map((mo) => mo.midweekAverage));
+    const wey = avgOf(started.map((mo) => mo.weekendAverage));
+    return {
+      startYear,
+      months,
+      yearly: {
+        midweekAverage: mwy.value,
+        weekendAverage: wey.value,
+        midweekMonths: mwy.n,
+        weekendMonths: wey.n,
+        midweekOnlineAverage: avgOf(
+          started.map((mo) => mo.midweekOnlineAverage),
+        ).value,
+        weekendOnlineAverage: avgOf(
+          started.map((mo) => mo.weekendOnlineAverage),
+        ).value,
+        expected: scheduled,
+        recorded: recordedCount,
+      },
+      gaps,
+    };
+  }
+
+  /** What of this year already went to the branch. */
+  private async sentFor(
+    tenantId: string,
+    startYear: number,
+  ): Promise<AttendanceYear['sent']> {
+    if (!this.snapshots) return { annual: null, months: [] };
+    const months: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      const y = startYear + (i < 4 ? 0 : 1);
+      const m = ((8 + i) % 12) + 1;
+      months.push(`${y}-${String(m).padStart(2, '0')}`);
+    }
+    const rows = await this.snapshots.find({
+      where: [
+        { congregationId: tenantId, kind: 'annual', period: String(startYear) },
+        { congregationId: tenantId, kind: 'monthly', period: In(months) },
+      ],
+      select: { id: true, kind: true, period: true, figures: true },
+    });
+    const annual = rows.find((r) => r.kind === 'annual');
+    const num = (v: unknown) => (typeof v === 'number' ? v : null);
+    return {
+      annual: annual
+        ? {
+            midweekAverage: num(annual.figures?.midweekAverage),
+            weekendAverage: num(annual.figures?.weekendAverage),
+          }
+        : null,
+      months: rows
+        .filter((r) => r.kind === 'monthly')
+        .map((r) => r.period)
+        .sort(),
+    };
   }
 }
 
@@ -689,11 +1197,22 @@ function addDaysISO(iso: string, days: number): string {
 function summarise(rows: AttendanceRow[]): {
   total: number;
   average: number | null;
+  /** The video part's average, over the meetings that said it. */
+  online: number | null;
 } {
   const held = rows.filter((r) => !r.notHeld && r.count !== null);
   const total = held.reduce((sum, r) => sum + (r.count as number), 0);
+  const said = held.filter(
+    (r) => r.onlineCount !== null && r.onlineCount !== undefined,
+  );
   return {
     total,
     average: held.length ? Math.round(total / held.length) : null,
+    online: said.length
+      ? Math.round(
+          said.reduce((sum, r) => sum + (r.onlineCount as number), 0) /
+            said.length,
+        )
+      : null,
   };
 }

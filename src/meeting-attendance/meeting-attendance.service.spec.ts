@@ -209,7 +209,7 @@ describe('MeetingAttendanceService', () => {
       clockStub(),
     );
 
-    const out = (await svc.pending('cong-1', 2)).meetings;
+    const out = (await svc.pending('cong-1')).meetings;
 
     // Whatever it offers for that week's midweek meeting, it must not be the
     // ordinary Thursday.
@@ -249,7 +249,7 @@ describe('MeetingAttendanceService', () => {
       clockStub(),
     );
 
-    const out = (await svc.pending('cong-1', 4)).meetings;
+    const out = (await svc.pending('cong-1')).meetings;
 
     expect(out).toHaveLength(0);
   });
@@ -339,7 +339,7 @@ describe('MeetingAttendanceService', () => {
     );
 
     // Nothing recorded at all, and only two weeks are offered.
-    const out = await svc.pending('cong-1', 2);
+    const out = await svc.pending('cong-1');
 
     expect(out.meetings.length).toBeLessThanOrEqual(4);
     // Many weeks have passed since 1 September, so the year's tally is far

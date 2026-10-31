@@ -55,7 +55,9 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
     // The lunch bag one brings for the guest speaker (25 October 2026).
     kind === 'guest_lunch' ||
     // The elder who conducts the meeting with the pioneers.
-    kind === 'pioneer_meeting_conduct'
+    kind === 'pioneer_meeting_conduct' ||
+    // Entering the attendance figure is the brother's own duty.
+    kind === 'attendance_due'
   ) {
     return 'assignments';
   }

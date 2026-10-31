@@ -54,6 +54,8 @@ export const NOTIFICATION_TYPES = [
   'aux_report_hours',
   // The annual meeting of the elders with the pioneers — invited, conducting.
   'pioneer_meeting',
+  // Today's meeting still without its attendance figure, at 20:00.
+  'attendance_due',
   'test',
 ] as const;
 

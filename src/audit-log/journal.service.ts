@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, FindOptionsWhere, In, LessThan, Repository } from 'typeorm';
 import { AuditLog } from '../entities/audit-log.entity';
@@ -14,6 +14,7 @@ import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { ElderTask } from '../entities/elder-task.entity';
 import { ReportSnapshot } from '../entities/report-snapshot.entity';
+import { MeetingAttendance } from '../entities/meeting-attendance.entity';
 import { isRevertable } from '../audit-revert/revertable';
 
 export interface JournalPerson {
@@ -138,6 +139,11 @@ export class JournalService {
     private readonly tasksRepo: Repository<ElderTask>,
     @InjectRepository(ReportSnapshot)
     private readonly snapshotsRepo: Repository<ReportSnapshot>,
+    // «Посещаемость: 96 → 98» said nothing about WHICH meeting (31 October
+    // 2026); the row knows its day and kind.
+    @Optional()
+    @InjectRepository(MeetingAttendance)
+    private readonly attendanceRepo?: Repository<MeetingAttendance>,
   ) {}
 
   async find(tenantId: string, filters: JournalFilters): Promise<JournalPage> {
@@ -324,6 +330,20 @@ export class JournalService {
 
     for (const sheet of sheets) {
       perEntity.set(sheet.id, { kind: sheet.kind, title: sheet.period });
+    }
+
+    const attendanceIds = idsOf('meeting_attendance');
+    if (attendanceIds.length && this.attendanceRepo) {
+      const figures = await this.attendanceRepo.find({
+        where: { congregationId: tenantId, id: In(attendanceIds) },
+        select: { id: true, date: true, eventType: true },
+      });
+      for (const f of figures) {
+        perEntity.set(f.id, {
+          date: String(f.date).slice(0, 10),
+          eventType: f.eventType,
+        });
+      }
     }
 
     for (const t of tasks) {

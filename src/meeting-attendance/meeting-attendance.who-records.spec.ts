@@ -20,12 +20,25 @@ describe('recording attendance is open to', () => {
     MeetingAttendanceController.prototype.record,
   );
 
-  it('the secretary, the recorder, and the man who stands in for him', () => {
+  it('the secretary, the recorder, the man who stands in for him, and the duties coordinator', () => {
+    // Lionel, 31 October 2026. Administrators pass every responsibility check.
     expect(allowed).toEqual([
       ResponsibilityType.SECRETARY,
       ResponsibilityType.ATTENDANCE_RECORDER,
       ResponsibilityType.ATTENDANCE_RECORDER_ASSISTANT,
+      ResponsibilityType.DUTIES_COORDINATOR,
     ]);
+  });
+
+  it('and the same list may take a figure away or move it', () => {
+    for (const m of ['remove', 'move'] as const) {
+      expect(
+        new Reflector().get<ResponsibilityType[]>(
+          REQUIRE_RESPONSIBILITY_KEY,
+          MeetingAttendanceController.prototype[m],
+        ),
+      ).toEqual(allowed);
+    }
   });
 
   it('and to nobody else — the list is closed, not merely long', () => {

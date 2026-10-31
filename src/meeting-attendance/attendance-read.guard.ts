@@ -32,6 +32,8 @@ export const ATTENDANCE_READ_RESPONSIBILITIES: readonly ResponsibilityType[] = [
   ResponsibilityType.SECRETARY,
   ResponsibilityType.ATTENDANCE_RECORDER,
   ResponsibilityType.ATTENDANCE_RECORDER_ASSISTANT,
+  // Enters the figures too (31 October 2026, Lionel).
+  ResponsibilityType.DUTIES_COORDINATOR,
 ];
 
 @Injectable()

@@ -95,6 +95,9 @@ function setup(
         { month: '2025-09-01', midweekAverage: 94, weekendAverage: 101 },
         { month: '2025-10-01', midweekAverage: 96, weekendAverage: 103 },
       ],
+      // The year's line comes worked out from the attendance service — the
+      // one place it is counted (31 October 2026).
+      yearly: { midweekAverage: 95, weekendAverage: 102 },
     })),
   };
   const audit = { logCreate: jest.fn(), logRawUpdate: jest.fn() };
@@ -276,7 +279,7 @@ describe('AnnualSentService', () => {
     );
   });
 
-  it('works the attendance averages out as the screen does', async () => {
+  it('takes the year’s attendance line from the attendance service', async () => {
     const { service } = setup();
 
     const view = await service.view(TENANT, 2025);
