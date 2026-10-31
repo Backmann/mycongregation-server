@@ -58,6 +58,7 @@ import { CoVisitItemsModule } from './co-visit-items/co-visit-items.module';
 import { MemorialModule } from './memorial/memorial.module';
 import { AuxiliaryPioneersModule } from './auxiliary-pioneers/auxiliary-pioneers.module';
 import { ServiceLogModule } from './service-log/service-log.module';
+import { RetentionModule } from './retention/retention.module';
 import { CleaningModule } from './cleaning/cleaning.module';
 import { CartLocationsModule } from './cart-locations/cart-locations.module';
 import { CartWeeksModule } from './cart-weeks/cart-weeks.module';
@@ -150,6 +151,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     MemorialModule,
     AuxiliaryPioneersModule,
     ServiceLogModule,
+    RetentionModule,
     CleaningModule,
     CartLocationsModule,
     CartWeeksModule,
