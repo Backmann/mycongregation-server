@@ -9,6 +9,13 @@ import { TaskAddresseesService } from './task-addressees.service';
 import { TaskRemindersService } from './task-reminders.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 
+/** A person on a task, as the screens need him: who, by name — no more. */
+export interface TaskPerson {
+  id: string;
+  firstName: string;
+  lastName: string;
+}
+
 export interface AgendaResult {
   meeting: EldersMeeting | null;
   /** Put on this meeting on purpose. */
@@ -282,7 +289,7 @@ export class TasksService {
   async listTasks(
     congregationId: string,
     status?: 'open' | 'done',
-  ): Promise<(ElderTask & { members: { id: string }[] })[]> {
+  ): Promise<(ElderTask & { members: TaskPerson[] })[]> {
     const rows = await this.tasks.find({
       where: { congregationId, ...(status ? { status } : {}) },
       relations: { assignees: true },
@@ -302,18 +309,33 @@ export class TasksService {
     // «Просрочено на 8 дней» — true of the deadline, useless about the work.
     const closerNames = await this.namesOfClosers(congregationId, rows);
 
+    // People leave this method as a name and nothing else (31 October 2026).
+    // Whole cards used to go out — birth and baptism dates, phone, address —
+    // and `/me/tasks` hands this list to ANY brother on a task, a ministerial
+    // servant included, about every other brother on it. The screens use the
+    // id and the name; nothing more crosses.
+    const named = (people: Publisher[]): TaskPerson[] =>
+      people.map(({ id, firstName, lastName }) => ({
+        id,
+        firstName,
+        lastName,
+      }));
+    const committeeNamed = named(committee);
+    const bodyNamed = named(body);
+
     return rows.map((task) => ({
       ...task,
+      assignees: named(task.assignees ?? []),
       doneByName: task.doneById
         ? (closerNames.get(task.doneById) ?? null)
         : null,
       members:
         task.assigneeKind === 'service_committee'
-          ? committee
+          ? committeeNamed
           : task.assigneeKind === 'body_of_elders'
-            ? body
-            : (task.assignees ?? []),
-    })) as (ElderTask & { members: { id: string }[] })[];
+            ? bodyNamed
+            : named(task.assignees ?? []),
+    })) as unknown as (ElderTask & { members: TaskPerson[] })[];
   }
 
   /** Every open task this brother is on, however it was addressed. */
