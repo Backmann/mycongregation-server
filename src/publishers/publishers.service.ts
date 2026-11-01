@@ -121,7 +121,6 @@ import {
 } from './dto/query-publishers.dto';
 import { RemovePublisherDto } from './dto/remove-publisher.dto';
 import { refusal } from '../common/errors/refusal';
-import { notBeforeTheCard } from '../common/count-from-card';
 
 /**
  * What a reader's list leaves out (1 November 2026). Only elders and admins
@@ -137,6 +136,11 @@ export interface RosterHide {
   keepInactiveIn?: string[];
   /** Sort only by what the reader may see. */
   plainOrder?: boolean;
+}
+
+/** 'YYYY-MM-DD' → the first day of its month. */
+function firstOfMonth(day: string): string {
+  return `${day.slice(0, 7)}-01`;
 }
 
 export type RecomputeResult = 'skipped_override' | 'unchanged' | 'updated';
@@ -281,12 +285,12 @@ export class PublishersService {
     publisher: Publisher,
     firstReportMonth: string | null,
   ): Date | null {
-    const earliest = resolveReportingStartMonth({
+    const month = resolveReportingStartMonth({
       ministryStartDate: publisher.ministryStartDate,
       baptismDate: publisher.baptismDate,
       firstReportMonth,
+      memberSince: publisher.memberSince,
     });
-    const month = notBeforeTheCard(earliest, publisher.createdAt);
     if (!month) return null;
     const d = new Date(`${month}-01T00:00:00Z`);
     return isNaN(d.getTime()) ? null : d;
@@ -1295,8 +1299,16 @@ export class PublishersService {
       ...(dto.gender === Gender.SISTER ? { hospitality: true } : {}),
       ...(dto.capabilities ?? {}),
     };
+    // In our congregation since: left out (an app that does not ask yet) is
+    // this month — a card made today is a brother who came now; null is
+    // «here for as long as our records go» (1 November 2026).
+    const memberSince =
+      dto.memberSince === undefined
+        ? firstOfMonth(await this.clock.todayFor(tenantId))
+        : dto.memberSince && firstOfMonth(dto.memberSince);
     const publisher = this.publishersRepo.create({
       ...dto,
+      memberSince,
       congregationId: tenantId,
       displayName,
       capabilities,
@@ -1663,6 +1675,7 @@ export class PublishersService {
       appointment: publisher.appointment,
       baptismDate: publisher.baptismDate ?? null,
       ministryStartDate: publisher.ministryStartDate ?? null,
+      memberSince: publisher.memberSince ?? null,
     };
     const recordBefore = recordFieldsOf(publisher);
     // Contacts count as checked whenever somebody touches them — the publisher
@@ -1676,6 +1689,8 @@ export class PublishersService {
     // The last month of pioneering is not a field of the card: it goes to
     // the spell that ends, below.
     const { pioneerEndMonth, ...cardFields } = dto;
+    if (cardFields.memberSince)
+      cardFields.memberSince = firstOfMonth(cardFields.memberSince);
     Object.assign(publisher, cardFields);
     publisher.pioneerMonthGoal = monthGoalFor(publisher);
     const contactsChanged =
@@ -1834,7 +1849,8 @@ export class PublishersService {
       saved.appointment !== statusInputsBefore.appointment ||
       (saved.baptismDate ?? null) !== statusInputsBefore.baptismDate ||
       (saved.ministryStartDate ?? null) !==
-        statusInputsBefore.ministryStartDate;
+        statusInputsBefore.ministryStartDate ||
+      (saved.memberSince ?? null) !== statusInputsBefore.memberSince;
     if (statusInputsChanged) {
       // Silently: correcting forty cards must not become forty pushes to the
       // group overseer and the secretary. The recompute is a consequence of
@@ -2251,6 +2267,7 @@ const RECORD_FIELDS = [
   'spiritualStatus',
   'baptismDate',
   'ministryStartDate',
+  'memberSince',
   'serviceGroupId',
   'isDeaf',
   'isBlind',

@@ -41,6 +41,7 @@ export const REVERTABLE_FIELDS: Record<string, string[]> = {
     'baptismDate',
     'birthDate',
     'ministryStartDate',
+    'memberSince',
     'pioneerType',
     'pioneerSince',
     'pioneerMonthGoal',

@@ -16,6 +16,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import { Gender } from '../../common/enums/gender.enum';
 import { PublisherAppointment } from '../../common/enums/publisher-appointment.enum';
@@ -99,6 +100,16 @@ export class CreatePublisherDto {
   )
   @IsDateString()
   baptismDate?: string;
+
+  /**
+   * In our congregation since (YYYY-MM-DD, any day of the month — kept as
+   * its first day). Null: here for as long as our records go. Left out on
+   * creating a card (an app that does not ask yet): this month.
+   */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsDateString()
+  memberSince?: string | null;
 
   @IsOptional()
   @IsEnum(SpiritualStatus)

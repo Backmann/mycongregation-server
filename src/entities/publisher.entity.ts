@@ -129,6 +129,14 @@ export class Publisher {
   @Column({ type: 'date', nullable: true })
   baptismDate!: string | null;
 
+  /**
+   * In our congregation since — the first day of the month he came
+   * (1 November 2026). Null: here for as long as our records go. Counting
+   * for his standing, the S-1 and the annual report starts no earlier.
+   */
+  @Column({ type: 'date', name: 'member_since', nullable: true })
+  memberSince!: string | null;
+
   @Column({
     type: 'enum',
     enum: SpiritualStatus,

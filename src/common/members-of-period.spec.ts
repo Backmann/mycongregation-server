@@ -53,3 +53,11 @@ describe('memberAtServiceYearEnd — the line the annual report is drawn at', ()
     expect(y2025({ removedAt: '2026-09-01' })).toBe(true);
   });
 });
+
+describe('memberAtEndOf — not a member before he came (1 November 2026)', () => {
+  it('a brother who came in September is no member of August', () => {
+    const p = { memberSince: '2026-09-01' };
+    expect(memberAtEndOf('2026-08-01')(p)).toBe(false);
+    expect(memberAtEndOf('2026-09-01')(p)).toBe(true);
+  });
+});

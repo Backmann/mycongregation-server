@@ -243,3 +243,35 @@ describe('computeServiceStatus — inactive takes six closed months', () => {
     );
   });
 });
+
+describe('resolveReportingStartMonth — in our congregation since (1 November 2026)', () => {
+  it('counting begins no earlier than the month he came', () => {
+    expect(
+      resolveReportingStartMonth({
+        baptismDate: '1999-03-03',
+        memberSince: '2026-09-01',
+      }),
+    ).toBe('2026-09');
+  });
+  it('a later start of his own still wins', () => {
+    expect(
+      resolveReportingStartMonth({
+        ministryStartDate: '2026-12-01',
+        memberSince: '2026-09-01',
+      }),
+    ).toBe('2026-12');
+  });
+  it('with nothing else known, the month he came is the start', () => {
+    expect(resolveReportingStartMonth({ memberSince: '2026-11-01' })).toBe(
+      '2026-11',
+    );
+  });
+  it('no date: as before', () => {
+    expect(
+      resolveReportingStartMonth({
+        baptismDate: '1999-03-03',
+        memberSince: null,
+      }),
+    ).toBe('1999-03');
+  });
+});
