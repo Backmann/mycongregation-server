@@ -190,4 +190,23 @@ describe('inactive publishers stay out of everybody else’s lists (real databas
     expect(who).toContain(ids.helper);
     expect(who).not.toContain(ids.away);
   });
+
+  it('a brother just entered — baptized long ago, no reports here — is not inactive', async () => {
+    const made = await h.as('admin').post('/publishers', {
+      firstName: 'Переехавший',
+      lastName: 'Новый',
+      gender: 'brother',
+      appointment: 'publisher',
+      baptismDate: '1999-03-03',
+    });
+    expect(made.status).toBe(201);
+    expect(made.body.status).not.toBe('inactive');
+    const [{ status }] = await h.sql<{ status: string }>(
+      `SELECT status FROM publishers WHERE id = $1`,
+      [made.body.id],
+    );
+    expect(status).not.toBe('inactive');
+    expect(has(await roster('trusted'), made.body.id)).toBe(true);
+    expect(has(await roster('planner'), made.body.id)).toBe(true);
+  });
 });

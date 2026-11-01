@@ -121,6 +121,7 @@ import {
 } from './dto/query-publishers.dto';
 import { RemovePublisherDto } from './dto/remove-publisher.dto';
 import { refusal } from '../common/errors/refusal';
+import { notBeforeTheCard } from '../common/count-from-card';
 
 /**
  * What a reader's list leaves out (1 November 2026). Only elders and admins
@@ -280,11 +281,12 @@ export class PublishersService {
     publisher: Publisher,
     firstReportMonth: string | null,
   ): Date | null {
-    const month = resolveReportingStartMonth({
+    const earliest = resolveReportingStartMonth({
       ministryStartDate: publisher.ministryStartDate,
       baptismDate: publisher.baptismDate,
       firstReportMonth,
     });
+    const month = notBeforeTheCard(earliest, publisher.createdAt);
     if (!month) return null;
     const d = new Date(`${month}-01T00:00:00Z`);
     return isNaN(d.getTime()) ? null : d;
@@ -1285,6 +1287,24 @@ export class PublishersService {
     });
     publisher.pioneerMonthGoal = monthGoalFor(publisher);
     const saved = await this.publishersRepo.save(publisher);
+    // His standing at once, not the column's default «inactive» until the
+    // night (1 November 2026): an inactive card is in nobody's list but the
+    // elders', and a brother just entered would vanish from the planners'.
+    // Never at the price of the card: the night's sweep catches up.
+    const standing = await this.recomputeStatus(tenantId, saved.id, {
+      notify: false,
+    }).catch((err: unknown) => {
+      this.logger.warn(
+        `recomputeStatus after create failed for publisher=${saved.id}: ${String(err)}`,
+      );
+      return null;
+    });
+    if (standing === 'updated') {
+      const fresh = await this.publishersRepo.findOne({
+        where: { id: saved.id, congregationId: tenantId },
+      });
+      if (fresh) saved.status = fresh.status;
+    }
     /**
      * A card made as a pioneer gets its spell at once (23 October 2026).
      *
