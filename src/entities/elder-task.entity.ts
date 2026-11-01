@@ -83,7 +83,11 @@ export type TaskKind =
   | 'inactive_holds'
   // «Администратор не старейшина: [имя]» — an administrator whose card is not
   // an elder's (1 November 2026). Lives in tasks/admin-not-elder.service.ts.
-  | 'admin_not_elder';
+  | 'admin_not_elder'
+  // «Возможно, одна и та же карточка» — two cards alike by name, e-mail or
+  // phone; closes itself when merged or said to be two people (1 November
+  // 2026). Lives in tasks/possible-duplicate.service.ts.
+  | 'possible_duplicate';
 
 @Entity('elder_tasks')
 @Index(['congregationId', 'status'])

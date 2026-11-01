@@ -30,6 +30,7 @@ import { AuxApplicationsService } from '../auxiliary-pioneers/aux-applications.s
 import { LocalNeedsService } from '../local-needs/local-needs.service';
 import { SCHOOL_SYNC, type SchoolSync } from '../pioneer-school/school-sync';
 import { CardMergeService } from '../publishers/card-merge.service';
+import { PossibleDuplicateService } from '../tasks/possible-duplicate.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -82,6 +83,8 @@ export class ScheduledJobsService {
     /** Merged cards: after thirty days the merge is final, its record goes. */
     @Optional()
     private readonly cardMerge?: CardMergeService,
+    @Optional()
+    private readonly possibleDuplicates?: PossibleDuplicateService,
   ) {}
 
   /**
@@ -440,6 +443,12 @@ export class ScheduledJobsService {
       await this.adminNotElder.syncAll();
     } catch (e) {
       this.logger.error(`admin-not-elder failed: ${String(e)}`);
+    }
+    // «Возможно, одна и та же карточка» (1 November 2026).
+    try {
+      await this.possibleDuplicates?.syncAll();
+    } catch (e) {
+      this.logger.error(`possible duplicates failed: ${String(e)}`);
     }
   }
 

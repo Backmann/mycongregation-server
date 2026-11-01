@@ -22,6 +22,8 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { UsersService } from '../users/users.service';
 import { PublishersService } from './publishers.service';
 import { deriveRoleFromAppointment } from './derive-role';
+import { alike, emailKey, nameKey, phoneKey } from './duplicate-keys';
+import { pairPeriod } from '../tasks/possible-duplicate.service';
 
 /** How long «Разъединить» stays possible, and the record with it. */
 export const MERGE_UNDO_DAYS = 30;
@@ -300,6 +302,13 @@ export class CardMergeService {
     });
 
     await this.after(tenantId, keptId, actor.id ?? null);
+    // The elders' «possibly the same card» task about this pair is answered.
+    await this.publishers.manager.query(
+      `UPDATE elder_tasks SET status = 'done', done_at = now(), done_by_id = $3
+        WHERE congregation_id = $1 AND kind = 'possible_duplicate'
+          AND kind_period = $2 AND status = 'open'`,
+      [tenantId, pairPeriod(keptId, mergedId), actor.id ?? null],
+    );
     for (const uid of [done.payload.accounts.closedUserId].filter(Boolean)) {
       await this.auditLog.logUpdate({
         tenantId,
@@ -501,6 +510,14 @@ export class CardMergeService {
         }
       }
 
+      // Undone means «two people after all»: the watcher is not to raise the
+      // pair again. Merging them later is still one click on the card.
+      const [x, y] = [A, B].sort();
+      await m.query(
+        `INSERT INTO publisher_distinct_pairs (congregation_id, a_id, b_id, by_user_id)
+         VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+        [tenantId, x, y, actor.id ?? null],
+      );
       rec.undoneAt = new Date();
       rec.payload = null;
       await repo.save(rec);
@@ -1395,19 +1412,18 @@ export class CardMergeService {
       why: ('name' | 'email' | 'phone')[];
     }[]
   > {
-    const name = (s?: string | null) =>
-      (s ?? '').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
-    const digits = (s?: string | null) => {
-      const d = (s ?? '').replace(/\D/g, '');
-      return d.length >= 7 ? d.slice(-9) : '';
+    const probe = {
+      firstName: q.firstName,
+      lastName: q.lastName,
+      email: q.email,
+      mobilePhone: q.phone,
     };
-    const pair = [name(q.firstName), name(q.lastName)]
-      .filter(Boolean)
-      .sort()
-      .join('|');
-    const email = name(q.email);
-    const phone = digits(q.phone);
-    if (!pair.includes('|') && !email && !phone) return [];
+    if (
+      !nameKey(q.firstName, q.lastName) &&
+      !emailKey(q.email) &&
+      !phoneKey(q.phone)
+    )
+      return [];
     const cards = await this.publishers.find({
       where: { congregationId: tenantId },
       withDeleted: true,
@@ -1416,14 +1432,7 @@ export class CardMergeService {
     const out: Awaited<ReturnType<CardMergeService['duplicates']>> = [];
     for (const c of cards) {
       if (c.id === q.exceptId) continue;
-      const why: ('name' | 'email' | 'phone')[] = [];
-      const cp = [name(c.firstName), name(c.lastName)]
-        .filter(Boolean)
-        .sort()
-        .join('|');
-      if (pair.includes('|') && cp === pair) why.push('name');
-      if (email && name(c.email) === email) why.push('email');
-      if (phone && digits(c.mobilePhone) === phone) why.push('phone');
+      const why = alike(probe, c);
       if (why.length === 0) continue;
       out.push({
         id: c.id,
