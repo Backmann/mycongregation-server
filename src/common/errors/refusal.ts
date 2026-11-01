@@ -34,6 +34,8 @@ export const REFUSAL_CODES = [
   // An inactive publisher is given no task; the words name no standing.
   'PERSON_NOT_ASSIGNABLE',
   'SIGNUP_UNAVAILABLE',
+  // The standing comes from the reports only; no status by hand.
+  'STATUS_BY_REPORTS_ONLY',
   'SPAN_INVALID',
   'WEEK_NOT_MONDAY',
   // ---- field-service meetings ----

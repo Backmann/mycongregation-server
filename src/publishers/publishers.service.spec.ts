@@ -771,49 +771,22 @@ describe('PublishersService.recomputeStatus + overrideStatus', () => {
   });
 
   describe('overrideStatus', () => {
-    it('sets status + statusManuallyOverridden flag + actor metadata + writes audit log', async () => {
-      const pub = makePublisher({
-        id: 'pub-1',
-        status: PublisherStatus.INACTIVE,
-        statusManuallyOverridden: false,
-      });
-      publishersRepo.findOne.mockResolvedValue(pub);
-      publishersRepo.save.mockImplementation(async (x: any) => x);
-
-      setNow(Date.UTC(2026, 4, 25, 10, 0, 0));
-
-      await service.overrideStatus(
-        'cong-1',
-        makeUser({ id: 'admin-1', role: UserRole.ADMIN }),
-        'pub-1',
-        { status: PublisherStatus.ACTIVE },
-      );
-
-      expect(publishersRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          status: PublisherStatus.ACTIVE,
-          statusManuallyOverridden: true,
-          statusOverriddenById: 'admin-1',
-        }),
-      );
-      expect(auditLogService.logUpdate).toHaveBeenCalledTimes(1);
-      const call = auditLogService.logUpdate.mock.calls[0][0];
-      expect(call.entityType).toBe('publisher');
-      expect(call.entityId).toBe('pub-1');
-      expect(call.actorUserId).toBe('admin-1');
-      expect(call.before.status).toBe(PublisherStatus.INACTIVE);
-      expect(call.after.status).toBe(PublisherStatus.ACTIVE);
-    });
-
-    it('forbids non-admin/elder callers', async () => {
-      await expect(
-        service.overrideStatus(
-          'cong-1',
-          makeUser({ id: 'pub-user', role: UserRole.PUBLISHER }),
-          'pub-1',
-          { status: PublisherStatus.ACTIVE },
-        ),
-      ).rejects.toBeInstanceOf(ForbiddenException);
+    // No status by hand since 1 November 2026: refused, nothing saved.
+    it('is refused for everyone and saves nothing', async () => {
+      for (const role of [UserRole.ADMIN, UserRole.ELDER, UserRole.PUBLISHER]) {
+        await expect(
+          service.overrideStatus(
+            'cong-1',
+            makeUser({ id: 'u', role }),
+            'pub-1',
+            {
+              status: PublisherStatus.ACTIVE,
+            },
+          ),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      }
+      expect(publishersRepo.save).not.toHaveBeenCalled();
+      expect(auditLogService.logUpdate).not.toHaveBeenCalled();
     });
   });
 
