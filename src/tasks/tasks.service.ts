@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { assertAssignable } from '../common/inactive';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { ElderTask } from '../entities/elder-task.entity';
@@ -134,6 +135,11 @@ export class TasksService {
     dto: MeetingInput & { date: string },
     userId: string | null,
   ): Promise<EldersMeeting> {
+    await assertAssignable(this.meetings.manager, congregationId, [
+      dto.minuteTakerPublisherId,
+      dto.openingPrayerPublisherId,
+      dto.closingPrayerPublisherId,
+    ]);
     const entity = this.meetings.create({
       congregationId,
       date: dto.date,
@@ -201,6 +207,20 @@ export class TasksService {
       where: { id, congregationId },
     });
     if (!entity) throw new NotFoundException('Meeting not found');
+    await assertAssignable(
+      this.meetings.manager,
+      congregationId,
+      [
+        dto.minuteTakerPublisherId,
+        dto.openingPrayerPublisherId,
+        dto.closingPrayerPublisherId,
+      ],
+      [
+        entity.minuteTakerPublisherId,
+        entity.openingPrayerPublisherId,
+        entity.closingPrayerPublisherId,
+      ],
+    );
     if (dto.date !== undefined) entity.date = dto.date;
     if (dto.startTime !== undefined) entity.startTime = dto.startTime ?? null;
     if (dto.note !== undefined) entity.note = dto.note ?? null;
@@ -367,6 +387,10 @@ export class TasksService {
     dto: TaskInput & { title: string },
     userId: string | null,
   ): Promise<ElderTask> {
+    await assertAssignable(this.tasks.manager, congregationId, [
+      ...(dto.assigneePublisherIds ?? []),
+      dto.assigneePublisherId,
+    ]);
     const entity = this.tasks.create({
       congregationId,
       title: dto.title,
@@ -426,6 +450,15 @@ export class TasksService {
       relations: { assignees: true },
     });
     if (!entity) throw new NotFoundException('Task not found');
+    await assertAssignable(
+      this.tasks.manager,
+      congregationId,
+      [...(dto.assigneePublisherIds ?? []), dto.assigneePublisherId],
+      [
+        ...(entity.assignees ?? []).map((a) => a.id),
+        entity.assigneePublisherId,
+      ],
+    );
     const before = journalShape(entity);
 
     if (dto.title !== undefined) entity.title = dto.title;

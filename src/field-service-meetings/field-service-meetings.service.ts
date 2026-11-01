@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { assertAssignable } from '../common/inactive';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
@@ -513,6 +514,22 @@ export class FieldServiceMeetingsService {
         );
       }
     }
+    await assertAssignable(
+      this.publishersRepo.manager,
+      congregationId,
+      [
+        next.conductorPublisherId,
+        next.serviceOverseerPublisherId,
+        next.serviceOverseerAssistantId,
+      ],
+      prev
+        ? [
+            prev.conductorPublisherId,
+            prev.serviceOverseerPublisherId,
+            prev.serviceOverseerAssistantId,
+          ]
+        : [],
+    );
   }
 
   /**

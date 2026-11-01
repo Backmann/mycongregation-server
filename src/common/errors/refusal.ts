@@ -31,6 +31,9 @@ export const REFUSAL_CODES = [
   'STAGE_ACCOUNT_FIXED',
   'NO_SUCH_GROUP',
   'NO_SUCH_PUBLISHER',
+  // An inactive publisher is given no task; the words name no standing.
+  'PERSON_NOT_ASSIGNABLE',
+  'SIGNUP_UNAVAILABLE',
   'SPAN_INVALID',
   'WEEK_NOT_MONDAY',
   // ---- field-service meetings ----

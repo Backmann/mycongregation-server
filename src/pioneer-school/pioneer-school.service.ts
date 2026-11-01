@@ -5,6 +5,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import { assertAssignable } from '../common/inactive';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Not, Repository } from 'typeorm';
 import { PioneerSchool } from '../entities/pioneer-school.entity';
@@ -611,6 +612,11 @@ export class PioneerSchoolService {
         where: { id: dto.helperId, congregationId: tenantId },
       });
       if (!helper) throw new NotFoundException('Helper not found');
+      // The helper is a card of ours or a guest: only a card has a standing.
+      if (dto.helperId !== duty.helperId)
+        await assertAssignable(this.helpersRepo.manager, tenantId, [
+          helper.publisherId,
+        ]);
     }
     const before = duty.helperId
       ? await this.helperName(tenantId, duty.helperId)
@@ -847,6 +853,9 @@ export class PioneerSchoolService {
     user: AuthenticatedUser,
   ): Promise<PioneerSchoolHelper> {
     this.assertCanEdit(user);
+    await assertAssignable(this.helpersRepo.manager, tenantId, [
+      dto.publisherId,
+    ]);
     return this.helpersRepo.save(
       this.helpersRepo.create({ ...dto, congregationId: tenantId }),
     );
@@ -863,6 +872,12 @@ export class PioneerSchoolService {
       where: { id, congregationId: tenantId },
     });
     if (!helper) throw new NotFoundException('Helper not found');
+    await assertAssignable(
+      this.helpersRepo.manager,
+      tenantId,
+      [dto.publisherId],
+      [helper.publisherId],
+    );
     Object.assign(helper, dto);
     return this.helpersRepo.save(helper);
   }

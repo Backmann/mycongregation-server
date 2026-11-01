@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
+import { assertAssignable, isInactive } from '../common/inactive';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
@@ -547,6 +548,9 @@ export class CartWeeksService {
         ),
       );
     }
+    await assertAssignable(this.slotsRepo.manager, congregationId, [
+      dto.publisherId,
+    ]);
     const slot = await this.slotsRepo.findOne({
       where: { id: slotId, congregationId },
     });
@@ -716,6 +720,16 @@ export class CartWeeksService {
     if (!me.capabilities || me.capabilities['public_witnessing'] !== true) {
       throw new ForbiddenException(
         refusal('CART_NOT_ELIGIBLE', 'Not eligible for cart witnessing'),
+      );
+    }
+    // Inactive: no sign-up (1 November 2026). The words send him to the
+    // elders and name no standing.
+    if (isInactive(me)) {
+      throw new ForbiddenException(
+        refusal(
+          'SIGNUP_UNAVAILABLE',
+          'Signing up is not available at the moment; please speak to the elders.',
+        ),
       );
     }
     const slot = await this.slotsRepo.findOne({

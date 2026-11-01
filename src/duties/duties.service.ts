@@ -6,6 +6,7 @@ import {
   Optional,
   NotFoundException,
 } from '@nestjs/common';
+import { assertAssignable } from '../common/inactive';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { SpecialEvent } from '../entities/special-event.entity';
@@ -630,6 +631,12 @@ export class DutiesService {
       duty.eventType,
     );
     const previousPublisherId = duty.publisherId ?? null;
+    await assertAssignable(
+      this.repo.manager,
+      congregationId,
+      [dto.publisherId],
+      [previousPublisherId],
+    );
     duty.publisherId = dto.publisherId ?? null;
     if (dto.notes !== undefined) duty.notes = dto.notes;
     const saved = await this.repo.save(duty);
@@ -661,6 +668,9 @@ export class DutiesService {
     dto: CreateCustomDutyDto,
   ): Promise<DutyWithWarnings> {
     await this.assertEditable(congregationId, dto.weekStartDate, dto.eventType);
+    await assertAssignable(this.repo.manager, congregationId, [
+      dto.publisherId,
+    ]);
     const raw = await this.repo
       .createQueryBuilder('d')
       .select('MAX(d.slotIndex)', 'max')

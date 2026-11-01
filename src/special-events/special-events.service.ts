@@ -7,6 +7,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { assertAssignable } from '../common/inactive';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { In, IsNull, Not, Repository } from 'typeorm';
@@ -335,6 +336,9 @@ export class SpecialEventsService {
     if (dto.type === CIRCUIT_OVERSEER_VISIT_TYPE) {
       await this.assertVisitWeekFree(tenantId, dto.date);
     }
+    await assertAssignable(this.specialEventsRepo.manager, tenantId, [
+      dto.coAccommodationPublisherId,
+    ]);
     const event = this.specialEventsRepo.create({
       ...dto,
       congregationId: tenantId,
@@ -402,6 +406,12 @@ export class SpecialEventsService {
     if (event.deletedAt) {
       throw new NotFoundException('Special event not found');
     }
+    await assertAssignable(
+      this.specialEventsRepo.manager,
+      tenantId,
+      [dto.coAccommodationPublisherId],
+      [event.coAccommodationPublisherId],
+    );
     const today = await this.clock.todayFor(tenantId);
 
     const nextDate = dto.date ?? event.date;
@@ -584,6 +594,12 @@ export class SpecialEventsService {
     if (event.deletedAt || event.type !== CIRCUIT_OVERSEER_VISIT_TYPE) {
       throw new NotFoundException('Circuit overseer visit not found');
     }
+    await assertAssignable(
+      this.specialEventsRepo.manager,
+      tenantId,
+      [dto.coAccommodationPublisherId],
+      [event.coAccommodationPublisherId],
+    );
     if (dto.coAccommodationPublisherId !== undefined) {
       event.coAccommodationPublisherId = dto.coAccommodationPublisherId;
     }

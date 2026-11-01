@@ -5,6 +5,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import { isInactive } from '../common/inactive';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { Brackets, Repository } from 'typeorm';
@@ -614,6 +615,14 @@ export class ServiceGroupsService {
         refusal(
           'GROUP_LEADER_SISTER',
           'The group overseer and his assistant are brothers.',
+        ),
+      );
+    } // Called only for a NEW leader, so a sitting one is never locked out.
+    if (isInactive(p)) {
+      throw new BadRequestException(
+        refusal(
+          'PERSON_NOT_ASSIGNABLE',
+          'This person cannot be given a task at the moment.',
         ),
       );
     }

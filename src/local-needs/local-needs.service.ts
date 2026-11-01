@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { assertAssignable } from '../common/inactive';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { In, IsNull, Repository } from 'typeorm';
@@ -648,6 +649,9 @@ export class LocalNeedsService {
     user: AuthenticatedUser,
   ): Promise<LocalNeedsTopic> {
     await this.assertCanManage(user);
+    await assertAssignable(this.repo.manager, tenantId, [
+      dto.speakerPublisherId,
+    ]);
     const entity = this.repo.create({
       ...dto,
       usedWeek: dto.usedWeek ? mondayOf(dto.usedWeek) : null,
@@ -689,6 +693,12 @@ export class LocalNeedsService {
     if (!found) {
       throw new NotFoundException('Local needs topic not found');
     }
+    await assertAssignable(
+      this.repo.manager,
+      tenantId,
+      [dto.speakerPublisherId],
+      [found.speakerPublisherId],
+    );
     const before = {
       title: found.title,
       notes: found.notes,
