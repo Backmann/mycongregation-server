@@ -129,6 +129,12 @@ export const PLAN: Record<string, TablePlan> = {
     { first_name: 'first', last_name: 'last', merge_record: 'merge' },
     remove('phone note'),
   ),
+  // A merge's record holds the merged card as it was — personal data, kept
+  // thirty days for «Разъединить». Never in a copy.
+  publisher_merges: 'skip',
+  publisher_distinct_pairs: copy(
+    'congregation_id a_id b_id by_user_id created_at',
+  ),
   visiting_speaker_distinct_pairs: copy(
     'id congregation_id speaker_a_id speaker_b_id created_by_user_id created_at',
   ),

@@ -174,10 +174,27 @@ export class JournalService {
 
     // "Everything touching this person" means either they did it or it was
     // about them — two columns, so two conditions.
+    // A card that took in a duplicate (1 November 2026) answers for the
+    // duplicate's entries too while the merge is on record: its history is
+    // his history.
+    const canAsk = typeof this.publishersRepo.manager?.query === 'function';
+    const people = filters.personId
+      ? [
+          filters.personId,
+          ...(canAsk
+            ? ((await this.publishersRepo.manager.query(
+                `SELECT merged_id AS id FROM publisher_merges
+                WHERE congregation_id = $1 AND kept_id = $2 AND undone_at IS NULL`,
+                [tenantId, filters.personId],
+              )) as { id: string }[])
+            : []
+          ).map((r) => r.id),
+        ]
+      : [];
     const conditions: FindOptionsWhere<AuditLog>[] = filters.personId
       ? [
-          { ...where, subjectId: filters.personId },
-          { ...where, entityId: filters.personId },
+          { ...where, subjectId: people.length > 1 ? In(people) : people[0] },
+          { ...where, entityId: people.length > 1 ? In(people) : people[0] },
         ]
       : [where];
 

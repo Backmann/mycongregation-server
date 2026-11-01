@@ -57,4 +57,28 @@ export async function assertAssignable(
       ),
     );
   }
+  // A screen opened before two cards were merged still offers the card that
+  // is gone (1 November 2026): say so, rather than a bare «not found» or a
+  // broken link.
+  if (typeof manager.query !== 'function') return;
+  const found = await manager.getRepository(Publisher).count({
+    where: { congregationId, id: In(fresh) },
+    withDeleted: true,
+  });
+  if (found < fresh.length) {
+    const merged: unknown[] = await manager.query(
+      `SELECT 1 FROM publisher_merges
+        WHERE congregation_id = $1 AND merged_id = ANY($2::uuid[]) AND undone_at IS NULL
+        LIMIT 1`,
+      [congregationId, fresh],
+    );
+    if (merged.length > 0) {
+      throw new BadRequestException(
+        refusal(
+          'CARD_MERGED',
+          'This card was merged into another; reload and choose again.',
+        ),
+      );
+    }
+  }
 }

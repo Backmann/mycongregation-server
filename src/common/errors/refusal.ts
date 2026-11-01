@@ -186,6 +186,20 @@ export const REFUSAL_CODES = [
   'WRONG_PASSWORD',
   'PASSWORD_NOT_SET',
   'CARD_TAKEN',
+  // ---- merging two cards of one person (1 November 2026) ----
+  'MERGE_SAME_CARD',
+  'MERGE_BLOCKED',
+  'MERGE_PLAN_CHANGED',
+  'MERGE_ACCOUNT_ADMIN_ONLY',
+  'MERGE_CHOICE_MISSING',
+  'MERGE_SELF_CHECK',
+  'MERGE_NOT_UNDOABLE',
+  'MERGE_KEPT_DEPARTED',
+  'MERGE_BIRTH_DATES_DIFFER',
+  'MERGE_GENDER_DIFFERS',
+  'MERGE_FAILED',
+  // A screen still holding a card that was merged into another.
+  'CARD_MERGED',
   'PUSH_TOKEN_INVALID',
   // ---- cleaning ----
   'CLEANING_PLAN_FORBIDDEN',

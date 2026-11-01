@@ -29,6 +29,7 @@ import { LocalNeedsRemindersService } from '../local-needs/local-needs-reminders
 import { AuxApplicationsService } from '../auxiliary-pioneers/aux-applications.service';
 import { LocalNeedsService } from '../local-needs/local-needs.service';
 import { SCHOOL_SYNC, type SchoolSync } from '../pioneer-school/school-sync';
+import { CardMergeService } from '../publishers/card-merge.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -78,7 +79,28 @@ export class ScheduledJobsService {
     private readonly pioneerMeetings?: PioneerMeetingsService,
     @Optional()
     private readonly attendanceReminder?: AttendanceReminderService,
+    /** Merged cards: after thirty days the merge is final, its record goes. */
+    @Optional()
+    private readonly cardMerge?: CardMergeService,
   ) {}
+
+  /**
+   * A merge of two cards can be undone for thirty days; its record holds the
+   * merged card's personal data, so after that it is deleted (1 November
+   * 2026).
+   */
+  @Cron('35 3 * * *', {
+    name: 'card-merge-expiry',
+    timeZone: 'Europe/Berlin',
+  })
+  async handleCardMergeExpiry(): Promise<void> {
+    try {
+      const n = (await this.cardMerge?.expire()) ?? 0;
+      if (n > 0) this.logger.log(`card merges made final: ${n}`);
+    } catch (e) {
+      this.logger.error(`card merge expiry failed: ${String(e)}`);
+    }
+  }
 
   /**
    * The annual meeting of the elders with the pioneers (S-211): the body's
