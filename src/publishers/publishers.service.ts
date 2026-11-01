@@ -293,6 +293,83 @@ export class PublishersService {
   }
 
   /**
+   * What the reports say a publisher's standing is — computed, not saved.
+   * Shared by the recompute and by the preview of releasing manual statuses.
+   */
+  private async statusByReports(
+    tenantId: string,
+    publisher: Publisher,
+    opts: { timezone?: string | null; lastClosedMonth?: Date } = {},
+  ): Promise<PublisherStatus> {
+    const now = new Date(Date.now());
+    // The congregation's own calendar decides when a month closed. Passed in
+    // by the nightly sweep, which already holds it, so a congregation is read
+    // once per run rather than once per publisher.
+    const timezone =
+      opts.timezone !== undefined
+        ? opts.timezone
+        : await this.clock.timezoneOf(tenantId);
+    const lastClosed =
+      opts.lastClosedMonth ??
+      (await this.effectiveLastClosedMonth(tenantId, timezone, now));
+    // The WHOLE history, not the window. Two things need it: the first report
+    // is part of deciding when this person's counting begins, and a lapse of
+    // six closed months restarts that counting from the month he came back —
+    // both of which can sit outside a six-month window.
+    const reports = await this.reportsRepo.find({
+      where: { publisherId: publisher.id, congregationId: tenantId },
+      select: ['reportMonth', 'servedThisMonth', 'hoursReported'],
+    });
+    const firstReportMonth = reports.reduce<string | null>((earliest, r) => {
+      const m = r.reportMonth.slice(0, 7);
+      return earliest === null || m < earliest ? m : earliest;
+    }, null);
+
+    const startMonth = this.reportingStartMonth(publisher, firstReportMonth);
+    return computeStatusFromReports(
+      reports,
+      lastClosed,
+      startMonth,
+      collectedReportMonth(now, timezone),
+    );
+  }
+
+  /**
+   * RELEASING THE MANUAL STATUSES — the preview (1 November 2026).
+   *
+   * A status set by hand freezes a person: the reports stop counting for
+   * him, so a brother marked «inactive» once stays inactive after he serves
+   * again — and since then an inactive brother is given no task at all.
+   * Lionel decided the standing comes from the reports only. Before any
+   * hand-set status is let go, this says what letting go would do: how many
+   * are held, and which way each would move. Numbers only — no names.
+   */
+  async previewOverrideRelease(tenantId: string): Promise<{
+    held: number;
+    unchanged: number;
+    moves: Record<string, number>;
+  }> {
+    const held = await this.publishersRepo.find({
+      where: { congregationId: tenantId, statusManuallyOverridden: true },
+    });
+    const moves: Record<string, number> = {};
+    let unchanged = 0;
+    for (const p of held) {
+      const next =
+        p.appointment === PublisherAppointment.STUDENT
+          ? null
+          : await this.statusByReports(tenantId, p);
+      if (next === p.status) {
+        unchanged += 1;
+        continue;
+      }
+      const key = `${p.status ?? 'none'}→${next ?? 'none'}`;
+      moves[key] = (moves[key] ?? 0) + 1;
+    }
+    return { held: held.length, unchanged, moves };
+  }
+
+  /**
    * Recompute one publisher's service status from the last six closed months.
    *
    * WHO HEARS ABOUT IT. Left to itself, this used to announce every change to
@@ -327,7 +404,7 @@ export class PublishersService {
   ): Promise<
     ServiceStatusReasons & {
       manuallyOverridden: boolean;
-      /** The service year the sixth silent month would fall in. */
+      /**  /** The service year the sixth silent month would fall in. */
       sixthSilentServiceYear: number | null;
     }
   > {
@@ -409,37 +486,7 @@ export class PublishersService {
       return 'updated';
     }
 
-    const now = new Date(Date.now());
-    // The congregation's own calendar decides when a month closed. Passed in
-    // by the nightly sweep, which already holds it, so a congregation is read
-    // once per run rather than once per publisher.
-    const timezone =
-      opts.timezone !== undefined
-        ? opts.timezone
-        : await this.clock.timezoneOf(tenantId);
-    const lastClosed =
-      opts.lastClosedMonth ??
-      (await this.effectiveLastClosedMonth(tenantId, timezone, now));
-    // The WHOLE history, not the window. Two things need it: the first report
-    // is part of deciding when this person's counting begins, and a lapse of
-    // six closed months restarts that counting from the month he came back —
-    // both of which can sit outside a six-month window.
-    const reports = await this.reportsRepo.find({
-      where: { publisherId, congregationId: tenantId },
-      select: ['reportMonth', 'servedThisMonth', 'hoursReported'],
-    });
-    const firstReportMonth = reports.reduce<string | null>((earliest, r) => {
-      const m = r.reportMonth.slice(0, 7);
-      return earliest === null || m < earliest ? m : earliest;
-    }, null);
-
-    const startMonth = this.reportingStartMonth(publisher, firstReportMonth);
-    const newStatus = computeStatusFromReports(
-      reports,
-      lastClosed,
-      startMonth,
-      collectedReportMonth(now, timezone),
-    );
+    const newStatus = await this.statusByReports(tenantId, publisher, opts);
     if (publisher.status === newStatus) return 'unchanged';
 
     const before = { status: publisher.status };
