@@ -12,6 +12,7 @@ import { CleaningRemindersService } from '../cleaning/cleaning-reminders.service
 import { CalendarTasksService } from '../tasks/calendar-tasks.service';
 import { TaskRemindersService } from '../tasks/task-reminders.service';
 import { GroupVisitTasksService } from '../field-service-meetings/group-visit-tasks.service';
+import { InactiveHoldsService } from '../tasks/inactive-holds.service';
 import { FieldServiceAutomationService } from '../field-service-meetings/field-service-automation.service';
 import { EventNotificationsService } from '../special-events/event-notifications.service';
 import { AnnualSentService } from '../annual-report/annual-sent.service';
@@ -41,6 +42,7 @@ export class ScheduledJobsService {
     private readonly calendarTasks: CalendarTasksService,
     private readonly taskReminders: TaskRemindersService,
     private readonly groupVisitTasks: GroupVisitTasksService,
+    private readonly inactiveHolds: InactiveHoldsService,
     private readonly fieldServiceAutomation: FieldServiceAutomationService,
     private readonly memorial: MemorialService,
     private readonly eventNotifications: EventNotificationsService,
@@ -401,6 +403,13 @@ export class ScheduledJobsService {
       await this.groupVisitTasks.ensureForToday();
     } catch (e) {
       this.logger.error(`group visit tasks failed: ${String(e)}`);
+    }
+    // «Замена назначений»: raised for a publisher who became inactive with
+    // something still his, lowered when nothing is left (1 November 2026).
+    try {
+      await this.inactiveHolds.syncAll();
+    } catch (e) {
+      this.logger.error(`inactive holds failed: ${String(e)}`);
     }
   }
 

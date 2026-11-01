@@ -76,7 +76,11 @@ export type TaskKind =
   | 'field_service_month'
   // «Who conducts the annual meeting with the pioneers» — 1 to 30 November,
   // closing itself when the meeting is set. Lives in pioneer-meetings.
-  | 'pioneer_meeting';
+  | 'pioneer_meeting'
+  // «Замена назначений: [имя]» — a publisher became inactive while something
+  // was still his; closes itself when nothing is left or he serves again
+  // (1 November 2026). Lives in tasks/inactive-holds.service.ts.
+  | 'inactive_holds';
 
 @Entity('elder_tasks')
 @Index(['congregationId', 'status'])
