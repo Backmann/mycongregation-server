@@ -27,7 +27,7 @@ describe('releasing hand-set statuses: the preview (real database)', () => {
     // Old cards: judged on their silence, like the ones made before today's
     // rule — no reports here, so «inactive» by the reports.
     await h.sql(
-      `UPDATE publishers SET created_at = '2025-01-01' WHERE id = ANY($1::uuid[])`,
+      `UPDATE publishers SET created_at = '2025-01-01', member_since = NULL WHERE id = ANY($1::uuid[])`,
       [Object.values(ids)],
     );
     await h.sql(

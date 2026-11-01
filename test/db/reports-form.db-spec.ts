@@ -28,6 +28,7 @@ describe('reports: form by month, standing, pioneer year (real database)', () =>
       gender: 'sister',
       appointment: 'publisher',
       baptismDate: '2010-01-01',
+      memberSince: null, // long in the congregation
       pioneerType: 'regular',
       pioneerSince: '2020-09-01',
     });
@@ -39,6 +40,7 @@ describe('reports: form by month, standing, pioneer year (real database)', () =>
       gender: 'sister',
       appointment: 'publisher',
       baptismDate: '2010-01-01',
+      memberSince: null, // long in the congregation
       pioneerType: 'regular',
       pioneerSince: '2020-09-01',
     });
@@ -56,6 +58,7 @@ describe('reports: form by month, standing, pioneer year (real database)', () =>
       lastName: 'Простов',
       appointment: 'publisher',
       baptismDate: '2010-01-01',
+      memberSince: null, // long in the congregation
     });
     await h.addUser({ login: 'tim', role: 'publisher', publisherId: plain });
   });

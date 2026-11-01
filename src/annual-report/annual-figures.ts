@@ -97,6 +97,8 @@ export interface AnnualPublisher {
   appointment: PublisherAppointment | string;
   ministryStartDate?: string | null;
   baptismDate?: string | null;
+  /** In our congregation since (1 November 2026). */
+  memberSince?: string | null;
   removedAt?: Date | string | null;
   deletedAt?: Date | string | null;
   createdAt?: Date | string | null;
@@ -227,6 +229,7 @@ export function computeAnnualFigures(input: {
       ministryStartDate: p.ministryStartDate,
       baptismDate: p.baptismDate,
       firstReportMonth: firstKnown.get(p.id) ?? null,
+      memberSince: p.memberSince,
     });
     // Two conditions, and both must hold. The person must have been
     // reporting for the whole stretch the question looks at, and WE must

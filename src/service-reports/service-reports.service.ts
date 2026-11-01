@@ -916,6 +916,7 @@ export class ServiceReportsService {
       ministryStartDate: p.ministryStartDate,
       baptismDate: p.baptismDate,
       firstReportMonth,
+      memberSince: p.memberSince,
     });
   }
 
@@ -2376,6 +2377,7 @@ export class ServiceReportsService {
         ministryStartDate: p.ministryStartDate,
         baptismDate: p.baptismDate,
         firstReportMonth: first.get(p.id) ?? null,
+        memberSince: p.memberSince,
       });
       // Not begun yet: nothing to judge.
       if (start !== null && start > month) continue;

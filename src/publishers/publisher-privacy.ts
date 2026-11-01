@@ -21,6 +21,8 @@ export const PRIVATE_PUBLISHER_FIELDS = [
   'birthDate',
   'baptismDate',
   'ministryStartDate',
+  // When he came to us — as private as the baptism date (1 November 2026).
+  'memberSince',
   'pioneerSince',
   // A special pioneer's own monthly hours — his and the elders' business.
   'pioneerMonthGoal',

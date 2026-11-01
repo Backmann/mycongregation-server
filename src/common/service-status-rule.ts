@@ -71,14 +71,23 @@ export function resolveReportingStartMonth(input: {
   ministryStartDate?: string | null;
   baptismDate?: string | null;
   firstReportMonth?: MonthKey | null;
+  /**
+   * In our congregation since (1 November 2026). Counting never begins
+   * before he came: the months before were another congregation's, or
+   * nobody's, never his silence here.
+   */
+  memberSince?: string | null;
 }): MonthKey | null {
   const candidates = [
     input.ministryStartDate?.slice(0, 7),
     input.baptismDate?.slice(0, 7),
     input.firstReportMonth?.slice(0, 7),
   ].filter((m): m is string => !!m && /^\d{4}-\d{2}$/.test(m));
-  if (candidates.length === 0) return null;
-  return candidates.reduce((earliest, m) => (m < earliest ? m : earliest));
+  const came = input.memberSince?.slice(0, 7);
+  const arrived = came && /^\d{4}-\d{2}$/.test(came) ? came : null;
+  if (candidates.length === 0) return arrived;
+  const earliest = candidates.reduce((a, m) => (m < a ? m : a));
+  return arrived && arrived > earliest ? arrived : earliest;
 }
 
 /** How many closed months a person is judged on at most. */
