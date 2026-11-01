@@ -88,6 +88,8 @@ describe('PublishersController.findAll — directory scoping', () => {
         serviceGroupId: 'group-7',
         includeRemoved: false,
       }),
+      // students and the inactive left out in the query itself
+      { students: true, inactive: true, plainOrder: true },
     );
     // private fields redacted
     expect(res.data[0].mobilePhone).toBeUndefined();

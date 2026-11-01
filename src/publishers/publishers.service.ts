@@ -115,9 +115,29 @@ export function computeStatusFromReports(
 
 import { CreatePublisherDto } from './dto/create-publisher.dto';
 import { UpdatePublisherDto } from './dto/update-publisher.dto';
-import { QueryPublishersDto } from './dto/query-publishers.dto';
+import {
+  PublisherSortField,
+  QueryPublishersDto,
+} from './dto/query-publishers.dto';
 import { RemovePublisherDto } from './dto/remove-publisher.dto';
 import { refusal } from '../common/errors/refusal';
+import { notBeforeTheCard } from '../common/count-from-card';
+
+/**
+ * What a reader's list leaves out (1 November 2026). Only elders and admins
+ * may know who is inactive (Lionel: «неактивных могут видеть только
+ * старейшины»), and an inactive publisher is assigned nowhere — so for
+ * everybody else he is simply not in the list. `keepInactiveIn` is the one
+ * exception: the group a reader oversees or assists, on the group's own
+ * screen, where he collects that brother's reports.
+ */
+export interface RosterHide {
+  students?: boolean;
+  inactive?: boolean;
+  keepInactiveIn?: string[];
+  /** Sort only by what the reader may see. */
+  plainOrder?: boolean;
+}
 
 export type RecomputeResult = 'skipped_override' | 'unchanged' | 'updated';
 
@@ -261,11 +281,12 @@ export class PublishersService {
     publisher: Publisher,
     firstReportMonth: string | null,
   ): Date | null {
-    const month = resolveReportingStartMonth({
+    const earliest = resolveReportingStartMonth({
       ministryStartDate: publisher.ministryStartDate,
       baptismDate: publisher.baptismDate,
       firstReportMonth,
     });
+    const month = notBeforeTheCard(earliest, publisher.createdAt);
     if (!month) return null;
     const d = new Date(`${month}-01T00:00:00Z`);
     return isNaN(d.getTime()) ? null : d;
@@ -774,10 +795,37 @@ export class PublishersService {
     return refreshed!;
   }
 
-  async findAll(tenantId: string, query: QueryPublishersDto) {
+  async findAll(
+    tenantId: string,
+    query: QueryPublishersDto,
+    hide: RosterHide = {},
+  ) {
     const qb = this.publishersRepo
       .createQueryBuilder('publisher')
       .where('publisher.congregation_id = :tenantId', { tenantId });
+
+    // Left out IN THE QUERY, not after it (1 November 2026): filtering the
+    // page afterwards kept `total` and the paging counting the hidden ones,
+    // and a search plus the totals told a reader who had been left out.
+    if (hide.students) {
+      qb.andWhere('publisher.appointment <> :student', {
+        student: PublisherAppointment.STUDENT,
+      });
+    }
+    if (hide.inactive) {
+      const keep = hide.keepInactiveIn ?? [];
+      qb.andWhere(
+        new Brackets((b) => {
+          b.where('publisher.status IS DISTINCT FROM :inactive', {
+            inactive: PublisherStatus.INACTIVE,
+          });
+          if (keep.length > 0)
+            b.orWhere('publisher.service_group_id IN (:...keepInactiveIn)', {
+              keepInactiveIn: keep,
+            });
+        }),
+      );
+    }
 
     if (query.includeRemoved) {
       qb.withDeleted();
@@ -816,7 +864,12 @@ export class PublishersService {
       );
     }
 
-    const sortColumn = `publisher.${query.sortBy ?? 'lastName'}`;
+    // A private date is no order for those who may not read it.
+    const sortBy =
+      hide.plainOrder && query.sortBy === PublisherSortField.BAPTISM_DATE
+        ? PublisherSortField.LAST_NAME
+        : (query.sortBy ?? PublisherSortField.LAST_NAME);
+    const sortColumn = `publisher.${sortBy}`;
     const sortOrder = (query.sortOrder ?? 'asc').toUpperCase() as
       | 'ASC'
       | 'DESC';
@@ -1234,6 +1287,24 @@ export class PublishersService {
     });
     publisher.pioneerMonthGoal = monthGoalFor(publisher);
     const saved = await this.publishersRepo.save(publisher);
+    // His standing at once, not the column's default «inactive» until the
+    // night (1 November 2026): an inactive card is in nobody's list but the
+    // elders', and a brother just entered would vanish from the planners'.
+    // Never at the price of the card: the night's sweep catches up.
+    const standing = await this.recomputeStatus(tenantId, saved.id, {
+      notify: false,
+    }).catch((err: unknown) => {
+      this.logger.warn(
+        `recomputeStatus after create failed for publisher=${saved.id}: ${String(err)}`,
+      );
+      return null;
+    });
+    if (standing === 'updated') {
+      const fresh = await this.publishersRepo.findOne({
+        where: { id: saved.id, congregationId: tenantId },
+      });
+      if (fresh) saved.status = fresh.status;
+    }
     /**
      * A card made as a pioneer gets its spell at once (23 October 2026).
      *

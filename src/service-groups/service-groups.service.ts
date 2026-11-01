@@ -239,11 +239,15 @@ export class ServiceGroupsService {
       tenantId,
       user.id,
     );
+    // The size matches the list each reader is shown (1 November 2026): an
+    // elder counts everyone, anybody else — private access or not — leaves
+    // the inactive out except in the groups he oversees or assists.
+    const seesInactive = readsEldersOnly(user.role);
     const counts = await this.countsFor(
       tenantId,
       page.data.map((g) => g.id),
-      privileged,
-      privileged
+      seesInactive,
+      seesInactive
         ? new Set<string>()
         : await this.publishersService.overseenServiceGroupIds(
             tenantId,
@@ -270,8 +274,9 @@ export class ServiceGroupsService {
    * HOW BIG EACH GROUP IS, without a name (28 October 2026): the groups'
    * list showed none, and an ordinary publisher may not read another group's
    * members. The number matches what each reader would be shown: students are
-   * not publishers and are never counted; for a reader without private access
-   * those whose status is «inactive» are left out too, as the roster leaves
+   * not publishers and are never counted; for anyone but an elder or admin
+   * (1 November 2026: private access included) those whose status is
+   * «inactive» are left out too, as the roster leaves
    * them out (decided 15 September) — except in the groups he oversees or
    * assists, where the roster keeps them (22 October). A pioneer counts once his service has
    * begun — a type set from a future month is not yet a pioneer.
@@ -279,7 +284,8 @@ export class ServiceGroupsService {
   private async countsFor(
     tenantId: string,
     groupIds: string[],
-    privileged: boolean,
+    /** Elders and admins: the inactive count too. */
+    seesInactive: boolean,
     /** Groups the reader oversees or assists: he sees their inactive too. */
     keepInactiveIn: ReadonlySet<string>,
   ): Promise<Map<string, { members: number; pioneers: number }>> {
@@ -312,7 +318,7 @@ export class ServiceGroupsService {
           AND deleted_at IS NULL
           AND service_group_id = ANY($2::uuid[])
         GROUP BY service_group_id`,
-      [tenantId, groupIds, privileged, today, [...keepInactiveIn]],
+      [tenantId, groupIds, seesInactive, today, [...keepInactiveIn]],
     )) as { groupId: string; members: number; pioneers: number }[];
     for (const r of rows)
       out.set(r.groupId, { members: r.members, pioneers: r.pioneers });
@@ -532,18 +538,24 @@ export class ServiceGroupsService {
         });
       }
     }
-    const result = await this.publishersService.findAll(tenantId, {
-      ...query,
-      serviceGroupId: id,
-    });
-    if (privileged)
-      return readsEldersOnly(user.role)
-        ? result
-        : { ...result, data: result.data.map(withoutEldersOnly) };
-    return publicRosterPage(
-      result,
-      await this.publishersService.overseenServiceGroupIds(tenantId, user.id),
+    const groupQuery = { ...query, serviceGroupId: id };
+    if (readsEldersOnly(user.role))
+      return this.publishersService.findAll(tenantId, groupQuery);
+    // Everyone else: the group's inactive only where the reader oversees or
+    // assists the group (22 October 2026) — there he collects their reports.
+    const keepInactiveIn = await this.publishersService.overseenServiceGroupIds(
+      tenantId,
+      user.id,
     );
+    const result = await this.publishersService.findAll(tenantId, groupQuery, {
+      students: !privileged,
+      inactive: true,
+      keepInactiveIn: [...keepInactiveIn],
+      plainOrder: !privileged,
+    });
+    return privileged
+      ? { ...result, data: result.data.map(withoutEldersOnly) }
+      : publicRosterPage(result, keepInactiveIn);
   }
 
   /** Add (or move) publishers into this group. Tenant- and existence-checked. */

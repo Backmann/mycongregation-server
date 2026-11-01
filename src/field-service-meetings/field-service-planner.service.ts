@@ -12,6 +12,7 @@ import { SpecialEvent } from '../entities/special-event.entity';
 import { Absence } from '../entities/absence.entity';
 import { FieldServiceRemovedDay } from '../entities/field-service-removed-day.entity';
 import { Gender } from '../common/enums/gender.enum';
+import { isInactive } from '../common/inactive';
 import { mondayOf } from '../common/week';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CongregationClock } from '../common/congregation-clock.service';
@@ -195,6 +196,7 @@ export class FieldServicePlannerService {
     const brothers = [...people.values()].filter(
       (p) =>
         p.isActive &&
+        !isInactive(p) &&
         p.gender === Gender.BROTHER &&
         p.capabilities?.fs_meeting_conductor === true,
     );
@@ -373,7 +375,12 @@ export class FieldServicePlannerService {
         // Not one who conducts: shown with the reason, never picked. Put
         // first he was saved on a draft by the month's preparation and
         // refused the moment a person saved him by hand (sync audit M3).
-        if (!p.isActive || p.capabilities?.fs_meeting_conductor !== true) {
+        // Inactive: the same neutral reason — who is inactive is for elders.
+        if (
+          !p.isActive ||
+          isInactive(p) ||
+          p.capabilities?.fs_meeting_conductor !== true
+        ) {
           out.push(one(p, 'not_conductor', false));
           continue;
         }
