@@ -106,7 +106,11 @@ export interface MergeCardFacts {
   createdAt: string;
   departed: boolean;
   reports: number;
-  account: { login: string | null; lastSeenAt: string | null } | null;
+  account: {
+    userId: string;
+    login: string | null;
+    lastSeenAt: string | null;
+  } | null;
 }
 
 export interface MergeConflictOption {
@@ -141,6 +145,8 @@ export interface MergePlanView {
   needsAdmin: boolean;
   /** Months a sent report counted both cards — said, not corrected. */
   countedTwice: string[];
+  /** Somebody said these are two people — or undid their merge. */
+  markedDistinct: boolean;
   blockers: string[];
   fingerprint: string;
 }
@@ -745,6 +751,7 @@ export class CardMergeService {
       reports: n,
       account: user
         ? {
+            userId: user.id,
             login: user.loginName ?? null,
             lastSeenAt: user.lastSeenAt ? user.lastSeenAt.toISOString() : null,
           }
@@ -825,7 +832,8 @@ export class CardMergeService {
       if (dropOnce.has(k)) return;
       dropOnce.add(k);
       autoDrop.push({ table, pk });
-      joined[table] = (joined[table] ?? 0) + 1;
+      // A mark is not a fact said twice: it goes, but is not «joined».
+      if (!DROP_TABLES.has(table)) joined[table] = (joined[table] ?? 0) + 1;
     };
 
     // Reports: one per month. A deleted row on either side gives way; two
@@ -1012,6 +1020,17 @@ export class CardMergeService {
       [tenantId, A, B],
     );
 
+    // Somebody already said these two are different people (or undid their
+    // merge): not a stop — names get mistyped — but said before the button.
+    const [x, y] = [keptId, mergedId].sort();
+    const markedDistinct =
+      (
+        (await m.query(
+          `SELECT 1 FROM publisher_distinct_pairs WHERE a_id = $1 AND b_id = $2`,
+          [x, y],
+        )) as unknown[]
+      ).length > 0;
+
     const core = {
       keptId,
       mergedId,
@@ -1044,6 +1063,7 @@ export class CardMergeService {
       accounts,
       needsAdmin: accounts !== 'none',
       countedTwice: twice.map((t) => t.m),
+      markedDistinct,
       blockers,
       fingerprint,
     };

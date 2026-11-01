@@ -155,6 +155,9 @@ describe('merging two cards of one person (real database)', () => {
         ?.rule,
     ).toBe('take');
     expect(r.body.countedTwice).toEqual(['2026-08']);
+    // The pair was marked «different people»: said, and not «joined».
+    expect(r.body.markedDistinct).toBe(true);
+    expect(r.body.joined.publisher_distinct_pairs).toBeUndefined();
     expect(await snapshot()).toEqual(before);
   });
 
