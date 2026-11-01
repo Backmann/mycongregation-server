@@ -19,6 +19,8 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
 
 import { InactiveHoldsService } from './inactive-holds.service';
 import { AdminNotElderService } from './admin-not-elder.service';
+import { PossibleDuplicateService } from './possible-duplicate.service';
+import { PublisherDistinctPair } from '../entities/publisher-distinct-pair.entity';
 import { User } from '../entities/user.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
@@ -51,6 +53,7 @@ import { TalkExchange } from '../entities/talk-exchange.entity';
       ServiceGroup,
       TalkExchange,
       User,
+      PublisherDistinctPair,
     ]),
   ],
   controllers: [TasksController],
@@ -62,10 +65,12 @@ import { TalkExchange } from '../entities/talk-exchange.entity';
     AgendaItemsService,
     InactiveHoldsService,
     AdminNotElderService,
+    PossibleDuplicateService,
   ],
   exports: [
     InactiveHoldsService,
     AdminNotElderService,
+    PossibleDuplicateService,
     TasksService,
     TaskAddresseesService,
     CalendarTasksService,

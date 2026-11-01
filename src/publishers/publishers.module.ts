@@ -4,6 +4,9 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceReport } from '../entities/service-report.entity';
 import { ReportMonthClosure } from '../entities/report-month-closure.entity';
 import { Responsibility } from '../entities/responsibility.entity';
+import { PublisherMerge } from '../entities/publisher-merge.entity';
+import { CardMergeService } from './card-merge.service';
+import { CardMergeController } from './card-merge.controller';
 import { PublishersService } from './publishers.service';
 import { PublishersController } from './publishers.controller';
 import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneers.module';
@@ -21,6 +24,7 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
       ServiceReport,
       Responsibility,
       ReportMonthClosure,
+      PublisherMerge,
     ]),
     AuditLogModule,
     PushNotificationsModule,
@@ -29,8 +33,8 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
     PioneerSpellsModule,
     CongregationClockModule,
   ],
-  controllers: [PublishersController],
-  providers: [PublishersService, ResponsibilityGuard],
-  exports: [PublishersService],
+  controllers: [CardMergeController, PublishersController],
+  providers: [PublishersService, CardMergeService, ResponsibilityGuard],
+  exports: [PublishersService, CardMergeService],
 })
 export class PublishersModule {}

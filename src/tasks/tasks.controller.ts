@@ -4,6 +4,8 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  HttpCode,
+  Optional,
   Param,
   Patch,
   Post,
@@ -25,6 +27,7 @@ import {
 } from 'class-validator';
 import { TasksService, taskForResponse } from './tasks.service';
 import { InactiveHoldsService } from './inactive-holds.service';
+import { PossibleDuplicateService } from './possible-duplicate.service';
 import { AdminNotElderService } from './admin-not-elder.service';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -154,6 +157,8 @@ export class TasksController {
     private readonly clock: CongregationClock,
     private readonly inactiveHolds: InactiveHoldsService,
     private readonly adminNotElder: AdminNotElderService,
+    @Optional()
+    private readonly possibleDuplicate?: PossibleDuplicateService,
   ) {}
 
   // ---- Meetings ---------------------------------------------------------
@@ -348,6 +353,27 @@ export class TasksController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.adminNotElder.forTask(tenantId, id);
+  }
+
+  /** «Возможно, одна и та же карточка»: the two cards (elders only). */
+  @Get(':id/possible-duplicate')
+  possibleDuplicateOf(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.possibleDuplicate!.forTask(tenantId, id);
+  }
+
+  /** «Это разные люди» — remembered, and the task closes. */
+  @Post(':id/possible-duplicate/distinct')
+  @HttpCode(200)
+  async possibleDuplicateDistinct(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.possibleDuplicate!.markDistinct(tenantId, id, user?.id ?? null);
+    return { ok: true };
   }
 
   @Get(':id/inactive-holds')
