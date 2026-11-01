@@ -80,7 +80,10 @@ export type TaskKind =
   // «Замена назначений: [имя]» — a publisher became inactive while something
   // was still his; closes itself when nothing is left or he serves again
   // (1 November 2026). Lives in tasks/inactive-holds.service.ts.
-  | 'inactive_holds';
+  | 'inactive_holds'
+  // «Администратор не старейшина: [имя]» — an administrator whose card is not
+  // an elder's (1 November 2026). Lives in tasks/admin-not-elder.service.ts.
+  | 'admin_not_elder';
 
 @Entity('elder_tasks')
 @Index(['congregationId', 'status'])

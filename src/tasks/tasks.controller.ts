@@ -25,6 +25,7 @@ import {
 } from 'class-validator';
 import { TasksService, taskForResponse } from './tasks.service';
 import { InactiveHoldsService } from './inactive-holds.service';
+import { AdminNotElderService } from './admin-not-elder.service';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -152,6 +153,7 @@ export class TasksController {
     private readonly items: AgendaItemsService,
     private readonly clock: CongregationClock,
     private readonly inactiveHolds: InactiveHoldsService,
+    private readonly adminNotElder: AdminNotElderService,
   ) {}
 
   // ---- Meetings ---------------------------------------------------------
@@ -339,6 +341,15 @@ export class TasksController {
    * the card is shown (1 November 2026). Elders and admins only, like the
    * whole of this controller — the name of an inactive brother is theirs.
    */
+  /** «Администратор не старейшина»: whose account it is (elders only). */
+  @Get(':id/admin-not-elder')
+  adminNotElderOf(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.adminNotElder.forTask(tenantId, id);
+  }
+
   @Get(':id/inactive-holds')
   async inactiveHoldsOf(
     @TenantId() tenantId: string,

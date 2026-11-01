@@ -36,6 +36,8 @@ export const REFUSAL_CODES = [
   'SIGNUP_UNAVAILABLE',
   // The standing comes from the reports only; no status by hand.
   'STATUS_BY_REPORTS_ONLY',
+  // An administrator sees everything, so only an elder may be one.
+  'ADMIN_ELDERS_ONLY',
   'SPAN_INVALID',
   'WEEK_NOT_MONDAY',
   // ---- field-service meetings ----

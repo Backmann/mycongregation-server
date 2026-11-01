@@ -767,6 +767,11 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
       (repo.findOne as jest.Mock).mockResolvedValue(
         userFixture({ id: 'u-1', role: UserRole.PUBLISHER }),
       );
+      // Only an elder becomes an administrator (1 November 2026).
+      const cards = (
+        service as unknown as { publishersRepo: { findOne: jest.Mock } }
+      ).publishersRepo;
+      cards.findOne = jest.fn().mockResolvedValue({ appointment: 'elder' });
       const result = await service.updateRoleByAdmin(
         'u-1',
         UserRole.ADMIN,
@@ -782,6 +787,22 @@ describe('UsersService — admin management (Phase 1 RBAC)', () => {
       await expect(
         service.updateRoleByAdmin('u-1', UserRole.ELDER, CONG, ADMIN_ID),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('refuses to make an administrator of anyone but an elder', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        userFixture({ id: 'u-1', role: UserRole.MINISTERIAL_SERVANT }),
+      );
+      const cards = (
+        service as unknown as { publishersRepo: { findOne: jest.Mock } }
+      ).publishersRepo;
+      cards.findOne = jest
+        .fn()
+        .mockResolvedValue({ appointment: 'ministerial_servant' });
+      await expect(
+        service.updateRoleByAdmin('u-1', UserRole.ADMIN, CONG, ADMIN_ID),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repo.update).not.toHaveBeenCalled();
     });
   });
 
