@@ -162,6 +162,16 @@ export class PublishersController {
   }
 
   /**
+   * What releasing the hand-set statuses would do — counts only, nothing is
+   * changed (1 November 2026). Administrators only. Must stay above ':id'.
+   */
+  @Roles(UserRole.ADMIN)
+  @Get('status-overrides/preview')
+  previewOverrideRelease(@TenantId() tenantId: string) {
+    return this.publishersService.previewOverrideRelease(tenantId);
+  }
+
+  /**
    * WHY a publisher's badge says what it says — the months weighed, from when
    * he is counted, and when a sixth silent month would fall.
    *
