@@ -17,6 +17,14 @@ import { AgendaItemsService } from './agenda-items.service';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { CongregationClockModule } from '../common/congregation-clock.module';
 
+import { InactiveHoldsService } from './inactive-holds.service';
+import { Assignment } from '../entities/assignment.entity';
+import { Duty } from '../entities/duty.entity';
+import { CartAssignment } from '../entities/cart-assignment.entity';
+import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
+import { ServiceGroup } from '../entities/service-group.entity';
+import { TalkExchange } from '../entities/talk-exchange.entity';
+
 @Module({
   imports: [
     CongregationClockModule,
@@ -34,6 +42,12 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
       Congregation,
       ElderTaskCalendarLog,
       EldersMeetingItem,
+      Assignment,
+      Duty,
+      CartAssignment,
+      FieldServiceMeeting,
+      ServiceGroup,
+      TalkExchange,
     ]),
   ],
   controllers: [TasksController],
@@ -43,8 +57,10 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
     CalendarTasksService,
     TaskRemindersService,
     AgendaItemsService,
+    InactiveHoldsService,
   ],
   exports: [
+    InactiveHoldsService,
     TasksService,
     TaskAddresseesService,
     CalendarTasksService,

@@ -9,6 +9,7 @@ import {
   Post,
   Query,
   UseGuards,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import {
   IsArray,
@@ -23,6 +24,7 @@ import {
   Min,
 } from 'class-validator';
 import { TasksService, taskForResponse } from './tasks.service';
+import { InactiveHoldsService } from './inactive-holds.service';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -149,6 +151,7 @@ export class TasksController {
     private readonly addressees: TaskAddresseesService,
     private readonly items: AgendaItemsService,
     private readonly clock: CongregationClock,
+    private readonly inactiveHolds: InactiveHoldsService,
   ) {}
 
   // ---- Meetings ---------------------------------------------------------
@@ -329,6 +332,23 @@ export class TasksController {
     @Query('status') status?: 'open' | 'done',
   ) {
     return this.service.listTasks(tenantId, status);
+  }
+
+  /**
+   * «Замена назначений»: whose the task is and what is still his, read as
+   * the card is shown (1 November 2026). Elders and admins only, like the
+   * whole of this controller — the name of an inactive brother is theirs.
+   */
+  @Get(':id/inactive-holds')
+  async inactiveHoldsOf(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.inactiveHolds.forTask(
+      tenantId,
+      id,
+      await this.clock.todayFor(tenantId),
+    );
   }
 
   /**
