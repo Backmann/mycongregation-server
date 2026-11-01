@@ -134,6 +134,9 @@ describe('merging two cards of one person (real database)', () => {
       );
     expect(r.status).toBe(200);
     expect(r.body.map((x: { id: string }) => x.id)).toEqual([dupe]);
+    // What tells two cards of one name apart: reports and the sign-in.
+    expect(r.body[0].reports).toBe(2);
+    expect(r.body[0].hasAccount).toBe(true);
     const byPhone = await h
       .as('admin')
       .get('/card-merge/duplicates?phone=0151-00001234');
