@@ -1,5 +1,6 @@
 import { Harness, startHarness } from './harness';
 import { InactiveHoldsService } from '../../src/tasks/inactive-holds.service';
+import { TaskRemindersService } from '../../src/tasks/task-reminders.service';
 
 /**
  * «Замена назначений: [имя]» (1 November 2026), against a real database:
@@ -65,7 +66,14 @@ describe('the elders’ task for an inactive publisher’s assignments (real dat
   });
 
   it('is raised once, for the body of elders, naming nobody in its words', async () => {
+    const told = jest.spyOn(
+      h.app.get(TaskRemindersService),
+      'announceAssignment',
+    );
     expect(await svc.sync(tenantId, today())).toBe(1);
+    // The first pass finds lapses from before: quiet, no notice.
+    expect(told).not.toHaveBeenCalled();
+    told.mockRestore();
     expect(await svc.sync(tenantId, today())).toBe(0);
     // The stored title is encrypted at rest; read it as the app does.
     const list = await h.as('admin').get('/tasks?status=open');
@@ -133,8 +141,14 @@ describe('the elders’ task for an inactive publisher’s assignments (real dat
     await setStatus(away, 'irregular');
     await svc.sync(tenantId, today());
     expect(await tasks()).toEqual([]);
-    // A new lapse with something still his: a new task.
+    // A new lapse with something still his: a new task, and the elders told.
+    const told = jest.spyOn(
+      h.app.get(TaskRemindersService),
+      'announceAssignment',
+    );
     await setStatus(away, 'inactive');
     expect(await svc.sync(tenantId, today())).toBe(1);
+    expect(told).toHaveBeenCalledTimes(1);
+    told.mockRestore();
   });
 });

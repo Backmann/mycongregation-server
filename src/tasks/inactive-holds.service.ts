@@ -22,6 +22,8 @@ import {
 import { TaskRemindersService } from './task-reminders.service';
 
 const KIND = 'inactive_holds' as const;
+/** The log's mark that a congregation's first, quiet pass is behind it. */
+const ARMED = '-';
 
 /** What an inactive publisher still holds from today on — one line each. */
 export interface InactiveHold {
@@ -273,7 +275,7 @@ export class InactiveHoldsService {
       where: { congregationId, kind: KIND },
     });
     for (const o of offered) {
-      if (inactiveByPeriod.has(o.period)) continue;
+      if (o.period === ARMED || inactiveByPeriod.has(o.period)) continue;
       // He serves again (or is gone): the next lapse is a new one.
       await this.log.delete({ congregationId, kind: KIND, period: o.period });
       await this.tasks.delete({
@@ -283,6 +285,16 @@ export class InactiveHoldsService {
         status: 'done',
       });
     }
+
+    // The very first pass in a congregation finds whoever was inactive
+    // before this existed: their tasks appear quietly, without a notice for
+    // each — a handful of pushes at once on the day of the update would be
+    // noise, not news. From then on every new task is announced.
+    const firstPass = !offered.some((o) => o.period === ARMED);
+    if (firstPass)
+      await this.log.save(
+        this.log.create({ congregationId, kind: KIND, period: ARMED }),
+      );
 
     // Raise for whoever is inactive and still holds something.
     for (const p of inactive) {
@@ -319,11 +331,12 @@ export class InactiveHoldsService {
         this.log.create({ congregationId, kind: KIND, period }),
       );
       // «Вам поручена задача» — no name on a locked screen.
-      await this.reminders
-        .announceAssignment(task)
-        .catch((e: unknown) =>
-          this.logger.warn(`inactive-holds notice failed: ${String(e)}`),
-        );
+      if (!firstPass)
+        await this.reminders
+          .announceAssignment(task)
+          .catch((e: unknown) =>
+            this.logger.warn(`inactive-holds notice failed: ${String(e)}`),
+          );
       changed += 1;
     }
     return changed;
