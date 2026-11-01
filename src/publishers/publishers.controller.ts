@@ -122,16 +122,31 @@ export class PublishersController {
         query.serviceGroupId = ownGroupId;
       }
     }
-    const result = await this.publishersService.findAll(tenantId, query);
-    if (privileged) {
-      return readsEldersOnly(user.role)
-        ? result
-        : { ...result, data: result.data.map(withoutEldersOnly) };
+    /**
+     * Who is inactive is for elders only, and nobody may be given a task
+     * while inactive (Lionel, 31 October 2026). This list feeds every
+     * picker — duties, programme, cleaning, the stand — so for anyone else an
+     * inactive publisher is not in it at all: not offered by «Заполнить
+     * пустые», not countable from the totals. The 22 October exception (a
+     * group's overseer and assistant see their group's inactive) lives on
+     * the group's own screens, where reports are collected — not here,
+     * where it put them back into the duties of a ministerial servant.
+     */
+    if (privileged && readsEldersOnly(user.role)) {
+      return this.publishersService.findAll(tenantId, query);
     }
-    return publicRosterPage(
-      result,
-      await this.publishersService.overseenServiceGroupIds(tenantId, user.id),
-    );
+    if (privileged) {
+      const result = await this.publishersService.findAll(tenantId, query, {
+        inactive: true,
+      });
+      return { ...result, data: result.data.map(withoutEldersOnly) };
+    }
+    const result = await this.publishersService.findAll(tenantId, query, {
+      students: true,
+      inactive: true,
+      plainOrder: true,
+    });
+    return publicRosterPage(result);
   }
 
   /**

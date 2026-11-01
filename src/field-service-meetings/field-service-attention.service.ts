@@ -6,6 +6,7 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Absence } from '../entities/absence.entity';
 import { FieldServicePlannerService } from './field-service-planner.service';
+import { isInactive } from '../common/inactive';
 
 /**
  * What has gone wrong with a meeting since it was planned (24 October 2026).
@@ -161,7 +162,9 @@ export class FieldServiceAttentionService {
         if (!p || p.deletedAt) problems.push('conductor_removed');
         else if (
           !ownVisit &&
-          (!p.isActive || p.capabilities?.fs_meeting_conductor !== true)
+          (!p.isActive ||
+            isInactive(p) ||
+            p.capabilities?.fs_meeting_conductor !== true)
         )
           problems.push('conductor_not_conductor');
         if (p && !p.deletedAt && isAway(p.id, d))

@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
+import { Publisher } from '../entities/publisher.entity';
+import { PublisherStatus } from '../common/enums/publisher-status.enum';
 
 export interface ActivityItem {
   weekStartDate: string;
@@ -40,6 +42,8 @@ export class PublisherActivityService {
     private readonly assignmentRepo: Repository<Assignment>,
     @InjectRepository(Duty)
     private readonly dutyRepo: Repository<Duty>,
+    @InjectRepository(Publisher)
+    private readonly publisherRepo: Repository<Publisher>,
   ) {}
 
   /**
@@ -177,6 +181,24 @@ export class PublisherActivityService {
         .slice(0, 3);
     }
 
-    return Array.from(map.values());
+    // Nobody inactive is offered for a part (1 November 2026): the list is
+    // open to every member, and an inactive brother with parts in the last
+    // half year would otherwise still be ranked — and so be put forward.
+    const inactive = new Set(
+      (
+        await this.publisherRepo.find({
+          where: { congregationId, status: PublisherStatus.INACTIVE },
+          select: { id: true },
+        })
+      ).map((p) => p.id),
+    );
+    return Array.from(map.values())
+      .filter((e) => !inactive.has(e.publisherId))
+      .map((e) => ({
+        ...e,
+        recentAssistants: e.recentAssistants.filter(
+          (r) => !inactive.has(r.publisherId),
+        ),
+      }));
   }
 }

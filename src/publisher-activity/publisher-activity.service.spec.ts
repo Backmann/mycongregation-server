@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { PublisherActivityService } from './publisher-activity.service';
 import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
+import { Publisher } from '../entities/publisher.entity';
 
 describe('PublisherActivityService', () => {
   let service: PublisherActivityService;
@@ -17,6 +18,10 @@ describe('PublisherActivityService', () => {
         PublisherActivityService,
         { provide: getRepositoryToken(Assignment), useValue: assignmentRepo },
         { provide: getRepositoryToken(Duty), useValue: dutyRepo },
+        {
+          provide: getRepositoryToken(Publisher),
+          useValue: { find: jest.fn().mockResolvedValue([]) },
+        },
       ],
     }).compile();
     service = moduleRef.get(PublisherActivityService);
