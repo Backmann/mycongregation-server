@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { assertAssignable } from '../common/inactive';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { EldersMeeting } from '../entities/elders-meeting.entity';
@@ -168,6 +169,9 @@ export class AgendaItemsService {
     if (!(await this.mayRecord(user, meeting))) {
       throw new ForbiddenException(refusal('AGENDA_FORBIDDEN', 'Not allowed'));
     }
+    await assertAssignable(this.items.manager, user.congregationId, [
+      dto.presenterPublisherId,
+    ]);
     const last = await this.items.findOne({
       where: { congregationId: user.congregationId, meetingId },
       order: { position: 'DESC' },
@@ -199,6 +203,12 @@ export class AgendaItemsService {
       where: { id, congregationId: user.congregationId },
     });
     if (!item) throw new NotFoundException('Item not found');
+    await assertAssignable(
+      this.items.manager,
+      user.congregationId,
+      [dto.presenterPublisherId],
+      [item.presenterPublisherId],
+    );
     const meeting = item.meetingId
       ? await this.meetingOf(user.congregationId, item.meetingId)
       : null;

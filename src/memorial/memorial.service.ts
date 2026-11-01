@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { assertAssignable } from '../common/inactive';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, IsNull, Not, Repository } from 'typeorm';
 import { MemorialItem } from '../entities/memorial-item.entity';
@@ -333,6 +334,12 @@ export class MemorialService {
     const event = await this.getEvent(congregationId, item.specialEventId);
     await this.assertEditable(congregationId, event);
 
+    await assertAssignable(
+      this.repo.manager,
+      congregationId,
+      [input.publisherId],
+      [item.publisherId],
+    );
     const before = { ...item };
     if (input.label !== undefined) item.label = input.label;
     if (input.publisherId !== undefined) item.publisherId = input.publisherId;

@@ -53,6 +53,7 @@ import { CongregationClock } from '../common/congregation-clock.service';
 import { CoVisitTemplateService } from '../special-events/co-visit-template.service';
 import { ProgrammeFreezeService } from './programme-freeze.service';
 import type { AuthenticatedUser as FreezeUser } from '../auth/decorators/current-user.decorator';
+import { assertAssignable } from '../common/inactive';
 import { refusal } from '../common/errors/refusal';
 import { OPENING_SONG_PART_KEY, songNumber } from '../talk-exchange/week-songs';
 
@@ -416,6 +417,11 @@ export class AssignmentsService {
       [{ weekStartDate: fields.weekStartDate, eventType: fields.eventType }],
       { retroactive: askedRetro, user },
     );
+    if (!retroactive)
+      await assertAssignable(this.repo.manager, congregationId, [
+        fields.publisherId,
+        fields.assistantPublisherId,
+      ]);
     const assignment = this.repo.create({
       ...fields,
       congregationId,
@@ -509,6 +515,12 @@ export class AssignmentsService {
       })),
       opts,
     );
+    if (!retroactive)
+      await assertAssignable(
+        this.repo.manager,
+        congregationId,
+        dtos.flatMap((d) => [d.publisherId, d.assistantPublisherId]),
+      );
     const entities = dtos.map(({ retroactive: _r, ...dto }) =>
       this.repo.create({ ...dto, congregationId }),
     );
@@ -603,6 +615,13 @@ export class AssignmentsService {
       [from, to],
       { retroactive: moves ? false : askedRetro, user },
     );
+    if (!retroactive)
+      await assertAssignable(
+        this.repo.manager,
+        congregationId,
+        [dto.publisherId, dto.assistantPublisherId],
+        [existing.publisherId, existing.assistantPublisherId],
+      );
     const lock = await this.freeze.lockOf(congregationId, to);
     const prevPublisherId = existing.publisherId;
     // If a published assignment's assignee / partner / invited speaker changes,
@@ -1244,6 +1263,12 @@ export class AssignmentsService {
       ],
       opts,
     );
+    // Given back is given anew: an inactive brother is not put back.
+    if (!retroactive)
+      await assertAssignable(this.repo.manager, congregationId, [
+        existing.publisherId,
+        existing.assistantPublisherId,
+      ]);
     await this.repo.restore({
       id,
       congregationId,

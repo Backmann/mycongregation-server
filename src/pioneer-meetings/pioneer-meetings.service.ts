@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { assertAssignable } from '../common/inactive';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, IsNull, LessThanOrEqual, Repository } from 'typeorm';
 import { createHash } from 'crypto';
@@ -378,6 +379,9 @@ export class PioneerMeetingsService {
   ): Promise<PioneerMeetingDetail> {
     await this.assertManage(tenantId, user);
     const ok = await this.checked(tenantId, input);
+    await assertAssignable(this.meetings.manager, tenantId, [
+      ok.conductorPublisherId,
+    ]);
     const saved = await this.meetings.save(
       this.meetings.create({
         congregationId: tenantId,
@@ -418,6 +422,12 @@ export class PioneerMeetingsService {
       );
     }
     const ok = await this.checked(tenantId, input);
+    await assertAssignable(
+      this.meetings.manager,
+      tenantId,
+      [ok.conductorPublisherId],
+      [m.conductorPublisherId],
+    );
     const before = { ...m };
     m.date = ok.date;
     m.timeStart = ok.timeStart ?? null;

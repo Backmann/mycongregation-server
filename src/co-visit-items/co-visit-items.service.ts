@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { assertAssignable } from '../common/inactive';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Responsibility } from '../entities/responsibility.entity';
@@ -546,6 +547,9 @@ export class CoVisitItemsService {
     });
     if (!event) throw new NotFoundException('Visit not found');
     await this.assertVisitEditable(congregationId, dto.specialEventId);
+    await assertAssignable(this.repo.manager, congregationId, [
+      dto.assigneePublisherId,
+    ]);
     const entity = this.repo.create({
       congregationId,
       specialEventId: dto.specialEventId,
@@ -579,6 +583,12 @@ export class CoVisitItemsService {
     const item = await this.repo.findOne({ where: { id, congregationId } });
     if (!item) throw new NotFoundException('Item not found');
     await this.assertVisitEditable(congregationId, item.specialEventId);
+    await assertAssignable(
+      this.repo.manager,
+      congregationId,
+      [dto.assigneePublisherId],
+      [item.assigneePublisherId],
+    );
     if (dto.kind !== undefined) item.kind = dto.kind;
     if (dto.forWife !== undefined) item.forWife = dto.forWife;
     if (dto.withWife !== undefined) item.withWife = dto.withWife;

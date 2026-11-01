@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { assertAssignable } from '../common/inactive';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { In, Repository } from 'typeorm';
@@ -221,6 +222,13 @@ export class ResponsibilitiesService {
         );
       }
     }
+
+    // An inactive publisher is given no responsibility either.
+    const holder = await this.publishersRepo.findOne({
+      where: { congregationId: tenantId, userId: dto.userId },
+      select: { id: true },
+    });
+    await assertAssignable(this.publishersRepo.manager, tenantId, [holder?.id]);
 
     const pair = pairedWith(dto.type);
     if (pair) {

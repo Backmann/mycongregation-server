@@ -2,6 +2,7 @@ import {
   exchangeWithoutPrivate,
   readsDirectoryContacts,
 } from '../common/directory-privacy';
+import { assertAssignable } from '../common/inactive';
 import { versionForWeek } from '../common/week-rules';
 import {
   BadRequestException,
@@ -380,6 +381,10 @@ export class TalkExchangeService {
   ): Promise<TalkExchangeResult> {
     await this.assertCanWrite(user);
     const { overwriteProgram, ...fields } = dto;
+    await assertAssignable(this.repo.manager, tenantId, [
+      fields.publisherId,
+      fields.hospitalityPublisherId,
+    ]);
     const row = this.repo.create({
       ...fields,
       congregationId: tenantId,
@@ -428,6 +433,12 @@ export class TalkExchangeService {
     await this.assertCanWrite(user);
     const { overwriteProgram, ...fields } = dto;
     const row = await this.findOne(tenantId, id);
+    await assertAssignable(
+      this.repo.manager,
+      tenantId,
+      [fields.publisherId, fields.hospitalityPublisherId],
+      [row.publisherId, row.hospitalityPublisherId],
+    );
     // Snapshot BEFORE Object.assign — the row is mutated in place.
     const before = snapshot(row);
     const was = { specialTheme: row.specialTheme, date: row.date };
@@ -2134,6 +2145,12 @@ export class TalkExchangeService {
     await this.freeze?.assertWritable(tenantId, [
       { weekStartDate: dto.weekStartDate, eventType: 'weekend' },
     ]);
+    await assertAssignable(
+      this.repo.manager,
+      tenantId,
+      [dto.publisherId],
+      [slot.publisherId],
+    );
     // Снимок до правки: снимается здесь, пока слот ещё не тронут.
     const slotWas = { ...slot } as Assignment;
 
