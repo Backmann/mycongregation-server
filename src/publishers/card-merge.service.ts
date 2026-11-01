@@ -1429,6 +1429,9 @@ export class CardMergeService {
       departed: boolean;
       memberSince: string | null;
       createdAt: string;
+      /** What tells two cards of one name apart in the picker. */
+      reports: number;
+      hasAccount: boolean;
       why: ('name' | 'email' | 'phone')[];
     }[]
   > {
@@ -1461,6 +1464,13 @@ export class CardMergeService {
         departed: !!c.deletedAt,
         memberSince: c.memberSince ?? null,
         createdAt: c.createdAt.toISOString(),
+        reports: (
+          (await this.publishers.manager.query(
+            `SELECT count(*)::int AS n FROM service_reports WHERE publisher_id = $1 AND deleted_at IS NULL`,
+            [c.id],
+          )) as { n: number }[]
+        )[0].n,
+        hasAccount: !!c.userId,
         why,
       });
     }
