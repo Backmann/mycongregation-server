@@ -18,6 +18,8 @@ import { AuditLogModule } from '../audit-log/audit-log.module';
 import { CongregationClockModule } from '../common/congregation-clock.module';
 
 import { InactiveHoldsService } from './inactive-holds.service';
+import { AdminNotElderService } from './admin-not-elder.service';
+import { User } from '../entities/user.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
 import { CartAssignment } from '../entities/cart-assignment.entity';
@@ -48,6 +50,7 @@ import { TalkExchange } from '../entities/talk-exchange.entity';
       FieldServiceMeeting,
       ServiceGroup,
       TalkExchange,
+      User,
     ]),
   ],
   controllers: [TasksController],
@@ -58,9 +61,11 @@ import { TalkExchange } from '../entities/talk-exchange.entity';
     TaskRemindersService,
     AgendaItemsService,
     InactiveHoldsService,
+    AdminNotElderService,
   ],
   exports: [
     InactiveHoldsService,
+    AdminNotElderService,
     TasksService,
     TaskAddresseesService,
     CalendarTasksService,

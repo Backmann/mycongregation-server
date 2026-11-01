@@ -70,6 +70,8 @@ describe('ScheduledJobsService', () => {
       { ensureForToday: jest.fn(async () => 0) } as never,
       // «Замена назначений» for whoever became inactive with something left.
       { syncAll: jest.fn(async () => 0) } as never,
+      // «Администратор не старейшина».
+      { syncAll: jest.fn(async () => 0) } as never,
       // The month of field-service meetings prepared on its own.
       { ensureForToday: jest.fn(async () => ({})) } as never,
       // «The Memorial is tomorrow», sent after 19:00 in the congregation's own

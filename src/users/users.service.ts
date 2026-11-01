@@ -727,6 +727,8 @@ export class UsersService {
     dto: CreateUserDto,
     congregationId: string,
     actorUserId: string,
+    /** The card this account is made for, when the caller links it itself. */
+    opts: { cardAppointment?: PublisherAppointment } = {},
   ): Promise<CreatedUser> {
     const email = dto.email?.trim().toLowerCase() || null;
     // The screen on the stage (common/stage.ts): a name, a password to sign
@@ -745,6 +747,15 @@ export class UsersService {
           where: { id: dto.publisherId, congregationId },
         })
       : null;
+
+    if (
+      dto.role === UserRole.ADMIN &&
+      (card?.appointment ?? opts.cardAppointment) !== PublisherAppointment.ELDER
+    ) {
+      throw new ForbiddenException(
+        refusal('ADMIN_ELDERS_ONLY', 'Only an elder can be an administrator.'),
+      );
+    }
 
     const passwordHash = dto.password
       ? await this.hashPassword(dto.password)
@@ -941,6 +952,30 @@ export class UsersService {
     return passwordMatches(pin, row.stagePinHash);
   }
 
+  /**
+   * Only an elder is an administrator (1 November 2026). The role sees
+   * everything — the journal, the backups, every status — and who is
+   * inactive is for elders only, so there is no partial administrator.
+   * Judged by the linked card, where the appointment lives. Should a brother
+   * stop being an elder while he holds the role, the elders' task
+   * «Администратор не старейшина» says so; the role is not taken by the
+   * server, so the congregation is never left without one.
+   */
+  private async assertAdminIsElder(
+    congregationId: string,
+    userId: string,
+  ): Promise<void> {
+    const card = await this.publishersRepo.findOne({
+      where: { congregationId, userId },
+      select: { id: true, appointment: true },
+    });
+    if (card?.appointment !== PublisherAppointment.ELDER) {
+      throw new ForbiddenException(
+        refusal('ADMIN_ELDERS_ONLY', 'Only an elder can be an administrator.'),
+      );
+    }
+  }
+
   async updateRoleByAdmin(
     targetId: string,
     newRole: UserRole,
@@ -973,6 +1008,9 @@ export class UsersService {
           'A stage screen cannot change its role, nor can a person become one.',
         ),
       );
+    }
+    if (newRole === UserRole.ADMIN) {
+      await this.assertAdminIsElder(congregationId, targetId);
     }
 
     if (

@@ -1120,6 +1120,8 @@ export class PublishersService {
       },
       tenantId,
       actor.id,
+      // Only an elder becomes an administrator; his card is this one.
+      { cardAppointment: publisher.appointment },
     );
     publisher.userId = created.id;
     await this.publishersRepo.save(publisher);

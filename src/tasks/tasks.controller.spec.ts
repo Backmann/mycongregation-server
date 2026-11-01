@@ -35,6 +35,7 @@ describe('TasksController — naming an elders meeting', () => {
       items as never,
       clockStub(),
       {} as never,
+      {} as never,
     );
     return { controller, service, items };
   };
