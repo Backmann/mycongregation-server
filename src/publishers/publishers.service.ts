@@ -735,58 +735,27 @@ export class PublishersService {
     };
   }
 
-  /**
-   * Manually set a publisher's status (admin/elder only). Sets the sticky
-   * statusManuallyOverridden flag so auto-recompute won't undo this.
-   */
+  /** Setting a status by hand — refused since 1 November 2026. */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async overrideStatus(
-    tenantId: string,
-    user: AuthenticatedUser,
-    publisherId: string,
-    dto: OverrideStatusDto,
+    _tenantId: string,
+    _user: AuthenticatedUser,
+    _publisherId: string,
+    _dto: OverrideStatusDto,
   ): Promise<Publisher> {
-    if (user.role !== UserRole.ADMIN && user.role !== UserRole.ELDER) {
-      throw new ForbiddenException(
-        refusal(
-          'NEEDS_ROLE',
-          'Only elders and admins may override publisher status.',
-          { roles: ['admin', 'elder'] },
-        ),
-      );
-    }
-    const publisher = await this.publishersRepo.findOne({
-      where: { id: publisherId, congregationId: tenantId },
-    });
-    if (!publisher) {
-      throw new NotFoundException('Publisher not found.');
-    }
-
-    const before = {
-      status: publisher.status,
-      statusManuallyOverridden: publisher.statusManuallyOverridden,
-    };
-
-    publisher.status = dto.status;
-    publisher.statusManuallyOverridden = true;
-    publisher.statusOverriddenById = user.id;
-    publisher.statusOverriddenAt = new Date();
-
-    const saved = await this.publishersRepo.save(publisher);
-
-    await this.auditLogService.logUpdate({
-      tenantId,
-      entityType: 'publisher',
-      entityId: saved.id,
-      actorUserId: user.id,
-      before,
-      after: {
-        status: saved.status,
-        statusManuallyOverridden: true,
-      },
-      fields: ['status', 'statusManuallyOverridden'],
-    });
-
-    return saved;
+    /**
+     * No status by hand (Lionel, 1 November 2026). A hand-set status froze
+     * the person: a brother once marked inactive stayed inactive after he
+     * served again — and an inactive brother is given no task at all. The
+     * standing comes from the reports alone; the route stays for the builds
+     * already on phones, and says so.
+     */
+    throw new BadRequestException(
+      refusal(
+        'STATUS_BY_REPORTS_ONLY',
+        'The status comes from the reports only and is not set by hand.',
+      ),
+    );
   }
 
   /**

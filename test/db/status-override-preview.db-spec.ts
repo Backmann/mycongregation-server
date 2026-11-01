@@ -61,4 +61,19 @@ describe('releasing hand-set statuses: the preview (real database)', () => {
     const res = await h.as(null).get('/publishers/status-overrides/preview');
     expect([401, 403]).toContain(res.status);
   });
+
+  it('a status is no longer set by hand', async () => {
+    const res = await h
+      .as('admin')
+      .patch(`/publishers/${ids.free}/status`, { status: 'active' });
+    expect([res.status, res.body.code]).toEqual([
+      400,
+      'STATUS_BY_REPORTS_ONLY',
+    ]);
+    const [{ held }] = await h.sql<{ held: boolean }>(
+      `SELECT status_manually_overridden AS held FROM publishers WHERE id = $1`,
+      [ids.free],
+    );
+    expect(held).toBe(false);
+  });
 });
