@@ -93,6 +93,33 @@ describe('public witnessing — the stand (real database)', () => {
     expect(res.status).toBe(201);
     return res.body.id as string;
   };
+  // A week gone by, for the rules about what is over (2 November 2026: a
+  // day already over is no longer planned through the API). Built far
+  // ahead, then moved back in the database — as the stand's seed does.
+  let farAhead = 70;
+  const buildPast = async (
+    week: string,
+    days: number[],
+    locs: string[],
+    from = '09:00',
+    to = '16:00',
+  ) => {
+    const tmp = mondayIn(farAhead++);
+    const id = await build(tmp, days, locs, from, to);
+    const shift = Math.round(
+      (Date.parse(`${tmp}T00:00:00Z`) - Date.parse(`${week}T00:00:00Z`)) /
+        86400000,
+    );
+    await h.sql(
+      `UPDATE cart_days SET date = date - $2::int WHERE week_id = $1`,
+      [id, shift],
+    );
+    await h.sql(`UPDATE cart_weeks SET week_start_date = $2 WHERE id = $1`, [
+      id,
+      week,
+    ]);
+    return id;
+  };
   const dayOf = async (week: string, date: string, loc: string) =>
     (await view('boss', week)).days.find(
       (d) => d.date === date && d.locationId === loc,
@@ -515,8 +542,11 @@ describe('public witnessing — the stand (real database)', () => {
 
     it('nothing signed up to that has begun; nothing given back that is over', async () => {
       const past = mondayIn(-1);
-      const weekId = await build(past, [1], [locA], '09:00', '11:00');
-      await h.as('boss').post(`/cart-weeks/${weekId}/open`);
+      const weekId = await buildPast(past, [1], [locA], '09:00', '11:00');
+      // Sign-up no longer opens onto a week that is over; set as it was.
+      await h.sql(`UPDATE cart_weeks SET status = 'collecting' WHERE id = $1`, [
+        weekId,
+      ]);
       const day = await dayOf(past, past, locA);
       expect(code(await ask('dan', day, '09:00', '11:00'))).toEqual([
         400,
@@ -531,7 +561,7 @@ describe('public witnessing — the stand (real database)', () => {
 
     it('a week after, a day is archive: nobody changes it', async () => {
       const old = mondayIn(-3);
-      const weekId = await build(old, [2], [locA], '10:00', '12:00');
+      const weekId = await buildPast(old, [2], [locA], '10:00', '12:00');
       const day = await dayOf(old, addDays(old, 1), locA);
       await h.sql(
         `UPDATE cart_weeks SET status = 'published', published_at = now() WHERE id = $1`,
@@ -847,6 +877,123 @@ describe('public witnessing — the stand (real database)', () => {
       // Leo asked first and would win by time alone; kai stands beside anna.
       expect(on).toContain(pid.kai);
       expect(on).not.toContain(pid.leo);
+    });
+  });
+  describe('before sign-up opens (2 November 2026)', () => {
+    it('a day already over is not planned; all over is a refusal', async () => {
+      // A whole past week: nothing to add.
+      const past = await h.as('boss').post('/cart-weeks', {
+        weekStartDate: mondayIn(-1),
+        startTime: '09:00',
+        endTime: '12:00',
+        daysOfWeek: [1, 3],
+        locationIds: [locA],
+      });
+      expect(code(past)).toEqual([400, 'CART_DAYS_PAST']);
+      // This week, every day 09:00–12:00: what is over by the congregation's
+      // clock is left out and counted, whatever day and hour the test runs.
+      const [{ d: today, m }] = await h.sql<{ d: string; m: number }>(
+        `SELECT (now() AT TIME ZONE 'Europe/Berlin')::date::text AS d,
+                (extract(hour FROM now() AT TIME ZONE 'Europe/Berlin') * 60
+                 + extract(minute FROM now() AT TIME ZONE 'Europe/Berlin'))::int AS m`,
+      );
+      const monday = mondayIn(0);
+      const all = [1, 2, 3, 4, 5, 6, 7];
+      const over = all.filter((dow) => {
+        const date = addDays(monday, dow - 1);
+        return date < today || (date === today && m >= 12 * 60);
+      });
+      const res = await h.as('boss').post('/cart-weeks', {
+        weekStartDate: monday,
+        startTime: '09:00',
+        endTime: '12:00',
+        daysOfWeek: all,
+        locationIds: [locA],
+      });
+      if (over.length === 7) {
+        expect(code(res)).toEqual([400, 'CART_DAYS_PAST']);
+        return;
+      }
+      expect(res.status).toBe(201);
+      expect(res.body.skippedPast).toBe(over.length);
+      const v = await view('boss', monday);
+      const dates = v.days
+        .filter((d) => d.locationId === locA)
+        .map((d) => d.date);
+      for (const dow of over)
+        expect(dates).not.toContain(addDays(monday, dow - 1));
+      expect(dates.length).toBe(7 - over.length);
+    });
+
+    it('sign-up does not open onto an empty week; the deadline lies between today and the last day', async () => {
+      const week = mondayIn(13);
+      // An empty week: made by repeating nothing is not possible, so a day is
+      // added and deleted again.
+      const id = await build(week, [2, 4], [locA]);
+      const v = await view('boss', week);
+      for (const d of v.days) await h.as('boss').delete(`/cart/days/${d.id}`);
+      expect(
+        code(await h.as('boss').post(`/cart-weeks/${id}/open`, {})),
+      ).toEqual([400, 'CART_WEEK_EMPTY']);
+      await build(week, [2, 4], [locA]);
+      const thu = addDays(week, 3);
+      expect(
+        code(
+          await h
+            .as('boss')
+            .post(`/cart-weeks/${id}/open`, { signupUntil: addDays(thu, 1) }),
+        ),
+      ).toEqual([400, 'CART_BAD_DEADLINE']);
+      expect(
+        code(
+          await h.as('boss').post(`/cart-weeks/${id}/open`, {
+            signupUntil: addDays(new Date().toISOString().slice(0, 10), -1),
+          }),
+        ),
+      ).toEqual([400, 'CART_BAD_DEADLINE']);
+      const ok = await h
+        .as('boss')
+        .post(`/cart-weeks/${id}/open`, { signupUntil: thu });
+      expect(ok.status).toBe(201);
+    });
+
+    it('«повторить»: says beforehand which week and which days, or nothing', async () => {
+      const target = mondayIn(30);
+      // The week before has both places; Markt has been switched off since,
+      // so neither the preview nor the copy brings it.
+      await h.sql(`UPDATE cart_locations SET is_active = true WHERE id = $1`, [
+        locB,
+      ]);
+      await build(mondayIn(29), [2], [locA, locB]);
+      await h.sql(`UPDATE cart_locations SET is_active = false WHERE id = $1`, [
+        locB,
+      ]);
+      const src = (
+        await h.as('boss').get(`/cart-weeks/copy-source?weekStart=${target}`)
+      ).body as {
+        weekStartDate: string;
+        days: { weekday: number; locationName: string }[];
+      } | null;
+      expect(src).not.toBeNull();
+      expect(src!.weekStartDate).toBe(mondayIn(29));
+      expect(src!.days.map((d) => d.locationName)).toEqual(['Bahnhof']);
+      // The latest earlier week that has days, as copy itself takes it.
+      const copied = await h
+        .as('boss')
+        .post('/cart-weeks/copy', { weekStartDate: target });
+      expect(copied.status).toBe(201);
+      expect(copied.body.added).toBe(src!.days.length);
+      expect(
+        (
+          await h
+            .as('boss')
+            .get(`/cart-weeks/copy-source?weekStart=${mondayIn(-60)}`)
+        ).body,
+      ).toEqual({});
+      expect(
+        (await h.as('anna').get(`/cart-weeks/copy-source?weekStart=${target}`))
+          .status,
+      ).toBe(403);
     });
   });
 });

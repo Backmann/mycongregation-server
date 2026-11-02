@@ -95,6 +95,17 @@ export class CartWeeksController {
     return this.service.buildWeek(congregationId, user.id, dto);
   }
 
+  /** What «Повторить прошлую неделю» would bring to this week, or null. */
+  @Get('copy-source')
+  @UseGuards(ResponsibilityGuard)
+  @Arranges()
+  copySource(
+    @TenantId() congregationId: string,
+    @Query('weekStart') weekStart: string,
+  ) {
+    return this.service.copySource(congregationId, weekStart);
+  }
+
   @Post('copy')
   @UseGuards(ResponsibilityGuard)
   @Arranges()
