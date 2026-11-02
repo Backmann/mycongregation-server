@@ -49,13 +49,34 @@ describe('CartLocationsService', () => {
     });
   });
 
+  it('a new place fetches its equipment where the others usually do', async () => {
+    repo.find.mockResolvedValue([
+      { equipmentAt: 'Зал Царства в Ahlen' },
+      { equipmentAt: null },
+      { equipmentAt: 'Зал Царства в Ahlen' },
+      { equipmentAt: 'Подвал' },
+    ] as CartLocation[]);
+    await svc.create('cong-1', { name: 'Bahnhof' });
+    expect(repo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ equipmentAt: 'Зал Царства в Ahlen' }),
+    );
+    // Said out loud, it wins — an empty answer included.
+    await svc.create('cong-1', { name: 'Markt', equipmentAt: '' });
+    expect(repo.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({ equipmentAt: null }),
+    );
+  });
+
   it('create applies defaults: kind=cart, active, no address', async () => {
+    repo.find.mockResolvedValue([]);
     await svc.create('cong-1', { name: 'ТЦ Центр' });
     expect(repo.create).toHaveBeenCalledWith({
       congregationId: 'cong-1',
       name: 'ТЦ Центр',
       address: null,
       kind: 'cart',
+      equipmentAt: null,
+      permitUntil: null,
       isActive: true,
     });
   });

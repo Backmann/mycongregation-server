@@ -136,7 +136,12 @@ export const RETENTION_RULES: RetentionRule[] = [
     entity: CartWeek,
     column: 'weekStartDate',
     keep: TWELVE_MONTHS,
-    cascades: ['cart_slots', 'cart_assignments', 'cart_requests'],
+    cascades: [
+      'cart_days',
+      'cart_cancellations',
+      'cart_assignments',
+      'cart_requests',
+    ],
   },
   {
     kind: 'dated',

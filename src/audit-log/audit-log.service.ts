@@ -311,6 +311,37 @@ export class AuditLogService {
   }
 
   /**
+   * Something done to an item, said by a few facts rather than field by
+   * field: a person put on a shift at the stand, a shift called off. A
+   * creation through logCreate would list every fact as a «field: value»
+   * line; here the facts only name the item, and the line reads «добавил ·
+   * вт 3 ноября · 09:00 · Bahnhof · о Иванове».
+   */
+  async logFact(opts: {
+    tenantId: string;
+    entityType: string;
+    entityId: string;
+    action: 'CREATE' | 'UPDATE' | 'DELETE' | 'RESTORE';
+    actorUserId?: string | null;
+    subjectId?: string | null;
+    detail: Record<string, any>;
+  }): Promise<void> {
+    await this.auditRepo.save(
+      this.auditRepo.create({
+        congregationId: opts.tenantId,
+        entityType: opts.entityType,
+        entityId: opts.entityId,
+        action: opts.action,
+        ...this.actorOf(opts.actorUserId),
+        subjectId: opts.subjectId ?? null,
+        beforeJson: null,
+        afterJson: JSON.stringify(opts.detail),
+        changedFields: [],
+      }),
+    );
+  }
+
+  /**
    * Records WHICH fields changed and nothing more — no old value, no new one.
    *
    * For personal contact details this is the whole of what a journal needs:

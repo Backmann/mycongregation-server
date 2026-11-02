@@ -3,25 +3,25 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  UpdateDateColumn,
   Index,
   ManyToOne,
   JoinColumn,
-  Unique,
 } from 'typeorm';
 import { Congregation } from './congregation.entity';
-import { CartSlot } from './cart-slot.entity';
+import { CartDay } from './cart-day.entity';
 import { Publisher } from './publisher.entity';
 
 /**
- * The result of distribution: who stands in a slot. Exactly one of publisherId
- * (our publisher) or externalName (an outside person who counts toward the 2-4
- * crew but whose gender is unknown) is set. The UNIQUE on (slot_id,
- * publisher_id) keeps a publisher at most once per slot; PostgreSQL treats
- * NULLs as distinct, so multiple external entries per slot remain possible.
+ * A place on the plan: who stands at the stand, from — to. Exactly one of
+ * publisherId (our publisher) or externalName (a guest from another
+ * congregation, who counts towards the two to four but whose gender is
+ * unknown) is set. That one person stands in two places at once, or that a
+ * place holds more than four at any half-hour, is refused by the service
+ * under a lock — a span cannot be kept unique by an index.
  */
 @Entity('cart_assignments')
-@Unique('uq_cart_assignment_slot_publisher', ['slotId', 'publisherId'])
-@Index(['slotId'])
+@Index(['dayId'])
 export class CartAssignment {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -34,11 +34,18 @@ export class CartAssignment {
   congregation!: Congregation;
 
   @Column({ type: 'uuid' })
-  slotId!: string;
+  dayId!: string;
 
-  @ManyToOne(() => CartSlot, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'slot_id' })
-  slot!: CartSlot;
+  @ManyToOne(() => CartDay, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'day_id' })
+  day!: CartDay;
+
+  /** The span he stands, on the half-hour. */
+  @Column({ type: 'varchar', length: 5 })
+  startTime!: string;
+
+  @Column({ type: 'varchar', length: 5 })
+  endTime!: string;
 
   @Column({ type: 'uuid', nullable: true })
   publisherId!: string | null;
@@ -55,4 +62,7 @@ export class CartAssignment {
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
+
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updatedAt!: Date;
 }

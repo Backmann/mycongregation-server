@@ -6,21 +6,20 @@ import {
   Index,
   ManyToOne,
   JoinColumn,
-  Unique,
 } from 'typeorm';
 import { Congregation } from './congregation.entity';
-import { CartSlot } from './cart-slot.entity';
+import { CartDay } from './cart-day.entity';
 import { Publisher } from './publisher.entity';
 
 /**
- * A publisher's application ("заявка") to a slot during the collecting phase.
+ * A publisher's wish («заявка») for a span of a day at the stand. Several a
+ * day are allowed — the morning and again after lunch.
  * The mere existence of a row means an active wish; withdrawing deletes it.
  * withWhomNote is a free-text "I'd like to serve with ..." (may name someone
  * from another congregation), shown only to the responsible.
  */
 @Entity('cart_requests')
-@Unique('uq_cart_request_slot_publisher', ['slotId', 'publisherId'])
-@Index(['slotId'])
+@Index(['dayId'])
 export class CartRequest {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -33,11 +32,18 @@ export class CartRequest {
   congregation!: Congregation;
 
   @Column({ type: 'uuid' })
-  slotId!: string;
+  dayId!: string;
 
-  @ManyToOne(() => CartSlot, (s) => s.requests, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'slot_id' })
-  slot!: CartSlot;
+  @ManyToOne(() => CartDay, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'day_id' })
+  day!: CartDay;
+
+  /** The span he can stand, on the half-hour: «10:00»–«12:00». */
+  @Column({ type: 'varchar', length: 5 })
+  startTime!: string;
+
+  @Column({ type: 'varchar', length: 5 })
+  endTime!: string;
 
   @Column({ type: 'uuid' })
   publisherId!: string;

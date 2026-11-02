@@ -34,8 +34,14 @@ import { SupportedLanguage } from '../common/i18n/supported-languages';
  */
 
 export type Ladder = 'full' | 'short';
-export type ItemType = 'part' | 'duty' | 'service' | 'cleaning' | 'talk';
-export type MeetingKindOf = 'midweek' | 'weekend' | 'service' | 'away';
+export type ItemType =
+  | 'part'
+  | 'duty'
+  | 'service'
+  | 'cleaning'
+  | 'talk'
+  | 'cart';
+export type MeetingKindOf = 'midweek' | 'weekend' | 'service' | 'away' | 'cart';
 
 /**
  * Things that are only ever RECALLED here — never announced, never marked.
@@ -49,11 +55,15 @@ export type MeetingKindOf = 'midweek' | 'weekend' | 'service' | 'away';
  *     Nobody is «assigned» it — the group's week simply comes round — so it
  *     is a line in tomorrow's digest and nothing more (3 October 2026: it
  *     was the one thing a person did at a meeting that the digest left out).
+ *   - `cart`: a shift at the stand. He is told when the week is published
+ *     or when he is put on later; here it comes back the evening before,
+ *     with the hour, the place and who stands with him (2 November 2026).
  */
 const RECALL_ONLY: ReadonlySet<ItemType> = new Set<ItemType>([
   'service',
   'cleaning',
   'talk',
+  'cart',
 ]);
 export const isRecallOnly = (type: ItemType): boolean => RECALL_ONLY.has(type);
 
@@ -65,11 +75,13 @@ export const DUTY_STEPS: readonly number[] = [7, 1];
 export const SERVICE_STEPS: readonly number[] = [1];
 export const CLEANING_STEPS: readonly number[] = [1];
 export const TALK_STEPS: readonly number[] = [7, 1];
+export const CART_STEPS: readonly number[] = [1];
 
 export function stepsFor(type: ItemType, ladder: Ladder): readonly number[] {
   if (type === 'service') return SERVICE_STEPS;
   if (type === 'cleaning') return CLEANING_STEPS;
   if (type === 'talk') return TALK_STEPS;
+  if (type === 'cart') return CART_STEPS;
   return type === 'duty' ? DUTY_STEPS : PART_STEPS[ladder];
 }
 
@@ -90,6 +102,10 @@ export interface ReminderItem {
   slot: number | null;
   /** For a field-service meeting: when it starts and where. */
   time?: string | null;
+  /** For a shift at the stand: when it ends, its kind, who stands with him. */
+  endTime?: string | null;
+  equipmentKind?: string | null;
+  with?: string[];
   place?: string | null;
   /**
    * A talk of ours in another congregation: the Watchtower study's songs
@@ -263,6 +279,16 @@ const ROLE_NAMED = new Set<string>([
   'co_concluding_talk',
 ]);
 
+/** The equipment at a place, by the reader's word for it (S-80). */
+const CART_KINDS: Record<SupportedLanguage, Record<string, string>> = {
+  ru: { cart: 'тележка', stand: 'стенд', kiosk: 'стойка', table: 'стол' },
+  en: { cart: 'cart', stand: 'stand', kiosk: 'kiosk', table: 'table' },
+  de: { cart: 'Trolley', stand: 'Ständer', kiosk: 'Kiosk', table: 'Tisch' },
+};
+function cartKind(lang: SupportedLanguage, k?: string | null): string {
+  return CART_KINDS[lang][k ?? 'cart'] ?? CART_KINDS[lang].cart;
+}
+
 interface Words {
   assigned: string;
   tomorrow: string;
@@ -282,6 +308,10 @@ interface Words {
   talkAway: string;
   /** «на изучении «Сторожевой башни» песни 12 и 34 — их не выбирайте» */
   avoidSongs: (songs: string) => string;
+  /** «стенд Bahnhof», by the kind of equipment there. */
+  cart: (kind: string | null | undefined, place: string) => string;
+  /** «вместе: Хоффман Феликс» */
+  together: (names: string) => string;
   and: string;
   when: (days: number) => string;
 }
@@ -329,6 +359,8 @@ const WORDS: Record<SupportedLanguage, Words> = {
     talkAway: 'ваша речь в другом собрании',
     avoidSongs: (n) =>
       `на изучении «Сторожевой башни» ${n} — для вступления их не выбирайте`,
+    cart: (k, place) => `${cartKind('ru', k)}${place ? ` ${place}` : ''}`,
+    together: (n) => `вместе: ${n}`,
     and: 'и',
     when: (d) =>
       d <= 0
@@ -359,6 +391,8 @@ const WORDS: Record<SupportedLanguage, Words> = {
     talkAway: 'your talk in another congregation',
     avoidSongs: (n) =>
       `the Watchtower study sings ${n} — do not choose them to open`,
+    cart: (k, place) => `${cartKind('en', k)}${place ? ` at ${place}` : ''}`,
+    together: (n) => `with ${n}`,
     and: 'and',
     when: (d) =>
       d <= 0
@@ -390,6 +424,8 @@ const WORDS: Record<SupportedLanguage, Words> = {
     talkAway: 'Ihr Vortrag in einer anderen Versammlung',
     avoidSongs: (n) =>
       `beim Wachtturm-Studium: ${n} — bitte nicht als Anfangslied wählen`,
+    cart: (k, place) => `${cartKind('de', k)}${place ? ` ${place}` : ''}`,
+    together: (n) => `mit ${n}`,
     and: 'und',
     when: (d) =>
       d <= 0
@@ -535,6 +571,23 @@ export function writeDigest(
       const where = it.place?.trim() ? `, ${it.place.trim()}` : '';
       groups.push({
         head: `${day}${whenOf(l)}${at}: ${w.conducting}${where}`,
+        tail: '',
+        lines: [],
+      });
+      continue;
+    } else if (l.item.kind === 'cart') {
+      // A shift at the stand: its own line, with the hour, the place and
+      // who stands with him.
+      const it = l.item as ReminderItem;
+      const at = it.time
+        ? `, ${it.time.slice(0, 5)}${it.endTime ? `–${it.endTime.slice(0, 5)}` : ''}`
+        : '';
+      const people =
+        it.with && it.with.length > 0
+          ? `, ${w.together(it.with.join(', '))}`
+          : '';
+      groups.push({
+        head: `${day}${whenOf(l)}${at}: ${w.cart(it.equipmentKind, it.place?.trim() ?? '')}${people}`,
         tail: '',
         lines: [],
       });

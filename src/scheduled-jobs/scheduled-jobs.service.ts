@@ -31,6 +31,7 @@ import { LocalNeedsService } from '../local-needs/local-needs.service';
 import { SCHOOL_SYNC, type SchoolSync } from '../pioneer-school/school-sync';
 import { CardMergeService } from '../publishers/card-merge.service';
 import { PossibleDuplicateService } from '../tasks/possible-duplicate.service';
+import { CartRemindersService } from '../cart-weeks/cart-reminders.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -85,7 +86,27 @@ export class ScheduledJobsService {
     private readonly cardMerge?: CardMergeService,
     @Optional()
     private readonly possibleDuplicates?: PossibleDuplicateService,
+    /** The stand: sign-up closing, a plan not published, a permit ending. */
+    @Optional()
+    private readonly cartReminders?: CartRemindersService,
   ) {}
+
+  /**
+   * The stand's own reminders, once a morning (2 November 2026): the day
+   * before sign-up closes and the day it does, a week about to begin with no
+   * published plan, a town permit a month from its end. Each carries a key.
+   */
+  @Cron('45 8 * * *', {
+    name: 'cart-reminders',
+    timeZone: 'Europe/Berlin',
+  })
+  async handleCartReminders(): Promise<void> {
+    try {
+      await this.cartReminders?.tick();
+    } catch (err) {
+      this.logger.error(`cart reminders failed: ${(err as Error).message}`);
+    }
+  }
 
   /**
    * A merge of two cards can be undone for thirty days; its record holds the

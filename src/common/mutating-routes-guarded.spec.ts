@@ -19,8 +19,7 @@ const CHECKED_IN_SERVICE: Record<string, string> = {
   'auxiliary-pioneers': 'service: self-application, managers for others',
   'conduct-live': 'service: chairman, timekeeper or admin of that week',
   'conduct-runs': 'service: chairman, timekeeper or admin of that week',
-  'cart-slots':
-    'the self-service routes (request, my-assignment); the rest carry @RequireResponsibility',
+  cart: 'the self-service routes (a wish, its withdrawal, «не смогу»); the rest carry @UseGuards(ResponsibilityGuard)',
   cleaning: 'the group plans its own day; the service checks the group',
   'external-congregations': 'service: talk coordinators',
   journal: 'service: assertMayAsk (admin)',

@@ -7,19 +7,17 @@ import {
   Index,
   ManyToOne,
   JoinColumn,
-  OneToMany,
   Unique,
 } from 'typeorm';
 import { Congregation } from './congregation.entity';
-import { CartSlot } from './cart-slot.entity';
 
 export type CartWeekStatus = 'draft' | 'collecting' | 'published';
 
 /**
- * One public-witnessing week-grid for a congregation. Slots are generated from
- * the chosen window (startTime..endTime) and step. Lifecycle: draft (built,
- * hidden) -> collecting (publishers apply) -> published (Phase 3: names shown).
- * One week per congregation per Monday.
+ * One week at the stand for a congregation: its days (a place, a date, the
+ * hours) and the state of the plan — draft (being sketched), collecting
+ * (people sign up), published (the plan is everyone's). One week per
+ * congregation per Monday.
  */
 @Entity('cart_weeks')
 @Unique('uq_cart_week_congregation_week', ['congregationId', 'weekStartDate'])
@@ -57,8 +55,18 @@ export class CartWeek {
   @Column({ type: 'uuid', nullable: true })
   createdById!: string | null;
 
-  @OneToMany(() => CartSlot, (s) => s.week)
-  slots!: CartSlot[];
+  /**
+   * When the week was published. A wish made before it and not granted is no
+   * longer shown to the person — he sees he is not on the list, and nobody
+   * tells him so (Lionel, 2 November 2026); a wish made after it is a request
+   * for a free place and stays one.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  publishedAt!: Date | null;
+
+  /** The last day to sign up; reminders go out by it. */
+  @Column({ type: 'date', nullable: true })
+  signupUntil!: string | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

@@ -9,6 +9,11 @@ import {
   Not,
   Repository,
 } from 'typeorm';
+import {
+  merge as cartMerge,
+  minus as cartMinus,
+  overlaps as cartOverlaps,
+} from '../cart-weeks/cart-time';
 import { Absence } from '../entities/absence.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
@@ -357,6 +362,13 @@ export class AssignmentRemindersService {
       }
     }
 
+    for (const [publisherId, item] of await this.cartShifts(
+      congregationId,
+      today,
+    )) {
+      add(publisherId, item);
+    }
+
     const going = talks.filter(
       (t) => t.status !== TalkExchangeStatus.DID_NOT_HAPPEN,
     );
@@ -471,6 +483,117 @@ export class AssignmentRemindersService {
       if (d > last) last = d;
     }
     return Math.floor(daysBetween(mondayOf(today), mondayOf(last)) / 7) + 1;
+  }
+
+  /**
+   * Shifts at the stand in the coming week of PUBLISHED weeks, not called
+   * off — each with who else stands in it. Recalled the evening before.
+   */
+  private async cartShifts(
+    congregationId: string,
+    today: string,
+  ): Promise<[string, ReminderItem][]> {
+    // Specs that build this service by hand give it a repository without a
+    // manager; a real one always has it.
+    const manager = (this.publishers as { manager?: { query?: unknown } })
+      .manager;
+    if (typeof manager?.query !== 'function') return [];
+    const rows: {
+      day_id: string;
+      publisher_id: string | null;
+      external_name: string | null;
+      date: string;
+      start_time: string;
+      end_time: string;
+      place: string;
+      kind: string;
+    }[] = await this.publishers.manager.query(
+      `SELECT a.day_id, a.publisher_id, a.external_name,
+              d.date::text AS date, a.start_time, a.end_time,
+              l.name AS place, l.kind
+         FROM cart_assignments a
+         JOIN cart_days d ON d.id = a.day_id
+         JOIN cart_weeks w ON w.id = d.week_id
+         JOIN cart_locations l ON l.id = d.location_id
+        WHERE a.congregation_id = $1 AND w.status = 'published'
+          AND d.date BETWEEN $2 AND $3
+        ORDER BY a.start_time, a.created_at`,
+      [congregationId, today, addDaysISO(today, 8)],
+    );
+    if (rows.length === 0) return [];
+    const offs: { day_id: string; start_time: string; end_time: string }[] =
+      await this.publishers.manager.query(
+        `SELECT day_id, start_time, end_time FROM cart_cancellations
+          WHERE day_id = ANY($1::uuid[])`,
+        [[...new Set(rows.map((r) => r.day_id))]],
+      );
+    const ids = [
+      ...new Set(
+        rows.map((r) => r.publisher_id).filter((x): x is string => !!x),
+      ),
+    ];
+    // Names through the entity: a card's name is not read in raw SQL.
+    const cards = ids.length
+      ? await this.publishers.find({ where: { congregationId, id: In(ids) } })
+      : [];
+    const nameOf = new Map(
+      cards.map((p) => [p.id, `${p.lastName} ${p.firstName}`.trim()]),
+    );
+    const span = (r: { start_time: string; end_time: string }) => ({
+      startTime: String(r.start_time).slice(0, 5),
+      endTime: String(r.end_time).slice(0, 5),
+    });
+    const out: [string, ReminderItem][] = [];
+    // One line per person, day and joined span — the called-off parts out.
+    const byPersonDay = new Map<string, typeof rows>();
+    for (const r of rows) {
+      if (!r.publisher_id) continue;
+      const k = `${r.publisher_id}|${r.day_id}`;
+      byPersonDay.set(k, [...(byPersonDay.get(k) ?? []), r]);
+    }
+    for (const [k, own] of byPersonDay) {
+      const [pid, dayId] = k.split('|');
+      const off = offs.filter((o) => o.day_id === dayId).map(span);
+      const spans = cartMerge(own.flatMap((r) => cartMinus(span(r), off)));
+      for (const s of spans) {
+        const others = rows
+          .filter(
+            (o) =>
+              o.day_id === dayId &&
+              o.publisher_id !== pid &&
+              cartOverlaps(span(o), s),
+          )
+          .map((o) => {
+            const name = o.publisher_id
+              ? (nameOf.get(o.publisher_id) ?? '')
+              : (o.external_name ?? '');
+            const os = span(o);
+            return os.startTime === s.startTime && os.endTime === s.endTime
+              ? name
+              : `${name} (${os.startTime}–${os.endTime})`;
+          })
+          .filter(Boolean);
+        out.push([
+          pid,
+          {
+            type: 'cart',
+            id: `${dayId}:${s.startTime}`,
+            date: own[0].date,
+            kind: 'cart',
+            labelKey: 'cart',
+            labelTitle: null,
+            assistant: false,
+            slot: null,
+            time: s.startTime,
+            endTime: s.endTime,
+            place: own[0].place,
+            equipmentKind: own[0].kind,
+            with: others,
+          },
+        ]);
+      }
+    }
+    return out;
   }
 
   private async saveMarks(

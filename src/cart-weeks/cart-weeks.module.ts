@@ -1,7 +1,12 @@
+import { AuditLogModule } from '../audit-log/audit-log.module';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CartWeek } from '../entities/cart-week.entity';
-import { CartSlot } from '../entities/cart-slot.entity';
+import { CartDay } from '../entities/cart-day.entity';
+import { CartCancellation } from '../entities/cart-cancellation.entity';
+import { AuxiliaryPioneer } from '../entities/auxiliary-pioneer.entity';
+import { Congregation } from '../entities/congregation.entity';
+import { CartRemindersService } from './cart-reminders.service';
 import { CartRequest } from '../entities/cart-request.entity';
 import { CartAssignment } from '../entities/cart-assignment.entity';
 import { CartLocation } from '../entities/cart-location.entity';
@@ -9,7 +14,7 @@ import { Publisher } from '../entities/publisher.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { CartWeeksService } from './cart-weeks.service';
 import { CartWeeksController } from './cart-weeks.controller';
-import { CartSlotsController } from './cart-slots.controller';
+import { CartDaysController } from './cart-days.controller';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -20,7 +25,10 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
     CongregationClockModule,
     TypeOrmModule.forFeature([
       CartWeek,
-      CartSlot,
+      CartDay,
+      CartCancellation,
+      AuxiliaryPioneer,
+      Congregation,
       CartRequest,
       CartAssignment,
       CartLocation,
@@ -29,9 +37,10 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
     ]),
     PushNotificationsModule,
     NotificationsModule,
+    AuditLogModule,
   ],
-  controllers: [CartWeeksController, CartSlotsController],
-  providers: [CartWeeksService, ResponsibilityGuard],
-  exports: [CartWeeksService],
+  controllers: [CartWeeksController, CartDaysController],
+  providers: [CartWeeksService, CartRemindersService, ResponsibilityGuard],
+  exports: [CartWeeksService, CartRemindersService],
 })
 export class CartWeeksModule {}

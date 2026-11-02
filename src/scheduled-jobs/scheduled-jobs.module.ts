@@ -1,3 +1,4 @@
+import { CartWeeksModule } from '../cart-weeks/cart-weeks.module';
 import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneers.module';
 import { PioneerMeetingsModule } from '../pioneer-meetings/pioneer-meetings.module';
 import { Module } from '@nestjs/common';
@@ -48,6 +49,7 @@ import { PioneerSchoolModule } from '../pioneer-school/pioneer-school.module';
     LocalNeedsModule,
     AuxiliaryPioneersModule,
     PioneerMeetingsModule,
+    CartWeeksModule,
   ],
   controllers: [AdminController],
   providers: [ScheduledJobsService],

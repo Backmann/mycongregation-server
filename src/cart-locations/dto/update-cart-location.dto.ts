@@ -1,5 +1,10 @@
 import {
+  CART_LOCATION_KINDS,
+  type CartLocationKind,
+} from '../../entities/cart-location.entity';
+import {
   IsBoolean,
+  IsDateString,
   IsIn,
   IsOptional,
   IsString,
@@ -20,8 +25,18 @@ export class UpdateCartLocationDto {
   address?: string;
 
   @IsOptional()
-  @IsIn(['cart', 'stand'])
-  kind?: 'cart' | 'stand';
+  @IsIn(CART_LOCATION_KINDS)
+  kind?: CartLocationKind;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  equipmentAt?: string;
+
+  /** The town's permit holds until this day; null clears it. */
+  @IsOptional()
+  @IsDateString()
+  permitUntil?: string | null;
 
   @IsOptional()
   @IsBoolean()

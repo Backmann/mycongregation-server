@@ -12,6 +12,7 @@ import { TalkExchange } from '../entities/talk-exchange.entity';
 import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
 import { CartAssignment } from '../entities/cart-assignment.entity';
+import { minus as cartMinus } from '../cart-weeks/cart-time';
 import { CoVisitItem } from '../entities/co-visit-item.entity';
 import { MemorialItem } from '../entities/memorial-item.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
@@ -685,25 +686,38 @@ export class MeService {
     // ---- Public witnessing (cart) assignments ----
     const cartAssignments = await this.cartAssignmentsRepo
       .createQueryBuilder('a')
-      .innerJoinAndSelect('a.slot', 's')
-      .innerJoinAndSelect('s.week', 'w')
-      .leftJoinAndSelect('s.location', 'loc')
+      .innerJoinAndSelect('a.day', 'd')
+      .innerJoinAndSelect('d.week', 'w')
+      .leftJoinAndSelect('d.location', 'loc')
       .where('a.publisher_id = :pid', { pid })
       .andWhere('a.congregation_id = :tenantId', { tenantId })
       .andWhere("w.status = 'published'")
-      .andWhere('s.date BETWEEN :today AND :horizon', { today, horizon })
-      .orderBy('s.date', 'ASC')
+      .andWhere('d.date BETWEEN :today AND :horizon', { today, horizon })
+      .orderBy('d.date', 'ASC')
       .getMany();
+    // A part called off is no longer anyone's time at the stand.
+    const offRows: { day_id: string; start_time: string; end_time: string }[] =
+      cartAssignments.length
+        ? await this.cartAssignmentsRepo.query(
+            `SELECT day_id, start_time, end_time FROM cart_cancellations WHERE day_id = ANY($1::uuid[])`,
+            [[...new Set(cartAssignments.map((a) => a.dayId))]],
+          )
+        : [];
     for (const a of cartAssignments) {
-      items.push({
-        kind: 'cart',
-        sortDate: a.slot.date,
-        date: a.slot.date,
-        time: a.slot.startTime,
-        endTime: a.slot.endTime,
-        label: a.slot.location?.name ?? '',
-        location: a.slot.location?.name ?? '',
-      });
+      const off = offRows
+        .filter((o) => o.day_id === a.dayId)
+        .map((o) => ({ startTime: o.start_time, endTime: o.end_time }));
+      for (const s of cartMinus(a, off)) {
+        items.push({
+          kind: 'cart',
+          sortDate: a.day.date,
+          date: a.day.date,
+          time: s.startTime,
+          endTime: s.endTime,
+          label: a.day.location?.name ?? '',
+          location: a.day.location?.name ?? '',
+        });
+      }
     }
 
     const fieldMeetings = await this.fieldRepo

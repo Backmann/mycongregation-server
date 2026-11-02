@@ -6,21 +6,21 @@ import {
   Index,
   ManyToOne,
   JoinColumn,
-  OneToMany,
+  Unique,
 } from 'typeorm';
 import { Congregation } from './congregation.entity';
 import { CartWeek } from './cart-week.entity';
 import { CartLocation } from './cart-location.entity';
-import { CartRequest } from './cart-request.entity';
 
 /**
- * A single witnessing slot: one day, one time window, one location, within a
- * cart_week grid. Staffed by 2-4 publishers (enforced when assigning, Phase 3).
+ * A place on a date with its hours — «четверг, Ahlen, 07:00–16:00»
+ * (2 November 2026). People sign up for a span of it, from — to on the
+ * half-hour; whoever arranges puts them on the plan for a span of it.
  */
-@Entity('cart_slots')
+@Entity('cart_days')
+@Unique('uq_cart_day_week_date_location', ['weekId', 'date', 'locationId'])
 @Index(['congregationId', 'date'])
-@Index(['weekId'])
-export class CartSlot {
+export class CartDay {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
@@ -34,18 +34,12 @@ export class CartSlot {
   @Column({ type: 'uuid' })
   weekId!: string;
 
-  @ManyToOne(() => CartWeek, (w) => w.slots, { onDelete: 'CASCADE' })
+  @ManyToOne(() => CartWeek, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'week_id' })
   week!: CartWeek;
 
   @Column({ type: 'date' })
   date!: string;
-
-  @Column({ type: 'varchar', length: 5 })
-  startTime!: string;
-
-  @Column({ type: 'varchar', length: 5 })
-  endTime!: string;
 
   @Column({ type: 'uuid' })
   locationId!: string;
@@ -54,8 +48,11 @@ export class CartSlot {
   @JoinColumn({ name: 'location_id' })
   location!: CartLocation;
 
-  @OneToMany(() => CartRequest, (r) => r.slot)
-  requests!: CartRequest[];
+  @Column({ type: 'varchar', length: 5 })
+  startTime!: string;
+
+  @Column({ type: 'varchar', length: 5 })
+  endTime!: string;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
