@@ -200,20 +200,28 @@ export const PLAN: Record<string, TablePlan> = {
     copy('id congregation_id kind is_active created_at updated_at'),
     { name: 'label:Точка' },
     remove('address equipment_at'),
+    copy('permit_until'),
   ),
   cart_weeks: copy(`id congregation_id week_start_date status start_time
-    end_time step_minutes created_by_id created_at updated_at published_at`),
-  cart_slots: table(
-    copy(`id congregation_id week_id date start_time end_time
-    location_id created_at cancelled_at cancelled_by_id`),
-    remove('cancel_reason'),
+    end_time step_minutes created_by_id created_at updated_at published_at
+    signup_until`),
+  cart_days: copy(`id congregation_id week_id date location_id start_time
+    end_time created_at`),
+  cart_cancellations: table(
+    copy(`id congregation_id day_id start_time end_time created_by_id
+    created_at`),
+    remove('reason'),
   ),
+  cart_settings: table(copy('congregation_id updated_at'), remove('memo')),
   cart_assignments: table(
-    copy('id congregation_id slot_id publisher_id created_by_id created_at'),
+    copy(`id congregation_id day_id publisher_id start_time end_time
+    created_by_id created_at updated_at`),
     { external_name: 'label:Гость' },
   ),
   cart_requests: table(
-    copy('id congregation_id slot_id publisher_id created_at'),
+    copy(
+      'id congregation_id day_id publisher_id start_time end_time created_at',
+    ),
     remove('with_whom_note'),
   ),
   field_service_meetings: table(

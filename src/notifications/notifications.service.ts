@@ -44,6 +44,17 @@ export const NOTIFICATION_CATEGORIES = [
 ] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
+const PERSONAL_CART: ReadonlySet<string> = new Set([
+  'cart_published',
+  'cart_assigned',
+  'cart_changed',
+  'cart_unassigned',
+  'cart_crew_changed',
+  'cart_partner_cancel',
+  'cart_shift_cancelled',
+  'cart_shift_restored',
+]);
+
 export function categoryOfKind(kind: string): NotificationCategory | 'other' {
   if (
     kind === 'schedule' ||
@@ -57,7 +68,11 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
     // The elder who conducts the meeting with the pioneers.
     kind === 'pioneer_meeting_conduct' ||
     // Entering the attendance figure is the brother's own duty.
-    kind === 'attendance_due'
+    kind === 'attendance_due' ||
+    // One's own time at the stand is one's assignment: nobody learns too late
+    // that his shift was called off because he switched «Служение» off
+    // (2 November 2026).
+    PERSONAL_CART.has(kind)
   ) {
     return 'assignments';
   }

@@ -62,6 +62,14 @@ export class CartLocation {
   @Column({ type: 'varchar', length: 255, nullable: true })
   equipmentAt!: string | null;
 
+  /**
+   * The town's permit for this place, where one is needed
+   * (Sondernutzungserlaubnis): the last day it holds. Whoever arranges is
+   * reminded a month before.
+   */
+  @Column({ type: 'date', nullable: true })
+  permitUntil!: string | null;
+
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;
 

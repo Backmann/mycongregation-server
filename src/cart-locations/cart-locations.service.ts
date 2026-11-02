@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { refusal } from '../common/errors/refusal';
-import { CartSlot } from '../entities/cart-slot.entity';
+import { CartDay } from '../entities/cart-day.entity';
 import { CoVisitItem } from '../entities/co-visit-item.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -53,6 +53,7 @@ export class CartLocationsService {
         dto.equipmentAt !== undefined
           ? dto.equipmentAt.trim() || null
           : await this.usualEquipmentPlace(congregationId),
+      permitUntil: dto.permitUntil ?? null,
       isActive: dto.isActive ?? true,
     });
     const saved = await this.repo.save(row);
@@ -112,11 +113,14 @@ export class CartLocationsService {
       address: row.address,
       kind: row.kind,
       equipmentAt: row.equipmentAt,
+      permitUntil: row.permitUntil,
       isActive: row.isActive,
     };
     if (dto.name !== undefined) row.name = dto.name;
     if (dto.address !== undefined) row.address = dto.address ?? null;
     if (dto.kind !== undefined) row.kind = dto.kind;
+    if (dto.permitUntil !== undefined)
+      row.permitUntil = dto.permitUntil ?? null;
     if (dto.equipmentAt !== undefined)
       row.equipmentAt = dto.equipmentAt.trim() || null;
     if (dto.isActive !== undefined) row.isActive = dto.isActive;
@@ -131,9 +135,17 @@ export class CartLocationsService {
         address: saved.address,
         kind: saved.kind,
         equipmentAt: saved.equipmentAt,
+        permitUntil: saved.permitUntil,
         isActive: saved.isActive,
       },
-      fields: ['name', 'address', 'kind', 'equipmentAt', 'isActive'],
+      fields: [
+        'name',
+        'address',
+        'kind',
+        'equipmentAt',
+        'permitUntil',
+        'isActive',
+      ],
     });
     return saved;
   }
@@ -148,7 +160,7 @@ export class CartLocationsService {
     // A visit of the circuit overseer may plan an outing at it too; the
     // database would quietly blank that place, so it counts as use as well.
     const used =
-      (await this.repo.manager.count(CartSlot, {
+      (await this.repo.manager.count(CartDay, {
         where: { congregationId, locationId: id },
       })) +
       (await this.repo.manager.count(CoVisitItem, {

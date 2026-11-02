@@ -76,6 +76,7 @@ describe('CartLocationsService', () => {
       address: null,
       kind: 'cart',
       equipmentAt: null,
+      permitUntil: null,
       isActive: true,
     });
   });

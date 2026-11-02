@@ -2,7 +2,6 @@ import {
   ArrayMinSize,
   IsArray,
   IsDateString,
-  IsIn,
   IsInt,
   IsUUID,
   Matches,
@@ -10,20 +9,18 @@ import {
   Min,
 } from 'class-validator';
 
-const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const HHMM = /^([01]\d|2[0-3]):(00|30)$/;
 
+/** Days of a week at the stand: which weekdays, which places, which hours. */
 export class BuildCartWeekDto {
   @IsDateString()
   weekStartDate!: string;
 
-  @Matches(HHMM, { message: 'startTime must be "HH:MM"' })
+  @Matches(HHMM, { message: 'startTime must be "HH:MM" on the half-hour' })
   startTime!: string;
 
-  @Matches(HHMM, { message: 'endTime must be "HH:MM"' })
+  @Matches(HHMM, { message: 'endTime must be "HH:MM" on the half-hour' })
   endTime!: string;
-
-  @IsIn([60, 90, 120])
-  stepMinutes!: number;
 
   @IsArray()
   @ArrayMinSize(1)

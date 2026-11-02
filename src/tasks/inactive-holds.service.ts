@@ -143,15 +143,15 @@ export class InactiveHoldsService {
 
     const shifts = await this.repo(CartAssignment).find({
       where: { congregationId, publisherId: pid },
-      relations: { slot: { location: true } },
+      relations: { day: { location: true } },
     });
     for (const c of shifts)
-      if (c.slot && c.slot.date >= today)
+      if (c.day && c.day.date >= today)
         out.push({
           kind: 'cart',
-          date: c.slot.date,
+          date: c.day.date,
           week: false,
-          label: c.slot.location?.name ?? null,
+          label: c.day.location?.name ?? null,
           code: null,
         });
 

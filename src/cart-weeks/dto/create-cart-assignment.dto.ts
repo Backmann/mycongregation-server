@@ -5,8 +5,10 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { CartSpanDto } from './cart-span.dto';
 
-export class CreateCartAssignmentDto {
+/** A place on the plan: one of ours, or a guest by name — from, to. */
+export class CreateCartAssignmentDto extends CartSpanDto {
   @IsOptional()
   @IsUUID()
   publisherId?: string;

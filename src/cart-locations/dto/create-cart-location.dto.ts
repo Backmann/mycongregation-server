@@ -4,6 +4,7 @@ import {
 } from '../../entities/cart-location.entity';
 import {
   IsBoolean,
+  IsDateString,
   IsIn,
   IsOptional,
   IsString,
@@ -30,6 +31,11 @@ export class CreateCartLocationDto {
   @IsString()
   @MaxLength(255)
   equipmentAt?: string;
+
+  /** The town's permit holds until this day; null clears it. */
+  @IsOptional()
+  @IsDateString()
+  permitUntil?: string | null;
 
   @IsOptional()
   @IsBoolean()

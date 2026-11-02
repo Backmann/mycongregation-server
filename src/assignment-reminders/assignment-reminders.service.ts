@@ -9,6 +9,11 @@ import {
   Not,
   Repository,
 } from 'typeorm';
+import {
+  merge as cartMerge,
+  minus as cartMinus,
+  overlaps as cartOverlaps,
+} from '../cart-weeks/cart-time';
 import { Absence } from '../entities/absence.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
@@ -494,7 +499,7 @@ export class AssignmentRemindersService {
       .manager;
     if (typeof manager?.query !== 'function') return [];
     const rows: {
-      slot_id: string;
+      day_id: string;
       publisher_id: string | null;
       external_name: string | null;
       date: string;
@@ -502,21 +507,26 @@ export class AssignmentRemindersService {
       end_time: string;
       place: string;
       kind: string;
-      created_at: Date;
     }[] = await this.publishers.manager.query(
-      `SELECT a.slot_id, a.publisher_id, a.external_name, a.created_at,
-              s.date::text AS date, s.start_time, s.end_time,
+      `SELECT a.day_id, a.publisher_id, a.external_name,
+              d.date::text AS date, a.start_time, a.end_time,
               l.name AS place, l.kind
          FROM cart_assignments a
-         JOIN cart_slots s ON s.id = a.slot_id
-         JOIN cart_weeks w ON w.id = s.week_id
-         JOIN cart_locations l ON l.id = s.location_id
+         JOIN cart_days d ON d.id = a.day_id
+         JOIN cart_weeks w ON w.id = d.week_id
+         JOIN cart_locations l ON l.id = d.location_id
         WHERE a.congregation_id = $1 AND w.status = 'published'
-          AND s.cancelled_at IS NULL AND s.date BETWEEN $2 AND $3
-        ORDER BY a.created_at`,
+          AND d.date BETWEEN $2 AND $3
+        ORDER BY a.start_time, a.created_at`,
       [congregationId, today, addDaysISO(today, 8)],
     );
     if (rows.length === 0) return [];
+    const offs: { day_id: string; start_time: string; end_time: string }[] =
+      await this.publishers.manager.query(
+        `SELECT day_id, start_time, end_time FROM cart_cancellations
+          WHERE day_id = ANY($1::uuid[])`,
+        [[...new Set(rows.map((r) => r.day_id))]],
+      );
     const ids = [
       ...new Set(
         rows.map((r) => r.publisher_id).filter((x): x is string => !!x),
@@ -529,35 +539,59 @@ export class AssignmentRemindersService {
     const nameOf = new Map(
       cards.map((p) => [p.id, `${p.lastName} ${p.firstName}`.trim()]),
     );
+    const span = (r: { start_time: string; end_time: string }) => ({
+      startTime: String(r.start_time).slice(0, 5),
+      endTime: String(r.end_time).slice(0, 5),
+    });
     const out: [string, ReminderItem][] = [];
+    // One line per person, day and joined span — the called-off parts out.
+    const byPersonDay = new Map<string, typeof rows>();
     for (const r of rows) {
       if (!r.publisher_id) continue;
-      const others = rows
-        .filter((o) => o.slot_id === r.slot_id && o !== r)
-        .map((o) =>
-          o.publisher_id
-            ? (nameOf.get(o.publisher_id) ?? '')
-            : (o.external_name ?? ''),
-        )
-        .filter(Boolean);
-      out.push([
-        r.publisher_id,
-        {
-          type: 'cart',
-          id: r.slot_id,
-          date: r.date,
-          kind: 'cart',
-          labelKey: 'cart',
-          labelTitle: null,
-          assistant: false,
-          slot: null,
-          time: r.start_time,
-          endTime: r.end_time,
-          place: r.place,
-          equipmentKind: r.kind,
-          with: others,
-        },
-      ]);
+      const k = `${r.publisher_id}|${r.day_id}`;
+      byPersonDay.set(k, [...(byPersonDay.get(k) ?? []), r]);
+    }
+    for (const [k, own] of byPersonDay) {
+      const [pid, dayId] = k.split('|');
+      const off = offs.filter((o) => o.day_id === dayId).map(span);
+      const spans = cartMerge(own.flatMap((r) => cartMinus(span(r), off)));
+      for (const s of spans) {
+        const others = rows
+          .filter(
+            (o) =>
+              o.day_id === dayId &&
+              o.publisher_id !== pid &&
+              cartOverlaps(span(o), s),
+          )
+          .map((o) => {
+            const name = o.publisher_id
+              ? (nameOf.get(o.publisher_id) ?? '')
+              : (o.external_name ?? '');
+            const os = span(o);
+            return os.startTime === s.startTime && os.endTime === s.endTime
+              ? name
+              : `${name} (${os.startTime}–${os.endTime})`;
+          })
+          .filter(Boolean);
+        out.push([
+          pid,
+          {
+            type: 'cart',
+            id: `${dayId}:${s.startTime}`,
+            date: own[0].date,
+            kind: 'cart',
+            labelKey: 'cart',
+            labelTitle: null,
+            assistant: false,
+            slot: null,
+            time: s.startTime,
+            endTime: s.endTime,
+            place: own[0].place,
+            equipmentKind: own[0].kind,
+            with: others,
+          },
+        ]);
+      }
     }
     return out;
   }
