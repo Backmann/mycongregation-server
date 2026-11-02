@@ -16,6 +16,7 @@ import { CartDay } from '../entities/cart-day.entity';
 import { CartRequest } from '../entities/cart-request.entity';
 import { CartAssignment } from '../entities/cart-assignment.entity';
 import { CartCancellation } from '../entities/cart-cancellation.entity';
+import { CartRequestPartner } from '../entities/cart-request-partner.entity';
 import { CartLocation } from '../entities/cart-location.entity';
 import { CartSettings } from '../entities/cart-settings.entity';
 import { Publisher } from '../entities/publisher.entity';
@@ -156,6 +157,8 @@ export interface CartWishView {
   endTime: string;
   /** Only whoever arranges reads the «с кем». */
   withWhomNote?: string | null;
+  /** …and whom he chose from the list. */
+  withPublishers?: { id: string; name: string }[];
   /** Made after publication: a request for free time. */
   late?: boolean;
   absent?: boolean;
@@ -185,6 +188,7 @@ export interface CartDayView {
     startTime: string;
     endTime: string;
     withWhomNote: string | null;
+    withPublishers: { id: string; name: string }[];
   }[];
   /** My places on the plan (once it is mine to see). */
   mine: { id: string; startTime: string; endTime: string }[];
@@ -232,6 +236,8 @@ export class CartWeeksService {
     private readonly assignmentsRepo: Repository<CartAssignment>,
     @InjectRepository(CartCancellation)
     private readonly cancelRepo: Repository<CartCancellation>,
+    @InjectRepository(CartRequestPartner)
+    private readonly partnersRepo: Repository<CartRequestPartner>,
     @InjectRepository(CartLocation)
     private readonly locationsRepo: Repository<CartLocation>,
     @InjectRepository(Publisher)
@@ -546,6 +552,60 @@ export class CartWeeksService {
     return saved;
   }
 
+  /** Who may stand at all: the cards behind «с кем» and the list to pick from. */
+  private async standersOf(congregationId: string): Promise<Publisher[]> {
+    const people = await this.publishersRepo.find({
+      where: { congregationId, status: Not(PublisherStatus.INACTIVE) },
+      order: { lastName: 'ASC', firstName: 'ASC' },
+    });
+    return people.filter(
+      (p) => p.isActive !== false && approvalOf(p) === 'ok' && !isInactive(p),
+    );
+  }
+
+  /**
+   * «С кем хотели бы» to pick from (2 November 2026, Lionel: everybody the
+   * stand is open to — names only, so a brother of another group can be
+   * chosen). For whoever may sign up or arranges; nobody else.
+   */
+  async partnerList(
+    congregationId: string,
+    user: AuthenticatedUser,
+  ): Promise<{ id: string; name: string }[]> {
+    const me = await this.myPublisher(congregationId, user.id);
+    const mayApply = !!me && approvalOf(me) === 'ok' && !isInactive(me);
+    if (!mayApply && !(await this.isManager(user))) {
+      throw new ForbiddenException(
+        refusal('CART_NOT_ELIGIBLE', 'Not eligible for cart witnessing'),
+      );
+    }
+    return (await this.standersOf(congregationId))
+      .filter((p) => p.id !== me?.id)
+      .map((p) => ({ id: p.id, name: `${p.lastName} ${p.firstName}`.trim() }));
+  }
+
+  /** The chosen cards, checked: one or two, not himself, the stand open to them. */
+  private async partnersFor(
+    congregationId: string,
+    myId: string,
+    ids: string[] | undefined,
+  ): Promise<string[]> {
+    const want = [...new Set(ids ?? [])].filter((x) => x !== myId);
+    if (want.length === 0) return [];
+    const ok = new Set(
+      (await this.standersOf(congregationId)).map((p) => p.id),
+    );
+    if (want.length > 2 || want.some((x) => !ok.has(x))) {
+      throw new BadRequestException(
+        refusal(
+          'CART_PARTNER_UNKNOWN',
+          'Choose up to two people the stand is open to',
+        ),
+      );
+    }
+    return want;
+  }
+
   async eligibleUserIds(congregationId: string): Promise<string[]> {
     const people = await this.publishersRepo.find({
       where: {
@@ -678,6 +738,18 @@ export class CartWeeksService {
         : Promise.resolve([] as CartCancellation[]),
       this.nowFor(congregationId),
     ]);
+    const partnerRows = requests.length
+      ? await this.partnersRepo.find({
+          where: { requestId: In(requests.map((r) => r.id)) },
+        })
+      : [];
+    const partnersOf = new Map<string, string[]>();
+    for (const r of partnerRows) {
+      partnersOf.set(r.requestId, [
+        ...(partnersOf.get(r.requestId) ?? []),
+        r.publisherId,
+      ]);
+    }
     const pubIds = [
       ...new Set([
         ...requests.map((r) => r.publisherId),
@@ -686,12 +758,20 @@ export class CartWeeksService {
           .filter((x): x is string => !!x),
       ]),
     ];
-    const pubs = pubIds.length
-      ? await this.publishersRepo.find({
-          where: { id: In(pubIds), congregationId },
-        })
-      : [];
+    const partnerIds = [
+      ...new Set(partnerRows.map((r) => r.publisherId)),
+    ].filter((x) => !pubIds.includes(x));
+    const pubs =
+      pubIds.length + partnerIds.length
+        ? await this.publishersRepo.find({
+            where: { id: In([...pubIds, ...partnerIds]), congregationId },
+          })
+        : [];
     const pubById = new Map(pubs.map((p) => [p.id, p]));
+    const partnersView = (requestId: string) =>
+      (partnersOf.get(requestId) ?? [])
+        .filter((id) => pubById.has(id))
+        .map((id) => ({ id, name: nameOf(id) }));
     const nameOf = (id: string) => {
       const p = pubById.get(id);
       return p ? `${p.lastName} ${p.firstName}`.trim() : '';
@@ -760,6 +840,7 @@ export class CartWeeksService {
               startTime: hhmm(r.startTime),
               endTime: hhmm(r.endTime),
               withWhomNote: r.withWhomNote,
+              withPublishers: partnersView(r.id),
             })),
           mine: mineVisible
             ? asgs
@@ -780,6 +861,7 @@ export class CartWeeksService {
             startTime: hhmm(r.startTime),
             endTime: hhmm(r.endTime),
             withWhomNote: r.withWhomNote,
+            withPublishers: partnersView(r.id),
             late:
               published && !!week.publishedAt && r.createdAt > week.publishedAt,
             absent: awayOn(r.publisherId, date),
@@ -874,7 +956,12 @@ export class CartWeeksService {
     congregationId: string,
     dayId: string,
     user: AuthenticatedUser,
-    dto: { startTime: string; endTime: string; withWhomNote?: string },
+    dto: {
+      startTime: string;
+      endTime: string;
+      withWhomNote?: string;
+      withPublisherIds?: string[];
+    },
   ): Promise<CartRequest> {
     const me = await this.myPublisher(congregationId, user.id);
     if (!me)
@@ -903,6 +990,11 @@ export class CartWeeksService {
       );
     }
     this.assertSpan(dto, day);
+    const partners = await this.partnersFor(
+      congregationId,
+      me.id,
+      dto.withPublisherIds,
+    );
     const now = await this.nowFor(congregationId);
     if (CartWeeksService.hasBegun(day.date, dto.startTime, now)) {
       throw new BadRequestException(
@@ -963,6 +1055,13 @@ export class CartWeeksService {
         withWhomNote: dto.withWhomNote?.trim() || null,
       }),
     );
+    if (partners.length) {
+      await this.partnersRepo.save(
+        partners.map((publisherId) =>
+          this.partnersRepo.create({ requestId: created.id, publisherId }),
+        ),
+      );
+    }
     if (published) {
       const who = `${me.lastName} ${me.firstName}`.trim();
       const line = this.bareLine(day, dto);
@@ -1561,6 +1660,18 @@ export class CartWeeksService {
       this.cancelRepo.find({ where: { dayId: In(dayIds) } }),
     ]);
     const pubIds = [...new Set(reqs.map((r) => r.publisherId))];
+    // «С кем»: an equal tie goes to standing beside whom one asked for.
+    const partnersOf = new Map<string, string[]>();
+    if (reqs.length) {
+      for (const r of await this.partnersRepo.find({
+        where: { requestId: In(reqs.map((x) => x.id)) },
+      })) {
+        partnersOf.set(r.requestId, [
+          ...(partnersOf.get(r.requestId) ?? []),
+          r.publisherId,
+        ]);
+      }
+    }
     const pubs = pubIds.length
       ? await this.publishersRepo.find({
           where: { id: In(pubIds), congregationId },
@@ -1614,6 +1725,7 @@ export class CartWeeksService {
           startTime: hhmm(r.startTime),
           endTime: hhmm(r.endTime),
           createdAt: r.createdAt.getTime(),
+          with: partnersOf.get(r.id) ?? [],
         })),
       asgs.map((a) => ({
         dayId: a.dayId,
@@ -1623,6 +1735,11 @@ export class CartWeeksService {
         endTime: hhmm(a.endTime),
       })),
       standing,
+      reqs.map((r) => ({
+        dayId: r.dayId,
+        publisherId: r.publisherId,
+        with: partnersOf.get(r.id) ?? [],
+      })),
     );
     let n = 0;
     for (const p of added) {

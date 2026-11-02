@@ -233,6 +233,7 @@ describe('the carts', () => {
       withRemove(memRepo<any>([])) as any, // requests
       assignments as any,
       memRepo<any>([]) as any, // called off
+      memRepo<any>([]) as any, // «с кем» partners
       memRepo<any>([location]) as any,
       w.publishers as any,
       // The three who manage the carts — one of each language.

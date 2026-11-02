@@ -224,6 +224,7 @@ export const PLAN: Record<string, TablePlan> = {
     ),
     remove('with_whom_note'),
   ),
+  cart_request_partners: table(copy('request_id publisher_id')),
   field_service_meetings: table(
     copy(`id congregation_id week_start_date day_of_week start_time
       conductor_publisher_id created_at updated_at is_general

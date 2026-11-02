@@ -42,6 +42,15 @@ export class CartWeeksController {
     return this.service.getWeek(congregationId, weekStart, user);
   }
 
+  /** «С кем хотели бы»: whom the stand is open to — names only. */
+  @Get('partners')
+  partners(
+    @TenantId() congregationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.partnerList(congregationId, user);
+  }
+
   @Get('pairings')
   @UseGuards(ResponsibilityGuard)
   @Arranges()
