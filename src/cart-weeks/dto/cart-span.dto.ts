@@ -1,4 +1,12 @@
-import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+} from 'class-validator';
 
 const HHMM = /^([01]\d|2[0-3]):(00|30)$/;
 
@@ -17,6 +25,13 @@ export class CreateCartRequestDto extends CartSpanDto {
   @IsString()
   @MaxLength(200)
   withWhomNote?: string;
+
+  /** Whom he would like to stand with, chosen from the list: one or two. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(2)
+  @IsUUID('all', { each: true })
+  withPublisherIds?: string[];
 }
 
 /** A day, or part of it, called off. Without times: the whole day. */

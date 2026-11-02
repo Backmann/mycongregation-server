@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CartWeek } from '../entities/cart-week.entity';
 import { CartDay } from '../entities/cart-day.entity';
+import { CartRequestPartner } from '../entities/cart-request-partner.entity';
 import { CartCancellation } from '../entities/cart-cancellation.entity';
 import { AuxiliaryPioneer } from '../entities/auxiliary-pioneer.entity';
 import { Congregation } from '../entities/congregation.entity';
@@ -27,6 +28,7 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
       CartWeek,
       CartDay,
       CartCancellation,
+      CartRequestPartner,
       AuxiliaryPioneer,
       Congregation,
       CartRequest,

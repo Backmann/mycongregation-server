@@ -733,4 +733,120 @@ describe('public witnessing — the stand (real database)', () => {
       ),
     ).toEqual([400, 'CART_NOTHING_TO_COPY']);
   });
+  describe('«с кем» chosen from the list (2 November 2026)', () => {
+    const week = mondayIn(11);
+    let day = '';
+    beforeAll(async () => {
+      // Two brothers alike in everything: never at the stand, no pioneers.
+      for (const n of ['kai', 'leo']) {
+        pid[n] = await h.addPublisher({
+          firstName: n,
+          lastName: 'Тест',
+          gender: 'brother',
+          appointment: 'publisher',
+          baptismDate: '1990-01-01',
+        });
+        await h.sql(
+          `UPDATE publishers SET status = 'active', status_manually_overridden = true,
+                  capabilities = '{"public_witnessing": true}'::jsonb WHERE id = $1`,
+          [pid[n]],
+        );
+        uid[n] = await h.addUser({
+          login: n,
+          role: 'publisher',
+          publisherId: pid[n],
+        });
+      }
+      const id = await build(week, [3], [locA]);
+      await h.as('boss').post(`/cart-weeks/${id}/open`, {});
+      day = await dayOf(week, addDays(week, 2), locA);
+    });
+    const askWith = (who: string, a: string, b: string, ids: string[]) =>
+      h.as(who).post(`/cart/days/${day}/requests`, {
+        startTime: a,
+        endTime: b,
+        withPublisherIds: ids,
+      });
+
+    it('the list: whom the stand is open to, names only, not oneself', async () => {
+      const res = await h.as('anna').get('/cart-weeks/partners');
+      expect(res.status).toBe(200);
+      const ids = (res.body as { id: string; name: string }[]).map((x) => x.id);
+      expect(ids).toContain(pid.boris);
+      expect(ids).toContain(pid.boss);
+      // Not herself, not the unapproved, the unbaptized or the inactive.
+      for (const n of ['anna', 'nocard', 'novice', 'away'])
+        expect(ids).not.toContain(pid[n]);
+      expect(Object.keys(res.body[0]).sort()).toEqual(['id', 'name']);
+      // Not open to whoever the stand is not open to.
+      expect(code(await h.as('nocard').get('/cart-weeks/partners'))).toEqual([
+        403,
+        'CART_NOT_ELIGIBLE',
+      ]);
+    });
+
+    it('only cards from the list, up to two; whoever arranges reads them, nobody else', async () => {
+      expect(
+        code(await askWith('anna', '09:00', '11:00', [pid.nocard])),
+      ).toEqual([400, 'CART_PARTNER_UNKNOWN']);
+      expect(
+        code(
+          await askWith('anna', '09:00', '11:00', [
+            pid.boris,
+            pid.clara,
+            pid.dan,
+          ]),
+        )[0],
+      ).toBe(400);
+      expect(
+        (await askWith('anna', '09:00', '11:00', [pid.boris, pid.anna])).status,
+      ).toBe(201);
+      const boss = (await view('boss', week)).days.find((d) => d.id === day)!;
+      const w = (boss.wishes ?? []).find((x) => x.publisherId === pid.anna) as {
+        withPublishers?: { id: string; name: string }[];
+      };
+      // Herself is dropped from her own choice.
+      expect(w.withPublishers?.map((x) => x.id)).toEqual([pid.boris]);
+      const boris = (await view('boris', week)).days.find((d) => d.id === day)!;
+      expect(JSON.stringify(boris)).not.toContain('withPublishers');
+      const mine = (await view('anna', week)).days.find((d) => d.id === day)!
+        .myRequests[0] as { withPublishers?: { id: string }[] };
+      expect(mine.withPublishers?.map((x) => x.id)).toEqual([pid.boris]);
+    });
+
+    it('«предложить состав»: all else equal, beside whom one asked for', async () => {
+      // Two brothers ask the same time, equal in everything; the four places
+      // of the hour are taken but one, and anna asked for kai.
+      await h
+        .as('anna')
+        .delete(
+          `/cart/requests/${
+            (await view('anna', week)).days.find((d) => d.id === day)!
+              .myRequests[0].id
+          }`,
+        );
+      expect((await askWith('anna', '09:00', '11:00', [pid.kai])).status).toBe(
+        201,
+      );
+      await askWith('kai', '09:00', '11:00', []);
+      await askWith('leo', '09:00', '11:00', []);
+      await put(day, 'eva', '09:00', '11:00');
+      await put(day, 'fedor', '09:00', '11:00');
+      await put(day, 'anna', '09:00', '11:00');
+      await h.sql(
+        `UPDATE cart_requests SET created_at = now() - interval '1 hour' WHERE day_id = $1 AND publisher_id = $2`,
+        [day, pid.leo],
+      );
+      const w = await view('boss', week);
+      const res = await h.as('boss').post(`/cart-weeks/${w.id}/suggest`, {});
+      expect(res.status).toBe(200);
+      const plan = (await view('boss', week)).days.find(
+        (d) => d.id === day,
+      )!.plan!;
+      const on = plan.map((p) => p.publisherId);
+      // Leo asked first and would win by time alone; kai stands beside anna.
+      expect(on).toContain(pid.kai);
+      expect(on).not.toContain(pid.leo);
+    });
+  });
 });

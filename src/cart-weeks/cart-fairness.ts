@@ -21,7 +21,9 @@ import {
  *  3. then whoever asked and got nothing two weeks running;
  *  4. then the rest, fewest days at the stand in eight weeks first, longest
  *     ago first;
- *  5. a person with two shifts this week already gives way to one with none.
+ *  5. a person with two shifts this week already gives way to one with none;
+ *  6. only then, all else equal: beside whom he asked to stand with, or who
+ *     asked for him (Lionel, 2 November 2026: «да, после всех правил»).
  *
  * Whoever arranges sees the proposal and changes what he likes; this only
  * lays it out.
@@ -45,6 +47,8 @@ export interface Wish {
   startTime: string;
   endTime: string;
   createdAt: number;
+  /** Whom he asked to stand with, by card. */
+  with?: string[];
 }
 
 export interface Placed {
@@ -75,6 +79,8 @@ export function rankKey(
   p: PersonStanding | undefined,
   weekLoad: number,
   createdAt: number,
+  /** 0 — the one he asked for (or who asked for him) already stands then. */
+  besidePartner = 1,
 ): (number | string)[] {
   return [
     weekLoad >= 2 ? 1 : 0,
@@ -82,6 +88,7 @@ export function rankKey(
     weekLoad,
     p?.recentDays ?? 0,
     p?.lastDate ?? '',
+    besidePartner,
     createdAt,
   ];
 }
@@ -103,6 +110,8 @@ export function suggest(
   wishes: Wish[],
   placed: Placed[],
   standing: Map<string, PersonStanding>,
+  /** Wishes already granted, for whom they asked to stand with. */
+  asked: Pick<Wish, 'dayId' | 'publisherId' | 'with'>[] = [],
 ): Placed[] {
   const all: Placed[] = [...placed];
   const added: Placed[] = [];
@@ -147,6 +156,39 @@ export function suggest(
     load.set(w.publisherId, (load.get(w.publisherId) ?? 0) + 1);
   };
 
+  // Who asked for whom, both ways and day by day: a pair is a pair whoever
+  // named whom. From every wish of the week — also those already granted,
+  // which are not in `wishes` any more but still say whom they wanted.
+  const wanted = new Map<string, Set<string>>();
+  const key = (dayId: string, who: string) => `${dayId}|${who}`;
+  const pair = (dayId: string, a: string, b: string) => {
+    if (a === b) return;
+    for (const [x, y] of [
+      [a, b],
+      [b, a],
+    ]) {
+      const k = key(dayId, x);
+      if (!wanted.has(k)) wanted.set(k, new Set());
+      wanted.get(k)!.add(y);
+    }
+  };
+  for (const w of [...wishes, ...asked]) {
+    for (const o of w.with ?? []) pair(w.dayId, w.publisherId, o);
+  }
+  const beside = (w: Wish): number => {
+    const mates = wanted.get(key(w.dayId, w.publisherId));
+    if (!mates) return 1;
+    return all.some(
+      (p) =>
+        p.dayId === w.dayId &&
+        !!p.publisherId &&
+        mates.has(p.publisherId) &&
+        overlaps(p, w),
+    )
+      ? 0
+      : 1;
+  };
+
   // The wishes, best first, each taken whole where it fits; the order is
   // asked again after every placing, because a person's load grows.
   let left = [...wishes];
@@ -159,11 +201,13 @@ export function suggest(
           standing.get(a.publisherId),
           load.get(a.publisherId) ?? 0,
           a.createdAt,
+          beside(a),
         ),
         rankKey(
           standing.get(b.publisherId),
           load.get(b.publisherId) ?? 0,
           b.createdAt,
+          beside(b),
         ),
       ),
     );
