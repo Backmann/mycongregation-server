@@ -57,6 +57,15 @@ export class CartWeek {
   @Column({ type: 'uuid', nullable: true })
   createdById!: string | null;
 
+  /**
+   * When the week was published. A wish made before it and not granted is no
+   * longer shown to the person — he sees he is not on the list, and nobody
+   * tells him so (Lionel, 2 November 2026); a wish made after it is a request
+   * for a free place and stays one.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  publishedAt!: Date | null;
+
   @OneToMany(() => CartSlot, (s) => s.week)
   slots!: CartSlot[];
 

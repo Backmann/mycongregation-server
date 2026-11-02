@@ -56,6 +56,22 @@ export class CartSlotsController {
     await this.service.cancelMyAssignment(congregationId, id, user);
   }
 
+  /** A shift planned by mistake, while nobody stands in it. */
+  @Delete(':id')
+  @HttpCode(204)
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.PUBLIC_WITNESSING,
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+  )
+  async deleteSlot(
+    @TenantId() congregationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    await this.service.deleteSlot(congregationId, id);
+  }
+
   @Post(':id/assignments')
   @UseGuards(ResponsibilityGuard)
   @RequireResponsibility(

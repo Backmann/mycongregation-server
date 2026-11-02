@@ -10,7 +10,17 @@ import {
 } from 'typeorm';
 import { Congregation } from './congregation.entity';
 
-export type CartLocationKind = 'cart' | 'stand';
+/**
+ * The four kinds of equipment the branch offers (S-80): a cart, a stand, a
+ * kiosk on wheels and a table.
+ */
+export type CartLocationKind = 'cart' | 'stand' | 'kiosk' | 'table';
+export const CART_LOCATION_KINDS: CartLocationKind[] = [
+  'cart',
+  'stand',
+  'kiosk',
+  'table',
+];
 
 /**
  * A public-witnessing point of one congregation — a cart ("тележка") or a
@@ -41,9 +51,16 @@ export class CartLocation {
     type: 'varchar',
     length: 8,
     default: 'cart',
-    comment: "'cart' | 'stand'",
+    comment: "'cart' | 'stand' | 'kiosk' | 'table'",
   })
   kind!: CartLocationKind;
+
+  /**
+   * Where the equipment is fetched from — the service committee decides where
+   * it is kept. Shown with every shift at this place.
+   */
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  equipmentAt!: string | null;
 
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;

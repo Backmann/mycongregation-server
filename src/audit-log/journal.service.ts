@@ -371,7 +371,7 @@ export class JournalService {
     }
 
     for (const row of rows) {
-      const ctx = perEntity.get(row.entityId);
+      const ctx = perEntity.get(row.entityId) ?? cartContext(row);
       if (ctx) out.set(row.id, ctx);
     }
     return out;
@@ -518,4 +518,26 @@ function parseDetail(json: string | null): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * A shift at the stand, or a week of them, said by the facts written with the
+ * entry: the day and the place. Read from the entry rather than from the
+ * shift, because a week is deleted with its shifts and the line must still
+ * say which one it was.
+ */
+function cartContext(row: {
+  entityType: string;
+  afterJson: string | null;
+}): JournalContext | null {
+  if (row.entityType !== 'cart_slot' && row.entityType !== 'cart_week') {
+    return null;
+  }
+  const d = parseDetail(row.afterJson);
+  if (!d) return null;
+  const date = typeof d.date === 'string' ? d.date : undefined;
+  const bits = [d.time, d.place].filter(
+    (x): x is string => typeof x === 'string' && x.length > 0,
+  );
+  return { date, title: bits.length ? bits.join(' · ') : undefined };
 }

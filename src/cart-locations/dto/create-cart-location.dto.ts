@@ -1,4 +1,8 @@
 import {
+  CART_LOCATION_KINDS,
+  type CartLocationKind,
+} from '../../entities/cart-location.entity';
+import {
   IsBoolean,
   IsIn,
   IsOptional,
@@ -19,8 +23,13 @@ export class CreateCartLocationDto {
   address?: string;
 
   @IsOptional()
-  @IsIn(['cart', 'stand'])
-  kind?: 'cart' | 'stand';
+  @IsIn(CART_LOCATION_KINDS)
+  kind?: CartLocationKind;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  equipmentAt?: string;
 
   @IsOptional()
   @IsBoolean()

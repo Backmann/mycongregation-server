@@ -165,14 +165,20 @@ describe('the carts', () => {
 
   function carts() {
     const w = people();
+    // The stand asks for a baptized publisher with the switch on his card.
+    for (const p of w.publishers.rows) p.appointment = 'publisher';
+    const location = { id: 'l1', name: 'Marktplatz', kind: 'stand' };
     const slot = {
       id: 's1',
       congregationId: C,
       weekId: 'w1',
       date: '2026-10-07',
       startTime: '10:00:00',
-      week: { id: 'w1', status: 'published' },
-      location: { name: 'Marktplatz' },
+      endTime: '12:00:00',
+      locationId: 'l1',
+      cancelledAt: null,
+      week: { id: 'w1', status: 'published', publishedAt: new Date(0) },
+      location,
     };
     const assignments = memRepo<any>([
       { id: 'a1', congregationId: C, slotId: 's1', publisherId: 'p-ru' },
@@ -181,7 +187,12 @@ describe('the carts', () => {
     ]);
     const service = new CartWeeksService(
       memRepo<any>([
-        { id: 'w1', congregationId: C, status: 'collecting' },
+        {
+          id: 'w1',
+          congregationId: C,
+          status: 'collecting',
+          weekStartDate: '2026-10-05',
+        },
       ]) as any,
       memRepo<any>([slot]) as any,
       memRepo<any>([]) as any, // requests
@@ -192,7 +203,7 @@ describe('the carts', () => {
           assignments.rows.splice(assignments.rows.indexOf(row), 1);
         },
       } as any,
-      memRepo<any>([]) as any, // locations
+      memRepo<any>([location]) as any,
       w.publishers as any,
       // The three who manage the carts — one of each language.
       memRepo<any>(
@@ -202,40 +213,45 @@ describe('the carts', () => {
           userId: `u-${l}`,
         })),
       ) as any,
-      {} as any,
       w.notifications,
       clockStub('Europe/Berlin'),
+      { logFact: async () => undefined } as any,
     );
     return { ...w, service, assignments };
   }
 
-  it('a published week is said to everyone on it, each in his language', async () => {
+  it('a published week tells each person his own shift, in his language', async () => {
     const w = carts();
 
     await w.service.publishWeek(C, 'w1');
 
     expect(w.titles()).toEqual({
-      ru: 'Служение с тележками',
-      en: 'Cart witnessing',
-      de: 'Zeugnisgeben mit Wagen',
+      ru: 'Ваша смена',
+      en: 'Your shift',
+      de: 'Ihre Schicht',
     });
-    expect(w.bodies().de).toBe('Der Plan für die Woche ist veröffentlicht.');
+    // The day, the hour, the place with its kind — and who stands with him.
+    expect(w.bodies().ru).toBe(
+      'Ср 7 октября, 10:00–12:00 · Marktplatz (стенд) · вместе: Имя en, Имя de',
+    );
+    expect(w.bodies().de).toBe(
+      'Mi 7. Oktober, 10:00–12:00 · Marktplatz (Ständer) · mit Имя ru, Имя en',
+    );
     // It leads to the carts, not to wherever the app happens to be.
     expect(w.pushes[0].data.type).toBe('cart_published');
   });
 
-  it('a cancellation reaches the managers with a day a person can read', async () => {
+  it('«не смогу» reaches the others who arrange, with a day a person can read', async () => {
     const w = carts();
 
     await w.service.cancelMyAssignment(C, 's1', { id: 'u-ru' } as any);
 
+    // He arranges the carts himself: he is not told of his own step.
     expect(w.bodies()).toEqual({
-      ru: 'Имя ru: участие отменено — Marktplatz, Ср 7 октября, 10:00. Место снова свободно.',
-      en: 'Имя ru cancelled — Marktplatz, Wed 7 October, 10:00. The place is free again.',
-      de: 'Имя ru hat abgesagt — Marktplatz, Mi 7. Oktober, 10:00. Der Platz ist wieder frei.',
+      ru: undefined,
+      en: 'Имя ru cannot come — Wed 7 October, 10:00–12:00 · Marktplatz (stand). The place is free again.',
+      de: 'Имя ru kann nicht — Mi 7. Oktober, 10:00–12:00 · Marktplatz (Ständer). Der Platz ist wieder frei.',
     });
-    // Not «отменил»: the same sentence is said of a sister.
-    expect(w.bodies().ru).not.toContain('отменил ');
   });
 
   it('a request for a free place reaches the managers the same way', async () => {
@@ -246,12 +262,12 @@ describe('the carts', () => {
     await w.service.applyToSlot(C, 's1', { id: 'u-de' } as any, {} as any);
 
     expect(w.titles()).toEqual({
-      ru: 'Тележки: новая заявка',
-      en: 'Cart: new request',
-      de: 'Wagen: neue Anfrage',
+      ru: 'Новая заявка на свободное место',
+      en: 'A request for a free place',
+      de: 'Anfrage für einen freien Platz',
     });
     expect(w.bodies().ru).toBe(
-      'Заявка на свободное место — Marktplatz, Ср 7 октября, 10:00 (Имя de).',
+      'Имя de: Ср 7 октября, 10:00–12:00 · Marktplatz (стенд) · вместе: Имя ru, Имя en',
     );
   });
 });

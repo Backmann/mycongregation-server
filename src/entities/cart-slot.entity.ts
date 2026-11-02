@@ -54,6 +54,20 @@ export class CartSlot {
   @JoinColumn({ name: 'location_id' })
   location!: CartLocation;
 
+  /**
+   * Called off by whoever arranges the shifts — bad weather, an unsafe day in
+   * town. The crew stays as it was, so the shift can be put back.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  cancelledAt!: Date | null;
+
+  /** Optional and short: «непогода». Shown to the crew. */
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  cancelReason!: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  cancelledById!: string | null;
+
   @OneToMany(() => CartRequest, (r) => r.slot)
   requests!: CartRequest[];
 

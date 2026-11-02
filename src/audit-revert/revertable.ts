@@ -48,7 +48,7 @@ export const REVERTABLE_FIELDS: Record<string, string[]> = {
     'notes',
   ],
   service_group: ['name', 'overseerPublisherId', 'assistantPublisherId'],
-  cart_location: ['name', 'address', 'note', 'mapUrl'],
+  cart_location: ['name', 'address', 'kind', 'equipmentAt', 'isActive'],
   circuit_overseer: [
     'firstName',
     'lastName',

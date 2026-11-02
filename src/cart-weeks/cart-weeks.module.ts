@@ -1,3 +1,4 @@
+import { AuditLogModule } from '../audit-log/audit-log.module';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CartWeek } from '../entities/cart-week.entity';
@@ -29,6 +30,7 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
     ]),
     PushNotificationsModule,
     NotificationsModule,
+    AuditLogModule,
   ],
   controllers: [CartWeeksController, CartSlotsController],
   providers: [CartWeeksService, ResponsibilityGuard],

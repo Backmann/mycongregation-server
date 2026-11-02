@@ -357,6 +357,13 @@ export class AssignmentRemindersService {
       }
     }
 
+    for (const [publisherId, item] of await this.cartShifts(
+      congregationId,
+      today,
+    )) {
+      add(publisherId, item);
+    }
+
     const going = talks.filter(
       (t) => t.status !== TalkExchangeStatus.DID_NOT_HAPPEN,
     );
@@ -471,6 +478,88 @@ export class AssignmentRemindersService {
       if (d > last) last = d;
     }
     return Math.floor(daysBetween(mondayOf(today), mondayOf(last)) / 7) + 1;
+  }
+
+  /**
+   * Shifts at the stand in the coming week of PUBLISHED weeks, not called
+   * off — each with who else stands in it. Recalled the evening before.
+   */
+  private async cartShifts(
+    congregationId: string,
+    today: string,
+  ): Promise<[string, ReminderItem][]> {
+    // Specs that build this service by hand give it a repository without a
+    // manager; a real one always has it.
+    const manager = (this.publishers as { manager?: { query?: unknown } })
+      .manager;
+    if (typeof manager?.query !== 'function') return [];
+    const rows: {
+      slot_id: string;
+      publisher_id: string | null;
+      external_name: string | null;
+      date: string;
+      start_time: string;
+      end_time: string;
+      place: string;
+      kind: string;
+      created_at: Date;
+    }[] = await this.publishers.manager.query(
+      `SELECT a.slot_id, a.publisher_id, a.external_name, a.created_at,
+              s.date::text AS date, s.start_time, s.end_time,
+              l.name AS place, l.kind
+         FROM cart_assignments a
+         JOIN cart_slots s ON s.id = a.slot_id
+         JOIN cart_weeks w ON w.id = s.week_id
+         JOIN cart_locations l ON l.id = s.location_id
+        WHERE a.congregation_id = $1 AND w.status = 'published'
+          AND s.cancelled_at IS NULL AND s.date BETWEEN $2 AND $3
+        ORDER BY a.created_at`,
+      [congregationId, today, addDaysISO(today, 8)],
+    );
+    if (rows.length === 0) return [];
+    const ids = [
+      ...new Set(
+        rows.map((r) => r.publisher_id).filter((x): x is string => !!x),
+      ),
+    ];
+    // Names through the entity: a card's name is not read in raw SQL.
+    const cards = ids.length
+      ? await this.publishers.find({ where: { congregationId, id: In(ids) } })
+      : [];
+    const nameOf = new Map(
+      cards.map((p) => [p.id, `${p.lastName} ${p.firstName}`.trim()]),
+    );
+    const out: [string, ReminderItem][] = [];
+    for (const r of rows) {
+      if (!r.publisher_id) continue;
+      const others = rows
+        .filter((o) => o.slot_id === r.slot_id && o !== r)
+        .map((o) =>
+          o.publisher_id
+            ? (nameOf.get(o.publisher_id) ?? '')
+            : (o.external_name ?? ''),
+        )
+        .filter(Boolean);
+      out.push([
+        r.publisher_id,
+        {
+          type: 'cart',
+          id: r.slot_id,
+          date: r.date,
+          kind: 'cart',
+          labelKey: 'cart',
+          labelTitle: null,
+          assistant: false,
+          slot: null,
+          time: r.start_time,
+          endTime: r.end_time,
+          place: r.place,
+          equipmentKind: r.kind,
+          with: others,
+        },
+      ]);
+    }
+    return out;
   }
 
   private async saveMarks(

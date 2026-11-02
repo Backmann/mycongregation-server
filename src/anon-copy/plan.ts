@@ -199,12 +199,15 @@ export const PLAN: Record<string, TablePlan> = {
   cart_locations: table(
     copy('id congregation_id kind is_active created_at updated_at'),
     { name: 'label:Точка' },
-    remove('address'),
+    remove('address equipment_at'),
   ),
   cart_weeks: copy(`id congregation_id week_start_date status start_time
-    end_time step_minutes created_by_id created_at updated_at`),
-  cart_slots: copy(`id congregation_id week_id date start_time end_time
-    location_id created_at`),
+    end_time step_minutes created_by_id created_at updated_at published_at`),
+  cart_slots: table(
+    copy(`id congregation_id week_id date start_time end_time
+    location_id created_at cancelled_at cancelled_by_id`),
+    remove('cancel_reason'),
+  ),
   cart_assignments: table(
     copy('id congregation_id slot_id publisher_id created_by_id created_at'),
     { external_name: 'label:Гость' },

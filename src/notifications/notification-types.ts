@@ -39,6 +39,15 @@ export const NOTIFICATION_TYPES = [
   'cart_published',
   'cart_dobor_request',
   'cart_cancel',
+  // The stand, made personal (2 November 2026): sign-up open for everyone
+  // approved; put on or taken off a shift; a partner who cannot come; a
+  // shift called off or put back.
+  'cart_open',
+  'cart_assigned',
+  'cart_unassigned',
+  'cart_partner_cancel',
+  'cart_shift_cancelled',
+  'cart_shift_restored',
   'outgoing_talk',
   // A trip of ours that needs a brother, or has come into question.
   'talk_exchange_attention',
