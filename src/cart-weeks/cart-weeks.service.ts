@@ -299,7 +299,7 @@ export class CartWeeksService {
       daysOfWeek: number[];
       locationIds: string[];
     },
-  ): Promise<CartWeek> {
+  ): Promise<CartWeek & { added: number; skippedPast: number }> {
     if (!isMondayISO(dto.weekStartDate)) {
       throw new BadRequestException(
         refusal('WEEK_NOT_MONDAY', 'weekStartDate must be a Monday.'),
@@ -323,14 +323,14 @@ export class CartWeeksService {
         endTime: dto.endTime,
       })),
     );
-    const { week, added } = await this.addDays(
+    const { week, added, skippedPast } = await this.addDays(
       congregationId,
       userId,
       dto.weekStartDate,
       gen,
     );
     await this.journalWeek(congregationId, week, 'CREATE', { added });
-    return week;
+    return Object.assign(week, { added, skippedPast });
   }
 
   private assertWindow(s: { startTime: string; endTime: string }): void {
@@ -359,7 +359,7 @@ export class CartWeeksService {
     userId: string,
     weekStartDate: string,
     fromWeekStartDate?: string,
-  ): Promise<{ week: CartWeek; added: number }> {
+  ): Promise<{ week: CartWeek; added: number; skippedPast: number }> {
     if (!isMondayISO(weekStartDate)) {
       throw new BadRequestException(
         refusal('WEEK_NOT_MONDAY', 'weekStartDate must be a Monday.'),
@@ -370,18 +370,11 @@ export class CartWeeksService {
         refusal('WEEK_NOT_MONDAY', 'fromWeekStartDate must be a Monday.'),
       );
     }
-    const source = await this.weeksRepo
-      .createQueryBuilder('w')
-      .where('w.congregation_id = :congregationId', { congregationId })
-      .andWhere(
-        fromWeekStartDate
-          ? 'w.week_start_date = :from'
-          : 'w.week_start_date < :target',
-        { from: fromWeekStartDate, target: weekStartDate },
-      )
-      .andWhere('EXISTS (SELECT 1 FROM cart_days d WHERE d.week_id = w.id)')
-      .orderBy('w.week_start_date', 'DESC')
-      .getOne();
+    const source = await this.copySourceOf(
+      congregationId,
+      weekStartDate,
+      fromWeekStartDate,
+    );
     if (!source || source.weekStartDate === weekStartDate) {
       throw new BadRequestException(
         refusal('CART_NOTHING_TO_COPY', 'There is no earlier week to repeat'),
@@ -407,6 +400,68 @@ export class CartWeeksService {
     return out;
   }
 
+  /** The week «Повторить» copies: the latest earlier one that has days. */
+  private copySourceOf(
+    congregationId: string,
+    weekStartDate: string,
+    fromWeekStartDate?: string,
+  ): Promise<CartWeek | null> {
+    return this.weeksRepo
+      .createQueryBuilder('w')
+      .where('w.congregation_id = :congregationId', { congregationId })
+      .andWhere(
+        fromWeekStartDate
+          ? 'w.week_start_date = :from'
+          : 'w.week_start_date < :target',
+        { from: fromWeekStartDate, target: weekStartDate },
+      )
+      .andWhere('EXISTS (SELECT 1 FROM cart_days d WHERE d.week_id = w.id)')
+      .orderBy('w.week_start_date', 'DESC')
+      .getOne();
+  }
+
+  /**
+   * What «Повторить» would bring, said on the button before it is pressed
+   * (2 November 2026): which week, and its days — or nothing, and then the
+   * button is not offered at all.
+   */
+  async copySource(
+    congregationId: string,
+    weekStartDate: string,
+  ): Promise<{
+    weekStartDate: string;
+    days: {
+      weekday: number;
+      locationName: string;
+      startTime: string;
+      endTime: string;
+    }[];
+  } | null> {
+    if (!isMondayISO(weekStartDate)) {
+      throw new BadRequestException(
+        refusal('WEEK_NOT_MONDAY', 'weekStartDate must be a Monday.'),
+      );
+    }
+    const source = await this.copySourceOf(congregationId, weekStartDate);
+    if (!source) return null;
+    const days = await this.daysRepo.find({
+      where: { weekId: source.id, congregationId },
+      relations: { location: true },
+      order: { date: 'ASC', startTime: 'ASC' },
+    });
+    const live = days.filter((d) => d.location?.isActive !== false);
+    if (live.length === 0) return null;
+    return {
+      weekStartDate: source.weekStartDate,
+      days: live.map((d) => ({
+        weekday: isoDow(dateOf(d.date)),
+        locationName: d.location?.name ?? '',
+        startTime: hhmm(d.startTime),
+        endTime: hhmm(d.endTime),
+      })),
+    };
+  }
+
   private async addDays(
     congregationId: string,
     userId: string,
@@ -417,7 +472,20 @@ export class CartWeeksService {
       startTime: string;
       endTime: string;
     }[],
-  ): Promise<{ week: CartWeek; added: number }> {
+  ): Promise<{ week: CartWeek; added: number; skippedPast: number }> {
+    // A day already over is not planned (2 November 2026: on a Monday
+    // evening «this week» used to get that Monday too). Today's day stays
+    // while its hours have not ended.
+    const now = await this.nowFor(congregationId);
+    const ahead = gen.filter(
+      (g) => !CartWeeksService.hasBegun(g.date, g.endTime, now),
+    );
+    const skippedPast = gen.length - ahead.length;
+    if (gen.length > 0 && ahead.length === 0) {
+      throw new BadRequestException(
+        refusal('CART_DAYS_PAST', 'Every day chosen is already over'),
+      );
+    }
     return this.weeksRepo.manager.transaction(async (em) => {
       // Two people building the same week at once must not make two weeks or
       // the same day twice.
@@ -428,7 +496,7 @@ export class CartWeeksService {
         where: { congregationId, weekStartDate },
       });
       if (!week) {
-        const first = gen[0];
+        const first = ahead[0];
         week = await em.save(
           em.create(CartWeek, {
             congregationId,
@@ -446,7 +514,7 @@ export class CartWeeksService {
         existing.map((d) => `${dateOf(d.date)}|${d.locationId}`),
       );
       let added = 0;
-      for (const g of gen) {
+      for (const g of ahead) {
         const k = `${g.date}|${g.locationId}`;
         if (seen.has(k)) continue;
         seen.add(k);
@@ -455,7 +523,7 @@ export class CartWeeksService {
         );
         added += 1;
       }
-      return { week, added };
+      return { week, added, skippedPast };
     });
   }
 
@@ -529,6 +597,37 @@ export class CartWeeksService {
       throw new BadRequestException(
         refusal('INVALID_FIELD', 'signupUntil must be a date'),
       );
+    }
+    // Sign-up opens onto days still ahead (2 November 2026): an empty week,
+    // or one already over, would tell everybody «sign up» with nowhere to go.
+    const now = await this.nowFor(congregationId);
+    const days = await this.daysRepo.find({
+      where: { weekId: week.id, congregationId },
+    });
+    const ahead = days.filter(
+      (d) => !CartWeeksService.hasBegun(d.date, hhmm(d.endTime), now),
+    );
+    if (ahead.length === 0) {
+      throw new BadRequestException(
+        refusal('CART_WEEK_EMPTY', 'No day ahead in this week to sign up for'),
+      );
+    }
+    // The last day for signing up: from today to the last day of the week
+    // that is planned — not in the past, not after the stand has stood.
+    if (signupUntil !== undefined) {
+      const last = days
+        .map((d) => dateOf(d.date))
+        .sort()
+        .pop()!;
+      if (signupUntil < now.today || signupUntil > last) {
+        throw new BadRequestException(
+          refusal(
+            'CART_BAD_DEADLINE',
+            'The last day for signing up lies between today and the last day planned',
+            { from: now.today, to: last },
+          ),
+        );
+      }
     }
     week.status = 'collecting';
     week.signupUntil = signupUntil ?? null;
