@@ -113,10 +113,16 @@ PG_PASS=$(sed -n 's/^POSTGRES_PASSWORD=//p' "$ENVF")
 docker run -d --name "$DB" --network "$NET" --tmpfs /var/lib/postgresql/data:rw,size=1g \
   -e POSTGRES_USER="$PG_USER" -e POSTGRES_DB="$PG_DB" -e POSTGRES_PASSWORD="$PG_PASS" \
   "$PG_IMAGE" >/dev/null
-for i in $(seq 1 30); do
-  docker exec "$DB" pg_isready -U "$PG_USER" -d "$PG_DB" >/dev/null 2>&1 && break
+# Ready only when it answers over TCP. The image first runs a temporary
+# server for its init scripts that listens on the socket alone, then
+# restarts: a socket check passes in that window and the next command
+# finds no server (seen on the server, 3 November 2026).
+READY=0
+for i in $(seq 1 60); do
+  if docker exec "$DB" psql -h 127.0.0.1 -U "$PG_USER" -d "$PG_DB" -Atc 'SELECT 1' >/dev/null 2>&1; then READY=1; break; fi
   sleep 1
 done
+[ "$READY" = 1 ] || { echo "The throwaway database did not come up."; docker logs --tail 20 "$DB"; exit 1; }
 # Owners and grants are kept, so the facts checks mean on the copy what
 # they mean live (some of them are about grants). The copy's user has the
 # live owner's name; the other roles the dump grants to (mycongregation_facts)
