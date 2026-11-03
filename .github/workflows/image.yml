@@ -29,6 +29,7 @@ jobs:
           docker run --rm --entrypoint sh mycongregation-server-ci -c '
             set -e
             echo "node $(node -v)"
+            [ "$(node -v)" = "v24.22.2" ] || { echo "expected Node v24.22.2"; exit 1; }
             test -f dist/src/main.js && echo "entry point: dist/src/main.js"
             echo "user: $(id -un)"
             node -e "const b=require(\"bcrypt\");const h=b.hashSync(\"check\",4);if(!b.compareSync(\"check\",h)||b.compareSync(\"wrong\",h))process.exit(1);console.log(\"bcrypt: ok\")"

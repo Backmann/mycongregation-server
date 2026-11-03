@@ -1,7 +1,14 @@
 # Multi-stage production build for NestJS
 
+# Node is pinned to an exact release, not a moving tag. node:20-alpine was
+# pulled once and then reused from the server's cache, so production ran
+# 20.20.1 while CI built 20.20.2 — and Node 20 left support on 30 April 2026.
+# An exact tag is the same image on the server and in CI, and every change to
+# it arrives as a reviewed pull request. Alpine 3.23 is the release the old
+# image already ran on, so only Node moves.
+
 # ---- Stage 1: Build ----
-FROM node:20-alpine AS builder
+FROM node:24.22.2-alpine3.23 AS builder
 
 WORKDIR /app
 
@@ -21,7 +28,7 @@ COPY . .
 RUN npm run build
 
 # ---- Stage 2: Production runtime ----
-FROM node:20-alpine AS production
+FROM node:24.22.2-alpine3.23 AS production
 
 WORKDIR /app
 
