@@ -29,7 +29,6 @@ REF="${1:?usage: rehearse-release.sh <branch>}"
 REPO="Backmann/mycongregation-server"
 LIVE_APP="mycongregation-server"
 LIVE_DB="mycongregation-postgres"
-LIVE_NET="mycongregation_default"
 NET="mcg-rehearsal-net"
 DB="mcg-rehearsal-db"
 APP="mcg-rehearsal-app"
@@ -87,6 +86,12 @@ for v in POSTGRES_USER POSTGRES_DB POSTGRES_PASSWORD; do
   grep -q "^$v=." "$ENVF" || { echo "The live container has no $v — cannot rehearse."; exit 1; }
 done
 
+# The network the live app reaches its database on, found rather than
+# assumed: its compose name is not the Docker network's name.
+nets_of() { docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$1" | grep -v '^$' | sort; }
+LIVE_NET=$(comm -12 <(nets_of "$LIVE_APP") <(nets_of "$LIVE_DB") | head -n 1)
+[ -n "$LIVE_NET" ] || { echo "The live app and database share no network — cannot rehearse."; exit 1; }
+
 step "TLS from the new image to the LIVE database (read-only: SELECT 1)"
 docker run --rm --network "$LIVE_NET" --env-file "$ENVF" --entrypoint node "$IMG" -e '
   const { Client } = require("pg");
@@ -112,8 +117,15 @@ for i in $(seq 1 30); do
   docker exec "$DB" pg_isready -U "$PG_USER" -d "$PG_DB" >/dev/null 2>&1 && break
   sleep 1
 done
-# Ownership and grants are left out: the copy's only user owns everything.
-docker exec "$LIVE_DB" sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --no-privileges' </dev/null \
+# Owners and grants are kept, so the facts checks mean on the copy what
+# they mean live (some of them are about grants). The copy's user has the
+# live owner's name; the other roles the dump grants to (mycongregation_facts)
+# are created first, without login — the copy is never logged into by them.
+ROLES=$(docker exec "$LIVE_DB" sh -c "psql -At -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -c \"SELECT rolname FROM pg_roles WHERE rolname !~ '^pg_' AND rolname <> current_user\"" </dev/null)
+for r in $ROLES; do
+  docker exec "$DB" psql -q -U "$PG_USER" -d "$PG_DB" -c "CREATE ROLE \"$r\" NOLOGIN" >/dev/null
+done
+docker exec "$LIVE_DB" sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' </dev/null \
   | docker exec -i "$DB" psql -q -v ON_ERROR_STOP=1 -U "$PG_USER" -d "$PG_DB" >/dev/null
 COUNT_SQL="SELECT count(*) FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema')"
 LIVE_TABLES=$(docker exec "$LIVE_DB" sh -c "psql -At -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -c \"$COUNT_SQL\"" </dev/null)
@@ -147,8 +159,13 @@ if [ "$APPLIED" -gt 0 ] && [ "$PENDING" = 0 ]; then ok "migrations: $APPLIED app
 else bad "migrations: $APPLIED applied, $PENDING pending (or the check could not run)"; fi
 
 FACTS_SQL='SELECT check_name, value, expect_zero FROM facts.after_deploy()'
-BROKEN=$(docker exec "$DB" psql -At -F '|' -U "$PG_USER" -d "$PG_DB" -c "$FACTS_SQL" | awk -F'|' '$3=="t" && $2!="0" {print $1}')
-[ -z "$BROKEN" ] && ok "facts on the copy: all rules hold" || bad "facts broken on the copy: $BROKEN"
+if FACTS=$(docker exec "$DB" psql -At -F '|' -U "$PG_USER" -d "$PG_DB" -c "$FACTS_SQL" 2>&1); then
+  BROKEN=$(printf '%s\n' "$FACTS" | awk -F'|' '$3=="t" && $2!="0" {print $1}')
+  RULES=$(printf '%s\n' "$FACTS" | awk -F'|' '$3=="t"' | wc -l | tr -d ' ')
+  [ -z "$BROKEN" ] && ok "facts on the copy: all $RULES rules hold" || bad "facts broken on the copy: $BROKEN"
+else
+  bad "facts could not run on the copy: $(printf '%s' "$FACTS" | head -n 1)"
+fi
 
 COL=$(docker exec "$DB" psql -At -U "$PG_USER" -d "$PG_DB" -c \
   "SELECT column_name FROM information_schema.columns WHERE table_name='users' AND column_name IN ('password_hash','passwordHash') LIMIT 1")
