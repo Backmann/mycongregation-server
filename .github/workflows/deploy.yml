@@ -287,6 +287,13 @@ jobs:
           cd /root/mycongregation
           docker compose build server </dev/null
 
+          # Last moment at which nothing has changed: the new image is built,
+          # the old server still runs. A copy that cannot be made and
+          # verified stops the deploy here, old server untouched.
+          echo "=== Database copy before deploy ==="
+          COMMIT=$(sed -n "s/.*'\([0-9a-f]\{40\}\)'.*/\1/p" /root/mycongregation/server/src/build-stamp.ts)
+          bash /root/mycongregation/server/scripts/pre-deploy-backup.sh "${COMMIT:-unknown}" </dev/null
+
           echo "=== Restarting container ==="
           docker compose up -d server </dev/null
 
