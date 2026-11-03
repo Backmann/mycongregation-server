@@ -1,0 +1,35 @@
+name: Production image
+
+# Builds the production Dockerfile exactly as the server does, on every pull
+# request, and proves the result can run: the entry point exists, the Node
+# version is the expected one, and bcrypt — the one native module, which
+# hashes every password — loads and verifies a hash as the non-root user.
+#
+# Until 3 November 2026 the Dockerfile lived only on the server, so CI tested
+# the code on one Node and production ran another (22 in CI, 20 live), and a
+# build could fail on the server while passing here.
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the production image
+        run: docker build -t mycongregation-server-ci .
+
+      - name: The image can run what production runs
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint sh mycongregation-server-ci -c '
+            set -e
+            echo "node $(node -v)"
+            test -f dist/src/main.js && echo "entry point: dist/src/main.js"
+            echo "user: $(id -un)"
+            node -e "const b=require(\"bcrypt\");const h=b.hashSync(\"check\",4);if(!b.compareSync(\"check\",h)||b.compareSync(\"wrong\",h))process.exit(1);console.log(\"bcrypt: ok\")"
+          '

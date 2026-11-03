@@ -182,9 +182,9 @@ jobs:
           export KEK_BASE64="$(openssl rand -base64 32)"
 
           # The build nests output under dist/src because tsconfig also covers
-          # scripts/, and the Dockerfile that production uses lives on the
-          # server rather than in this repository — so the entry point is found
-          # rather than assumed.
+          # scripts/, and production's CMD is `node dist/src/main` (see the
+          # Dockerfile, in this repository since 3 November 2026) — so the
+          # entry point is found rather than assumed.
           MAIN="$(find dist -name main.js -type f | head -1)"
           if [ -z "$MAIN" ]; then
             echo "No main.js under dist — did the build produce anything?"
@@ -278,8 +278,11 @@ jobs:
 
           echo "=== Extracting source ==="
           cd /root/mycongregation/server
-          # Remove everything except server-only files (Dockerfile/.dockerignore/.env)
-          # and .git, so files deleted from the repo don't linger here as stale leftovers.
+          # Remove everything except .env and .git, so files deleted from the
+          # repo don't linger here as stale leftovers. Dockerfile and
+          # .dockerignore are kept too, but only out of caution: since
+          # 3 November 2026 both are in the repository and the tarball
+          # overwrites them, so what is built is what was reviewed.
           find . -mindepth 1 -maxdepth 1 ! -name Dockerfile ! -name .dockerignore ! -name .env ! -name .git -exec rm -rf {} +
           tar -xzf /tmp/server-src.tar.gz
 
