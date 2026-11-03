@@ -1,0 +1,51 @@
+# Dependabot: what may propose changes here, and how (3 November 2026).
+#
+# Weekly, as pull requests that CI and the "protect main" rule must pass;
+# nothing merges by itself. Major versions are never proposed — they are
+# decisions, not routine.
+#
+# npm has NO scheduled updates (open-pull-requests-limit: 0). Routine bumps of
+# dozens of packages add risk — a compromised release, a changed behaviour no
+# test covers — for little gain. npm still gets SECURITY updates: those come
+# from the repository setting "Dependabot security updates" and are not
+# limited by this file.
+#
+# cooldown: a new release is proposed only after it has been public that many
+# days. Compromised releases are usually found and pulled within that time.
+# It does not delay security updates.
+
+version: 2
+updates:
+  # The base image (Node). Official Docker images: a shorter cooldown, so a
+  # Node security release is not held back a week.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 3
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 0
