@@ -541,13 +541,22 @@ describe('public witnessing — the stand (real database)', () => {
         .then((r) => r[0].d);
 
     it('nothing signed up to that has begun; nothing given back that is over', async () => {
-      const past = mondayIn(-1);
-      const weekId = await buildPast(past, [1], [locA], '09:00', '11:00');
+      // A day that has begun but is not yet archive: two days ago. It used
+      // to be "Monday of last week", which is inside the CORRECTION_DAYS
+      // window only when the test runs on a Monday — on every other day
+      // the day was already archive and the put below got 409, so the
+      // suite failed Tuesday to Sunday (found 3 November 2026). Two days
+      // back is begun and unlocked on any weekday, with a day's margin for
+      // the congregation's time zone against UTC.
+      const date = addDays(new Date().toISOString().slice(0, 10), -2);
+      const isoDay = ((new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7) + 1;
+      const past = addDays(date, 1 - isoDay);
+      const weekId = await buildPast(past, [isoDay], [locA], '09:00', '11:00');
       // Sign-up no longer opens onto a week that is over; set as it was.
       await h.sql(`UPDATE cart_weeks SET status = 'collecting' WHERE id = $1`, [
         weekId,
       ]);
-      const day = await dayOf(past, past, locA);
+      const day = await dayOf(past, date, locA);
       expect(code(await ask('dan', day, '09:00', '11:00'))).toEqual([
         400,
         'CART_SLOT_PAST',
