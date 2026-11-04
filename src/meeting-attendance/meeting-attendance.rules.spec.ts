@@ -359,10 +359,63 @@ describe('Home', () => {
         : [];
     const withEvent = await build({ events }).service.pending(T);
     expect(withEvent.meetings).toEqual([
-      { date: '2026-10-29', eventType: EventType.MIDWEEK },
+      {
+        date: '2026-10-29',
+        eventType: EventType.MIDWEEK,
+        startTime: '10:00',
+        startsInMinutes: 45,
+      },
     ]);
     const without = await build({}).service.pending(T);
     expect(without.meetings).toEqual([]);
+  });
+
+  describe('a meeting is nobody’s debt before it begins (4 November 2026)', () => {
+    // Thursday 29 October 2026, the midweek meeting at 19:00 Berlin.
+    const DAY = '2026-10-29';
+    const has = (list: { date: string }[]) => list.some((g) => g.date === DAY);
+
+    it('in the morning: not owed, not a hole on the page, no card', async () => {
+      at('2026-10-29T05:37:00Z');
+      const { service } = build({ rows: [] });
+      const p = await service.pending(T);
+      expect(p.meetings).toEqual([]);
+      expect(has(p.gaps)).toBe(false);
+      // Old apps subtract the card's meeting themselves: nothing to subtract.
+      expect(p.outstandingThisYear).toBe(p.owed);
+      const y = await service.serviceYear(T, 2026);
+      expect(has(y.gaps)).toBe(false);
+    });
+
+    it('an hour before: the card says when it begins; still not owed', async () => {
+      at('2026-10-29T17:15:00Z');
+      const { service } = build({ rows: [] });
+      const p = await service.pending(T);
+      expect(p.meetings).toEqual([
+        {
+          date: DAY,
+          eventType: EventType.MIDWEEK,
+          startTime: '19:00',
+          startsInMinutes: 45,
+        },
+      ]);
+      expect(has(p.gaps)).toBe(false);
+      expect(p.outstandingThisYear).toBe(p.owed + 1);
+      expect(has((await service.serviceYear(T, 2026)).gaps)).toBe(false);
+    });
+
+    it('once begun: the card takes the figure; the page shows the hole; the debt waits for midnight', async () => {
+      at('2026-10-29T18:30:00Z');
+      const { service } = build({ rows: [] });
+      const p = await service.pending(T);
+      expect(p.meetings[0].startsInMinutes).toBe(0);
+      expect(has((await service.serviceYear(T, 2026)).gaps)).toBe(true);
+      const owedToday = p.owed;
+      at('2026-10-29T23:30:00Z');
+      const next = await build({ rows: [] }).service.pending(T);
+      expect(next.meetings).toEqual([]);
+      expect(next.owed).toBe(owedToday + 1);
+    });
   });
 
   it('shows what was entered today, so a slip is put right on the spot', async () => {
