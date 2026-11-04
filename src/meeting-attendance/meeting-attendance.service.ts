@@ -147,8 +147,19 @@ export interface AttendanceYear {
 
 /** What Home needs (31 October 2026). */
 export interface PendingAttendance {
-  /** Today's meetings open for a figure and still without one, newest first. */
-  meetings: { date: string; eventType: EventType }[];
+  /**
+   * Today's meetings open for a figure and still without one, newest first.
+   * The card opens an hour before the start; until the start it says when
+   * the meeting begins and takes no figure yet — the count is made once, in
+   * the middle of the meeting (S-3). `startsInMinutes` is how long that is
+   * from the moment of this answer (0 once begun or with no time on record).
+   */
+  meetings: {
+    date: string;
+    eventType: EventType;
+    startTime: string | null;
+    startsInMinutes: number;
+  }[];
   /**
    * Today's open meetings that HAVE a figure — the card stays until midnight
    * as «Записано: 96 · изменить», so a slip of the finger is put right on the
@@ -161,6 +172,13 @@ export interface PendingAttendance {
    * S-10 due by then is made from, and it used to vanish on the 1st.
    */
   outstandingThisYear: number;
+  /**
+   * Meetings that took place BEFORE today and have no figure (4 November
+   * 2026). Today's meeting is never in it: it is the card's until midnight.
+   * outstandingThisYear stays for apps not yet updated, which subtract the
+   * card's meeting from it themselves.
+   */
+  owed: number;
   outstandingPreviousYear: number;
   /** The newest few of them, for Home to name. */
   gaps: { date: string; eventType: EventType }[];
@@ -520,6 +538,7 @@ export class MeetingAttendanceService {
         meetings: [],
         recordedToday: [],
         outstandingThisYear: 0,
+        owed: 0,
         outstandingPreviousYear: 0,
         gaps: [],
       };
@@ -548,7 +567,16 @@ export class MeetingAttendanceService {
     const names = await this.namesOfRecorders(todays);
     const meetings = open
       .filter((m) => !byKey.has(`${m.date}|${m.eventType}`))
-      .sort((a, b) => (a.date < b.date ? 1 : -1));
+      .sort((a, b) => (a.date < b.date ? 1 : -1))
+      .map((m) => {
+        const startTime = this.startTimeOf(m.date, m.eventType, ctx);
+        const start = minutesOfClock(startTime);
+        return {
+          ...m,
+          startTime,
+          startsInMinutes: start === null ? 0 : Math.max(0, start - nowMinutes),
+        };
+      });
     const recordedToday = open
       .filter((m) => byKey.has(`${m.date}|${m.eventType}`))
       .map((m) => this.rowOf(m, byKey.get(`${m.date}|${m.eventType}`), names));
@@ -572,11 +600,22 @@ export class MeetingAttendanceService {
             `${startYear}-08-31`,
           )
         : [];
-    const all = [...previous, ...thisYear];
+    // Only what has begun is a gap; and what is today belongs to the card.
+    const begun = (m: { date: string; eventType: EventType }) =>
+      meetingStarted(
+        m.date,
+        this.startTimeOf(m.date, m.eventType, ctx),
+        today,
+        nowMinutes,
+      );
+    const all = [...previous, ...thisYear].filter(begun);
+    const owed = all.filter((m) => m.date < today).length;
     return {
       meetings,
       recordedToday,
-      outstandingThisYear: all.length,
+      // For apps not yet updated: they take the card's meeting off this.
+      outstandingThisYear: owed + meetings.length,
+      owed,
       outstandingPreviousYear: previous.length,
       gaps: all.slice(-6).reverse(),
     };
@@ -956,8 +995,15 @@ export class MeetingAttendanceService {
     }
     const ctx = await this.weekContext(tenantId);
     const today = await this.clock.todayFor(tenantId);
-    const year = await this.yearOf(tenantId, startYear, ctx, today);
-    const before = await this.yearOf(tenantId, startYear - 1, ctx, today);
+    const nowMinutes = await this.clock.minutesOfDayFor(tenantId);
+    const year = await this.yearOf(tenantId, startYear, ctx, today, nowMinutes);
+    const before = await this.yearOf(
+      tenantId,
+      startYear - 1,
+      ctx,
+      today,
+      nowMinutes,
+    );
     const hadAny = before.months.some(
       (m) => m.midweekAverage !== null || m.weekendAverage !== null,
     );
@@ -984,6 +1030,7 @@ export class MeetingAttendanceService {
     startYear: number,
     ctx: WeekContext | null,
     today: string,
+    nowMinutes = 24 * 60,
   ): Promise<Omit<AttendanceYear, 'previous' | 'sent'>> {
     const from = `${startYear}-09-01`;
     const to = `${startYear + 1}-08-31`;
@@ -1000,8 +1047,17 @@ export class MeetingAttendanceService {
       const lastWeek = mondayOf(to);
       while (week <= lastWeek) {
         for (const m of this.meetingsOfWeek(week, ctx)) {
-          // Meetings still ahead are not gaps; they simply have not happened.
-          if (m.date > today) continue;
+          // Meetings still ahead are not gaps; they simply have not happened —
+          // and today's has not happened until it begins (4 November 2026).
+          if (
+            !meetingStarted(
+              m.date,
+              this.startTimeOf(m.date, m.eventType, ctx),
+              today,
+              nowMinutes,
+            )
+          )
+            continue;
           if (m.date < from || m.date > to) continue;
           expected.push(
             this.rowOf(m, byMeeting.get(`${m.date}|${m.eventType}`), names),
@@ -1142,6 +1198,26 @@ export function minutesOfClock(
   const m = /^(\d{1,2}):(\d{2})/.exec(value);
   if (!m) return null;
   return Number(m[1]) * 60 + Number(m[2]);
+}
+
+/**
+ * Has the meeting begun (4 November 2026)? Before that it is nobody's
+ * debt: at 06:37 on a Wednesday the home screen said «1 встреча без записи»
+ * about that evening's meeting, and the attendance page showed it as an
+ * empty yellow cell. A day before today has always begun. Today's meeting
+ * with no start time on record has not — it is the card's all day and
+ * becomes a gap only at midnight, as before.
+ */
+export function meetingStarted(
+  meetingDate: string,
+  startTime: string | null | undefined,
+  today: string,
+  nowMinutes: number,
+): boolean {
+  if (meetingDate < today) return true;
+  if (meetingDate > today) return false;
+  const start = minutesOfClock(startTime);
+  return start !== null && nowMinutes >= start;
 }
 
 /**
