@@ -31,7 +31,14 @@ import {
 
 export interface PersonStanding {
   publisherId: string;
+  /** A pioneer on some day of the week — what the screen shows beside him. */
   pioneer: boolean;
+  /**
+   * By the month of the DAY (4 November 2026): an auxiliary pioneer in
+   * November only is not one on Friday 30 October. Keyed 'YYYY-MM' for the
+   * months the week touches; a month missing here falls back to `pioneer`.
+   */
+  pioneerIn?: Record<string, boolean>;
   /** Weeks in a row he asked and was not put on (0 when he was). */
   missedWeeks: number;
   /** Days at the stand in the eight weeks before. */
@@ -68,9 +75,15 @@ export interface DayFrame {
   off: Span[];
 }
 
-export function tierOf(p: PersonStanding | undefined): number {
+/** Pioneer on this date — by its month when known, else for the week. */
+export function pioneerOn(p: PersonStanding, date?: string): boolean {
+  const byMonth = date ? p.pioneerIn?.[date.slice(0, 7)] : undefined;
+  return byMonth ?? p.pioneer;
+}
+
+export function tierOf(p: PersonStanding | undefined, date?: string): number {
   if (!p) return 2;
-  if (p.pioneer || p.missedWeeks >= 3) return 0;
+  if (pioneerOn(p, date) || p.missedWeeks >= 3) return 0;
   if (p.missedWeeks >= 2) return 1;
   return 2;
 }
@@ -81,10 +94,12 @@ export function rankKey(
   createdAt: number,
   /** 0 — the one he asked for (or who asked for him) already stands then. */
   besidePartner = 1,
+  /** The day asked for, so a pioneer is judged by that day's month. */
+  date?: string,
 ): (number | string)[] {
   return [
     weekLoad >= 2 ? 1 : 0,
-    tierOf(p),
+    tierOf(p, date),
     weekLoad,
     p?.recentDays ?? 0,
     p?.lastDate ?? '',
@@ -202,12 +217,14 @@ export function suggest(
           load.get(a.publisherId) ?? 0,
           a.createdAt,
           beside(a),
+          a.date,
         ),
         rankKey(
           standing.get(b.publisherId),
           load.get(b.publisherId) ?? 0,
           b.createdAt,
           beside(b),
+          b.date,
         ),
       ),
     );

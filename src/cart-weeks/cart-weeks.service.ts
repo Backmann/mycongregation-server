@@ -1871,7 +1871,12 @@ export class CartWeeksService {
     const out = new Map<string, PersonStanding>();
     if (publisherIds.length === 0) return out;
     const from = addDays(weekStart, -56);
-    const month = weekStart.slice(0, 7);
+    // The months the week touches: Monday's and Sunday's (4 November 2026 —
+    // the status went by Monday's month alone, so the 1st and 2nd of November
+    // were judged by October).
+    const months = [
+      ...new Set([weekStart, addDays(weekStart, 6)].map((d) => d.slice(0, 7))),
+    ];
     const [pubs, aux, rows] = await Promise.all([
       this.publishersRepo.find({
         where: { id: In(publisherIds), congregationId },
@@ -1893,7 +1898,7 @@ export class CartWeeksService {
         { week: string; publisher_id: string; kind: string; last: string }[]
       >,
     ]);
-    const auxThisMonth = (pid: string) =>
+    const auxIn = (pid: string, month: string) =>
       aux.some((a) => {
         const s = String(a.startMonth).slice(0, 7);
         const e = a.endMonth
@@ -1919,11 +1924,18 @@ export class CartWeeksService {
           WHERE a.publisher_id = $1 AND w.status = 'published' AND d.date >= $2 AND d.date < $3`,
         [p.id, from, weekStart],
       );
+      const permanent = isActivePermanentPioneer(
+        p.pioneerType,
+        p.pioneerSince,
+        weekStart,
+      );
+      const pioneerIn = Object.fromEntries(
+        months.map((m) => [m, permanent || auxIn(p.id, m)]),
+      );
       out.set(p.id, {
         publisherId: p.id,
-        pioneer:
-          isActivePermanentPioneer(p.pioneerType, p.pioneerSince, weekStart) ||
-          auxThisMonth(p.id),
+        pioneer: Object.values(pioneerIn).some(Boolean),
+        pioneerIn,
         missedWeeks: missed,
         recentDays: dayRows[0]?.n ?? 0,
         lastDate:

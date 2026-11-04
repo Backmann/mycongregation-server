@@ -534,7 +534,17 @@ export class LocalNeedsService {
     const out: { weekStartDate: string; meetingDate: string | null }[] = [];
     for (const week of [...weeks].sort()) {
       const rules = await this.weekRules.forWeek(tenantId, week);
-      if (!rules.meetingsHeld) continue;
+      // The midweek meeting must really be HELD that week (4 November 2026):
+      // asking only «is it a convention week» left the Memorial's week in, and
+      // the coordinator was reminded to fill a topic for a meeting the Memorial
+      // takes — dated by its usual day.
+      // (A congregation with no settings yet has no meeting day at all —
+      // its week stays in, undated, as before.)
+      const takenAway =
+        !rules.meetingsHeld ||
+        rules.memorialTakes === 'midweek' ||
+        !!rules.replacedBy('midweek');
+      if (takenAway) continue;
       out.push({ weekStartDate: week, meetingDate: rules.dateOf('midweek') });
     }
     return out;
