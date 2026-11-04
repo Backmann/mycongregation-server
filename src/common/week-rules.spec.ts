@@ -317,3 +317,45 @@ describe('the hour a meeting begins', () => {
     ]);
   });
 });
+
+describe('where a meeting is held', () => {
+  const placed = [
+    {
+      effectiveFrom: '2020-01-01',
+      midweekDow: 4,
+      weekendDow: 7,
+      address: 'Musterstraße 1',
+    },
+  ];
+  const at = (events: Parameters<typeof weekRules>[0]['events']) =>
+    weekRules({ weekStart: WEEK, versions: placed, events });
+
+  it('is the settings address in an ordinary week', () => {
+    expect(at([]).placeOf('weekend')).toBe('Musterstraße 1');
+  });
+
+  it('is the event address on a day kept «with changes»', () => {
+    const r = at([
+      {
+        type: 'other',
+        date: '2026-04-12',
+        meetingMode: 'changed',
+        meetingAddress: ' Stadthalle ',
+      },
+    ]);
+    expect(r.placeOf('weekend')).toBe('Stadthalle');
+    expect(r.placeOf('midweek')).toBe('Musterstraße 1');
+  });
+
+  it('an event with another hour but no address keeps the hall', () => {
+    const r = at([
+      {
+        type: 'other',
+        date: '2026-04-12',
+        meetingMode: 'changed',
+        meetingTime: '10:00',
+      },
+    ]);
+    expect(r.placeOf('weekend')).toBe('Musterstraße 1');
+  });
+});

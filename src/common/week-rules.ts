@@ -87,8 +87,10 @@ export interface WeekEvent {
   replacesMeeting?: boolean | null;
   /** «С изменениями»: the meeting on this event's days goes ahead … */
   meetingMode?: string | null;
-  /** … starting at this hour (HH:mm), when one is given. */
+  /** … starting at this hour (HH:mm), when one is given … */
   meetingTime?: string | null;
+  /** … and held here, when one is given. */
+  meetingAddress?: string | null;
 }
 
 /** Only the fields the rules need from a meeting-settings version. */
@@ -98,6 +100,7 @@ export interface WeekSettingsVersion {
   weekendDow?: number | null;
   midweekTime?: string | null;
   weekendTime?: string | null;
+  address?: string | null;
   /**
    * Not used by the rules themselves — carried so that a caller holding the
    * version for a week can count that weeks duty places without fetching the
@@ -155,6 +158,52 @@ export function versionForWeek<T extends WeekSettingsVersion>(
   return found ?? first;
 }
 
+/**
+ * The hour a meeting of this kind begins on this date: an event that keeps
+ * the meeting «with changes» on that day at another hour, else the settings
+ * version given. HH:mm, or null when none is recorded.
+ *
+ * The one implementation of it (4 November 2026). `WeekRules.timeOf` asks it
+ * for the meeting's own day; attendance asks it for the day a figure was
+ * recorded on.
+ */
+export function meetingTimeOn(
+  date: string,
+  kind: MeetingKind,
+  version: WeekSettingsVersion | null,
+  events: WeekEvent[],
+): string | null {
+  const changed = changedOn(events, date, 'meetingTime');
+  if (changed?.meetingTime) return changed.meetingTime.slice(0, 5);
+  const t = kind === 'midweek' ? version?.midweekTime : version?.weekendTime;
+  return t ? t.slice(0, 5) : null;
+}
+
+/** Where a meeting is held on this date: the event's address «with changes», else the settings'. */
+export function meetingPlaceOn(
+  date: string,
+  version: WeekSettingsVersion | null,
+  events: WeekEvent[],
+): string | null {
+  const changed = changedOn(events, date, 'meetingAddress');
+  if (changed?.meetingAddress) return changed.meetingAddress.trim();
+  return version?.address?.trim() || null;
+}
+
+function changedOn(
+  events: WeekEvent[],
+  date: string,
+  field: 'meetingTime' | 'meetingAddress',
+): WeekEvent | undefined {
+  return events.find(
+    (e) =>
+      e.meetingMode === 'changed' &&
+      !!e[field]?.trim() &&
+      e.date <= date &&
+      (e.endDate ?? e.date) >= date,
+  );
+}
+
 export interface WeekRules {
   /** Monday of the week these rules describe. */
   weekStart: string;
@@ -184,6 +233,8 @@ export interface WeekRules {
    * cleaning reminder knew about the event's hour.
    */
   timeOf: (kind: MeetingKind) => string | null;
+  /** Where it is held — the same answer as the app's `placeOf`. */
+  placeOf: (kind: MeetingKind) => string | null;
   /** The meetings actually held that week, in order. */
   meetings: { date: string; kind: MeetingKind }[];
   /** Days covered by the convention or assembly, within this week. */
@@ -250,18 +301,12 @@ export function weekRules(input: {
 
   const timeOf = (kind: MeetingKind): string | null => {
     const date = dateOf(kind);
-    const changed = date
-      ? events.find(
-          (e) =>
-            e.meetingMode === 'changed' &&
-            !!e.meetingTime &&
-            e.date <= date &&
-            (e.endDate ?? e.date) >= date,
-        )
-      : undefined;
-    if (changed?.meetingTime) return changed.meetingTime.slice(0, 5);
-    const t = kind === 'midweek' ? version?.midweekTime : version?.weekendTime;
-    return t ? t.slice(0, 5) : null;
+    return date ? meetingTimeOn(date, kind, version, events) : null;
+  };
+
+  const placeOf = (kind: MeetingKind): string | null => {
+    const date = dateOf(kind);
+    return date ? meetingPlaceOn(date, version, events) : null;
   };
 
   const meetings: { date: string; kind: MeetingKind }[] = [];
@@ -295,6 +340,7 @@ export function weekRules(input: {
     dateOf,
     replacedBy,
     timeOf,
+    placeOf,
     meetings,
     congressDays,
   };

@@ -42,7 +42,10 @@ import {
 } from '../memorial/memorial-changes';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { versionForWeek, MeetingKind, WeekRules } from '../common/week-rules';
-import { rulesFromContext } from '../common/week-rules.service';
+import {
+  loadWeekRulesContext,
+  rulesFromContext,
+} from '../common/week-rules.service';
 import { refusal } from '../common/errors/refusal';
 import {
   countProgramme,
@@ -139,27 +142,12 @@ export class DutiesService {
     congregationId: string,
     weekStartDate: string,
   ): Promise<WeekRules> {
-    const versions = await this.meetingRepo.find({
-      where: { congregationId },
-      order: { effectiveFrom: 'ASC' },
-    });
-    const visits = await this.specialEventRepo.find({
-      where: { congregationId, type: 'circuit_overseer_visit' },
-    });
-    const cancelling = await this.specialEventRepo.find({
-      where: [
-        { congregationId, type: 'regional_convention' },
-        { congregationId, type: 'circuit_assembly' },
-      ],
-    });
-    const memorials = await this.specialEventRepo.find({
-      where: { congregationId, type: 'memorial' },
-    });
-    const flagged = await this.specialEventRepo.find({
-      where: { congregationId, replacesMeeting: true },
-    });
     return rulesFromContext(
-      { versions, visits, cancelling, memorials, flagged },
+      await loadWeekRulesContext(
+        this.meetingRepo,
+        this.specialEventRepo,
+        congregationId,
+      ),
       weekStartDate,
     );
   }
