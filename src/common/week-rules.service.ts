@@ -43,12 +43,71 @@ export interface WeekRulesContext {
   cancelling: SpecialEvent[];
   memorials: SpecialEvent[];
   flagged: SpecialEvent[];
-  /**
-   * Events whose day keeps the meeting «with changes» — for its hour. Optional
-   * so a context built elsewhere (attendance keeps its own) still type-checks;
-   * without it the hour is the settings'.
-   */
-  changed?: SpecialEvent[];
+  /** Events whose day keeps the meeting «with changes» — for its hour. */
+  changed: SpecialEvent[];
+}
+
+/**
+ * The six queries the week rules stand on — the ONE place they are written
+ * (4 November 2026).
+ *
+ * The attendance service and the duties service each ran their own copy, and
+ * the duties copy had already fallen one query behind (no events «with
+ * changes»). A rule taught something new — a one-off move of a meeting, next —
+ * would have been seen by one of the three and not the others. A plain
+ * function rather than only a method, so those services can call it over the
+ * repositories they already hold without a new constructor dependency.
+ */
+export async function loadWeekRulesContext(
+  settingsRepo: Repository<MeetingSettings>,
+  eventsRepo: Repository<SpecialEvent>,
+  congregationId: string,
+): Promise<WeekRulesContext> {
+  const versions = await settingsRepo.find({
+    where: { congregationId },
+    order: { effectiveFrom: 'ASC' },
+  });
+  const [visits, cancelling, memorials, flagged, changed] = await Promise.all([
+    eventsRepo.find({
+      where: { congregationId, type: 'circuit_overseer_visit' },
+    }),
+    // Events that REPLACE the congregation's own meetings. A circuit visit is
+    // deliberately not among them: it moves a meeting, it does not cancel one.
+    eventsRepo.find({
+      where: [
+        { congregationId, type: 'regional_convention' },
+        { congregationId, type: 'circuit_assembly' },
+      ],
+    }),
+    // The Memorial replaces ONE of that week's meetings, chosen by the kind
+    // of day it falls on — not by "the meeting on the same day".
+    eventsRepo.find({ where: { congregationId, type: 'memorial' } }),
+    // Anything marked by hand as «в этот день обычной встречи нет». Fetched by
+    // the FLAG rather than by a type, because that is the whole point of it:
+    // it exists for events that have no rule of their own.
+    eventsRepo.find({ where: { congregationId, replacesMeeting: true } }),
+    // A meeting kept «with changes» may begin at another hour.
+    eventsRepo.find({ where: { congregationId, meetingMode: 'changed' } }),
+  ]);
+
+  // Sorted here rather than trusted from the query, so that a future change
+  // to the `order` clause cannot quietly change which settings version a week
+  // is judged by.
+  const sorted = [...versions].sort((a, b) =>
+    a.effectiveFrom < b.effectiveFrom
+      ? -1
+      : a.effectiveFrom > b.effectiveFrom
+        ? 1
+        : 0,
+  );
+  return {
+    versions: sorted,
+    visits,
+    cancelling,
+    memorials,
+    flagged,
+    changed,
+  };
 }
 
 /**
@@ -68,6 +127,15 @@ export interface WeekRulesContext {
  * known here, and the rule must not depend on a column a caller might not have
  * selected.
  */
+/**
+ * The events «with changes», tagged by the filter they were QUERIED by — like
+ * the other lists, the rule must not depend on a column a caller (or a test
+ * double) might not have selected.
+ */
+export function changedEvents(ctx: WeekRulesContext): WeekEvent[] {
+  return (ctx.changed ?? []).map((e) => ({ ...e, meetingMode: 'changed' }));
+}
+
 export function rulesFromContext(
   ctx: WeekRulesContext,
   weekStart: string,
@@ -86,7 +154,7 @@ export function rulesFromContext(
     ...ctx.flagged.map((e) => ({ ...e, replacesMeeting: true })),
     // Only for the hour (timeOf). Their own type and flag go with them, so
     // the visit, congress and flag rules read them exactly as before.
-    ...(ctx.changed ?? []).map((e) => ({ ...e, meetingMode: 'changed' })),
+    ...changedEvents(ctx),
   ];
   return weekRules({ weekStart, versions: ctx.versions, events });
 }
@@ -100,60 +168,13 @@ export class WeekRulesService {
     private readonly eventsRepo: Repository<SpecialEvent>,
   ) {}
 
-  /** The five queries, run once. */
-  async contextOf(congregationId: string): Promise<WeekRulesContext> {
-    const [versions, visits, cancelling, memorials, flagged, changed] =
-      await Promise.all([
-        this.settingsRepo.find({
-          where: { congregationId },
-          order: { effectiveFrom: 'ASC' },
-        }),
-        this.eventsRepo.find({
-          where: { congregationId, type: 'circuit_overseer_visit' },
-        }),
-        // Events that REPLACE the congregation's own meetings. A circuit visit
-        // is deliberately not among them: it moves a meeting, it does not
-        // cancel one.
-        this.eventsRepo.find({
-          where: [
-            { congregationId, type: 'regional_convention' },
-            { congregationId, type: 'circuit_assembly' },
-          ],
-        }),
-        // The Memorial replaces ONE of that week's meetings, chosen by the
-        // kind of day it falls on — not by "the meeting on the same day".
-        this.eventsRepo.find({ where: { congregationId, type: 'memorial' } }),
-        // Anything marked by hand as «в этот день обычной встречи нет».
-        // Fetched by the FLAG rather than by a type, because that is the whole
-        // point of it: it exists for events that have no rule of their own.
-        this.eventsRepo.find({
-          where: { congregationId, replacesMeeting: true },
-        }),
-        // A meeting kept «with changes» may begin at another hour.
-        this.eventsRepo.find({
-          where: { congregationId, meetingMode: 'changed' },
-        }),
-      ]);
-
-    // Sorted here rather than trusted from the query, so that a future change
-    // to the `order` clause cannot quietly change which settings version a
-    // week is judged by.
-    const sorted = [...versions].sort((a, b) =>
-      a.effectiveFrom < b.effectiveFrom
-        ? -1
-        : a.effectiveFrom > b.effectiveFrom
-          ? 1
-          : 0,
+  /** The queries, run once. */
+  contextOf(congregationId: string): Promise<WeekRulesContext> {
+    return loadWeekRulesContext(
+      this.settingsRepo,
+      this.eventsRepo,
+      congregationId,
     );
-
-    return {
-      versions: sorted,
-      visits,
-      cancelling,
-      memorials,
-      flagged,
-      changed,
-    };
   }
 
   /** The rule for one week, from a context already loaded. */

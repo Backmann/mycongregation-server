@@ -1,3 +1,4 @@
+import { meetingTimeOn, versionForWeek } from '../common/week-rules';
 import {
   BadRequestException,
   ConflictException,
@@ -21,7 +22,12 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { minutesOfDayIn, todayIn } from '../common/congregation-clock';
 import { mondayOf } from '../common/week';
-import { rulesFromContext } from '../common/week-rules.service';
+import {
+  changedEvents,
+  loadWeekRulesContext,
+  rulesFromContext,
+  WeekRulesContext,
+} from '../common/week-rules.service';
 import { refusal } from '../common/errors/refusal';
 
 /** One meeting's figure as the report reads it. */
@@ -184,15 +190,8 @@ export interface PendingAttendance {
   gaps: { date: string; eventType: EventType }[];
 }
 
-interface WeekContext {
-  versions: MeetingSettings[];
-  visits: SpecialEvent[];
-  cancelling: SpecialEvent[];
-  memorials: SpecialEvent[];
-  flagged: SpecialEvent[];
-  /** Events whose day keeps its meeting «with changes» — maybe another hour. */
-  changed: SpecialEvent[];
-}
+/** The week rules' own context — one loader for every reader. */
+type WeekContext = WeekRulesContext;
 
 /** The S-10's own deadline: the closed year's debt is shown until then. */
 const PREVIOUS_YEAR_UNTIL_DAY = 20;
@@ -738,69 +737,27 @@ export class MeetingAttendanceService {
         if (g.kind === 'memorial') g.time = memorial.time ?? null;
       }
     }
-    /**
-     * A meeting that goes ahead «with changes» on an event's day may start at
-     * another hour (27 September — a branch representative's visit). Whoever
-     * reminds people about that meeting must use that hour, not the one from
-     * the settings.
-     */
-    const changed = await this.eventsRepo.find({
-      where: {
-        congregationId: tenantId,
-        meetingMode: 'changed',
-        date: LessThanOrEqual(weekEnd),
-      },
-    });
+    // A meeting kept «with changes» on an event's day may start at another
+    // hour (27 September — a branch representative's visit); whoever reminds
+    // people must use it. Asked of the one implementation, which falls back
+    // to the settings — the caller no longer needs to.
+    const version = versionForWeek(ctx.versions, weekStart);
     for (const g of out) {
       if (g.kind === 'memorial') continue;
-      const e = changed.find(
-        (c) =>
-          c.meetingTime && c.date <= g.date && (c.endDate ?? c.date) >= g.date,
-      );
-      if (e) g.time = e.meetingTime;
+      g.time = meetingTimeOn(g.date, g.kind, version, changedEvents(ctx));
     }
     return out.sort((a, b) => a.date.localeCompare(b.date));
   }
 
   private async weekContext(tenantId: string): Promise<WeekContext | null> {
-    const versions = await this.settingsRepo.find({
-      where: { congregationId: tenantId },
-      order: { effectiveFrom: 'ASC' },
-    });
-    if (versions.length === 0) return null;
-
-    const visits = await this.eventsRepo.find({
-      where: { congregationId: tenantId, type: 'circuit_overseer_visit' },
-    });
-    // Events that REPLACE the congregation's own meetings. A circuit visit is
-    // deliberately not among them: it moves a meeting, it does not cancel one.
-    // Nobody should be asked to record attendance at a meeting the whole
-    // congregation was away at an assembly for.
-    const cancelling = await this.eventsRepo.find({
-      where: [
-        { congregationId: tenantId, type: 'regional_convention' },
-        { congregationId: tenantId, type: 'circuit_assembly' },
-      ],
-    });
-    // The Memorial replaces ONE of that week's meetings, chosen by the kind of
-    // day it falls on: on a weekday the midweek meeting gives way, at the
-    // weekend the weekend meeting does. Not "the meeting on the same day" —
-    // the Memorial can fall on a Tuesday while the midweek meeting is a
-    // Thursday, and it is still the midweek meeting that goes.
-    const memorials = await this.eventsRepo.find({
-      where: { congregationId: tenantId, type: 'memorial' },
-    });
-    // Anything the congregation marked by hand as «в этот день обычной встречи
-    // нет». Fetched by the FLAG rather than by a type, because that is the
-    // whole point of it: it exists for the events that have no rule of their
-    // own. The rules module ignores it on events that do.
-    const flagged = await this.eventsRepo.find({
-      where: { congregationId: tenantId, replacesMeeting: true },
-    });
-    const changed = await this.eventsRepo.find({
-      where: { congregationId: tenantId, meetingMode: 'changed' },
-    });
-    return { versions, visits, cancelling, memorials, flagged, changed };
+    // The same queries every other reader of the week rules runs — written
+    // once, in common/week-rules.service.ts (4 November 2026).
+    const ctx = await loadWeekRulesContext(
+      this.settingsRepo,
+      this.eventsRepo,
+      tenantId,
+    );
+    return ctx.versions.length === 0 ? null : ctx;
   }
 
   /**
@@ -814,25 +771,17 @@ export class MeetingAttendanceService {
     kind: EventType,
     ctx: WeekContext,
   ): string | null {
-    if (kind !== EventType.MEMORIAL) {
-      const e = (ctx.changed ?? []).find(
-        (c) => c.meetingTime && c.date <= date && (c.endDate ?? c.date) >= date,
-      );
-      if (e?.meetingTime) return e.meetingTime;
-    } else {
+    if (kind === EventType.MEMORIAL) {
       const memorial = ctx.memorials.find((e) => e.date === date);
       if (memorial) return memorial.time ?? null;
     }
-    const weekStart = mondayOf(date);
-    let version: MeetingSettings | null = null;
-    for (const v of ctx.versions) {
-      if (v.effectiveFrom <= weekStart) version = v;
-    }
-    version = version ?? ctx.versions[0];
-    if (!version) return null;
-    return kind === EventType.MIDWEEK
-      ? version.midweekTime
-      : version.weekendTime;
+    // One answer for every reader: common/week-rules.ts (4 November 2026).
+    return meetingTimeOn(
+      date,
+      kind === EventType.MIDWEEK ? 'midweek' : 'weekend',
+      versionForWeek(ctx.versions, mondayOf(date)),
+      changedEvents(ctx),
+    );
   }
 
   private meetingsOfWeek(
