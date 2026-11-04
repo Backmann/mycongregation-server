@@ -108,6 +108,32 @@ describe('local needs (real database)', () => {
     expect(open.map((o) => o.weekStartDate)).toContain(week);
   });
 
+  // 4 November 2026: the Memorial's week was still counted, and the
+  // coordinator was reminded to fill a topic for a meeting it takes.
+  it('does not ask for a topic in a week the Memorial takes the midweek meeting', async () => {
+    const svc = h.app.get(LocalNeedsService);
+    const wednesday = (() => {
+      const d = new Date(`${week}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + 2);
+      return d.toISOString().slice(0, 10);
+    })();
+    const [{ id }] = await h.sql<{ id: string }>(
+      `INSERT INTO special_events (congregation_id, type, title, date)
+       VALUES ($1, 'memorial', 'Вечеря', $2) RETURNING id`,
+      [tenantId, wednesday],
+    );
+    try {
+      expect(
+        (await svc.unfilledWeeks(tenantId)).map((o) => o.weekStartDate),
+      ).not.toContain(week);
+    } finally {
+      await h.sql(`DELETE FROM special_events WHERE id = $1`, [id]);
+    }
+    expect(
+      (await svc.unfilledWeeks(tenantId)).map((o) => o.weekStartDate),
+    ).toContain(week);
+  });
+
   it('a planned week is kept, snapped to its Monday', async () => {
     const r = await h
       .as('coord')

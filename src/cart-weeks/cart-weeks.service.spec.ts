@@ -106,6 +106,41 @@ describe('who goes first when more want a time than it holds', () => {
     expect(chosen.sort()).toEqual(['b', 'c', 'd', 'e']);
   });
 
+  // 4 November 2026: the status went by the Monday's month, so in the week
+  // of 26 October – 1 November an auxiliary pioneer for November alone was
+  // put first on the Friday of October.
+  it('an auxiliary pioneer counts first only on the days of his month', () => {
+    const friday = { ...D, id: 'fri', date: '2026-10-30' };
+    const sunday = { ...D, id: 'sun', date: '2026-11-01' };
+    const on = (day: typeof D, p: string, i: number) => ({
+      ...wish(p, i),
+      dayId: day.id,
+      date: day.date,
+    });
+    const standing = new Map([
+      st('aux', {
+        pioneer: true,
+        pioneerIn: { '2026-10': false, '2026-11': true },
+        recentDays: 9,
+      }),
+      ...['b', 'c', 'd', 'e'].map((p) => st(p, { recentDays: 0 })),
+    ]);
+    const pick = (day: typeof D) =>
+      suggest(
+        [day],
+        [
+          on(day, 'aux', 0),
+          ...['b', 'c', 'd', 'e'].map((p, i) => on(day, p, i + 1)),
+        ],
+        [],
+        standing,
+      ).map((p) => p.publisherId);
+    // October: an ordinary publisher with the most days — left out.
+    expect(pick(friday)).not.toContain('aux');
+    // November: a pioneer — first.
+    expect(pick(sunday)).toContain('aux');
+  });
+
   it('nobody twice at one hour, and never more than four', () => {
     const wishes = [
       wish('a', 1),

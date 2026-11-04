@@ -527,6 +527,21 @@ export class PioneerSchoolService {
       },
     });
 
+    // The DAY of each of those meetings, as the week rules hold it (4 November
+    // 2026). A duty used to make him «busy» on any day of its week, so a
+    // school day on a Tuesday was flagged for a microphone on the Sunday.
+    const meetingDayOf = new Map<string, string>();
+    for (const week of new Set(
+      meetingDuties.map((d) => d.weekStartDate.slice(0, 10)),
+    )) {
+      for (const g of await this.meetingAttendance.gatheringsForWeek(
+        tenantId,
+        week,
+      )) {
+        meetingDayOf.set(`${week}|${g.kind}`, g.date);
+      }
+    }
+
     for (const r of duties) {
       if (!r.helperId) continue;
       const date = dateById.get(r.dayId);
@@ -542,11 +557,11 @@ export class PioneerSchoolService {
       );
       if (away) add(r.id, 'away');
 
-      const week = mondayOf(date);
       const busy = meetingDuties.some(
         (d) =>
           d.publisherId === publisherId &&
-          d.weekStartDate.slice(0, 10) === week,
+          meetingDayOf.get(`${d.weekStartDate.slice(0, 10)}|${d.eventType}`) ===
+            date,
       );
       if (busy) add(r.id, 'busyAtMeeting');
     }
