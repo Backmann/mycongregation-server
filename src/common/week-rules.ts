@@ -85,6 +85,10 @@ export interface WeekEvent {
   coMidweekDow?: number | null;
   /** «В этот день обычной встречи нет» — set by hand on the event. */
   replacesMeeting?: boolean | null;
+  /** «С изменениями»: the meeting on this event's days goes ahead … */
+  meetingMode?: string | null;
+  /** … starting at this hour (HH:mm), when one is given. */
+  meetingTime?: string | null;
 }
 
 /** Only the fields the rules need from a meeting-settings version. */
@@ -92,6 +96,8 @@ export interface WeekSettingsVersion {
   effectiveFrom: string;
   midweekDow?: number | null;
   weekendDow?: number | null;
+  midweekTime?: string | null;
+  weekendTime?: string | null;
   /**
    * Not used by the rules themselves — carried so that a caller holding the
    * version for a week can count that weeks duty places without fetching the
@@ -170,6 +176,14 @@ export interface WeekRules {
   dateOf: (kind: MeetingKind) => string | null;
   /** The flagged event standing in for a meeting, if one covers its day. */
   replacedBy: (kind: MeetingKind) => WeekEvent | null;
+  /**
+   * The hour a meeting begins (HH:mm): an event that keeps it «with changes»
+   * at another hour on that day, else the settings version in force. Null
+   * when none is recorded. Asked HERE so that every reminder, notice and
+   * table says the same hour — until 4 November only attendance and the
+   * cleaning reminder knew about the event's hour.
+   */
+  timeOf: (kind: MeetingKind) => string | null;
   /** The meetings actually held that week, in order. */
   meetings: { date: string; kind: MeetingKind }[];
   /** Days covered by the convention or assembly, within this week. */
@@ -234,6 +248,22 @@ export function weekRules(input: {
     );
   };
 
+  const timeOf = (kind: MeetingKind): string | null => {
+    const date = dateOf(kind);
+    const changed = date
+      ? events.find(
+          (e) =>
+            e.meetingMode === 'changed' &&
+            !!e.meetingTime &&
+            e.date <= date &&
+            (e.endDate ?? e.date) >= date,
+        )
+      : undefined;
+    if (changed?.meetingTime) return changed.meetingTime.slice(0, 5);
+    const t = kind === 'midweek' ? version?.midweekTime : version?.weekendTime;
+    return t ? t.slice(0, 5) : null;
+  };
+
   const meetings: { date: string; kind: MeetingKind }[] = [];
   if (meetingsHeld && version) {
     for (const kind of ['midweek', 'weekend'] as const) {
@@ -264,6 +294,7 @@ export function weekRules(input: {
     dowOf,
     dateOf,
     replacedBy,
+    timeOf,
     meetings,
     congressDays,
   };

@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { AnnualReportService } from './annual-report.service';
 import { AnnualSentService } from './annual-sent.service';
+import { CongregationClock } from '../common/congregation-clock.service';
 import { SaveAnnualSentDto } from './dto/save-annual-sent.dto';
 import {
   CurrentUser,
@@ -33,18 +34,20 @@ export class AnnualReportController {
   constructor(
     private readonly service: AnnualReportService,
     private readonly sent: AnnualSentService,
+    private readonly clock: CongregationClock,
   ) {}
 
   @Get()
-  figures(
+  async figures(
     @TenantId() congregationId: string,
     @Query('startYear') startYear?: string,
   ) {
-    const now = new Date();
     // Filed in early September for the year that has just ended, so before
     // September the year in question is still the one that began last autumn.
-    const fallback =
-      now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1;
+    // By the congregation's calendar, not the server's UTC one.
+    const today = await this.clock.todayFor(congregationId);
+    const year = Number(today.slice(0, 4));
+    const fallback = Number(today.slice(5, 7)) >= 9 ? year : year - 1;
     return this.service.figures(
       congregationId,
       startYear ? Number(startYear) : fallback,

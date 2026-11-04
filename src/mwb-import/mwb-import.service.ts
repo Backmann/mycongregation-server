@@ -165,7 +165,8 @@ export class MwbImportService {
   ): Promise<ImportResultDto> {
     const result: ImportResultDto = {
       epubFile: dto.epubFile ?? 'client-parsed.epub',
-      year: dto.year ?? new Date().getFullYear(),
+      // The workbook's own year (ArrayMinSize(1) on weeks), not the server's.
+      year: dto.year ?? Number(dto.weeks[0].weekStartDate.slice(0, 4)),
       weeksImported: 0,
       partsCreated: 0,
       partsUpdated: 0,

@@ -11,7 +11,6 @@ import {
   todayIn,
 } from '../common/congregation-clock';
 import { WeekRulesService } from '../common/week-rules.service';
-import { versionForWeek } from '../common/week-rules';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
   AssignmentRemindersService,
@@ -171,11 +170,10 @@ export class ProgrammeNoticeService {
       (x) => (x.kind as string) === m.eventType,
     )?.date;
     if (!date) return null;
-    const version = versionForWeek(ctx.versions, m.weekStartDate);
+    // The hour the meeting really begins: an event keeping it «with changes»
+    // at another hour wins over the settings (4 November 2026).
     const start = minutesOf(
-      m.eventType === EventType.MIDWEEK
-        ? version?.midweekTime
-        : version?.weekendTime,
+      rules.timeOf(m.eventType === EventType.MIDWEEK ? 'midweek' : 'weekend'),
     );
     if (start === null) return null;
     return (

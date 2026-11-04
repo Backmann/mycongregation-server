@@ -76,9 +76,10 @@ describe('WeekRulesService', () => {
     const map = await service.forWeeks('c1', weeks);
 
     expect([...map.keys()]).toEqual(weeks);
-    // Five weeks, still one settings query and four event queries.
+    // Five weeks, still one settings query and five event queries (the
+    // fifth, since 4 November, is the events that change a meeting's hour).
     expect(calls.settings).toBe(1);
-    expect(calls.events).toBe(4);
+    expect(calls.events).toBe(5);
   });
 
   it('keys the range by the week starts it was given', async () => {

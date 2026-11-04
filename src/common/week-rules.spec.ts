@@ -230,3 +230,90 @@ describe('an event flagged «в этот день обычной встречи 
     expect(r.meetings).toEqual([]);
   });
 });
+
+// 4 November 2026: the hour of a meeting is the rules' answer too, so a
+// reminder, a notice and the month table cannot each pick their own.
+describe('the hour a meeting begins', () => {
+  const timed = [
+    {
+      effectiveFrom: '2020-01-01',
+      midweekDow: 4,
+      weekendDow: 7,
+      midweekTime: '19:00:00',
+      weekendTime: '13:00',
+    },
+  ];
+  const at = (events: Parameters<typeof weekRules>[0]['events']) =>
+    weekRules({ weekStart: WEEK, versions: timed, events });
+
+  it('is the settings hour in an ordinary week', () => {
+    const r = at([]);
+    expect(r.timeOf('midweek')).toBe('19:00');
+    expect(r.timeOf('weekend')).toBe('13:00');
+  });
+
+  it('is the event hour on a day kept «with changes»', () => {
+    const r = at([
+      {
+        type: 'other',
+        date: '2026-04-12',
+        meetingMode: 'changed',
+        meetingTime: '10:00',
+      },
+    ]);
+    expect(r.timeOf('weekend')).toBe('10:00');
+    expect(r.timeOf('midweek')).toBe('19:00');
+  });
+
+  it('follows the meeting to the day a circuit visit moves it to', () => {
+    const r = at([
+      {
+        type: 'circuit_overseer_visit',
+        date: '2026-04-07',
+        endDate: '2026-04-12',
+        coMidweekDow: 2,
+      },
+      {
+        type: 'other',
+        date: '2026-04-07',
+        meetingMode: 'changed',
+        meetingTime: '18:30',
+      },
+    ]);
+    expect(r.dateOf('midweek')).toBe('2026-04-07');
+    expect(r.timeOf('midweek')).toBe('18:30');
+  });
+
+  it('ignores an hour given on another day of the week', () => {
+    const r = at([
+      {
+        type: 'other',
+        date: '2026-04-10',
+        meetingMode: 'changed',
+        meetingTime: '10:00',
+      },
+    ]);
+    expect(r.timeOf('midweek')).toBe('19:00');
+    expect(r.timeOf('weekend')).toBe('13:00');
+  });
+
+  it('is null when nothing is recorded', () => {
+    const r = weekRules({ weekStart: WEEK, versions: [], events: [] });
+    expect(r.timeOf('midweek')).toBeNull();
+  });
+
+  it('keeps the other rules as they were: an hour is not a cancellation', () => {
+    const r = at([
+      {
+        type: 'other',
+        date: '2026-04-09',
+        meetingMode: 'changed',
+        meetingTime: '20:00',
+      },
+    ]);
+    expect(r.meetings).toEqual([
+      { date: '2026-04-09', kind: 'midweek' },
+      { date: '2026-04-12', kind: 'weekend' },
+    ]);
+  });
+});

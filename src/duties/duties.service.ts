@@ -1203,7 +1203,7 @@ export class DutiesService {
     const lastWeek = weeks[weeks.length - 1];
     const today = await this.clock.todayFor(congregationId);
 
-    const [rules, duties, parts, stored, settings] = await Promise.all([
+    const [rules, duties, parts, stored] = await Promise.all([
       this.weekRules.forWeeks(congregationId, weeks),
       this.repo.find({
         where: {
@@ -1231,7 +1231,6 @@ export class DutiesService {
         },
       }),
       this.places.storedAll(congregationId),
-      this.meetingRepo.find({ where: { congregationId } }),
     ]);
 
     const key = (w: string, e: string) => `${w}|${e}`;
@@ -1288,12 +1287,8 @@ export class DutiesService {
         if (!date || date < first || date >= after) continue;
         const eventType =
           kind === 'midweek' ? EventType.MIDWEEK : EventType.WEEKEND;
-        const v = versionForWeek(settings, week);
-        const time =
-          ((kind === 'midweek' ? v?.midweekTime : v?.weekendTime) ?? '').slice(
-            0,
-            5,
-          ) || null;
+        // The meeting's own hour, an event «with changes» included.
+        const time = r.timeOf(kind);
         const notHeld =
           r.memorialTakes === kind
             ? ('memorial' as const)

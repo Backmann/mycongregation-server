@@ -483,10 +483,7 @@ describe('ServiceReportsService', () => {
       publishersRepo.findOne.mockResolvedValue(
         makePublisher({ id: 'pub-self' }),
       );
-      const now = new Date();
-      const thisMonth = `${now.getFullYear()}-${String(
-        now.getMonth() + 1,
-      ).padStart(2, '0')}`;
+      const thisMonth = (await clockStub().todayFor('cong-1')).slice(0, 7);
       await expect(
         service.submitOwnReport('cong-1', makeUser({ id: 'user-self' }), {
           reportMonth: thisMonth,
@@ -495,6 +492,35 @@ describe('ServiceReportsService', () => {
         }),
       ).rejects.toThrow('already ended');
       expect(reportsRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('takes October in the first hour of 1 November in Germany, by the congregation clock', async () => {
+      // 00:30 in Berlin is still 23:30 on 31 October in UTC, the server's
+      // clock. The month just ended must be accepted, the new one refused.
+      jest.useFakeTimers().setSystemTime(new Date('2026-10-31T23:30:00Z'));
+      try {
+        publishersRepo.findOne.mockResolvedValue(
+          makePublisher({ id: 'pub-self' }),
+        );
+        const user = makeUser({ id: 'user-self' });
+        const body = { servedThisMonth: true, bibleStudies: 0 };
+        await expect(
+          service.submitOwnReport('cong-1', user, {
+            ...body,
+            reportMonth: '2026-11',
+          }),
+        ).rejects.toThrow('already ended');
+        // Whatever else may stop it, it is not the month.
+        const october = await service
+          .submitOwnReport('cong-1', user, { ...body, reportMonth: '2026-10' })
+          .then(
+            () => '',
+            (e: Error) => e.message,
+          );
+        expect(october).not.toContain('already ended');
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('rejects a report for a future month', async () => {

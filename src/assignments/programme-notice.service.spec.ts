@@ -17,6 +17,8 @@ import {
  *
  * Berlin: until 25 October 2026 it is UTC+2, after it UTC+1.
  */
+import { rulesFromContext } from '../common/week-rules.service';
+
 const TZ = 'Europe/Berlin';
 const CONG = 'c1';
 const MIN = 60_000;
@@ -47,7 +49,12 @@ type Row = {
 };
 
 function make(
-  opts: { lastEdit?: string | null; notice?: Partial<Row> | null } = {},
+  opts: {
+    lastEdit?: string | null;
+    notice?: Partial<Row> | null;
+    /** Events keeping a meeting «with changes» at another hour. */
+    changed?: object[];
+  } = {},
 ) {
   let flagged = opts.lastEdit !== null;
   const lastEdit = opts.lastEdit ?? '2026-10-21T09:36:00Z';
@@ -114,19 +121,28 @@ function make(
   const congregations = {
     findOne: jest.fn(async () => ({ id: CONG, timezone: TZ })),
   };
+  // The real rules over a stub context: the hour is the rules' to say now,
+  // and a hand-made `rulesFrom` would only agree with itself.
   const weekRules = {
     contextOf: jest.fn(async () => ({
       versions: [
         {
           effectiveFrom: '2020-01-06',
+          midweekDow: 3,
+          weekendDow: 7,
           midweekTime: '19:00',
           weekendTime: '13:00',
         },
       ],
+      visits: [],
+      cancelling: [],
+      memorials: [],
+      flagged: [],
+      changed: opts.changed ?? [],
     })),
-    rulesFrom: jest.fn((_ctx: unknown, week: string) => ({
-      meetings: [{ date: DATES[week], kind: 'midweek' }],
-    })),
+    rulesFrom: jest.fn((ctx: never, week: string) =>
+      rulesFromContext(ctx, week),
+    ),
   };
   const reminders = {
     pendingNotice: jest.fn(async () => ({
@@ -248,6 +264,24 @@ describe('ProgrammeNoticeService.status', () => {
     const s = await t.service.status(NOV, new Date('2026-10-21T20:01:00Z'));
     expect(s.dueAt).toBe('2026-10-22T06:00:00.000Z');
     expect(s.eveningAt).toBeNull();
+  });
+
+  // 4 November 2026: the hour came from the settings alone, so a meeting kept
+  // «with changes» at another hour was judged near or far by the usual one.
+  it('a meeting moved to 21:00 by an event is not near at 17:00', async () => {
+    const t = make({
+      lastEdit: '2026-10-21T15:00:00Z',
+      changed: [
+        {
+          type: 'other',
+          date: DATES[TODAY.weekStartDate],
+          meetingMode: 'changed',
+          meetingTime: '21:00',
+        },
+      ],
+    });
+    const s = await t.service.status(TODAY, new Date('2026-10-21T15:00:20Z'));
+    expect(s.soon).toBe(false);
   });
 
   it('the meeting is near: a minute, and no evening', async () => {

@@ -49,6 +49,16 @@ const UTC_TODAY_SPLIT =
  * or a month label built from a date that is already a calendar string, is
  * asking for UTC on purpose. Naming a REGION is the mistake.
  */
+/**
+ * The calendar read off the SERVER's own clock (4 November 2026): the server
+ * keeps UTC, so `new Date().getMonth()` is still October for a German
+ * congregation until 01:00 on 1 November. The report-month check refused
+ * every report filed in that hour. Caught on `new Date()` itself and on the
+ * usual name for it, `now`.
+ */
+const SERVER_CALENDAR =
+  /(?:new Date\(\s*\)|\bnow)\.get(?:FullYear|Month|Date|Day)\(\)/;
+
 const HARDCODED_ZONE = /timeZone:\s*['"](?!UTC['"])[A-Za-z]+\/[A-Za-z_/-]+['"]/;
 
 /**
@@ -97,6 +107,7 @@ describe('no UTC "today" anywhere in the server', () => {
         if (
           UTC_TODAY.test(line) ||
           UTC_TODAY_SPLIT.test(line) ||
+          SERVER_CALENDAR.test(line) ||
           HARDCODED_ZONE.test(line)
         ) {
           offenders.push(`${rel}:${i + 1}`);
