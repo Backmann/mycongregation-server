@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
+import { MeetingMove } from '../entities/meeting-move.entity';
 import { weekRules, WeekEvent, WeekRules } from './week-rules';
 
 /**
@@ -45,6 +46,11 @@ export interface WeekRulesContext {
   flagged: SpecialEvent[];
   /** Events whose day keeps the meeting «with changes» — for its hour. */
   changed: SpecialEvent[];
+  /**
+   * One-week moves of a meeting (4 November 2026). Optional only for the
+   * contexts specs build by hand; the loader always fills it.
+   */
+  moves?: MeetingMove[];
 }
 
 /**
@@ -89,6 +95,7 @@ export async function loadWeekRulesContext(
     // A meeting kept «with changes» may begin at another hour.
     eventsRepo.find({ where: { congregationId, meetingMode: 'changed' } }),
   ]);
+  const moves = await movesOf(settingsRepo, congregationId);
 
   // Sorted here rather than trusted from the query, so that a future change
   // to the `order` clause cannot quietly change which settings version a week
@@ -107,7 +114,26 @@ export async function loadWeekRulesContext(
     memorials,
     flagged,
     changed,
+    moves,
   };
+}
+
+/**
+ * The congregation's one-week moves, over the repository's own manager — so
+ * the five services that already pass the two repositories need no third
+ * constructor argument (the duties service is built positionally in forty
+ * tests). A spec's hand-made repository has no manager: no moves there, and
+ * the rules read exactly as before. A real repository always has one, and the
+ * database test test/db/meeting-move.db-spec.ts holds the loader to it.
+ */
+async function movesOf(
+  settingsRepo: Repository<MeetingSettings>,
+  congregationId: string,
+): Promise<MeetingMove[]> {
+  const manager = (settingsRepo as Partial<Repository<MeetingSettings>>)
+    .manager;
+  if (typeof manager?.getRepository !== 'function') return [];
+  return manager.getRepository(MeetingMove).find({ where: { congregationId } });
 }
 
 /**
@@ -156,7 +182,12 @@ export function rulesFromContext(
     // the visit, congress and flag rules read them exactly as before.
     ...changedEvents(ctx),
   ];
-  return weekRules({ weekStart, versions: ctx.versions, events });
+  return weekRules({
+    weekStart,
+    versions: ctx.versions,
+    events,
+    moves: ctx.moves ?? [],
+  });
 }
 
 @Injectable()

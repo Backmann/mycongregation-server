@@ -93,6 +93,19 @@ export interface WeekEvent {
   meetingAddress?: string | null;
 }
 
+/**
+ * A meeting moved for one week to another day or hour of that week — a row of
+ * `meeting_moves` (4 November 2026). Only the fields the rules need.
+ */
+export interface WeekMove {
+  weekStartDate: string;
+  eventType: string;
+  date: string;
+  time: string;
+  /** Null: at the hall, as the settings give it. */
+  address?: string | null;
+}
+
 /** Only the fields the rules need from a meeting-settings version. */
 export interface WeekSettingsVersion {
   effectiveFrom: string;
@@ -172,7 +185,11 @@ export function meetingTimeOn(
   kind: MeetingKind,
   version: WeekSettingsVersion | null,
   events: WeekEvent[],
+  /** Moves of any weeks; the one for this meeting on this day wins. */
+  moves: WeekMove[] = [],
 ): string | null {
+  const move = moves.find((m) => m.eventType === kind && m.date === date);
+  if (move) return move.time.slice(0, 5);
   const changed = changedOn(events, date, 'meetingTime');
   if (changed?.meetingTime) return changed.meetingTime.slice(0, 5);
   const t = kind === 'midweek' ? version?.midweekTime : version?.weekendTime;
@@ -219,7 +236,13 @@ export interface WeekRules {
   meetingsHeld: boolean;
   /** Which meeting the Memorial takes, or null when there is no Memorial. */
   memorialTakes: MeetingKind | null;
-  /** Weekday of a meeting (1=Mon…7=Sun), the visit's shift included. */
+  /**
+   * The one-week move of this meeting, if there is one and it counts. A visit
+   * week's midweek meeting is set by the visit, so a move of it is ignored
+   * (and the app refuses to make one).
+   */
+  moveOf: (kind: MeetingKind) => WeekMove | null;
+  /** Weekday of a meeting (1=Mon…7=Sun), the visit's shift and a move included. */
   dowOf: (kind: MeetingKind) => number | null;
   /** Calendar date of a meeting, or null when it has no day. */
   dateOf: (kind: MeetingKind) => string | null;
@@ -246,6 +269,8 @@ export function weekRules(input: {
   versions: WeekSettingsVersion[];
   /** All known events; narrowed to the week here. */
   events: WeekEvent[];
+  /** One-week moves of meetings, any weeks; this week's are picked here. */
+  moves?: WeekMove[];
 }): WeekRules {
   const { weekStart } = input;
   const events = eventsOfWeek(input.events, weekStart);
@@ -268,7 +293,24 @@ export function weekRules(input: {
     ? memorialTakesKind(memorial.date)
     : null;
 
+  // A move counts only inside its own week and never against a visit: the
+  // visit's day for the midweek meeting is set on the visit itself.
+  const moveOf = (kind: MeetingKind): WeekMove | null => {
+    if (kind === 'midweek' && coVisit) return null;
+    return (
+      (input.moves ?? []).find(
+        (m) =>
+          m.eventType === kind &&
+          m.weekStartDate === weekStart &&
+          m.date >= weekStart &&
+          m.date <= weekEnd,
+      ) ?? null
+    );
+  };
+
   const dowOf = (kind: MeetingKind): number | null => {
+    const move = moveOf(kind);
+    if (move) return isoDowOf(move.date);
     if (kind === 'weekend') return version?.weekendDow ?? null;
     if (coVisit) return coVisit.coMidweekDow ?? 2;
     return version?.midweekDow ?? null;
@@ -300,11 +342,15 @@ export function weekRules(input: {
   };
 
   const timeOf = (kind: MeetingKind): string | null => {
+    const move = moveOf(kind);
+    if (move) return move.time.slice(0, 5);
     const date = dateOf(kind);
     return date ? meetingTimeOn(date, kind, version, events) : null;
   };
 
   const placeOf = (kind: MeetingKind): string | null => {
+    const move = moveOf(kind);
+    if (move) return move.address?.trim() || version?.address?.trim() || null;
     const date = dateOf(kind);
     return date ? meetingPlaceOn(date, version, events) : null;
   };
@@ -336,6 +382,7 @@ export function weekRules(input: {
     memorial,
     meetingsHeld,
     memorialTakes,
+    moveOf,
     dowOf,
     dateOf,
     replacedBy,
