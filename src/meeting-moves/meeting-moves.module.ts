@@ -9,12 +9,23 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { MeetingAttendance } from '../entities/meeting-attendance.entity';
 import { MeetingMovesController } from './meeting-moves.controller';
 import { MeetingMovesService } from './meeting-moves.service';
+import { MeetingMoveNotificationsService } from './meeting-move-notifications.service';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { User } from '../entities/user.entity';
+import { Publisher } from '../entities/publisher.entity';
+import { Assignment } from '../entities/assignment.entity';
+import { Duty } from '../entities/duty.entity';
 
 @Module({
   imports: [
     AuditLogModule,
     CongregationClockModule,
+    NotificationsModule,
     TypeOrmModule.forFeature([
+      User,
+      Publisher,
+      Assignment,
+      Duty,
       MeetingMove,
       MeetingSettings,
       SpecialEvent,
@@ -23,7 +34,7 @@ import { MeetingMovesService } from './meeting-moves.service';
     ]),
   ],
   controllers: [MeetingMovesController],
-  providers: [MeetingMovesService],
+  providers: [MeetingMovesService, MeetingMoveNotificationsService],
   exports: [MeetingMovesService],
 })
 export class MeetingMovesModule {}
