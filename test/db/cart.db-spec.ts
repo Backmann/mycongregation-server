@@ -912,6 +912,14 @@ describe('public witnessing — the stand (real database)', () => {
         const date = addDays(monday, dow - 1);
         return date < today || (date === today && m >= 12 * 60);
       });
+      // Other tests of this file may already have put a day of this week at
+      // this place (4 November 2026: on a Wednesday the Monday was there).
+      // So what THIS request added is compared, not the whole week.
+      const before = new Set(
+        ((await view('boss', monday).catch(() => null))?.days ?? [])
+          .filter((d) => d.locationId === locA)
+          .map((d) => d.date),
+      );
       const res = await h.as('boss').post('/cart-weeks', {
         weekStartDate: monday,
         startTime: '09:00',
@@ -925,13 +933,15 @@ describe('public witnessing — the stand (real database)', () => {
       }
       expect(res.status).toBe(201);
       expect(res.body.skippedPast).toBe(over.length);
-      const v = await view('boss', monday);
-      const dates = v.days
+      const after = (await view('boss', monday)).days
         .filter((d) => d.locationId === locA)
         .map((d) => d.date);
+      const added = after.filter((d) => !before.has(d));
       for (const dow of over)
-        expect(dates).not.toContain(addDays(monday, dow - 1));
-      expect(dates.length).toBe(7 - over.length);
+        expect(added).not.toContain(addDays(monday, dow - 1));
+      // Every day ahead is there, whether added now or already.
+      for (const dow of all.filter((x) => !over.includes(x)))
+        expect(after).toContain(addDays(monday, dow - 1));
     });
 
     it('sign-up does not open onto an empty week; the deadline lies between today and the last day', async () => {
