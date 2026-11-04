@@ -25,6 +25,8 @@ const CHECKED_IN_SERVICE: Record<string, string> = {
   journal: 'service: assertMayAsk (admin)',
   'local-needs': 'service: life-and-ministry overseer',
   me: 'the caller\u2019s own data',
+  'meeting-moves':
+    'service: life-and-ministry overseer (midweek), body coordinator (weekend), admin; after the fact admin or body coordinator',
   'pioneer-meetings':
     'service: admin, coordinator of the body of elders, service overseer',
   'pioneer-school': 'service: admin',

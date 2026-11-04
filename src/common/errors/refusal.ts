@@ -40,6 +40,16 @@ export const REFUSAL_CODES = [
   'ADMIN_ELDERS_ONLY',
   'SPAN_INVALID',
   'WEEK_NOT_MONDAY',
+  // ---- a meeting moved for one week (meeting-moves) ----
+  'MOVE_OUTSIDE_WEEK',
+  'MOVE_OTHER_MEETING_DAY',
+  'MOVE_CHANGED_EVENT_DAY',
+  'MOVE_SAME_AS_USUAL',
+  'MOVE_NOT_HELD',
+  'MOVE_VISIT_WEEK',
+  'MOVE_NOT_FOUND',
+  'MOVE_PAST_NEEDS_COORDINATOR',
+  'MOVE_ATTENDANCE_CLASH',
   // ---- field-service meetings ----
   'FS_PAST_LOCKED',
   'FS_CANCELLED',
