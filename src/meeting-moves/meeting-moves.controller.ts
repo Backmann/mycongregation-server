@@ -17,6 +17,7 @@ import { refusal } from '../common/errors/refusal';
 import type { MeetingKind } from '../common/week-rules';
 import { MoveMeetingDto } from './dto/move-meeting.dto';
 import { MeetingMovesService } from './meeting-moves.service';
+import { StageAllowed } from '../common/stage';
 
 /**
  * A meeting moved for one week (4 November 2026). Reading is for every
@@ -27,6 +28,9 @@ import { MeetingMovesService } from './meeting-moves.service';
 export class MeetingMovesController {
   constructor(private readonly service: MeetingMovesService) {}
 
+  // The stage screen in the hall reads it too (common/stage.ts): it shows
+  // the meeting of the day, and a moved meeting's day is here.
+  @StageAllowed()
   @Get()
   list(@TenantId() tenantId: string, @Query('from') from?: string) {
     if (from !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(from)) {
