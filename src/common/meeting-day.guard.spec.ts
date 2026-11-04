@@ -48,10 +48,6 @@ const STILL_TO_MOVE: Record<string, number> = {
   'cleaning/cleaning-reminders.service.ts': 2,
   // The congregation summary's «где и когда»: the raw settings days.
   'congregation-summary/congregation-summary.service.ts': 12,
-  // Its own weekend day per week, with a different fallback.
-  'public-talks/public-talks.service.ts': 3,
-  // weekendDateFor: the journal's date, ignoring the week's events.
-  'talk-exchange/talk-exchange.service.ts': 1,
   // The visit's midweek day, written out again.
   'special-events/event-messages.ts': 1,
   'special-events/co-visit-template.service.ts': 1,
