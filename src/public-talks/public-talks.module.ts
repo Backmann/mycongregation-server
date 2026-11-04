@@ -5,6 +5,7 @@ import { PublicTalk } from '../entities/public-talk.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { PublicTalksController } from './public-talks.controller';
 import { PublicTalksService } from './public-talks.service';
 import { RestrictedScheduleService } from './restricted-schedule.service';
@@ -23,6 +24,8 @@ import { CatalogueKeeperGuard } from './catalogue-keeper.guard';
       Assignment,
       TalkExchange,
       MeetingSettings,
+      // The week rules: which day the weekend meeting is actually held.
+      SpecialEvent,
       Publisher,
       ExternalCongregation,
       // Read by CatalogueKeeperGuard: the coordinator's duty opens the

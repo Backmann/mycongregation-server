@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, MoreThanOrEqual, Repository } from 'typeorm';
@@ -15,6 +16,11 @@ import {
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
+import {
+  loadWeekRulesContext,
+  rulesFromContext,
+} from '../common/week-rules.service';
 
 /** `2026-10-26` + 6 → `2026-11-01`. Dates only; no timezone enters here. */
 function addDaysISO(iso: string, days: number): string {
@@ -156,6 +162,11 @@ export interface LastImport {
  * A fixed id because there is one catalogue: every import writes another row
  * against it, so the history is simply the rows in order.
  */
+/** Stands in for the events table where a spec builds the service without it. */
+const NO_EVENTS = {
+  find: () => Promise.resolve([]),
+} as unknown as Repository<SpecialEvent>;
+
 const IMPORT_LOG_ID = '00000000-0000-0000-0000-0000000000c1';
 
 @Injectable()
@@ -172,6 +183,14 @@ export class PublicTalksService {
     @InjectRepository(MeetingSettings)
     private readonly settingsRepo: Repository<MeetingSettings>,
     private readonly auditLog: AuditLogService,
+    /**
+     * For the week rules (4 November 2026). Last and optional only because
+     * the specs build this service positionally without it; the module always
+     * provides it, and the wiring test holds the module to that.
+     */
+    @Optional()
+    @InjectRepository(SpecialEvent)
+    private readonly eventsRepo?: Repository<SpecialEvent>,
   ) {}
 
   /**
@@ -266,13 +285,13 @@ export class PublicTalksService {
     const shown = [...latestByTalk.values(), ...nextByTalk.values()].map((a) =>
       String(a.weekStartDate).slice(0, 10),
     );
-    const dowOf = await this.weekendDowByWeek(congregationId, [
+    const dateOf = await this.weekendDateByWeek(congregationId, [
       ...new Set(shown),
     ]);
     const dayOf = (a: Assignment | undefined): string | null => {
       if (!a) return null;
       const week = String(a.weekStartDate).slice(0, 10);
-      return addDaysISO(week, (dowOf.get(week) ?? 7) - 1);
+      return dateOf.get(week) ?? addDaysISO(week, 6);
     };
     const data: PublicTalkWithHistory[] = talks.map((t) => {
       const latest = latestByTalk.get(t.id);
@@ -590,7 +609,7 @@ export class PublicTalksService {
       order: { date: 'ASC' },
     });
 
-    const weekendDow = await this.weekendDowByWeek(
+    const weekendDate = await this.weekendDateByWeek(
       congregationId,
       assignments.map((a) => a.weekStartDate),
     );
@@ -598,10 +617,8 @@ export class PublicTalksService {
     const fromProgramme: ScheduledUse[] = assignments.map((a) => ({
       publicTalkId: a.publicTalkId as string,
       weekStartDate: a.weekStartDate,
-      meetingDate: addDaysISO(
-        a.weekStartDate,
-        (weekendDow.get(a.weekStartDate) ?? 7) - 1,
-      ),
+      meetingDate:
+        weekendDate.get(a.weekStartDate) ?? addDaysISO(a.weekStartDate, 6),
       speakerName: scheduledSpeakerName(a),
       speakerCongregation: scheduledSpeakerCongregation(a),
       source: 'programme' as const,
@@ -627,27 +644,28 @@ export class PublicTalksService {
   }
 
   /**
-   * Which weekday the weekend meeting fell on, per week.
+   * The weekend meeting's date, per week — as the week rules give it
+   * (4 November 2026), on one set of queries.
    *
-   * Read per week rather than once: a congregation that moved its meeting has
-   * several settings versions, and the one in force is the newest that starts
-   * on or before that week.
+   * The copy this replaces picked the version itself and fell back to Sunday
+   * for a week before the first version, where every other place takes the
+   * first version. And a meeting moved for one week is known to the rules
+   * only.
    */
-  private async weekendDowByWeek(
+  private async weekendDateByWeek(
     congregationId: string,
     weeks: string[],
-  ): Promise<Map<string, number>> {
-    const out = new Map<string, number>();
+  ): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
     if (weeks.length === 0) return out;
-    const versions = await this.settingsRepo.find({
-      where: { congregationId },
-      order: { effectiveFrom: 'ASC' },
-    });
-    for (const week of weeks) {
-      const inForce = [...versions]
-        .reverse()
-        .find((v) => v.effectiveFrom <= week);
-      out.set(week, inForce?.weekendDow ?? 7);
+    const ctx = await loadWeekRulesContext(
+      this.settingsRepo,
+      this.eventsRepo ?? NO_EVENTS,
+      congregationId,
+    );
+    for (const week of new Set(weeks)) {
+      const date = rulesFromContext(ctx, week).dateOf('weekend');
+      if (date) out.set(week, date);
     }
     return out;
   }

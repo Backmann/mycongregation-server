@@ -3,7 +3,10 @@ import {
   readsDirectoryContacts,
 } from '../common/directory-privacy';
 import { assertAssignable } from '../common/inactive';
-import { versionForWeek } from '../common/week-rules';
+import {
+  loadWeekRulesContext,
+  rulesFromContext,
+} from '../common/week-rules.service';
 import {
   BadRequestException,
   ForbiddenException,
@@ -2014,22 +2017,27 @@ export class TalkExchangeService {
 
   // ---- Program -> Journal sync -------------------------------------------
 
-  /** The weekend meeting date for a week, per the meeting-settings version in force. */
+  /**
+   * The weekend meeting's date for a week — as the week rules give it
+   * (4 November 2026), so the journal dates a guest's visit by the same answer
+   * every other screen shows: the settings version in force THAT week (a
+   * change planned for January once moved this autumn's entries to January's
+   * weekday, 26 September), and next, a meeting moved for one week. Sunday
+   * when nothing is recorded yet.
+   */
   private async weekendDateFor(
     tenantId: string,
     weekStartDate: string,
   ): Promise<string> {
-    // The version in force THAT week — not the latest of all. The latest was
-    // taken, so a change planned for January moved this autumn's journal
-    // entries to January's weekday (26 September).
-    const version = versionForWeek(
-      await this.meetingSettingsRepo.find({
-        where: { congregationId: tenantId },
-      }),
-      weekStartDate,
+    const ctx = await loadWeekRulesContext(
+      this.meetingSettingsRepo,
+      this.eventRepo,
+      tenantId,
     );
-    const dow = version?.weekendDow ?? 7; // default Sunday
-    return addDaysISO(weekStartDate, dow - 1);
+    return (
+      rulesFromContext(ctx, weekStartDate).dateOf('weekend') ??
+      addDaysISO(weekStartDate, 6)
+    );
   }
 
   /**
