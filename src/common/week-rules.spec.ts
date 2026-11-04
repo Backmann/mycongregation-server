@@ -1,4 +1,4 @@
-import { weekRules, isoDowOf } from './week-rules';
+import { weekRules, isoDowOf, meetingTimeOn } from './week-rules';
 
 // Monday 2026-04-06. Midweek meeting Thursday (dow 4), weekend Sunday (dow 7).
 const WEEK = '2026-04-06';
@@ -357,5 +357,107 @@ describe('where a meeting is held', () => {
       },
     ]);
     expect(r.placeOf('weekend')).toBe('Musterstraße 1');
+  });
+});
+
+describe('a meeting moved for one week (4 November 2026)', () => {
+  const V = [
+    {
+      effectiveFrom: '2020-01-01',
+      midweekDow: 4,
+      weekendDow: 7,
+      midweekTime: '19:00',
+      weekendTime: '10:00',
+      address: 'Musterstraße 1',
+    },
+  ];
+  const move = {
+    weekStartDate: WEEK,
+    eventType: 'midweek',
+    date: '2026-04-07',
+    time: '18:30',
+    address: null,
+  };
+  const at = (
+    events: Parameters<typeof weekRules>[0]['events'],
+    moves: Parameters<typeof weekRules>[0]['moves'],
+  ) => weekRules({ weekStart: WEEK, versions: V, events, moves });
+
+  it('holds the meeting on the new day, at the new hour, at the hall', () => {
+    const r = at([], [move]);
+    expect(r.dateOf('midweek')).toBe('2026-04-07');
+    expect(r.timeOf('midweek')).toBe('18:30');
+    expect(r.placeOf('midweek')).toBe('Musterstraße 1');
+    expect(r.moveOf('midweek')).toEqual(move);
+    expect(r.meetings).toEqual([
+      { date: '2026-04-07', kind: 'midweek' },
+      { date: '2026-04-12', kind: 'weekend' },
+    ]);
+  });
+
+  it('takes the place written on the move', () => {
+    const r = at([], [{ ...move, address: ' Stadthalle ' }]);
+    expect(r.placeOf('midweek')).toBe('Stadthalle');
+  });
+
+  it('moves the weekend meeting just the same, and only that one', () => {
+    const r = at(
+      [],
+      [{ ...move, eventType: 'weekend', date: '2026-04-11', time: '15:00' }],
+    );
+    expect([r.dateOf('weekend'), r.timeOf('weekend')]).toEqual([
+      '2026-04-11',
+      '15:00',
+    ]);
+    expect([r.dateOf('midweek'), r.timeOf('midweek')]).toEqual([
+      '2026-04-09',
+      '19:00',
+    ]);
+  });
+
+  it('counts only in its own week', () => {
+    const r = weekRules({
+      weekStart: '2026-04-13',
+      versions: V,
+      events: [],
+      moves: [move],
+    });
+    expect(r.dateOf('midweek')).toBe('2026-04-16');
+    expect(r.moveOf('midweek')).toBeNull();
+  });
+
+  it('never overrides a visit: the visit sets the midweek day', () => {
+    const r = at(
+      [{ type: 'circuit_overseer_visit', date: '2026-04-06', coMidweekDow: 2 }],
+      [{ ...move, date: '2026-04-08' }],
+    );
+    expect(r.dateOf('midweek')).toBe('2026-04-07');
+    expect(r.moveOf('midweek')).toBeNull();
+  });
+
+  it('does not bring back a meeting a convention cancels', () => {
+    const r = at(
+      [
+        {
+          type: 'regional_convention',
+          date: '2026-04-10',
+          endDate: '2026-04-12',
+        },
+      ],
+      [move],
+    );
+    expect(r.meetings).toEqual([]);
+  });
+
+  it('the hour helper used by attendance answers the moved day, and only it', () => {
+    expect(meetingTimeOn('2026-04-07', 'midweek', V[0], [], [move])).toBe(
+      '18:30',
+    );
+    expect(meetingTimeOn('2026-04-09', 'midweek', V[0], [], [move])).toBe(
+      '19:00',
+    );
+    expect(meetingTimeOn('2026-04-07', 'weekend', V[0], [], [move])).toBe(
+      '10:00',
+    );
   });
 });

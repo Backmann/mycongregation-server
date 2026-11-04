@@ -744,7 +744,13 @@ export class MeetingAttendanceService {
     const version = versionForWeek(ctx.versions, weekStart);
     for (const g of out) {
       if (g.kind === 'memorial') continue;
-      g.time = meetingTimeOn(g.date, g.kind, version, changedEvents(ctx));
+      g.time = meetingTimeOn(
+        g.date,
+        g.kind,
+        version,
+        changedEvents(ctx),
+        ctx.moves ?? [],
+      );
     }
     return out.sort((a, b) => a.date.localeCompare(b.date));
   }
@@ -781,6 +787,7 @@ export class MeetingAttendanceService {
       kind === EventType.MIDWEEK ? 'midweek' : 'weekend',
       versionForWeek(ctx.versions, mondayOf(date)),
       changedEvents(ctx),
+      ctx.moves ?? [],
     );
   }
 

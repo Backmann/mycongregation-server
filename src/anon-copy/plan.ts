@@ -266,6 +266,13 @@ export const PLAN: Record<string, TablePlan> = {
       weekend_dow weekend_time microphone_slots created_at updated_at`),
     { address: 'label:Адрес' },
   ),
+  // A meeting moved for one week: the day and hour are no one's; the place
+  // may be typed by hand, so it is labelled like every other address.
+  meeting_moves: table(
+    copy(`id congregation_id week_start_date event_type date time moved_by_id
+      created_at updated_at`),
+    { address: 'label:Адрес' },
+  ),
   halls: table(copy('id congregation_id is_default created_at updated_at'), {
     name: 'label:Зал',
     address: 'label:Адрес',
