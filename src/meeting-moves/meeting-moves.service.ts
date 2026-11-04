@@ -33,6 +33,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import { refusal } from '../common/errors/refusal';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { MoveMeetingDto } from './dto/move-meeting.dto';
+import { MeetingMoveNotificationsService } from './meeting-move-notifications.service';
 
 /** What a move did, for the caller (and, next, for the announcement). */
 export interface MoveResult {
@@ -79,6 +80,7 @@ export class MeetingMovesService {
     private readonly auditLog: AuditLogService,
     private readonly clock: CongregationClock,
     private readonly dataSource: DataSource,
+    private readonly announcer: MeetingMoveNotificationsService,
   ) {}
 
   /** The moves from a week on (every member reads them: the rules need them). */
@@ -153,7 +155,7 @@ export class MeetingMovesService {
     const past = fromDate < today || dto.date < today;
     if (past) await this.assertMayMoveAfterwards(user);
 
-    return this.dataSource.transaction(async (m) => {
+    const result = await this.dataSource.transaction(async (m) => {
       const repo = m.getRepository(MeetingMove);
       const before = await repo.findOne({
         where: {
@@ -210,6 +212,9 @@ export class MeetingMovesService {
         attendanceMoved,
       };
     });
+    // Told only once it is saved; a failed message never undoes the move.
+    await this.announce(tenantId, week, kind, result, false);
+    return result;
   }
 
   /** «Вернуть на обычный день»: the move is removed. */
@@ -239,7 +244,7 @@ export class MeetingMovesService {
     const past = existing.date < today || usual.date < today;
     if (past) await this.assertMayMoveAfterwards(user);
 
-    return this.dataSource.transaction(async (m) => {
+    const result = await this.dataSource.transaction(async (m) => {
       await m.getRepository(MeetingMove).delete({ id: existing.id });
       const attendanceMoved = await this.carryAttendance(
         m,
@@ -263,6 +268,24 @@ export class MeetingMovesService {
         past,
         attendanceMoved,
       };
+    });
+    await this.announce(tenantId, week, kind, result, true);
+    return result;
+  }
+
+  private announce(
+    tenantId: string,
+    week: string,
+    kind: MeetingKind,
+    r: MoveResult,
+    back: boolean,
+  ): Promise<void> {
+    return this.announcer.announce({
+      tenantId,
+      week,
+      kind,
+      past: r.past,
+      move: { kind, from: r.from, to: r.to, back },
     });
   }
 
