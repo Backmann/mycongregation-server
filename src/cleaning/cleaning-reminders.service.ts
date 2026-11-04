@@ -10,7 +10,11 @@ import { Publisher } from '../entities/publisher.entity';
 import { ReminderLog } from '../entities/reminder-log.entity';
 import { CleaningSlotType } from '../common/enums/cleaning-slot-type.enum';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import {
+  NotificationsService,
+  QUIET_FROM_HOUR,
+  QUIET_UNTIL_HOUR,
+} from '../notifications/notifications.service';
 import { SupportedLanguage } from '../common/i18n/supported-languages';
 import { DEFAULT_CONGREGATION_TIMEZONE } from '../common/congregation-clock';
 import { MeetingAttendanceService } from '../meeting-attendance/meeting-attendance.service';
@@ -18,8 +22,6 @@ import { MeetingAttendanceService } from '../meeting-attendance/meeting-attendan
 const LEAD_MINUTES = 120; // push 2 hours before a meeting / planned time
 const TICK_MINUTES = 15; // must match the cron cadence
 const MONDAY_HOUR = 9; // weekly-group Monday reminder, local time
-const QUIET_START = 22; // no pushes 22:00–08:00 local
-const QUIET_END = 8;
 
 /** Wall-clock fields for a given instant in a given IANA timezone. */
 interface LocalParts {
@@ -179,8 +181,19 @@ export class CleaningRemindersService {
     return d.toISOString().slice(0, 10);
   }
 
-  private isQuiet(p: LocalParts): boolean {
-    return p.hour >= QUIET_START || p.hour < QUIET_END;
+  /**
+   * Whether a reminder due now still reaches people before the thing begins
+   * (4 November 2026). The hour itself is the notifications door's to decide:
+   * at night it holds a message until 08:00. This service used to keep quiet
+   * hours of its own (22–08) and simply return — so the reminder for a 09:30
+   * meeting, due at 07:30, was lost rather than delivered at 08:00. It is now
+   * handed over whenever 08:00 is still before the start; only a reminder that
+   * would land after the event has begun is dropped.
+   */
+  private static arrivesInTime(p: LocalParts, startMinutes: number): boolean {
+    if (p.hour >= QUIET_FROM_HOUR) return false; // held until tomorrow
+    const delivered = Math.max(p.minutesOfDay, QUIET_UNTIL_HOUR * 60);
+    return delivered < startMinutes;
   }
 
   /** Idempotent claim: returns true only for the first caller of this key. */
@@ -229,7 +242,6 @@ export class CleaningRemindersService {
     // The words are made for each reader in his own language by the gateway;
     // the congregation's language decided them for everybody before.
     const p = CleaningRemindersService.localParts(now, tz);
-    if (this.isQuiet(p)) return;
 
     const weekStart = CleaningRemindersService.mondayOf(p.date, p.isoDow);
     // The version in force this week, not the latest one saved: a change
@@ -295,9 +307,12 @@ export class CleaningRemindersService {
       // run. (A `return` here was my first attempt and would have silenced
       // all three.)
       if (meetingToday?.time) {
-        const target =
-          CleaningRemindersService.parseHm(meetingToday.time) - LEAD_MINUTES;
-        if (CleaningRemindersService.hits(target, p.minutesOfDay)) {
+        const start = CleaningRemindersService.parseHm(meetingToday.time);
+        const target = start - LEAD_MINUTES;
+        if (
+          CleaningRemindersService.hits(target, p.minutesOfDay) &&
+          CleaningRemindersService.arrivesInTime(p, start)
+        ) {
           const key = `${p.date}:${meetingToday.name}`;
           if (await this.claim(cong.id, 'cleaning_after_meeting', key)) {
             const users = await this.userIdsForGroup(
@@ -363,7 +378,10 @@ export class CleaningRemindersService {
       );
       if (planned.date === p.date) {
         const target = planned.minutesOfDay - LEAD_MINUTES;
-        if (CleaningRemindersService.hits(target, p.minutesOfDay)) {
+        if (
+          CleaningRemindersService.hits(target, p.minutesOfDay) &&
+          CleaningRemindersService.arrivesInTime(p, planned.minutesOfDay)
+        ) {
           const key = `${weekStart}:planned:${planned.date}`;
           if (await this.claim(cong.id, 'cleaning_weekly_planned', key)) {
             const users = await this.userIdsForGroup(
@@ -394,7 +412,10 @@ export class CleaningRemindersService {
       );
       if (planned.date === p.date) {
         const target = planned.minutesOfDay - LEAD_MINUTES;
-        if (CleaningRemindersService.hits(target, p.minutesOfDay)) {
+        if (
+          CleaningRemindersService.hits(target, p.minutesOfDay) &&
+          CleaningRemindersService.arrivesInTime(p, planned.minutesOfDay)
+        ) {
           const key = `${weekStart}:general:${planned.date}`;
           if (await this.claim(cong.id, 'cleaning_general_planned', key)) {
             const everyone = await this.publisherRepo.find({

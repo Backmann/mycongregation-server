@@ -1036,7 +1036,8 @@ export class CartWeeksService {
       .where('a.congregation_id = :congregationId', { congregationId })
       .andWhere('a.publisher_id IN (:...ids)', { ids: publisherIds })
       .andWhere('a.start_date <= :weekEnd', { weekEnd })
-      .andWhere('(a.end_date IS NULL OR a.end_date >= :weekStart)', {
+      // No end date means ONE day (absence.entity.ts), not open-ended.
+      .andWhere('COALESCE(a.end_date, a.start_date) >= :weekStart', {
         weekStart,
       })
       .getMany();
@@ -1045,7 +1046,7 @@ export class CartWeeksService {
         (r) =>
           r.publisherId === pid &&
           dateOf(r.startDate) <= date &&
-          (!r.endDate || dateOf(r.endDate) >= date),
+          dateOf(r.endDate ?? r.startDate) >= date,
       );
   }
 

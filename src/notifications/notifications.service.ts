@@ -20,8 +20,8 @@ import {
  * it waits for the morning instead. These are deliberately generous — the aim
  * is to never wake anybody, not to ration the day.
  */
-const QUIET_UNTIL_HOUR = 8; // nothing before 08:00 local
-const QUIET_FROM_HOUR = 21; // nothing after 21:00 local
+export const QUIET_UNTIL_HOUR = 8; // nothing before 08:00 local
+export const QUIET_FROM_HOUR = 21; // nothing after 21:00 local
 
 /**
  * The categories a person can switch off, and which kinds belong to each.

@@ -588,7 +588,7 @@ export class ServiceReportsService {
       );
     }
     const reportMonth = this.normalizeReportMonth(dto.reportMonth);
-    this.assertMonthIsReportable(reportMonth);
+    await this.assertMonthIsReportable(tenantId, reportMonth);
     // A CLOSED month is closed for filing too.
     //
     // Only «has the month ended» was ever asked here, so a report could be
@@ -883,16 +883,6 @@ export class ServiceReportsService {
    * boolean indicating whether the current user may PATCH it now.
    * Optional ?year filter.
    */
-  /** First day of the previous calendar month, local server time. */
-  private previousReportMonthStart(now = new Date()): string {
-    // `new Date(y, m - 1, 1)` normalises January back to December of y-1.
-    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(
-      2,
-      '0',
-    )}-01`;
-  }
-
   /**
    * The month (YYYY-MM) a publisher began reporting: ministry start for an
    * unbaptised publisher, baptism otherwise. Months before it are not owed.
@@ -3421,11 +3411,15 @@ export class ServiceReportsService {
    * finished. The current month is still in progress, so it (and any future
    * month) is rejected — in July you report for June, not July.
    */
-  private assertMonthIsReportable(reportMonth: string): void {
-    const now = new Date();
-    const currentMonthStart = `${now.getFullYear()}-${String(
-      now.getMonth() + 1,
-    ).padStart(2, '0')}-01`;
+  private async assertMonthIsReportable(
+    tenantId: string,
+    reportMonth: string,
+  ): Promise<void> {
+    // The congregation's month, not the server's: the server keeps UTC, so
+    // from midnight to 01:00/02:00 on the 1st in Germany it still said the
+    // old month and refused the very report that had just become due.
+    const today = await this.clock.todayFor(tenantId);
+    const currentMonthStart = `${today.slice(0, 7)}-01`;
     if (reportMonth >= currentMonthStart) {
       throw new BadRequestException(
         refusal(

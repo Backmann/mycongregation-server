@@ -43,6 +43,12 @@ export interface WeekRulesContext {
   cancelling: SpecialEvent[];
   memorials: SpecialEvent[];
   flagged: SpecialEvent[];
+  /**
+   * Events whose day keeps the meeting «with changes» — for its hour. Optional
+   * so a context built elsewhere (attendance keeps its own) still type-checks;
+   * without it the hour is the settings'.
+   */
+  changed?: SpecialEvent[];
 }
 
 /**
@@ -78,6 +84,9 @@ export function rulesFromContext(
     // These keep their OWN type: the flag rule needs to know what they are in
     // order to leave alone the ones that have a rule of their own.
     ...ctx.flagged.map((e) => ({ ...e, replacesMeeting: true })),
+    // Only for the hour (timeOf). Their own type and flag go with them, so
+    // the visit, congress and flag rules read them exactly as before.
+    ...(ctx.changed ?? []).map((e) => ({ ...e, meetingMode: 'changed' })),
   ];
   return weekRules({ weekStart, versions: ctx.versions, events });
 }
@@ -93,7 +102,7 @@ export class WeekRulesService {
 
   /** The five queries, run once. */
   async contextOf(congregationId: string): Promise<WeekRulesContext> {
-    const [versions, visits, cancelling, memorials, flagged] =
+    const [versions, visits, cancelling, memorials, flagged, changed] =
       await Promise.all([
         this.settingsRepo.find({
           where: { congregationId },
@@ -120,6 +129,10 @@ export class WeekRulesService {
         this.eventsRepo.find({
           where: { congregationId, replacesMeeting: true },
         }),
+        // A meeting kept «with changes» may begin at another hour.
+        this.eventsRepo.find({
+          where: { congregationId, meetingMode: 'changed' },
+        }),
       ]);
 
     // Sorted here rather than trusted from the query, so that a future change
@@ -133,7 +146,14 @@ export class WeekRulesService {
           : 0,
     );
 
-    return { versions: sorted, visits, cancelling, memorials, flagged };
+    return {
+      versions: sorted,
+      visits,
+      cancelling,
+      memorials,
+      flagged,
+      changed,
+    };
   }
 
   /** The rule for one week, from a context already loaded. */

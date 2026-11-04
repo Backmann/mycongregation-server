@@ -399,6 +399,43 @@ describe('CleaningRemindersService.forCongregation', () => {
     expect(sends).toHaveLength(0);
   });
 
+  // 4 November 2026: the service kept quiet hours of its own (22–08) and
+  // RETURNED, so the reminder for a morning meeting was lost instead of held
+  // until 08:00 by the notifications door, which owns the hour.
+  describe('a morning meeting', () => {
+    const after = [
+      { slotType: CleaningSlotType.AFTER_MEETING, serviceGroupId: 'g-after' },
+    ];
+    const sunday = (time: string) =>
+      makeSvc({
+        meetingSettingsRepo: {
+          find: jest.fn(async () => [{ ...settings, weekendTime: time }]),
+        } as any,
+        cleaningRepo: cleaningRepoWith(after),
+        meetingsThisWeek: [{ date: '2026-05-24', eventType: 'weekend' }],
+      });
+
+    it('09:30: the reminder due at 07:30 is handed over (the door holds it to 08:00)', async () => {
+      const { svc, sends } = sunday('09:30');
+      // Sunday 2026-05-24, 07:30 Berlin = 05:30Z.
+      await svc['forCongregation'](cong, new Date('2026-05-24T05:30:00Z'));
+      expect(sends).toHaveLength(1);
+      expect(sends[0].data.type).toBe('cleaning_after_meeting');
+    });
+
+    it('08:00: due at 06:00 it would only arrive as the meeting begins — dropped', async () => {
+      const { svc, sends } = sunday('08:00');
+      await svc['forCongregation'](cong, new Date('2026-05-24T04:00:00Z'));
+      expect(sends).toHaveLength(0);
+    });
+
+    it('10:00: due at 08:00, it goes out as before', async () => {
+      const { svc, sends } = sunday('10:00');
+      await svc['forCongregation'](cong, new Date('2026-05-24T06:00:00Z'));
+      expect(sends).toHaveLength(1);
+    });
+  });
+
   it('pushes the WHOLE congregation 2h before the planned general cleaning', async () => {
     // Планируем генеральную на сб 2026-05-23 10:00 Berlin; 2h до = 08:00 = 06:00Z.
     const rows = [

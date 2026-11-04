@@ -169,10 +169,13 @@ export class AttendanceReminderService {
               startDate: LessThanOrEqual(today),
               endDate: MoreThanOrEqual(today),
             },
+            // No end date means ONE day (absence.entity.ts) — not "away from
+            // then on". Read as open-ended, a single day off silenced the
+            // reminder to that brother for good.
             {
               congregationId: tenantId,
               publisherId: In(cards.map((c) => c.id)),
-              startDate: LessThanOrEqual(today),
+              startDate: today,
               endDate: IsNull(),
             },
           ],
