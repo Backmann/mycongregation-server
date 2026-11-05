@@ -31,6 +31,8 @@ const ALLOWED = [
   'AuthController.updateMe',
   'ConductLiveController.find',
   'MeController.myPublisher',
+  // Which day a moved meeting is held: the hall screen shows that day's.
+  'MeetingMovesController.list',
   'MeetingSettingsController.overview',
   'PublishersController.roster',
   'SongsController.list',
