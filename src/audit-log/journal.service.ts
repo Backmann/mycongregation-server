@@ -371,7 +371,8 @@ export class JournalService {
     }
 
     for (const row of rows) {
-      const ctx = perEntity.get(row.entityId) ?? cartContext(row);
+      const ctx =
+        perEntity.get(row.entityId) ?? cartContext(row) ?? moveContext(row);
       if (ctx) out.set(row.id, ctx);
     }
     return out;
@@ -526,6 +527,28 @@ function parseDetail(json: string | null): Record<string, unknown> | null {
  * shift, because a week is deleted with its shifts and the line must still
  * say which one it was.
  */
+/**
+ * A meeting moved for one week, by the meeting and its week (5 November
+ * 2026) — from the entry itself: a move that was taken back is gone from its
+ * table, and the journal must still say which meeting it was.
+ */
+export function moveContext(row: {
+  entityType: string;
+  afterJson: string | null;
+  beforeJson?: string | null;
+}): JournalContext | null {
+  if (row.entityType !== 'meeting_move') return null;
+  const d = parseDetail(row.afterJson) ?? parseDetail(row.beforeJson ?? null);
+  if (!d) return null;
+  const date =
+    typeof d.weekStartDate === 'string' ? d.weekStartDate : undefined;
+  const eventType =
+    d.eventType === 'midweek' || d.eventType === 'weekend'
+      ? d.eventType
+      : undefined;
+  return date || eventType ? { date, eventType } : null;
+}
+
 function cartContext(row: {
   entityType: string;
   afterJson: string | null;
