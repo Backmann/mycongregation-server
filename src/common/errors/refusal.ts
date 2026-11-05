@@ -50,6 +50,8 @@ export const REFUSAL_CODES = [
   'MOVE_NOT_FOUND',
   'MOVE_PAST_NEEDS_COORDINATOR',
   'MOVE_ATTENDANCE_CLASH',
+  // An event «with changes» on a meeting moved for that week.
+  'EVENT_MEETING_MOVED',
   // ---- field-service meetings ----
   'FS_PAST_LOCKED',
   'FS_CANCELLED',

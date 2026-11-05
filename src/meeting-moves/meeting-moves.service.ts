@@ -336,6 +336,33 @@ export class MeetingMovesService {
       this.events,
       tenantId,
     );
+    // A move a visit or a convention made void (entered after it) no longer
+    // counts — the rules ignore it — but the row stays and the editor says
+    // so. Taking it away changes nothing anyone sees: no attendance moves, no
+    // one is told (5 November 2026).
+    if (
+      !rulesFromContext(ctx, week).moveOf(kind) ||
+      !this.isMovable(ctx, week, kind)
+    ) {
+      await this.dataSource.transaction(async (m) => {
+        await m.getRepository(MeetingMove).delete({ id: existing.id });
+        await this.auditLog.logEvent({
+          tenantId,
+          entityType: 'meeting_move',
+          entityId: existing.id,
+          actorUserId: user.id,
+          action: 'DELETE',
+          detail: snapshot(existing),
+        });
+      });
+      return {
+        move: null,
+        from: { date: existing.date, time: existing.time },
+        to: { date: existing.date, time: existing.time, address: null },
+        past: true,
+        attendanceMoved: false,
+      };
+    }
     const usual = this.usualOf(ctx, week, kind);
     const today = await this.clock.todayFor(tenantId);
     const past = existing.date < today || usual.date < today;
@@ -384,6 +411,20 @@ export class MeetingMovesService {
       past: r.past,
       move: { kind, from: r.from, to: r.to, back },
     });
+  }
+
+  /** Whether the meeting could be moved at all — usualOf without the refusal. */
+  private isMovable(
+    ctx: WeekRulesContext,
+    week: string,
+    kind: MeetingKind,
+  ): boolean {
+    try {
+      this.usualOf(ctx, week, kind);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
