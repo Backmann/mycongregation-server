@@ -7,6 +7,7 @@ import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { MeetingAttendance } from '../entities/meeting-attendance.entity';
+import { Absence } from '../entities/absence.entity';
 import { MeetingMovesController } from './meeting-moves.controller';
 import { MeetingMovesService } from './meeting-moves.service';
 import { MeetingMoveNotificationsService } from './meeting-move-notifications.service';
@@ -31,6 +32,7 @@ import { Duty } from '../entities/duty.entity';
       SpecialEvent,
       Responsibility,
       MeetingAttendance,
+      Absence,
     ]),
   ],
   controllers: [MeetingMovesController],

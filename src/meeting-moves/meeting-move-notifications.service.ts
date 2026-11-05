@@ -17,6 +17,17 @@ import {
   MoveForMessage,
 } from './meeting-move-messages';
 
+/** One thing a person has at the meeting, as the digest words it (labelOf). */
+export type AssignedItem = Parameters<typeof labelOf>[0];
+
+export interface Assigned {
+  publisherId: string;
+  userId: string | null;
+  /** «Фамилия Имя», as the app lists people. */
+  name: string;
+  items: AssignedItem[];
+}
+
 /** The kind in the outbox: never switched off — a moved meeting must reach everyone. */
 export const MOVE_KIND = 'meeting_move';
 
@@ -134,14 +145,34 @@ export class MeetingMoveNotificationsService {
     tenantId: string,
     week: string,
     kind: MeetingKind,
-  ): Promise<Map<string, Parameters<typeof labelOf>[0][]>> {
+  ): Promise<Map<string, AssignedItem[]>> {
+    const out = new Map<string, AssignedItem[]>();
+    for (const a of await this.assignedAt(tenantId, week, kind, false)) {
+      if (!a.userId) continue;
+      out.set(a.userId, [...(out.get(a.userId) ?? []), ...a.items]);
+    }
+    return out;
+  }
+
+  /**
+   * Everyone with a part or a duty at that meeting, by card — with drafts
+   * when asked (the mover wants to know about a draft part too; the
+   * announcement does not tell it). One reader for both, so the warning on
+   * the confirm screen and the notices name the same people.
+   */
+  async assignedAt(
+    tenantId: string,
+    week: string,
+    kind: MeetingKind,
+    withDrafts: boolean,
+  ): Promise<Assigned[]> {
     const [parts, duties] = await Promise.all([
       this.assignments.find({
         where: {
           congregationId: tenantId,
           weekStartDate: week,
           eventType: kind as Assignment['eventType'],
-          status: AssignmentStatus.PUBLISHED,
+          ...(withDrafts ? {} : { status: AssignmentStatus.PUBLISHED }),
           deletedAt: IsNull(),
         },
         order: { partOrder: 'ASC' },
@@ -155,9 +186,8 @@ export class MeetingMoveNotificationsService {
         },
       }),
     ]);
-    type Item = Parameters<typeof labelOf>[0];
-    const byPublisher = new Map<string, Item[]>();
-    const add = (id: string | null, item: Item) => {
+    const byPublisher = new Map<string, AssignedItem[]>();
+    const add = (id: string | null, item: AssignedItem) => {
       if (!id) return;
       byPublisher.set(id, [...(byPublisher.get(id) ?? []), item]);
     };
@@ -184,23 +214,16 @@ export class MeetingMoveNotificationsService {
         slot: type === 'microphone' && mics > 1 ? d.slotIndex + 1 : null,
       });
     }
-    const out = new Map<string, Item[]>();
-    if (byPublisher.size === 0) return out;
+    if (byPublisher.size === 0) return [];
     const cards = await this.publishers.find({
-      where: {
-        congregationId: tenantId,
-        id: In([...byPublisher.keys()]),
-        userId: Not(IsNull()),
-      },
-      select: { id: true, userId: true },
+      where: { congregationId: tenantId, id: In([...byPublisher.keys()]) },
+      select: { id: true, userId: true, firstName: true, lastName: true },
     });
-    for (const c of cards) {
-      if (!c.userId) continue;
-      out.set(c.userId, [
-        ...(out.get(c.userId) ?? []),
-        ...(byPublisher.get(c.id) ?? []),
-      ]);
-    }
-    return out;
+    return cards.map((c) => ({
+      publisherId: c.id,
+      userId: c.userId ?? null,
+      name: [c.lastName, c.firstName].filter(Boolean).join(' '),
+      items: byPublisher.get(c.id) ?? [],
+    }));
   }
 }
