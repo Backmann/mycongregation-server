@@ -39,18 +39,25 @@ const FREE = new Set([
 ]);
 
 /**
- * Copies still to be replaced by the rules, with today's count. Lower these
- * as they go; never raise them.
+ * Files that read the USUAL ORDER on purpose (5 November 2026) — what the
+ * congregation normally does, not a week's meeting. Each with its reason and
+ * today's count; the count may only go down.
  */
-const STILL_TO_MOVE: Record<string, number> = {
-  // Fallback hour when a gathering arrives without one — the gatherings now
-  // always carry it, so this goes with stage 2.
-  'cleaning/cleaning-reminders.service.ts': 2,
-  // The congregation summary's «где и когда»: the raw settings days.
+const READS_THE_USUAL_ORDER: Record<string, number> = {
+  // The congregation summary's «Ср 19:00 · Вс 10:00»: the usual days and
+  // hours; the app adds «На этой неделе: …» from the week rules.
   'congregation-summary/congregation-summary.service.ts': 12,
-  // The visit's midweek day, written out again.
-  'special-events/event-messages.ts': 1,
-  'special-events/co-visit-template.service.ts': 1,
+};
+
+/**
+ * Copies still to be replaced by the rules, with today's count. Lower these
+ * as they go; never raise them. Empty since 5 November 2026.
+ */
+const STILL_TO_MOVE: Record<string, number> = {};
+
+const ALLOWED: Record<string, number> = {
+  ...READS_THE_USUAL_ORDER,
+  ...STILL_TO_MOVE,
 };
 
 function sourceFiles(dir: string): string[] {
@@ -76,7 +83,7 @@ describe('a meeting’s day and hour come from the week rules', () => {
       const count =
         (text.match(SETTINGS_DAY_OR_HOUR) ?? []).length +
         (text.match(VISIT_DAY_COPY) ?? []).length;
-      const allowed = STILL_TO_MOVE[rel] ?? 0;
+      const allowed = ALLOWED[rel] ?? 0;
       if (count > allowed) {
         problems.push(`${rel}: ${count} (allowed ${allowed})`);
       }
@@ -94,7 +101,7 @@ describe('a meeting’s day and hour come from the week rules', () => {
 
   it('keeps the list honest: a copy that is gone must leave the list', () => {
     const stale: string[] = [];
-    for (const [rel, allowed] of Object.entries(STILL_TO_MOVE)) {
+    for (const [rel, allowed] of Object.entries(ALLOWED)) {
       const text = readFileSync(join(SRC, rel), 'utf8');
       const count =
         (text.match(SETTINGS_DAY_OR_HOUR) ?? []).length +

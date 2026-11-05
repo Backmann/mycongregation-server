@@ -7,7 +7,7 @@ import { EventType } from '../common/enums/event-type.enum';
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { mondayOf } from '../common/week';
-import { addDaysISO } from '../common/week-rules';
+import { addDaysISO, visitMidweekDowOf } from '../common/week-rules';
 import { HeldByVisit, heldFromOps, nothingHeld } from './co-visit-held';
 import {
   SlotSpeaker,
@@ -130,7 +130,7 @@ export class CoVisitTemplateService {
     event: Pick<SpecialEvent, 'congregationId' | 'date' | 'coMidweekDow'>,
   ): Promise<boolean> {
     const today = await this.clock.todayFor(event.congregationId);
-    const day = addDaysISO(mondayOf(event.date), (event.coMidweekDow ?? 2) - 1);
+    const day = addDaysISO(mondayOf(event.date), visitMidweekDowOf(event) - 1);
     return day < today;
   }
 

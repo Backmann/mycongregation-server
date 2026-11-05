@@ -285,20 +285,11 @@ export class CleaningRemindersService {
       const meetingToday = today
         ? {
             name: today.kind,
-            // The visit moves the DAY; the hour still comes from the
-            // congregation's settings, which is what the visit schedule
-            // itself shows. The Memorial is the exception — it brings its own
-            // hour, and reaching for the settings would put the reminder at
-            // the time of a meeting that is not being held.
-            // A meeting moved to another hour by an event's day («with
-            // changes») arrives with that hour; otherwise the settings'.
-            time:
-              today.kind === 'memorial'
-                ? today.time
-                : (today.time ??
-                  (today.kind === 'midweek'
-                    ? settings.midweekTime
-                    : settings.weekendTime)),
+            // The hour the week rules give the gathering (5 November 2026):
+            // the settings' of that week, an event's changed hour, a meeting
+            // moved for the week, the Memorial's own. A second reading of the
+            // settings here was a copy that could only disagree with them.
+            time: today.time,
           }
         : null;
       // A Memorial with no hour recorded cannot be reminded about — two hours
