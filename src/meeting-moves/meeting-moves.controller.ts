@@ -43,6 +43,17 @@ export class MeetingMovesController {
     return this.service.list(tenantId, from);
   }
 
+  /** For the confirm screen; only whoever may move that meeting. */
+  @Get(':week/:kind/preview')
+  preview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('week') week: string,
+    @Param('kind') kind: string,
+    @Query('date') date: string,
+  ) {
+    return this.service.preview(user, week, kindOf(kind), date ?? '');
+  }
+
   @Put(':week/:kind')
   move(
     @CurrentUser() user: AuthenticatedUser,

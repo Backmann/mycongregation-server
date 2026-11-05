@@ -10,6 +10,7 @@ import {
   DataSource,
   EntityManager,
   In,
+  IsNull,
   MoreThanOrEqual,
   Repository,
 } from 'typeorm';
@@ -18,6 +19,8 @@ import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { MeetingAttendance } from '../entities/meeting-attendance.entity';
+import { Absence } from '../entities/absence.entity';
+import { User } from '../entities/user.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CongregationClock } from '../common/congregation-clock.service';
 import {
@@ -33,7 +36,25 @@ import { UserRole } from '../common/enums/user-role.enum';
 import { refusal } from '../common/errors/refusal';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { MoveMeetingDto } from './dto/move-meeting.dto';
-import { MeetingMoveNotificationsService } from './meeting-move-notifications.service';
+import {
+  Assigned,
+  MeetingMoveNotificationsService,
+} from './meeting-move-notifications.service';
+
+/** Before a move: who is told, and who with a part is away that day. */
+export interface MovePreview {
+  /** Accounts in the congregation — each gets one notice. */
+  members: number;
+  /** Of them, people with a part or a duty there — their own notice instead. */
+  ownNotice: number;
+  away: {
+    name: string;
+    items: (
+      | { kind: 'meeting'; label: string; asAssistant: boolean }
+      | { kind: 'duty'; label: string; slotIndex?: number }
+    )[];
+  }[];
+}
 
 /** What a move did, for the caller (and, next, for the announcement). */
 export interface MoveResult {
@@ -81,7 +102,83 @@ export class MeetingMovesService {
     private readonly clock: CongregationClock,
     private readonly dataSource: DataSource,
     private readonly announcer: MeetingMoveNotificationsService,
+    @InjectRepository(Absence)
+    private readonly absences: Repository<Absence>,
+    @InjectRepository(User)
+    private readonly users: Repository<User>,
   ) {}
+
+  /**
+   * What the confirm screen shows before a move (the mockup's third screen):
+   * how many are told, how many of them get their own notice, and who with a
+   * part or a duty there — drafts too — is away on the new day. Only for
+   * whoever may move that meeting; the rest of the rules are the move's.
+   */
+  async preview(
+    user: AuthenticatedUser,
+    week: string,
+    kind: MeetingKind,
+    date: string,
+  ): Promise<MovePreview> {
+    const tenantId = user.congregationId;
+    assertMonday(week);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+      date < week ||
+      date > addDaysISO(week, 6)
+    ) {
+      throw new BadRequestException(
+        refusal('MOVE_OUTSIDE_WEEK', 'The new day must be in the same week'),
+      );
+    }
+    await this.assertMayMove(user, kind);
+    const [assigned, told, members] = await Promise.all([
+      this.announcer.assignedAt(tenantId, week, kind, true),
+      // Who gets his own notice is the announcement's rule: published only.
+      this.announcer.assignedAt(tenantId, week, kind, false),
+      this.users.count({
+        where: {
+          congregationId: tenantId,
+          isActive: true,
+          deletedAt: IsNull(),
+        },
+      }),
+    ]);
+    const away =
+      assigned.length === 0
+        ? []
+        : await this.absences
+            .createQueryBuilder('a')
+            .select('a.publisherId', 'publisherId')
+            .where('a.congregationId = :tenantId', { tenantId })
+            .andWhere('a.publisherId IN (:...ids)', {
+              ids: assigned.map((x) => x.publisherId),
+            })
+            .andWhere('a.startDate <= :date', { date })
+            .andWhere('COALESCE(a.endDate, a.startDate) >= :date', { date })
+            .getRawMany<{ publisherId: string }>();
+    const awayIds = new Set(away.map((x) => x.publisherId));
+    const toApp = (i: Assigned['items'][number]) =>
+      i.type === 'duty'
+        ? {
+            kind: 'duty' as const,
+            label: i.labelKey,
+            ...(i.slot ? { slotIndex: i.slot - 1 } : {}),
+          }
+        : {
+            kind: 'meeting' as const,
+            label: i.labelTitle?.trim() || i.labelKey,
+            asAssistant: i.assistant,
+          };
+    return {
+      members,
+      ownNotice: told.filter((a) => a.userId && a.items.length > 0).length,
+      away: assigned
+        .filter((a) => awayIds.has(a.publisherId))
+        .map((a) => ({ name: a.name, items: a.items.map(toApp) }))
+        .sort((x, y) => x.name.localeCompare(y.name)),
+    };
+  }
 
   /** The moves from a week on (every member reads them: the rules need them). */
   list(tenantId: string, fromWeek?: string): Promise<MeetingMove[]> {

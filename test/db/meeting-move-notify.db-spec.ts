@@ -133,3 +133,74 @@ describe('meeting moves: who is told (real database)', () => {
     expect(await outbox()).toEqual([]);
   });
 });
+
+describe('meeting moves: the confirm screen (real database)', () => {
+  let h: Harness;
+  let tenantId: string;
+  const cards: Record<string, string> = {};
+  const WEEK = '2027-04-05';
+
+  beforeAll(async () => {
+    h = await startHarness();
+    [{ congregation_id: tenantId }] = await h.sql<{ congregation_id: string }>(
+      `SELECT congregation_id FROM users LIMIT 1`,
+    );
+    for (const login of ['speaker2', 'mic2', 'drafted2']) {
+      cards[login] = await h.addPublisher({
+        firstName: login,
+        lastName: 'Тест',
+        baptismDate: '2000-01-01',
+      });
+      await h.addUser({ login, role: 'publisher', publisherId: cards[login] });
+    }
+    await h.sql(
+      `INSERT INTO assignments (congregation_id, week_start_date, event_type, part_key, part_order, publisher_id, status)
+       VALUES ($1, $2, 'midweek', 'bible_reading', 5, $3, 'published'),
+              ($1, $2, 'midweek', 'apply_yourself_1', 6, $4, 'draft')`,
+      [tenantId, WEEK, cards.speaker2, cards.drafted2],
+    );
+    await h.sql(
+      `INSERT INTO duties (congregation_id, week_start_date, event_type, duty_type, slot_index, publisher_id)
+       VALUES ($1, $2, 'midweek', 'microphone', 0, $3)`,
+      [tenantId, WEEK, cards.mic2],
+    );
+    // Away on Thursday 8 April: the draft part and the microphone.
+    await h.sql(
+      `INSERT INTO absences (congregation_id, publisher_id, start_date, end_date)
+       VALUES ($1, $2, '2027-04-08', NULL), ($1, $3, '2027-04-06', '2027-04-09')`,
+      [tenantId, cards.drafted2, cards.mic2],
+    );
+  });
+  afterAll(async () => {
+    await h?.close();
+  });
+
+  it('who is told, who gets his own notice, who is away on the new day (drafts too)', async () => {
+    const r = await h
+      .as('admin')
+      .get(`/meeting-moves/${WEEK}/midweek/preview?date=2027-04-08`);
+    expect(r.status).toBe(200);
+    expect(r.body.members).toBeGreaterThanOrEqual(3);
+    expect(r.body.ownNotice).toBe(2);
+    expect(r.body.away).toEqual([
+      {
+        name: 'Тест drafted2',
+        items: [
+          { kind: 'meeting', label: 'apply_yourself_1', asAssistant: false },
+        ],
+      },
+      { name: 'Тест mic2', items: [{ kind: 'duty', label: 'microphone' }] },
+    ]);
+    const tue = await h
+      .as('admin')
+      .get(`/meeting-moves/${WEEK}/midweek/preview?date=2027-04-05`);
+    expect(tue.body.away).toEqual([]);
+  });
+
+  it('only for whoever may move that meeting', async () => {
+    const r = await h
+      .as('speaker2')
+      .get(`/meeting-moves/${WEEK}/midweek/preview?date=2027-04-08`);
+    expect(r.status).toBe(403);
+  });
+});
