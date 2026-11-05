@@ -10,7 +10,7 @@ import {
 import { assertAssignable } from '../common/inactive';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { In, IsNull, Not, Repository } from 'typeorm';
+import { Between, In, IsNull, Not, Repository } from 'typeorm';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { SCHOOL_SYNC, type SchoolSync } from '../pioneer-school/school-sync';
 import { Responsibility } from '../entities/responsibility.entity';
@@ -60,6 +60,13 @@ function journalView(e: SpecialEvent): Record<string, unknown> {
 function lastDay(e: { date: string; endDate?: string | null }): string {
   return e.endDate ?? e.date;
 }
+
+import { MeetingMove } from '../entities/meeting-move.entity';
+import { MeetingSettings } from '../entities/meeting-settings.entity';
+import {
+  loadWeekRulesContext,
+  rulesFromContext,
+} from '../common/week-rules.service';
 
 @Injectable()
 export class SpecialEventsService {
@@ -326,6 +333,70 @@ export class SpecialEventsService {
     }
   }
 
+  /**
+   * An event that keeps the meeting «with changes» (another hour or place)
+   * may not lie on a meeting moved for that week — its old day or its new
+   * one (5 November 2026). The move already says the hour and the place;
+   * two sources for one meeting would leave everyone guessing. The move
+   * refuses the same the other way round (MOVE_CHANGED_EVENT_DAY).
+   */
+  private async assertNoMovedMeetingUnder(
+    tenantId: string,
+    e: {
+      meetingMode?: string | null;
+      meetingTime?: string | null;
+      meetingAddress?: string | null;
+      date: string;
+      endDate?: string | null;
+    },
+    ignoreEventId?: string,
+  ): Promise<void> {
+    if (e.meetingMode !== 'changed') return;
+    if (!e.meetingTime?.trim() && !e.meetingAddress?.trim()) return;
+    const from = e.date;
+    const to = e.endDate ?? e.date;
+    const m = this.specialEventsRepo.manager;
+    // A spec's hand-made repository has no manager — and no moves; the
+    // database test test/db/meeting-move-guards.db-spec.ts holds the real one.
+    if (typeof m?.getRepository !== 'function') return;
+    const moves = await m.getRepository(MeetingMove).find({
+      where: {
+        congregationId: tenantId,
+        weekStartDate: Between(mondayOf(from), mondayOf(to)),
+      },
+    });
+    if (moves.length === 0) return;
+    const ctx = await loadWeekRulesContext(
+      m.getRepository(MeetingSettings),
+      this.specialEventsRepo,
+      tenantId,
+    );
+    for (const mv of moves) {
+      const kind = mv.eventType;
+      // The meeting's day without the move: what the move is «from».
+      const usual = rulesFromContext(
+        {
+          ...ctx,
+          changed: ctx.changed.filter((x) => x.id !== ignoreEventId),
+          moves: (ctx.moves ?? []).filter((x) => x.id !== mv.id),
+        },
+        mv.weekStartDate,
+      ).dateOf(kind);
+      const live = rulesFromContext(ctx, mv.weekStartDate).moveOf(kind);
+      if (!live) continue;
+      for (const day of [mv.date, usual]) {
+        if (day && day >= from && day <= to) {
+          throw new ConflictException({
+            code: 'EVENT_MEETING_MOVED',
+            message:
+              'The meeting of that day is moved for the week; change the move instead',
+            params: { date: day },
+          });
+        }
+      }
+    }
+  }
+
   async create(
     tenantId: string,
     dto: CreateSpecialEventDto,
@@ -359,6 +430,7 @@ export class SpecialEventsService {
         dto,
       ),
     );
+    await this.assertNoMovedMeetingUnder(tenantId, event);
     const saved = await this.specialEventsRepo.save(event);
     await this.auditLog.logCreate({
       tenantId,
@@ -422,6 +494,11 @@ export class SpecialEventsService {
       nextDate !== event.date || (nextEnd ?? null) !== (event.endDate ?? null);
     const typeChanged = (nextType ?? null) !== (event.type ?? null);
     const meeting = settleMeeting({ ...event, type: nextType }, dto);
+    await this.assertNoMovedMeetingUnder(
+      tenantId,
+      { ...meeting, date: nextDate, endDate: nextEnd },
+      event.id,
+    );
     // Whether the meeting was held is history too: attendance was counted by
     // it. The hour, the place and the words can still be put right.
     const modeChanged = meeting.meetingMode !== (event.meetingMode ?? 'usual');
