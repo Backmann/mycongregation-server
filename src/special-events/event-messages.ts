@@ -4,6 +4,7 @@ import {
   isCongressEvent,
   isoDowOf,
   memorialTakesKind,
+  visitMidweekDowOf,
 } from '../common/week-rules';
 
 /**
@@ -174,7 +175,7 @@ export function whenOf(e: EventForMessage, lang: SupportedLanguage): string {
 /** The day the midweek meeting is held during a circuit visit. */
 export function visitMidweekDay(e: EventForMessage): string {
   const monday = addDaysISO(e.date, 1 - isoDowOf(e.date));
-  return addDaysISO(monday, (e.coMidweekDow ?? 2) - 1);
+  return addDaysISO(monday, visitMidweekDowOf(e) - 1);
 }
 
 /**

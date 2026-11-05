@@ -106,6 +106,19 @@ export interface WeekMove {
   address?: string | null;
 }
 
+/**
+ * The weekday a circuit visit holds the midweek meeting on, when the visit
+ * does not say: Tuesday. ONE place for it (5 November 2026) — the rules, the
+ * visit's messages and its programme template read it here; the app keeps
+ * the same in lib/week-rules.ts.
+ */
+export const VISIT_MIDWEEK_DOW_DEFAULT = 2;
+
+/** The midweek weekday of a visit (1=Mon…7=Sun). */
+export function visitMidweekDowOf(e: { coMidweekDow?: number | null }): number {
+  return e.coMidweekDow ?? VISIT_MIDWEEK_DOW_DEFAULT;
+}
+
 /** Only the fields the rules need from a meeting-settings version. */
 export interface WeekSettingsVersion {
   effectiveFrom: string;
@@ -312,7 +325,7 @@ export function weekRules(input: {
     const move = moveOf(kind);
     if (move) return isoDowOf(move.date);
     if (kind === 'weekend') return version?.weekendDow ?? null;
-    if (coVisit) return coVisit.coMidweekDow ?? 2;
+    if (coVisit) return visitMidweekDowOf(coVisit);
     return version?.midweekDow ?? null;
   };
 

@@ -1,3 +1,4 @@
+import { meetingTimeOn, versionForWeek } from '../common/week-rules';
 import { CleaningSlotType } from '../common/enums/cleaning-slot-type.enum';
 
 // expo-server-sdk (pulled in via the push service) is ESM-only and breaks
@@ -103,8 +104,14 @@ function makeSvc(over: Partial<Record<string, any>> = {}) {
       // The tests still describe their week as `meetingsThisWeek` in the old
       // {date, eventType} shape; translated here so each case stays about the
       // one thing it was written to test.
-      gatheringsForWeek: jest.fn(async () =>
-        defaultMeetings().map(
+      // Each gathering carries its hour, as the real one does: the version
+      // in force that week (5 November 2026 — the reminders no longer read
+      // the settings a second time).
+      gatheringsForWeek: jest.fn(async (_cong: string, weekStart: string) => {
+        const versions =
+          ((await over.meetingSettingsRepo?.find?.({})) as never[]) ?? [];
+        const v = versionForWeek(versions, weekStart);
+        return defaultMeetings().map(
           (m: {
             date: string;
             eventType?: string;
@@ -116,10 +123,15 @@ function makeSvc(over: Partial<Record<string, any>> = {}) {
               : {
                   date: m.date,
                   kind: m.eventType,
-                  time: null,
+                  time: meetingTimeOn(
+                    m.date,
+                    m.eventType as 'midweek' | 'weekend',
+                    v,
+                    [],
+                  ),
                 },
-        ),
-      ),
+        );
+      }),
     }) as any,
   );
   return { svc, sends, inserted, push, logRepo, notifications };
