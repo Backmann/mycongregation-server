@@ -1,3 +1,4 @@
+import { clockStub } from '../common/testing/clock-stub';
 // The tasks service names the reminder service, which reaches the push service
 // and the Expo SDK — ESM, and Jest's default transform does not touch
 // node_modules. The same stand-in the other task specs use.
@@ -77,6 +78,7 @@ function harness(stored: Partial<ElderTask>) {
         void calls.push({ method: 'logEvent', opts }),
     } as never,
     {} as never,
+    clockStub(),
   );
   const words = (c: Call) => JSON.stringify(c.opts);
   return { service, calls, words };
@@ -202,6 +204,7 @@ describe('TasksService.removeMeeting — the journal', () => {
           return q.where.meetingId === 'm1' ? (opts.items ?? []) : [];
         },
       } as never,
+      clockStub(),
     );
     return { service, calls, removed, order };
   }
