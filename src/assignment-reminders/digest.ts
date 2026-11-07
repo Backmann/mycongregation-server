@@ -214,7 +214,7 @@ export function planDigest(input: {
 // Words
 // ---------------------------------------------------------------------------
 
-const DUTY_NAMES: Record<SupportedLanguage, Record<string, string>> = {
+export const DUTY_NAMES: Record<SupportedLanguage, Record<string, string>> = {
   ru: {
     security: 'Распорядитель у входа',
     attendant: 'Распорядитель в зале',
