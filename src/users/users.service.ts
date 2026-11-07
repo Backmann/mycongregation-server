@@ -21,6 +21,7 @@ import { MailService } from '../mail/mail.service';
 import { User } from '../entities/user.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Gender } from '../common/enums/gender.enum';
+import { CalendarFeed } from '../entities/calendar-feed.entity';
 import { RefreshSession } from '../entities/refresh-session.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
@@ -1365,6 +1366,20 @@ export class UsersService {
       { userId, revokedAt: IsNull() },
       { revokedAt: new Date() },
     );
+    // The calendar link goes with the sessions (7 November 2026): signing out
+    // everywhere or a new password must leave whoever had the phone no way
+    // into the person's agenda. Specs that build this service by hand give a
+    // repository without a manager; a real one always has it.
+    const manager = (this.sessionsRepo as Partial<Repository<RefreshSession>>)
+      .manager;
+    if (typeof manager?.getRepository === 'function') {
+      await manager
+        .getRepository(CalendarFeed)
+        .update(
+          { userId, revokedAt: IsNull() },
+          { revokedAt: new Date(), revokedReason: 'sessions_ended' },
+        );
+    }
   }
 
   async resetPasswordByAdmin(
