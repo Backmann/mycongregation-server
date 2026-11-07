@@ -32,6 +32,8 @@ describe('public witnessing — the stand (real database)', () => {
     d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
     return d.toISOString().slice(0, 10);
   };
+  /** 1 = Monday … 7 = Sunday. */
+  const isoDow = (iso: string) => new Date(`${iso}T00:00:00Z`).getUTCDay() || 7;
   const addDays = (iso: string, n: number) => {
     const d = new Date(`${iso}T00:00:00Z`);
     d.setUTCDate(d.getUTCDate() + n);
@@ -731,10 +733,14 @@ describe('public witnessing — the stand (real database)', () => {
       ]);
       await rem.runFor(tenant);
       expect((await toldTo('cart_collect_due')).has(uid.boss)).toBe(true);
-      // A week two days off with no published plan.
+      // A week two days off with no published plan. Not on a Monday: every
+      // other week here starts on one, and the congregation may hold one week
+      // per start — on a Saturday «two days off» WAS next Monday, taken by
+      // another test's week, and the test failed every Saturday (7 Nov 2026).
+      const soon = isoDow(addDays(t, 2)) === 1 ? addDays(t, 1) : addDays(t, 2);
       await h.sql(`UPDATE cart_weeks SET week_start_date = $2 WHERE id = $1`, [
         weekId,
-        addDays(t, 2),
+        soon,
       ]);
       await rem.runFor(tenant);
       expect((await toldTo('cart_unpublished')).has(uid.boss)).toBe(true);
