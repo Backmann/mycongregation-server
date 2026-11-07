@@ -9,6 +9,8 @@ import { Publisher } from '../entities/publisher.entity';
 import { TaskAddresseesService } from './task-addressees.service';
 import { TaskRemindersService } from './task-reminders.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { CongregationClock } from '../common/congregation-clock.service';
+import { addDaysISO } from '../common/week-rules';
 
 /** A person on a task, as the screens need him: who, by name — no more. */
 export interface TaskPerson {
@@ -87,22 +89,41 @@ export interface TaskInput extends Partial<ElderTask> {
  * read, and would silently move if anybody edited anything near it. Counted
  * once, it is a deadline a person can see and shift — which is what everybody
  * means when they say «by then».
+ *
+ * Counted from the CONGREGATION'S today (7 November 2026), passed in. It used
+ * to start from the server's clock and read the result back in UTC, so a
+ * period set in the first hour or two after midnight in Hamm landed a day
+ * early. Months are calendar months that keep to the end of a short one:
+ * a month from 31 January is the last day of February, not 3 March.
  */
-export function resolveDueDate(dto: {
-  dueDate?: string | null;
-  dueInDays?: number;
-  dueInMonths?: number;
-}): string | null {
+export function resolveDueDate(
+  dto: {
+    dueDate?: string | null;
+    dueInDays?: number;
+    dueInMonths?: number;
+  },
+  today: string,
+): string | null {
   if (dto.dueDate !== undefined && dto.dueDate !== null) return dto.dueDate;
-  const from = new Date();
-  if (dto.dueInDays) {
-    from.setDate(from.getDate() + dto.dueInDays);
-  } else if (dto.dueInMonths) {
-    from.setMonth(from.getMonth() + dto.dueInMonths);
-  } else {
-    return dto.dueDate ?? null;
-  }
-  return from.toISOString().slice(0, 10);
+  if (dto.dueInDays) return addDaysISO(today, dto.dueInDays);
+  if (dto.dueInMonths) return addMonthsISO(today, dto.dueInMonths);
+  return dto.dueDate ?? null;
+}
+
+/** Calendar months on a calendar date; a day the month lacks becomes its last. */
+export function addMonthsISO(iso: string, months: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const index = y * 12 + (m - 1) + months;
+  const year = Math.floor(index / 12);
+  const month = index - year * 12; // 0-based
+  const last = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const day = Math.min(d, last);
+  return `${String(year).padStart(4, '0')}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/** Only a period needs today; a plain date or nothing does not ask the clock. */
+function needsToday(dto: { dueInDays?: number; dueInMonths?: number }) {
+  return !!dto.dueInDays || !!dto.dueInMonths;
 }
 
 @Injectable()
@@ -119,7 +140,16 @@ export class TasksService {
     private readonly auditLog: AuditLogService,
     @InjectRepository(EldersMeetingItem)
     private readonly meetingItems: Repository<EldersMeetingItem>,
+    private readonly clock: CongregationClock,
   ) {}
+
+  /** The congregation's today, asked only when a period has to become a date. */
+  private async todayIfNeeded(
+    congregationId: string,
+    dto: { dueInDays?: number; dueInMonths?: number },
+  ): Promise<string> {
+    return needsToday(dto) ? this.clock.todayFor(congregationId) : '';
+  }
 
   // ---- Meetings ---------------------------------------------------------
 
@@ -402,7 +432,10 @@ export class TasksService {
       // list existed still reads the same way.
       assigneePublisherId:
         dto.assigneePublisherIds?.[0] ?? dto.assigneePublisherId ?? null,
-      dueDate: resolveDueDate(dto),
+      dueDate: resolveDueDate(
+        dto,
+        await this.todayIfNeeded(congregationId, dto),
+      ),
       dueTime: dto.dueTime ?? null,
       kind: dto.kind ?? null,
       kindPeriod: dto.kindPeriod ?? null,
@@ -482,7 +515,10 @@ export class TasksService {
     if (dto.dueTime !== undefined) entity.dueTime = dto.dueTime ?? null;
     if (dto.dueDate !== undefined) entity.dueDate = dto.dueDate ?? null;
     else if (dto.dueInDays !== undefined || dto.dueInMonths !== undefined) {
-      entity.dueDate = resolveDueDate(dto);
+      entity.dueDate = resolveDueDate(
+        dto,
+        await this.todayIfNeeded(congregationId, dto),
+      );
     }
     if (dto.eldersMeetingId !== undefined) {
       entity.eldersMeetingId = dto.eldersMeetingId ?? null;

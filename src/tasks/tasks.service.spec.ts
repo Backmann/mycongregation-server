@@ -1,3 +1,4 @@
+import { clockStub } from '../common/testing/clock-stub';
 // The tasks service now names the reminder service, which reaches the push
 // service and the Expo SDK — ESM, and Jest's default transform does not touch
 // node_modules. The same stand-in the scheduled-jobs spec uses.
@@ -78,6 +79,7 @@ function svc(tasks: ElderTask[], meetings: EldersMeeting[]) {
       logEvent: async () => undefined,
     } as never,
     { find: async () => [] } as never,
+    clockStub(),
   );
 }
 
