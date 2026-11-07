@@ -64,6 +64,7 @@ describe('public witnessing — the stand (real database)', () => {
       publisherId: string;
       withWhomNote?: string | null;
       late?: boolean;
+      afterDeadline?: boolean;
     }[];
     plan?: {
       id: string;
@@ -1019,6 +1020,64 @@ describe('public witnessing — the stand (real database)', () => {
         (await h.as('anna').get(`/cart-weeks/copy-source?weekStart=${target}`))
           .status,
       ).toBe(403);
+    });
+  });
+  describe('a wish after the last day for signing up (7 November 2026)', () => {
+    // Lionel's «Б»: still taken, marked for whoever arranges, nobody told.
+    const week = mondayIn(17);
+    let weekId = '';
+    let mon = '';
+    beforeAll(async () => {
+      weekId = await build(week, [1, 3], [locA]);
+      const opened = await h
+        .as('boss')
+        .post(`/cart-weeks/${weekId}/open`, { signupUntil: week });
+      expect(opened.status).toBe(201);
+      mon = await dayOf(week, week, locA);
+    });
+
+    const wishAt = async (who: string, createdAt: string) => {
+      const r = await ask(who, mon, '10:00', '12:00');
+      expect(r.status).toBe(201);
+      await h.sql(`UPDATE cart_requests SET created_at = $2 WHERE id = $1`, [
+        r.body.id,
+        createdAt,
+      ]);
+    };
+    const markOf = async (who: string) =>
+      (await view('boss', week)).days
+        .find((d) => d.id === mon)!
+        .wishes!.find((w) => w.publisherId === pid[who])!.afterDeadline;
+
+    it('the last day itself is in time, to its last minute in Hamm', async () => {
+      // 23:30 in Hamm on the last day (22:30 UTC).
+      await wishAt('anna', `${week}T22:30:00Z`);
+      expect(await markOf('anna')).toBe(false);
+    });
+
+    it('the next day in Hamm is after it — even while UTC is still on the last day', async () => {
+      // 00:30 in Hamm on the day after (23:30 UTC of the last day).
+      await wishAt('dan', `${week}T23:30:00Z`);
+      expect(await markOf('dan')).toBe(true);
+    });
+
+    it('the wish is taken, not refused, and the one who left it sees it', async () => {
+      const own = (await view('dan', week)).days.find((d) => d.id === mon)!;
+      expect(own.myRequests).toHaveLength(1);
+    });
+
+    it('a week without a last day marks nothing', async () => {
+      const free = mondayIn(18);
+      const id = await build(free, [1], [locA]);
+      expect(
+        (await h.as('boss').post(`/cart-weeks/${id}/open`, {})).status,
+      ).toBe(201);
+      const day = await dayOf(free, free, locA);
+      expect((await ask('eva', day, '10:00', '12:00')).status).toBe(201);
+      const w = (await view('boss', free)).days
+        .find((d) => d.id === day)!
+        .wishes!.find((x) => x.publisherId === pid.eva)!;
+      expect(w.afterDeadline).toBe(false);
     });
   });
 });

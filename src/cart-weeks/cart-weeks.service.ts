@@ -31,6 +31,7 @@ import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { isActivePermanentPioneer } from '../common/pioneer-status';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { CongregationClock } from '../common/congregation-clock.service';
+import { todayIn } from '../common/congregation-clock';
 import { SupportedLanguage } from '../common/i18n/supported-languages';
 import { refusal } from '../common/errors/refusal';
 import {
@@ -161,6 +162,8 @@ export interface CartWishView {
   withPublishers?: { id: string; name: string }[];
   /** Made after publication: a request for free time. */
   late?: boolean;
+  /** Made after the last day for signing up (7 November 2026): taken, marked. */
+  afterDeadline?: boolean;
   absent?: boolean;
 }
 export interface CartDayView {
@@ -810,6 +813,14 @@ export class CartWeeksService {
 
     const published = week.status === 'published';
     const collecting = week.status === 'collecting';
+    // A wish left after the last day for signing up is still taken (Lionel,
+    // 7 November 2026: «Б», marked, not refused, nobody notified). The day it
+    // was left is the congregation's day, not UTC: a wish at 00:30 in Hamm
+    // on the 6th is a wish of the 6th.
+    const until = week.signupUntil ? dateOf(week.signupUntil) : null;
+    const zone = until ? await this.clock.timezoneOf(congregationId) : null;
+    const afterDeadline = (createdAt: Date) =>
+      !!until && todayIn(createdAt, zone) > until;
     const days = await this.daysRepo.find({
       where: { weekId: week.id, congregationId },
       relations: { location: true },
@@ -963,6 +974,7 @@ export class CartWeeksService {
             withPublishers: partnersView(r.id),
             late:
               published && !!week.publishedAt && r.createdAt > week.publishedAt,
+            afterDeadline: afterDeadline(r.createdAt),
             absent: awayOn(r.publisherId, date),
           }));
           const standing = asgs.map((a) => ({
