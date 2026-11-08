@@ -77,4 +77,11 @@ export class NotHeldClearance {
 
   @Column({ type: 'uuid', nullable: true })
   restoredById!: string | null;
+
+  /**
+   * When the meeting's editors were told it is held again and this can be
+   * given back — once per record.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  heldAgainToldAt!: Date | null;
 }
