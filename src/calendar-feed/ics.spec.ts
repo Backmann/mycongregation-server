@@ -7,6 +7,8 @@ import {
   FeedOptions,
   foldLine,
   noticeIcs,
+  oneLine,
+  tidy,
   zonedToUtc,
 } from './ics';
 
@@ -140,7 +142,9 @@ describe('events from an agenda', () => {
     expect(ev.summary).toBe(
       '⚠ вы в отъезде: Чтение Библии — встреча буднего дня',
     );
-    expect(ev.description.startsWith('Вы отметили')).toBe(true);
+    expect(
+      ev.description.startsWith('На этот день у вас отмечено отсутствие'),
+    ).toBe(true);
   });
 
   it('partners by name — and not when names are switched off', () => {
@@ -301,5 +305,62 @@ describe('a link that no longer works', () => {
     expect(
       unfold(noticeIcs({ ...CTX, lang: 'de', today: '2026-11-08' })),
     ).toContain('SUMMARY:Versammlungskalender abgeschaltet');
+  });
+});
+
+describe('tidy text', () => {
+  it('an address on two lines is one place', () => {
+    expect(oneLine('Augsburger Str. 9\n33378 Rheda\r\n')).toBe(
+      'Augsburger Str. 9, 33378 Rheda',
+    );
+  });
+  it('no double blank lines, none at the ends', () => {
+    expect(tidy('\na\n\n\n\nb\n\n')).toBe('a\n\nb');
+  });
+  it('a two-line place reaches the calendar on one line', () => {
+    const ics = unfold(
+      buildIcs(
+        [item({ id: 'part:a', place: 'Hafenweg 3\n12345 Westhafen' })],
+        ALL,
+        CTX,
+      ),
+    );
+    expect(ics).toContain('LOCATION:Hafenweg 3\\, 12345 Westhafen');
+  });
+  it('a day away without detail: no empty lines between the warning and the link', () => {
+    const [ev] = eventsOf(
+      [
+        item({
+          id: 'x:1',
+          kind: 'pioneer_school',
+          meetingKey: null,
+          meeting: null,
+          state: 'away',
+          start: null,
+          end: null,
+        }),
+      ],
+      ALL,
+      CTX,
+    );
+    const ics = unfold(
+      buildIcs(
+        [
+          item({
+            id: 'x:1',
+            kind: 'pioneer_school',
+            meetingKey: null,
+            meeting: null,
+            state: 'away',
+            start: null,
+            end: null,
+          }),
+        ],
+        ALL,
+        CTX,
+      ),
+    );
+    expect(ev.summary.startsWith('⚠')).toBe(true);
+    expect(ics).not.toMatch(/\\n\\n\\n/);
   });
 });
