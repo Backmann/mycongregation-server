@@ -3,10 +3,10 @@ import {
   buildIcs,
   escapeText,
   eventsOf,
-  feedTag,
   FeedContext,
   FeedOptions,
   foldLine,
+  noticeIcs,
   zonedToUtc,
 } from './ics';
 
@@ -284,17 +284,22 @@ describe('the whole calendar', () => {
   });
 });
 
-describe('the cache tag', () => {
-  const items = [item({ id: 'part:a' })];
-  it('the same agenda, the same tag — whatever the hour', () => {
-    expect(feedTag(items, ALL, 'ru')).toBe(feedTag(items, ALL, 'ru'));
+describe('a link that no longer works', () => {
+  const ics = unfold(noticeIcs({ ...CTX, today: '2026-11-08' }));
+
+  it('is a calendar with one notice for today and nothing of the person', () => {
+    expect(ics.match(/BEGIN:VEVENT/g)).toHaveLength(1);
+    expect(ics).toContain('UID:link-off@mycongregation.org');
+    expect(ics).toContain('DTSTART;VALUE=DATE:20261108');
+    expect(ics).toContain('DTEND;VALUE=DATE:20261109');
+    expect(ics).toContain('SUMMARY:Календарь собрания отключён');
+    expect(ics).toContain('Профиль → Календарь');
+    expect(ics).not.toContain('VALARM');
   });
-  it('anything changed, a new tag', () => {
-    const a = feedTag(items, ALL, 'ru');
+
+  it('in the person’s language', () => {
     expect(
-      feedTag([item({ id: 'part:a', start: '18:30' })], ALL, 'ru'),
-    ).not.toBe(a);
-    expect(feedTag(items, { ...ALL, names: false }, 'ru')).not.toBe(a);
-    expect(feedTag(items, ALL, 'de')).not.toBe(a);
+      unfold(noticeIcs({ ...CTX, lang: 'de', today: '2026-11-08' })),
+    ).toContain('SUMMARY:Versammlungskalender abgeschaltet');
   });
 });

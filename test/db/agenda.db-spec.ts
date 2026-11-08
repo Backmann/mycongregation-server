@@ -419,6 +419,26 @@ describe('a person’s agenda (real database)', () => {
     ).toBe(false);
   });
 
+  it('the brother who hosts the circuit overseer: the visit once, as his own', async () => {
+    const visit = await event('circuit_overseer_visit', '2027-03-16', {
+      end_date: '2027-03-21',
+      co_accommodation_publisher_id: peter,
+    });
+    const his = (await agenda('peter')).filter((i) => i.id.includes(visit));
+    expect(his).toHaveLength(1);
+    expect(his[0]).toMatchObject({
+      scope: 'mine',
+      title: 'Посещение районного старейшины — живёт у вас',
+      date: '2027-03-16',
+      endDate: '2027-03-21',
+    });
+    // Everybody else: the visit as the congregation's event.
+    const hers = (await agenda('anna')).filter((i) => i.id.includes(visit));
+    expect(hers.map((i) => [i.scope, i.title])).toEqual([
+      ['event', 'Посещение районного старейшины'],
+    ]);
+  });
+
   it('big events only: a campaign or «other» is not one', async () => {
     await event('branch_representative_visit', '2027-04-20', { time: '10:00' });
     await event('campaign', '2027-04-01', { end_date: '2027-04-30' });

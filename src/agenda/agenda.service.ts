@@ -852,6 +852,12 @@ export class AgendaService {
       where: { congregationId, type: In([...BIG_EVENT_TYPES]) },
     });
     for (const e of events) {
+      // The circuit overseer staying with the person: the same visit, once —
+      // as theirs, so it stays in their calendar even with big events
+      // switched off (8 November 2026).
+      const host =
+        e.type === 'circuit_overseer_visit' &&
+        e.coAccommodationPublisherId === pid;
       const date = day(e.date);
       const endDate = e.endDate ? day(e.endDate) : null;
       const many = !!endDate && endDate !== date;
@@ -860,12 +866,14 @@ export class AgendaService {
         base({
           id: `event:${e.id}`,
           kind: 'event',
-          scope: 'event',
+          scope: host ? 'mine' : 'event',
           date,
           endDate: many ? endDate : null,
           start,
           end: many ? null : (hhmm(e.timeEnd) ?? null),
-          title: words.events[String(e.type)] ?? e.title,
+          title: host
+            ? `${words.events.circuit_overseer_visit} — ${words.coAccommodation}`
+            : (words.events[String(e.type)] ?? e.title),
           detail:
             e.title?.trim() && e.title.trim() !== words.events[String(e.type)]
               ? e.title.trim()
@@ -969,18 +977,6 @@ export class AgendaService {
           end: null,
           title,
           place,
-        }),
-      );
-    }
-    for (const v of visits) {
-      if (v.coAccommodationPublisherId !== me.id) continue;
-      push(
-        base({
-          id: `co_visit:accommodation:${v.id}`,
-          kind: 'co_visit',
-          date: day(v.date),
-          endDate: v.endDate ? day(v.endDate) : null,
-          title: words.coAccommodation,
         }),
       );
     }

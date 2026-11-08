@@ -78,27 +78,25 @@ export class CalendarFeedController {
   })
   async feed(
     @Param('file') file: string,
-    @Headers('if-none-match') ifNoneMatch: string | undefined,
     @Headers('user-agent') userAgent: string | undefined,
     @Res() res: Response,
   ) {
     const token = file.endsWith('.ics') ? file.slice(0, -4) : file;
-    const out = await this.feeds.read(token, ifNoneMatch, userAgent);
+    const out = await this.feeds.read(token, userAgent);
     // Never stored by a proxy or a CDN, never sent on as a referrer, never indexed.
-    res.setHeader('Cache-Control', 'private, no-cache');
+    res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
     if (!out) throw new NotFoundException();
-    res.setHeader('ETag', out.etag);
-    if (out.status === 304) {
-      res.status(304).end();
-      return;
-    }
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     res.setHeader(
       'Content-Disposition',
       'inline; filename="mycongregation.ics"',
     );
-    res.status(200).send(out.body);
+    // end(), not send(): send() adds its own ETag and answers 304 to a
+    // calendar that already has the same text — with the old «as of» in it.
+    const body = Buffer.from(out.body, 'utf8');
+    res.setHeader('Content-Length', String(body.length));
+    res.status(200).end(body);
   }
 }

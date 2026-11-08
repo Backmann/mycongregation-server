@@ -1,4 +1,3 @@
-import { createHash } from 'crypto';
 import { SupportedLanguage } from '../common/i18n/supported-languages';
 import { addDaysISO } from '../common/week-rules';
 import type { AgendaItem } from '../agenda/agenda.types';
@@ -48,6 +47,8 @@ interface Words {
   yourPart: string;
   open: string;
   asOf: (when: string) => string;
+  offTitle: string;
+  offText: string;
 }
 
 const WORDS: Record<SupportedLanguage, Words> = {
@@ -63,6 +64,9 @@ const WORDS: Record<SupportedLanguage, Words> = {
     yourPart: 'У вас',
     open: 'Открыть в приложении',
     asOf: (w) => `Актуально на ${w} · mycongregation.org`,
+    offTitle: 'Календарь собрания отключён',
+    offText:
+      'Эта ссылка больше не работает, поэтому прежние события из календаря убраны. Чтобы снова видеть свои назначения, подключите календарь в приложении: Профиль → Календарь. Эту подписку можно удалить.',
   },
   en: {
     calendar: (c) => `${c} congregation`,
@@ -77,6 +81,9 @@ const WORDS: Record<SupportedLanguage, Words> = {
     yourPart: 'Yours',
     open: 'Open in the app',
     asOf: (w) => `As of ${w} · mycongregation.org`,
+    offTitle: 'Congregation calendar switched off',
+    offText:
+      'This link no longer works, so the earlier events have been removed. To see your assignments again, connect the calendar in the app: Profile → Calendar. You can delete this subscription.',
   },
   de: {
     calendar: (c) => `Versammlung ${c}`,
@@ -91,6 +98,9 @@ const WORDS: Record<SupportedLanguage, Words> = {
     yourPart: 'Ihre Aufgabe',
     open: 'In der App öffnen',
     asOf: (w) => `Stand: ${w} · mycongregation.org`,
+    offTitle: 'Versammlungskalender abgeschaltet',
+    offText:
+      'Dieser Link funktioniert nicht mehr, daher wurden die bisherigen Termine entfernt. Um Ihre Aufgaben wieder zu sehen, verbinden Sie den Kalender in der App: Profil → Kalender. Dieses Abonnement können Sie löschen.',
   },
 };
 
@@ -334,19 +344,7 @@ export function buildIcs(
   opts: FeedOptions,
   ctx: FeedContext,
 ): string {
-  const w = WORDS[ctx.lang];
-  const lines: string[] = [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//mycongregation.org//calendar feed//EN',
-    'CALSCALE:GREGORIAN',
-    'METHOD:PUBLISH',
-    `X-WR-CALNAME:${escapeText(w.calendar(ctx.congregation))}`,
-    `X-WR-TIMEZONE:${ctx.timezone}`,
-    // A hint only — Google decides for itself (about every 8–24 hours).
-    'REFRESH-INTERVAL;VALUE=DURATION:PT3H',
-    'X-PUBLISHED-TTL:PT3H',
-  ];
+  const lines = head(ctx);
   const dtstamp = stamp(ctx.now);
   for (const e of eventsOf(items, opts, ctx)) {
     lines.push('BEGIN:VEVENT', `UID:${e.uid}`, `DTSTAMP:${dtstamp}`);
@@ -376,18 +374,40 @@ export function buildIcs(
   return lines.map(foldLine).join('\r\n') + '\r\n';
 }
 
+function head(ctx: Pick<FeedContext, 'lang' | 'congregation' | 'timezone'>) {
+  return [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//mycongregation.org//calendar feed//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    `X-WR-CALNAME:${escapeText(WORDS[ctx.lang].calendar(ctx.congregation))}`,
+    `X-WR-TIMEZONE:${ctx.timezone}`,
+    // A hint only — Google decides for itself (about every 8–24 hours).
+    'REFRESH-INTERVAL;VALUE=DURATION:PT3H',
+    'X-PUBLISHED-TTL:PT3H',
+  ];
+}
+
 /**
- * A tag for HTTP caching: the events as they would read, without the moment
- * they were made. Same agenda, same tag — so a calendar asking every few
- * hours gets «304, nothing new» until something really changes.
+ * What a link that no longer works answers (8 November 2026): no events of
+ * the person — none at all — and one notice for today, so that the phone
+ * drops what it had and the person sees why. Nothing in it is personal.
  */
-export function feedTag(items: AgendaItem[], opts: FeedOptions, lang: string) {
-  return (
-    '"' +
-    createHash('sha256')
-      .update(JSON.stringify({ items, opts, lang }))
-      .digest('base64url')
-      .slice(0, 27) +
-    '"'
-  );
+export function noticeIcs(ctx: FeedContext & { today: string }): string {
+  const w = WORDS[ctx.lang];
+  const lines = [
+    ...head(ctx),
+    'BEGIN:VEVENT',
+    'UID:link-off@mycongregation.org',
+    `DTSTAMP:${stamp(ctx.now)}`,
+    `DTSTART;VALUE=DATE:${dateValue(ctx.today)}`,
+    `DTEND;VALUE=DATE:${dateValue(addDaysISO(ctx.today, 1))}`,
+    `SUMMARY:${escapeText(w.offTitle)}`,
+    `DESCRIPTION:${escapeText(`${w.offText}\n\n${ctx.appUrl}`)}`,
+    'TRANSP:TRANSPARENT',
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ];
+  return lines.map(foldLine).join('\r\n') + '\r\n';
 }

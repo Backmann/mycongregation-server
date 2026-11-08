@@ -38,9 +38,23 @@ export class CalendarFeeds1928500000000 implements MigrationInterface {
     await queryRunner.query(
       `ALTER TABLE "calendar_feeds" ADD CONSTRAINT "FK_calendar_feeds_user" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`,
     );
+    // Links that no longer work: answered with an empty calendar and a
+    // notice, so a phone does not keep old events (8 November 2026).
+    await queryRunner.query(`
+      CREATE TABLE "calendar_feed_retired" (
+        "token_hash" character varying(64) NOT NULL,
+        "congregation_id" uuid NOT NULL,
+        "lang" character varying(5) NOT NULL,
+        "reason" character varying(24) NOT NULL,
+        "retired_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+        CONSTRAINT "PK_calendar_feed_retired" PRIMARY KEY ("token_hash"),
+        CONSTRAINT "ck_calendar_feed_retired_hash" CHECK ("token_hash" ~ '^[0-9a-f]{64}$'),
+        CONSTRAINT "FK_calendar_feed_retired_congregation" FOREIGN KEY ("congregation_id") REFERENCES "congregations"("id") ON DELETE CASCADE ON UPDATE NO ACTION
+      )`);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`DROP TABLE "calendar_feed_retired"`);
     await queryRunner.query(`DROP TABLE "calendar_feeds"`);
   }
 }

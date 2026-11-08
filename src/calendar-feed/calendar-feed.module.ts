@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AgendaModule } from '../agenda/agenda.module';
 import { CongregationClockModule } from '../common/congregation-clock.module';
 import { CalendarFeed } from '../entities/calendar-feed.entity';
+import { CalendarFeedRetired } from '../entities/calendar-feed-retired.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { User } from '../entities/user.entity';
@@ -16,7 +17,13 @@ import { CalendarFeedService } from './calendar-feed.service';
   imports: [
     AgendaModule,
     CongregationClockModule,
-    TypeOrmModule.forFeature([CalendarFeed, User, Publisher, Congregation]),
+    TypeOrmModule.forFeature([
+      CalendarFeed,
+      CalendarFeedRetired,
+      User,
+      Publisher,
+      Congregation,
+    ]),
   ],
   controllers: [CalendarFeedSettingsController, CalendarFeedController],
   providers: [CalendarFeedService],

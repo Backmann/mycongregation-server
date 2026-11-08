@@ -82,6 +82,10 @@ describe('calendar feed (real database)', () => {
     await h.sql(`DELETE FROM calendar_feeds WHERE congregation_id = $1`, [
       tenant,
     ]);
+    await h.sql(
+      `DELETE FROM calendar_feed_retired WHERE congregation_id = $1`,
+      [tenant],
+    );
   });
 
   it('before connecting: not connected, no link', async () => {
@@ -113,7 +117,7 @@ describe('calendar feed (real database)', () => {
     const r = await feed(token, { 'User-Agent': 'Google-Calendar-Importer' });
     expect(r.status).toBe(200);
     expect(r.headers['content-type']).toBe('text/calendar; charset=utf-8');
-    expect(r.headers['cache-control']).toBe('private, no-cache');
+    expect(r.headers['cache-control']).toBe('private, no-store');
     expect(r.headers['referrer-policy']).toBe('no-referrer');
     const text = r.text.replace(/\r\n /g, '');
     expect(text).toContain('BEGIN:VCALENDAR');
@@ -126,19 +130,30 @@ describe('calendar feed (real database)', () => {
     expect(v.lastFetchedAt).not.toBeNull();
   });
 
-  it('nothing new: 304 by the ETag', async () => {
+  /** What a phone gets from a link that WAS real and no longer works. */
+  const expectNotice = (r: { status: number; text: string }) => {
+    expect(r.status).toBe(200);
+    expect(r.text).toContain('UID:link-off@mycongregation.org');
+    expect(r.text).toContain('Календарь собрания отключён');
+    // Nothing of hers: not the part, not the partner.
+    expect(r.text).not.toContain('Начинайте');
+    expect(r.text).not.toContain('Лена');
+    expect(r.text.match(/BEGIN:VEVENT/g)).toHaveLength(1);
+  };
+
+  it('always the whole text, made now — no 304 that would keep an old «as of»', async () => {
     const token = tokenOf((await connect()).url!);
     const first = await feed(token);
-    const etag = first.headers['etag'];
-    expect(etag).toMatch(/^"[A-Za-z0-9_-]+"$/);
-    const again = await feed(token, { 'If-None-Match': etag });
-    expect(again.status).toBe(304);
-    expect(again.text).toBe('');
+    const again = await feed(token, {
+      'If-None-Match': String(first.headers['etag'] ?? '"x"'),
+    });
+    expect(again.status).toBe(200);
+    expect(again.text).toContain('BEGIN:VCALENDAR');
+    expect(again.headers['cache-control']).toBe('private, no-store');
   });
 
-  it('names switched off: the partner is gone from the feed, and the ETag changes', async () => {
+  it('names switched off: the partner is gone from the feed', async () => {
     const token = tokenOf((await connect()).url!);
-    const before = await feed(token);
     const p = await h.as('anna').patch('/me/calendar-feed', { names: false });
     expect(p.status).toBe(200);
     expect((p.body as View).options).toEqual({
@@ -146,53 +161,71 @@ describe('calendar feed (real database)', () => {
       events: true,
       names: false,
     });
-    const after = await feed(token, {
-      'If-None-Match': before.headers['etag'],
-    });
+    const after = await feed(token);
     expect(after.status).toBe(200);
     expect(after.text).not.toContain('Лена');
   });
 
-  it('a new link: the old one stops at once', async () => {
+  it('a new link: the old one only says it is switched off; the new one works', async () => {
     const old = tokenOf((await connect()).url!);
     const r = await h.as('anna').post('/me/calendar-feed/rotate');
     expect(r.status).toBe(200);
     const fresh = tokenOf((r.body as View).url!);
     expect(fresh).not.toBe(old);
-    expect((await feed(old)).status).toBe(404);
-    expect((await feed(fresh)).status).toBe(200);
+    expectNotice(await feed(old));
+    expect((await feed(fresh)).text).toContain('Начинайте');
   });
 
-  it('off: the link stops', async () => {
+  it('off: the link only says it is switched off', async () => {
     const token = tokenOf((await connect()).url!);
     expect((await h.as('anna').delete('/me/calendar-feed')).status).toBe(200);
-    expect((await feed(token)).status).toBe(404);
+    expectNotice(await feed(token));
+    expect((await h.as('anna').get('/me/calendar-feed')).body).toMatchObject({
+      connected: false,
+    });
   });
 
-  it('a password set by an administrator ends the link with the sessions — and the screen says why', async () => {
+  it('a password set by an administrator ends the link with the sessions — the screen says why, reconnecting gives a new link', async () => {
     const token = tokenOf((await connect()).url!);
     const r = await h.as('admin').post(`/users/${annaUser}/reset-password`, {
       password: 'Another-Pass-77x!',
     });
     expect(r.status).toBe(204);
-    expect((await feed(token)).status).toBe(404);
-    const [row] = await h.sql<{ revoked_reason: string }>(
-      `SELECT revoked_reason FROM calendar_feeds WHERE user_id = $1`,
-      [annaUser],
-    );
-    expect(row.revoked_reason).toBe('sessions_ended');
+    expectNotice(await feed(token));
+    const v = (await h.as('anna').get('/me/calendar-feed')).body as View;
+    expect(v).toMatchObject({
+      connected: false,
+      url: null,
+      revokedReason: 'sessions_ended',
+    });
+    const again = tokenOf((await connect()).url!);
+    expect(again).not.toBe(token);
+    expectNotice(await feed(token));
+    expect((await feed(again)).text).toContain('Начинайте');
   });
 
-  it('a switched-off login reads nothing', async () => {
+  it('a switched-off login: the notice, nothing of the person', async () => {
     const token = tokenOf((await connect()).url!);
     await h.sql(`UPDATE users SET is_active = false WHERE id = $1`, [annaUser]);
     try {
-      expect((await feed(token)).status).toBe(404);
+      expectNotice(await feed(token));
     } finally {
       await h.sql(`UPDATE users SET is_active = true WHERE id = $1`, [
         annaUser,
       ]);
     }
+  });
+
+  it('a retired link is forgotten after half a year: then a plain 404', async () => {
+    const token = tokenOf((await connect()).url!);
+    await h.as('anna').delete('/me/calendar-feed');
+    await h.sql(
+      `UPDATE calendar_feed_retired SET retired_at = now() - interval '200 days'`,
+    );
+    // The next retirement sweeps the old ones.
+    await connect();
+    await h.as('anna').post('/me/calendar-feed/rotate');
+    expect((await feed(token)).status).toBe(404);
   });
 
   it('a wrong token, a malformed one, no extension: the same plain 404', async () => {

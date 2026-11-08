@@ -22,6 +22,7 @@ export interface AgendaWords {
   coPioneers: string;
   coElders: string;
   coOther: string;
+  /** Added to the visit's name for the brother who hosts the circuit overseer. */
   coAccommodation: string;
   pioneerMeetingConduct: string;
   pioneerMeetingInvited: string;
@@ -51,7 +52,7 @@ export const AGENDA_WORDS: Record<SupportedLanguage, AgendaWords> = {
     coElders:
       'Встреча районного старейшины со старейшинами и помощниками собрания',
     coOther: 'Посещение районного старейшины',
-    coAccommodation: 'Районный старейшина живёт у вас',
+    coAccommodation: 'живёт у вас',
     pioneerMeetingConduct: 'Встреча пионеров — ведёте вы',
     pioneerMeetingInvited: 'Встреча пионеров',
     pioneerSchool: (d) => `Школа пионерского служения — ${d}`,
@@ -83,7 +84,7 @@ export const AGENDA_WORDS: Record<SupportedLanguage, AgendaWords> = {
     coElders:
       'Meeting of elders and ministerial servants with the circuit overseer',
     coOther: 'Circuit overseer visit',
-    coAccommodation: 'The circuit overseer stays with you',
+    coAccommodation: 'stays with you',
     pioneerMeetingConduct: 'Pioneers meeting — you conduct',
     pioneerMeetingInvited: 'Pioneers meeting',
     pioneerSchool: (d) => `Pioneer Service School — ${d}`,
@@ -116,7 +117,7 @@ export const AGENDA_WORDS: Record<SupportedLanguage, AgendaWords> = {
     coElders:
       'Zusammenkunft der Ältesten und Dienstamtgehilfen mit dem Kreisaufseher',
     coOther: 'Besuch des Kreisaufsehers',
-    coAccommodation: 'Der Kreisaufseher wohnt bei Ihnen',
+    coAccommodation: 'wohnt bei Ihnen',
     pioneerMeetingConduct: 'Pionierzusammenkunft — Sie leiten',
     pioneerMeetingInvited: 'Pionierzusammenkunft',
     pioneerSchool: (d) => `Pionierdienstschule — ${d}`,

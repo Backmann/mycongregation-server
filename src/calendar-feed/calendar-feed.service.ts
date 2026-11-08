@@ -2,8 +2,9 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes } from 'crypto';
-import { IsNull, Repository } from 'typeorm';
+import { IsNull, LessThan, Repository } from 'typeorm';
 import { CalendarFeed } from '../entities/calendar-feed.entity';
+import { CalendarFeedRetired } from '../entities/calendar-feed-retired.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { User } from '../entities/user.entity';
@@ -13,14 +14,17 @@ import { addDaysISO } from '../common/week-rules';
 import {
   DEFAULT_LANGUAGE,
   isSupportedLanguage,
+  SupportedLanguage,
 } from '../common/i18n/supported-languages';
-import { buildIcs, FeedOptions, feedTag } from './ics';
+import { buildIcs, FeedOptions, noticeIcs } from './ics';
 
 /** How far the calendar reaches: a year back, a year ahead (7 November 2026). */
 export const FEED_DAYS_BACK = 365;
 export const FEED_DAYS_AHEAD = 365;
 /** «Last fetched» is written at most this often — a calendar may ask every few minutes. */
 const FETCH_MARK_EVERY_MS = 10 * 60 * 1000;
+/** How long a link that no longer works still answers with the notice. */
+const RETIRED_KEEP_DAYS = 183;
 
 /** The token is 32 random bytes in base64url: 43 characters. */
 const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
@@ -83,9 +87,9 @@ export interface FeedView {
 }
 
 export interface FeedResponse {
-  status: 200 | 304;
-  etag: string;
-  body: string | null;
+  /** The person's calendar, or the notice of a link that no longer works. */
+  kind: 'feed' | 'notice';
+  body: string;
 }
 
 @Injectable()
@@ -95,6 +99,8 @@ export class CalendarFeedService {
   constructor(
     @InjectRepository(CalendarFeed)
     private readonly feeds: Repository<CalendarFeed>,
+    @InjectRepository(CalendarFeedRetired)
+    private readonly retired: Repository<CalendarFeedRetired>,
     @InjectRepository(User)
     private readonly users: Repository<User>,
     @InjectRepository(Publisher)
@@ -191,19 +197,40 @@ export class CalendarFeedService {
 
   /** Off: the link stops; the calendar drops the events at its next read. */
   async disconnect(userId: string): Promise<FeedView> {
-    await this.feeds.delete({ userId });
+    const feed = await this.feeds.findOne({ where: { userId } });
+    if (feed) {
+      await this.retire(
+        feed,
+        feed.revokedAt ? feed.revokedReason : 'disconnected',
+      );
+      await this.feeds.delete({ id: feed.id });
+    }
     return this.view(null);
   }
 
-  /**
-   * Switched off for the person — when they sign out everywhere or get a new
-   * password: whoever might have had the phone keeps no way into the agenda.
-   */
-  async revokeFor(userId: string, reason: string): Promise<void> {
-    await this.feeds.update(
-      { userId, revokedAt: IsNull() },
-      { revokedAt: new Date(), revokedReason: reason },
+  /** Keeps the hash of a link that stops working, so it can still say so. */
+  private async retire(feed: CalendarFeed, reason: string | null) {
+    const user = await this.users.findOne({
+      where: { id: feed.userId },
+      select: { id: true, uiLanguage: true },
+    });
+    await this.retired.upsert(
+      {
+        tokenHash: feed.tokenHash,
+        congregationId: feed.congregationId,
+        lang:
+          user && isSupportedLanguage(user.uiLanguage)
+            ? user.uiLanguage
+            : DEFAULT_LANGUAGE,
+        reason: reason ?? 'rotated',
+      },
+      ['tokenHash'],
     );
+    await this.retired.delete({
+      retiredAt: LessThan(
+        new Date(Date.now() - RETIRED_KEEP_DAYS * 86_400_000),
+      ),
+    });
   }
 
   private async fresh(
@@ -211,6 +238,12 @@ export class CalendarFeedService {
     userId: string,
     existing: CalendarFeed | null,
   ): Promise<CalendarFeed> {
+    if (existing) {
+      await this.retire(
+        existing,
+        existing.revokedAt ? existing.revokedReason : 'rotated',
+      );
+    }
     const token = randomBytes(32).toString('base64url');
     const feed =
       existing ??
@@ -232,33 +265,45 @@ export class CalendarFeedService {
   }
 
   /**
-   * The feed for a token, as a calendar asks for it. Null for any token that
-   * is not a live link — the caller answers 404 the same way for all of them.
+   * The feed for a token, as a calendar asks for it.
+   *
+   * - a live link: the person's calendar;
+   * - a link that WAS real (changed, switched off, ended with the sessions,
+   *   its login switched off): an empty calendar with one notice, so the
+   *   phone drops the old events instead of keeping them for good;
+   * - anything else: null, and the caller answers a plain 404.
    */
   async read(
     token: string,
-    ifNoneMatch: string | undefined,
     userAgent: string | undefined,
   ): Promise<FeedResponse | null> {
     if (!TOKEN_RE.test(token)) return null;
-    const feed = await this.feeds.findOne({
-      where: { tokenHash: hashToken(token), revokedAt: IsNull() },
-    });
-    if (!feed) return null;
+    const hash = hashToken(token);
+    const feed = await this.feeds.findOne({ where: { tokenHash: hash } });
+    if (!feed) {
+      const old = await this.retired.findOne({ where: { tokenHash: hash } });
+      if (!old) return null;
+      return this.notice(
+        old.congregationId,
+        isSupportedLanguage(old.lang) ? old.lang : DEFAULT_LANGUAGE,
+      );
+    }
     const user = await this.users.findOne({ where: { id: feed.userId } });
+    const lang =
+      user && isSupportedLanguage(user.uiLanguage)
+        ? user.uiLanguage
+        : DEFAULT_LANGUAGE;
     if (
+      feed.revokedAt ||
       !user ||
       !user.isActive ||
       user.congregationId !== feed.congregationId
     ) {
-      return null;
+      return this.notice(feed.congregationId, lang);
     }
     const me = await this.publishers.findOne({
       where: { congregationId: feed.congregationId, userId: feed.userId },
     });
-    const lang = isSupportedLanguage(user.uiLanguage)
-      ? user.uiLanguage
-      : DEFAULT_LANGUAGE;
     const opts: FeedOptions = {
       mine: feed.includeMine,
       events: feed.includeEvents,
@@ -276,21 +321,44 @@ export class CalendarFeedService {
         ).items
       : [];
     await this.markFetched(feed, userAgent);
-    const etag = feedTag(items, opts, lang);
-    if (ifNoneMatch && ifNoneMatch.split(/\s*,\s*/).includes(etag)) {
-      return { status: 304, etag, body: null };
-    }
-    const congregation = await this.congregations.findOne({
-      where: { id: feed.congregationId },
+    // Always the whole text, made now: «актуально на» then means what it
+    // says. The agenda is built either way; a 304 would only have saved the
+    // few dozen kilobytes of text (8 November 2026).
+    return {
+      kind: 'feed',
+      body: buildIcs(items, opts, {
+        lang,
+        timezone: await this.clock.timezoneOf(feed.congregationId),
+        congregation: await this.congregationName(feed.congregationId),
+        appUrl: this.appUrl(),
+        now: new Date(),
+      }),
+    };
+  }
+
+  private async congregationName(id: string): Promise<string> {
+    const c = await this.congregations.findOne({
+      where: { id },
+      select: { id: true, name: true },
     });
-    const body = buildIcs(items, opts, {
-      lang,
-      timezone: await this.clock.timezoneOf(feed.congregationId),
-      congregation: congregation?.name ?? '',
-      appUrl: this.appUrl(),
-      now: new Date(),
-    });
-    return { status: 200, etag, body };
+    return c?.name ?? '';
+  }
+
+  private async notice(
+    congregationId: string,
+    lang: SupportedLanguage,
+  ): Promise<FeedResponse> {
+    return {
+      kind: 'notice',
+      body: noticeIcs({
+        lang,
+        timezone: await this.clock.timezoneOf(congregationId),
+        congregation: await this.congregationName(congregationId),
+        appUrl: this.appUrl(),
+        now: new Date(),
+        today: await this.clock.todayFor(congregationId),
+      }),
+    };
   }
 
   private async markFetched(feed: CalendarFeed, userAgent?: string) {

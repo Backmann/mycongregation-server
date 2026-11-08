@@ -82,6 +82,7 @@ export const PLAN: Record<string, TablePlan> = {
   refresh_sessions: 'skip',
   /** Secret calendar links (7 November 2026). */
   calendar_feeds: 'skip',
+  calendar_feed_retired: 'skip',
   /** Addresses of real devices. */
   push_tokens: 'skip',
   push_receipts: 'skip',
