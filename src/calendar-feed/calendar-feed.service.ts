@@ -58,17 +58,22 @@ export function requestBase(headers: {
 /** Which calendar is asking, from its User-Agent — only to tell the person «Google», «Apple»… */
 export function clientOf(userAgent: string | undefined): string {
   const ua = (userAgent ?? '').toLowerCase();
-  if (ua.includes('google')) return 'google';
+  if (ua.includes('google-calendar') || ua.includes('googlebot')) {
+    return 'google';
+  }
+  // Apple's calendars name themselves (dataaccessd on iPhone and iPad,
+  // CalendarAgent on a Mac). NOT the bare word «apple»: every browser says
+  // «AppleWebKit», and the first live test showed a link opened in a
+  // browser as «(Apple)» (8 November 2026).
   if (
     ua.includes('dataaccessd') ||
-    ua.includes('ios/') ||
-    ua.includes('macos/') ||
     ua.includes('calendaragent') ||
-    ua.includes('apple')
+    /^(ios|ipados|macos)\//.test(ua)
   ) {
     return 'apple';
   }
   if (ua.includes('microsoft') || ua.includes('outlook')) return 'outlook';
+  if (ua.startsWith('mozilla/')) return 'browser';
   return 'other';
 }
 
@@ -368,8 +373,15 @@ export class CalendarFeedService {
 
   private async markFetched(feed: CalendarFeed, userAgent?: string) {
     const now = Date.now();
+    const client = clientOf(userAgent);
+    // A person opening the link in a browser is not «your calendar fetched
+    // it»: the screen must not say a calendar works when none has asked.
+    if (client === 'browser') return;
+    // At most every few minutes — unless another calendar asks: then the
+    // screen should name the one that asked last.
     if (
       feed.lastFetchedAt &&
+      feed.lastClient === client &&
       now - feed.lastFetchedAt.getTime() < FETCH_MARK_EVERY_MS
     ) {
       return;
@@ -377,7 +389,7 @@ export class CalendarFeedService {
     try {
       await this.feeds.update(
         { id: feed.id },
-        { lastFetchedAt: new Date(now), lastClient: clientOf(userAgent) },
+        { lastFetchedAt: new Date(now), lastClient: client },
       );
     } catch (err) {
       // A calendar must get its events even when the mark cannot be written.

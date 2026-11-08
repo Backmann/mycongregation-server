@@ -51,6 +51,15 @@ describe('which calendar asked', () => {
       'Microsoft Office/16.0 (Windows NT 10.0; Microsoft Outlook 16.0)',
       'outlook',
     ],
+    // A browser is not a calendar — even though it says «AppleWebKit».
+    [
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+      'browser',
+    ],
+    [
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+      'browser',
+    ],
     ['curl/8.0', 'other'],
     [undefined, 'other'],
   ])('%s → %s', (ua, want) => {

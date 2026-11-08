@@ -161,6 +161,22 @@ describe('calendar feed (real database)', () => {
     expect(r.text.match(/BEGIN:VEVENT/g)).toHaveLength(1);
   };
 
+  it('the screen names the calendar that asked — a browser opening the link is not one', async () => {
+    const token = tokenOf((await connect()).url!);
+    const view = async () =>
+      (await h.as('anna').get('/me/calendar-feed')).body as View;
+    await feed(token, {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36',
+    });
+    expect((await view()).lastFetchedAt).toBeNull();
+    await feed(token, { 'User-Agent': 'Google-Calendar-Importer' });
+    expect((await view()).lastClient).toBe('google');
+    // Another calendar a minute later: named at once, not after ten minutes.
+    await feed(token, { 'User-Agent': 'iOS/18.1 (22B83) dataaccessd/1.0' });
+    expect((await view()).lastClient).toBe('apple');
+  });
+
   it('always the whole text, made now — no 304 that would keep an old «as of»', async () => {
     const token = tokenOf((await connect()).url!);
     const first = await feed(token);
