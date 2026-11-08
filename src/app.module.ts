@@ -41,6 +41,7 @@ import { TalkExchangeModule } from './talk-exchange/talk-exchange.module';
 import { HallsModule } from './halls/halls.module';
 import { MailModule } from './mail/mail.module';
 import { MeModule } from './me/me.module';
+import { AgendaModule } from './agenda/agenda.module';
 import { PushNotificationsModule } from './push-notifications/push-notifications.module';
 import { WebPushModule } from './web-push/web-push.module';
 import { ActivityFeedModule } from './activity-feed/activity-feed.module';
@@ -136,6 +137,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     HallsModule,
     MailModule,
     MeModule,
+    AgendaModule,
     PushNotificationsModule,
     WebPushModule,
     ResponsibilitiesModule,
