@@ -95,7 +95,10 @@ describe('calendar feed (real database)', () => {
     expect(a.connected).toBe(true);
     expect(a.url).toMatch(/\/api\/calendar\/[A-Za-z0-9_-]{43}\.ics$/);
     expect(a.webcalUrl).toMatch(/^webcal:\/\//);
-    expect((await connect()).url).toBe(a.url);
+    // The same secret (the test server answers on a new port each time).
+    expect(tokenOf((await connect()).url!)).toBe(tokenOf(a.url!));
+    // The link points at the host the app reached, not at the website.
+    expect(a.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/api\/calendar\//);
     // Only the hash is findable; the token itself is not stored in the clear.
     const [row] = await h.sql<{ token: string; token_hash: string }>(
       `SELECT token, token_hash FROM calendar_feeds WHERE user_id = $1`,

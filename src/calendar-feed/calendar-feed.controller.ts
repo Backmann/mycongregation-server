@@ -9,15 +9,16 @@ import {
   Param,
   Patch,
   Post,
+  Req,
   Res,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { Public } from '../auth/decorators/public.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
-import { CalendarFeedService } from './calendar-feed.service';
+import { CalendarFeedService, requestBase } from './calendar-feed.service';
 import { FeedOptionsDto } from './dto/feed-options.dto';
 
 /** The person's own subscription: connect, change what is in it, a new link, off. */
@@ -26,8 +27,8 @@ export class CalendarFeedSettingsController {
   constructor(private readonly feeds: CalendarFeedService) {}
 
   @Get()
-  get(@CurrentUser() user: AuthenticatedUser) {
-    return this.feeds.get(user.id);
+  get(@CurrentUser() user: AuthenticatedUser, @Req() req: Request) {
+    return this.feeds.get(user.id, requestBase(req.headers));
   }
 
   @Post()
@@ -35,8 +36,9 @@ export class CalendarFeedSettingsController {
   connect(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
   ) {
-    return this.feeds.connect(tenantId, user.id);
+    return this.feeds.connect(tenantId, user.id, requestBase(req.headers));
   }
 
   @Post('rotate')

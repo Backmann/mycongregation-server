@@ -28,6 +28,29 @@ const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 export const hashToken = (token: string) =>
   createHash('sha256').update(token).digest('hex');
 
+/**
+ * «https://host/api» from the request that reached us — the host checked to
+ * be a plain host name, the scheme taken from the proxy in front.
+ */
+export function requestBase(headers: {
+  host?: string;
+  'x-forwarded-proto'?: string | string[];
+}): string | null {
+  const host = headers.host?.trim().toLowerCase();
+  if (!host || !/^[a-z0-9.-]+(:\d{1,5})?$/.test(host)) return null;
+  const raw = headers['x-forwarded-proto'];
+  const proto = (Array.isArray(raw) ? raw[0] : (raw ?? ''))
+    .split(',')[0]
+    .trim();
+  const scheme =
+    proto === 'https' || proto === 'http'
+      ? proto
+      : /^(localhost|127\.0\.0\.1)(:|$)/.test(host)
+        ? 'http'
+        : 'https';
+  return `${scheme}://${host}/api`;
+}
+
 /** Which calendar is asking, from its User-Agent — only to tell the person «Google», «Apple»… */
 export function clientOf(userAgent: string | undefined): string {
   const ua = (userAgent ?? '').toLowerCase();
@@ -83,9 +106,16 @@ export class CalendarFeedService {
     private readonly config: ConfigService,
   ) {}
 
-  private apiBase(): string {
+  /**
+   * Where the server answers, for the link. The app talks to a host of its
+   * own (api.mycongregation.org), and «mycongregation.org/api» there is the
+   * WEBSITE, not this server — so the link takes the address the app itself
+   * reached us at, unless PUBLIC_API_URL says otherwise (8 November 2026).
+   */
+  private apiBase(requestBase?: string | null): string {
     const api = this.config.get<string>('PUBLIC_API_URL');
     if (api) return api.replace(/\/+$/, '');
+    if (requestBase) return requestBase;
     const app = (
       this.config.get<string>('PUBLIC_APP_URL') ?? 'https://mycongregation.org'
     ).replace(/\/+$/, '');
@@ -98,9 +128,11 @@ export class CalendarFeedService {
     ).replace(/\/+$/, '');
   }
 
-  private view(feed: CalendarFeed | null): FeedView {
+  private view(feed: CalendarFeed | null, base?: string | null): FeedView {
     const live = !!feed && !feed.revokedAt;
-    const url = live ? `${this.apiBase()}/calendar/${feed.token}.ics` : null;
+    const url = live
+      ? `${this.apiBase(base)}/calendar/${feed.token}.ics`
+      : null;
     return {
       connected: live,
       url,
@@ -117,26 +149,35 @@ export class CalendarFeedService {
     };
   }
 
-  async get(userId: string): Promise<FeedView> {
-    return this.view(await this.feeds.findOne({ where: { userId } }));
+  async get(userId: string, base?: string | null): Promise<FeedView> {
+    return this.view(await this.feeds.findOne({ where: { userId } }), base);
   }
 
   /** Connects, or returns the link already there — pressing twice must not break the first phone. */
-  async connect(congregationId: string, userId: string): Promise<FeedView> {
+  async connect(
+    congregationId: string,
+    userId: string,
+    base?: string | null,
+  ): Promise<FeedView> {
     const existing = await this.feeds.findOne({ where: { userId } });
-    if (existing && !existing.revokedAt) return this.view(existing);
-    return this.view(await this.fresh(congregationId, userId, existing));
+    if (existing && !existing.revokedAt) return this.view(existing, base);
+    return this.view(await this.fresh(congregationId, userId, existing), base);
   }
 
   /** A new link; the old one stops working at once. */
-  async rotate(congregationId: string, userId: string): Promise<FeedView> {
+  async rotate(
+    congregationId: string,
+    userId: string,
+    base?: string | null,
+  ): Promise<FeedView> {
     const existing = await this.feeds.findOne({ where: { userId } });
-    return this.view(await this.fresh(congregationId, userId, existing));
+    return this.view(await this.fresh(congregationId, userId, existing), base);
   }
 
   async setOptions(
     userId: string,
     patch: Partial<FeedOptions>,
+    base?: string | null,
   ): Promise<FeedView> {
     const feed = await this.feeds.findOne({
       where: { userId, revokedAt: IsNull() },
@@ -145,7 +186,7 @@ export class CalendarFeedService {
     if (patch.mine !== undefined) feed.includeMine = patch.mine;
     if (patch.events !== undefined) feed.includeEvents = patch.events;
     if (patch.names !== undefined) feed.includeNames = patch.names;
-    return this.view(await this.feeds.save(feed));
+    return this.view(await this.feeds.save(feed), base);
   }
 
   /** Off: the link stops; the calendar drops the events at its next read. */
