@@ -288,6 +288,7 @@ export const REFUSAL_CODES = [
   // ---- assignments on a meeting that is not held (8 November 2026) ----
   'NOT_HELD_MEETING_HELD',
   'NOT_HELD_NOTHING_CHOSEN',
+  'NOT_HELD_NOTHING_LEFT',
   'NOT_HELD_PAST',
   'NOT_HELD_ALREADY_RESTORED',
   // ---- the annual meeting with the pioneers (S-211) ----

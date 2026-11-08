@@ -154,8 +154,8 @@ describe('assignments on meetings that are not held (real database)', () => {
       duties: what.duties ?? true,
     });
   const outbox = async (userId: string) =>
-    h.sql<{ key: string; data: { type: string } }>(
-      `SELECT dedupe_key AS key, data FROM notification_outbox
+    h.sql<{ key: string; title: string; data: { type: string } }>(
+      `SELECT dedupe_key AS key, title, data FROM notification_outbox
         WHERE user_id = $1 AND data->>'type' = 'meeting_not_held'
         ORDER BY created_at`,
       [userId],
@@ -220,7 +220,7 @@ describe('assignments on meetings that are not held (real database)', () => {
       await h.sql(`DELETE FROM ${t} WHERE congregation_id = $1`, [tenant]);
     }
     await h.sql(
-      `DELETE FROM notification_outbox WHERE data->>'type' = 'meeting_not_held'`,
+      `DELETE FROM notification_outbox WHERE data->>'type' = 'meeting_not_held' OR dedupe_key LIKE 'talk-attention:%'`,
     );
   });
 
@@ -456,5 +456,130 @@ describe('assignments on meetings that are not held (real database)', () => {
     await part(CONGRESS, 'midweek', 'apply_yourself_1', anna, { order: 3 });
     expect(await run()).toBe(1);
     expect(await outbox(markusUser)).toHaveLength(2);
+  });
+
+  it('the notice names the event and its days, in the reader’s words', async () => {
+    await congress();
+    await part(CONGRESS, 'midweek', 'bible_reading', anna);
+    await part(CONGRESS, 'midweek', 'apply_yourself_1', peter, { order: 3 });
+    await h.app.get(NotHeldService).alert(tenant);
+    const [told] = await outbox(markusUser);
+    expect(told.title).toBe(
+      'Событие regional_convention 26–28 марта: 2 назначения без встречи',
+    );
+  });
+
+  it('given back while still not held: the editor is not told again', async () => {
+    await congress();
+    await part(CONGRESS, 'midweek', 'bible_reading', anna);
+    const run = () => h.app.get(NotHeldService).alert(tenant);
+    expect(await run()).toBe(1);
+    const r = await clear('admin', CONGRESS, 'midweek');
+    expect(
+      (await h.as('admin').post(`/not-held/restore/${r.body.clearanceId}`))
+        .status,
+    ).toBe(200);
+    expect(await run()).toBe(0);
+    expect(await outbox(markusUser)).toHaveLength(1);
+  });
+
+  it('nothing left to take off: refused, no empty record — also when two press at once', async () => {
+    await congress();
+    await part(CONGRESS, 'weekend', 'watchtower_reader', peter);
+    await duty(CONGRESS, 'weekend', 'attendant', anna);
+    // Straight to the service, side by side: over HTTP the two requests
+    // tend to run one after the other and would prove nothing.
+    const service = h.app.get(NotHeldService);
+    const me = {
+      id: adminUser,
+      role: 'admin',
+      congregationId: tenant,
+    } as unknown as Parameters<NotHeldService['clear']>[1];
+    const input = {
+      weekStartDate: CONGRESS,
+      eventType: 'weekend' as const,
+      parts: true,
+      duties: true,
+    };
+    const both = await Promise.allSettled([
+      service.clear(tenant, me, input),
+      service.clear(tenant, me, input),
+    ]);
+    expect(both.map((x) => x.status).sort()).toEqual(['fulfilled', 'rejected']);
+    const refused = both.find((x) => x.status === 'rejected')!;
+    expect(
+      (
+        (refused as PromiseRejectedResult).reason as {
+          getResponse(): { code: string };
+        }
+      ).getResponse().code,
+    ).toBe('NOT_HELD_NOTHING_LEFT');
+    const again = await clear('admin', CONGRESS, 'weekend');
+    expect([again.status, again.body.code]).toEqual([
+      409,
+      'NOT_HELD_NOTHING_LEFT',
+    ]);
+    const rows = await h.sql<{ p: number; d: number }>(
+      `SELECT jsonb_array_length(parts) AS p, jsonb_array_length(duties) AS d
+         FROM not_held_clearances WHERE congregation_id = $1`,
+      [tenant],
+    );
+    expect(rows).toEqual([{ p: 1, d: 1 }]);
+  });
+
+  it('two presses of «Вернуть» at once give back once', async () => {
+    await congress();
+    await duty(CONGRESS, 'weekend', 'attendant', anna);
+    const r = await clear('admin', CONGRESS, 'weekend');
+    const both = await Promise.all([
+      h.as('admin').post(`/not-held/restore/${r.body.clearanceId}`),
+      h.as('admin').post(`/not-held/restore/${r.body.clearanceId}`),
+    ]);
+    expect(both.map((x) => x.status).sort()).toEqual([200, 409]);
+    const duties = await h.sql(
+      `SELECT id FROM duties WHERE congregation_id = $1 AND week_start_date = $2`,
+      [tenant, CONGRESS],
+    );
+    expect(duties).toHaveLength(1);
+  });
+
+  it('the event moved: its editor is told once that the week can be given back', async () => {
+    const ev = await congress();
+    await part(CONGRESS, 'midweek', 'bible_reading', anna);
+    const run = () => h.app.get(NotHeldService).alert(tenant);
+    expect((await clear('admin', CONGRESS, 'midweek')).status).toBe(200);
+    expect(await run()).toBe(0);
+    await h.sql(`DELETE FROM special_events WHERE id = $1`, [ev]);
+    expect(await run()).toBe(1);
+    expect(await run()).toBe(0);
+    const told = await outbox(markusUser);
+    expect(told.map((x) => x.title)).toEqual([
+      'Встреча 24 марта снова проводится',
+    ]);
+  });
+
+  it('a guest given back while the meeting is off: the talk coordinators hear it is on again', async () => {
+    await congress();
+    await part(CONGRESS, 'weekend', 'public_talk_speaker', null, {
+      speaker: 'Гюнтер Майер',
+    });
+    const booked = await h.as('admin').post('/talk-exchange', {
+      direction: 'incoming',
+      date: '2027-03-28',
+      speakerName: 'Гюнтер Майер',
+    });
+    expect(booked.status).toBe(201);
+    const r = await clear('admin', CONGRESS, 'weekend');
+    await h.as('admin').post(`/not-held/restore/${r.body.clearanceId}`);
+    const said = await h.sql<{ title: string }>(
+      `SELECT DISTINCT title FROM notification_outbox
+        WHERE congregation_id = $1 AND dedupe_key LIKE 'talk-attention:%'
+        ORDER BY title`,
+      [tenant],
+    );
+    expect(said.map((x) => x.title)).toEqual([
+      'Встреча отменена — у нас записан гость',
+      'Встреча снова в силе — гость записан',
+    ]);
   });
 });

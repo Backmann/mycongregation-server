@@ -195,6 +195,8 @@ const STR: Record<
     cancelledBody: (day: string, guest: string) => string;
     droppedTitle: string;
     droppedBody: (day: string, guest: string) => string;
+    restoredTitle: string;
+    restoredBody: (day: string, guest: string) => string;
     asideTitle: string;
     asideBody: (day: string, guest: string) => string;
     asideAgainTitle: string;
@@ -214,6 +216,9 @@ const STR: Record<
     cancelledTitle: 'Встреча отменена — у нас записан гость',
     cancelledBody: (day, guest) =>
       `${day} · ${guest}. Сообщите ему или перенесите визит`,
+    restoredTitle: 'Встреча снова в силе — гость записан',
+    restoredBody: (day, guest) =>
+      `${day} · ${guest}. Встречу больше не отменяют: если вы уже сообщили ему об отмене, сообщите, что визит в силе`,
     droppedTitle: 'Докладчика убрали из программы',
     droppedBody: (day, guest) =>
       `${day} · ${guest} записан в журнале «К нам», а в программе его больше нет. Проверьте, приедет ли он`,
@@ -237,6 +242,9 @@ const STR: Record<
     cancelledTitle: 'Zusammenkunft abgesagt – ein Gastredner ist eingetragen',
     cancelledBody: (day, guest) =>
       `${day} · ${guest}. Bitte ihn informieren oder den Besuch verschieben`,
+    restoredTitle: 'Zusammenkunft findet wieder statt – Gastredner eingetragen',
+    restoredBody: (day, guest) =>
+      `${day} · ${guest}. Die Zusammenkunft ist nicht mehr abgesagt: Falls Sie ihm die Absage schon mitgeteilt haben, sagen Sie ihm bitte, dass der Besuch gilt`,
     droppedTitle: 'Redner aus dem Programm entfernt',
     droppedBody: (day, guest) =>
       `${day} · ${guest} steht im Vortragsplan, aber nicht mehr im Programm. Bitte klären, ob er kommt`,
@@ -260,6 +268,9 @@ const STR: Record<
     cancelledTitle: 'Meeting cancelled — a guest speaker is booked',
     cancelledBody: (day, guest) =>
       `${day} · ${guest}. Let him know or move the visit`,
+    restoredTitle: 'Meeting on again — a guest speaker is booked',
+    restoredBody: (day, guest) =>
+      `${day} · ${guest}. The meeting is no longer cancelled: if you already told him it was off, let him know the visit stands`,
     droppedTitle: 'Speaker removed from the programme',
     droppedBody: (day, guest) =>
       `${day} · ${guest} is booked in the talk log but no longer in the programme. Check whether he is coming`,
@@ -784,6 +795,19 @@ export class TalkAttentionService {
   }
 
   /**
+   * The cancelled weekend is on again (8 November 2026): the convention moved,
+   * or its assignments were taken off and given back a moment later. Those
+   * who were told «встреча отменена» must hear it is on, or the guest stays
+   * at home.
+   */
+  async meetingRestored(
+    tenantId: string,
+    entry: Pick<TalkExchange, 'id' | 'date' | 'speakerName'>,
+  ): Promise<void> {
+    await this.aboutGuest(tenantId, entry, 'restored');
+  }
+
+  /**
    * The weekend programme no longer names a guest the coordinator booked:
    * the entry is his arrangement and stays, but the chairman would announce
    * nobody (23 October 2026).
@@ -847,7 +871,7 @@ export class TalkAttentionService {
   private async aboutGuest(
     tenantId: string,
     entry: Pick<TalkExchange, 'id' | 'date' | 'speakerName'>,
-    what: 'cancelled' | 'dropped',
+    what: 'cancelled' | 'dropped' | 'restored',
   ): Promise<void> {
     try {
       const date = String(entry.date).slice(0, 10);
@@ -859,10 +883,16 @@ export class TalkAttentionService {
         date,
         (l) => ({
           title:
-            what === 'cancelled' ? STR[l].cancelledTitle : STR[l].droppedTitle,
+            what === 'cancelled'
+              ? STR[l].cancelledTitle
+              : what === 'restored'
+                ? STR[l].restoredTitle
+                : STR[l].droppedTitle,
           body: (what === 'cancelled'
             ? STR[l].cancelledBody
-            : STR[l].droppedBody)(
+            : what === 'restored'
+              ? STR[l].restoredBody
+              : STR[l].droppedBody)(
             shortDay(date, l),
             entry.speakerName?.trim() || STR[l].guest,
           ),

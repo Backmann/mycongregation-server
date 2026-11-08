@@ -2661,6 +2661,8 @@ export class TalkExchangeService {
       existing.meetingCancelled = false;
       await this.repo.save(existing);
       if (slot) await this.applyIncomingToProgram(tenantId, existing, false);
+      // Told «отменена» before: now told it is on again.
+      await this.attention?.meetingRestored(tenantId, existing);
       return;
     }
 

@@ -121,22 +121,39 @@ interface Rights {
 
 const WORDS: Record<
   SupportedLanguage,
-  { title: (n: number) => string; body: (what: string) => string }
+  {
+    title: (what: string, n: number) => string;
+    body: (day: string) => string;
+    againTitle: (day: string) => string;
+    againBody: (n: number) => string;
+  }
 > = {
   ru: {
-    title: (n) => `Встреча не проводится, а назначений: ${n}`,
-    body: (w) =>
-      `${w}: в программе остались назначения. Откройте неделю, чтобы снять их — людям об этом не сообщается.`,
+    title: (w, n) =>
+      `${w}: ${n} ${plural('ru', n, 'назначение', 'назначения', 'назначений')} без встречи`,
+    body: (d) =>
+      `Встреча ${d} не проводится. Откройте неделю, чтобы снять назначения — людям об этом не сообщается.`,
+    againTitle: (d) => `Встреча ${d} снова проводится`,
+    againBody: (n) =>
+      `Снятые назначения (${n}) можно вернуть на неделе — людям придёт обычное уведомление о назначении.`,
   },
   en: {
-    title: (n) => `Meeting not held, ${n} assignments still stand`,
-    body: (w) =>
-      `${w}: assignments are still in the programme. Open the week to take them off — people are not notified.`,
+    title: (w, n) =>
+      `${w}: ${n} ${n === 1 ? 'assignment' : 'assignments'} without a meeting`,
+    body: (d) =>
+      `The meeting on ${d} is not held. Open the week to take the assignments off — people are not notified.`,
+    againTitle: (d) => `The meeting on ${d} is held again`,
+    againBody: (n) =>
+      `The assignments taken off (${n}) can be given back in the week — people get the usual assignment notice.`,
   },
   de: {
-    title: (n) => `Zusammenkunft fällt aus, ${n} Aufgaben stehen noch`,
-    body: (w) =>
-      `${w}: Im Programm stehen noch Aufgaben. Öffnen Sie die Woche, um sie zu entfernen — die Betroffenen werden nicht benachrichtigt.`,
+    title: (w, n) =>
+      `${w}: ${n} ${n === 1 ? 'Aufgabe' : 'Aufgaben'} ohne Zusammenkunft`,
+    body: (d) =>
+      `Die Zusammenkunft am ${d} findet nicht statt. Öffnen Sie die Woche, um die Aufgaben zu entfernen — die Betroffenen werden nicht benachrichtigt.`,
+    againTitle: (d) => `Die Zusammenkunft am ${d} findet wieder statt`,
+    againBody: (n) =>
+      `Die entfernten Aufgaben (${n}) können Sie in der Woche zurückholen — die Betroffenen erhalten die übliche Benachrichtigung.`,
   },
 };
 
@@ -504,88 +521,111 @@ export class NotHeldService {
         refusal('NOT_HELD_PAST', 'This meeting is already past'),
       );
 
-    const cleared: ClearedPart[] = [];
-    let talk = false;
-    if (input.parts) {
-      let rows = await this.assignments.find({
-        where: {
-          congregationId,
-          weekStartDate: week,
-          eventType: kind as unknown as EventType,
-          status: Not(AssignmentStatus.CANCELLED),
-        },
-      });
-      // Only lines that name somebody: a song is no one's assignment.
-      rows = rows.filter(hasPerson);
-      for (const a of rows) {
-        cleared.push({ id: a.id, status: a.status });
-        if (a.partKey === PUBLIC_TALK) talk = true;
-      }
-      if (rows.length) {
-        await this.assignments.update(
-          { congregationId, id: In(rows.map((a) => a.id)) },
-          { status: AssignmentStatus.CANCELLED, changedSincePublish: false },
-        );
-        await this.notices.delete({
-          congregationId,
-          itemType: 'part',
-          itemId: In(rows.map((a) => a.id)),
-        });
-        for (const a of rows) {
-          await this.localNeeds.releaseAssignment(congregationId, a.id);
+    // One transaction, the rows locked: two people pressing at once, or one
+    // pressing twice, take off once — the second finds nothing left and is
+    // told so, instead of a record «0 taken off» that would offer «Вернуть 0».
+    // A failure half way leaves nothing half done.
+    const { row, cleared, keptDuties, talk, partIds } =
+      await this.clearances.manager.transaction(async (em) => {
+        const cleared: ClearedPart[] = [];
+        let talk = false;
+        let partIds: string[] = [];
+        if (input.parts) {
+          const rows = (
+            await em.getRepository(Assignment).find({
+              where: {
+                congregationId,
+                weekStartDate: week,
+                eventType: kind as unknown as EventType,
+                status: Not(AssignmentStatus.CANCELLED),
+              },
+              lock: { mode: 'pessimistic_write' },
+            })
+          )
+            // Only lines that name somebody: a song is no one's assignment.
+            .filter(hasPerson);
+          for (const a of rows) {
+            cleared.push({ id: a.id, status: a.status });
+            if (a.partKey === PUBLIC_TALK) talk = true;
+          }
+          partIds = rows.map((a) => a.id);
+          if (rows.length) {
+            await em.getRepository(Assignment).update(
+              { congregationId, id: In(partIds) },
+              {
+                status: AssignmentStatus.CANCELLED,
+                changedSincePublish: false,
+              },
+            );
+            await em.getRepository(AssignmentNotice).delete({
+              congregationId,
+              itemType: 'part',
+              itemId: In(partIds),
+            });
+          }
         }
-      }
-    }
-    const keptDuties: ClearedDuty[] = [];
-    if (input.duties) {
-      const rows = await this.duties.find({
-        where: {
+        const keptDuties: ClearedDuty[] = [];
+        if (input.duties) {
+          const rows = await em.getRepository(Duty).find({
+            where: {
+              congregationId,
+              weekStartDate: week,
+              eventType: kind as unknown as EventType,
+            },
+            lock: { mode: 'pessimistic_write' },
+          });
+          for (const d of rows) {
+            keptDuties.push({
+              dutyType: String(d.dutyType),
+              slotIndex: d.slotIndex,
+              sortOrder: d.sortOrder,
+              customLabel: d.customLabel,
+              publisherId: d.publisherId,
+              notes: d.notes,
+            });
+          }
+          if (rows.length) {
+            await em.getRepository(AssignmentNotice).delete({
+              congregationId,
+              itemType: 'duty',
+              itemId: In(rows.map((d) => d.id)),
+            });
+            await em.getRepository(Duty).remove(rows);
+          }
+        }
+        if (cleared.length + keptDuties.length === 0) {
+          throw new ConflictException(
+            refusal('NOT_HELD_NOTHING_LEFT', 'Nothing left to take off'),
+          );
+        }
+        const row = await em.getRepository(NotHeldClearance).save(
+          em.getRepository(NotHeldClearance).create({
+            congregationId,
+            weekStartDate: week,
+            eventType: kind,
+            reason,
+            reasonEventId: null,
+            parts: cleared,
+            duties: keptDuties,
+            clearedById: user.id,
+          }),
+        );
+        await em.getRepository(NotHeldAlert).delete({
           congregationId,
           weekStartDate: week,
-          eventType: kind as unknown as EventType,
-        },
+          eventType: kind,
+        });
+        return { row, cleared, keptDuties, talk, partIds };
       });
-      for (const d of rows) {
-        keptDuties.push({
-          dutyType: String(d.dutyType),
-          slotIndex: d.slotIndex,
-          sortOrder: d.sortOrder,
-          customLabel: d.customLabel,
-          publisherId: d.publisherId,
-          notes: d.notes,
-        });
-      }
-      if (rows.length) {
-        await this.notices.delete({
-          congregationId,
-          itemType: 'duty',
-          itemId: In(rows.map((d) => d.id)),
-        });
-        await this.duties.remove(rows);
-      }
+    // After the commit: what other sections keep of their own.
+    for (const id of partIds) {
+      await this.localNeeds.releaseAssignment(congregationId, id);
     }
     // The guest speaker's entry learns the weekend is cancelled — and the
     // talk coordinator is asked to tell his congregation.
     if (talk) {
       await this.talkExchange.syncProgramToJournal(congregationId, week, {});
     }
-    const row = await this.clearances.save(
-      this.clearances.create({
-        congregationId,
-        weekStartDate: week,
-        eventType: kind,
-        reason,
-        reasonEventId: null,
-        parts: cleared,
-        duties: keptDuties,
-        clearedById: user.id,
-      }),
-    );
-    await this.alerts.delete({
-      congregationId,
-      weekStartDate: week,
-      eventType: kind,
-    });
     await this.audit.logFact({
       tenantId: congregationId,
       entityType: 'not_held_clearance',
@@ -625,10 +665,11 @@ export class NotHeldService {
       where: { id: clearanceId, congregationId },
     });
     if (!row) throw new NotFoundException('Nothing to give back');
-    if (row.restoredAt)
-      throw new ConflictException(
+    const already = () =>
+      new ConflictException(
         refusal('NOT_HELD_ALREADY_RESTORED', 'Already given back'),
       );
+    if (row.restoredAt) throw already();
     const kind = row.eventType as MeetingKind;
     const week = day(row.weekStartDate);
     const rights = await this.rightsOf(user);
@@ -661,6 +702,38 @@ export class NotHeldService {
     });
     const lang = coerceLanguage(me?.uiLanguage);
 
+    // Claimed before anything is written: two presses at once give back once.
+    const claim = await this.clearances
+      .createQueryBuilder()
+      .update(NotHeldClearance)
+      .set({ restoredAt: () => 'now()', restoredById: user.id })
+      .where('id = :id AND congregation_id = :cid AND restored_at IS NULL', {
+        id: row.id,
+        cid: congregationId,
+      })
+      .execute();
+    if (!claim.affected) throw already();
+    try {
+      return await this.giveBack(congregationId, user, row, heldAgain, lang);
+    } catch (e) {
+      // Nothing is lost: the record can be given back again.
+      await this.clearances.update(
+        { id: row.id, congregationId },
+        { restoredAt: null, restoredById: null },
+      );
+      throw e;
+    }
+  }
+
+  private async giveBack(
+    congregationId: string,
+    user: AuthenticatedUser,
+    row: NotHeldClearance,
+    heldAgain: boolean,
+    lang: SupportedLanguage,
+  ): Promise<{ parts: number; duties: number; skipped: string[] }> {
+    const kind = row.eventType as MeetingKind;
+    const week = day(row.weekStartDate);
     const skipped: string[] = [];
     let parts = 0;
     let talk = false;
@@ -747,9 +820,20 @@ export class NotHeldService {
       );
       duties += 1;
     }
-    row.restoredAt = new Date();
-    row.restoredById = user.id;
-    await this.clearances.save(row);
+    // Given back while the meeting is still not held: its editor already
+    // knows, and has just chosen this — no «assignments without a meeting»
+    // a quarter of an hour later.
+    if (!heldAgain && parts + duties > 0) {
+      await this.alerts.upsert(
+        {
+          congregationId,
+          weekStartDate: week,
+          eventType: kind,
+          count: parts + duties,
+        },
+        ['congregationId', 'weekStartDate', 'eventType'],
+      );
+    }
     await this.audit.logFact({
       tenantId: congregationId,
       entityType: 'not_held_clearance',
@@ -830,24 +914,7 @@ export class NotHeldService {
           ? EVENT_TYPE_RESPONSIBILITY[EventType.AV_DUTY]
           : []),
       ];
-      let userIds = (
-        await this.responsibilities.find({
-          where: { congregationId, type: In(types) },
-          select: { userId: true },
-        })
-      ).map((r) => r.userId);
-      if (userIds.length === 0) {
-        userIds = (
-          await this.users.find({
-            where: { congregationId, role: UserRole.ADMIN, isActive: true },
-            select: { id: true },
-          })
-        ).map((u) => u.id);
-      }
-      const readers = await this.users.find({
-        where: { id: In([...new Set(userIds)]), isActive: true },
-        select: { id: true, uiLanguage: true },
-      });
+      const readers = await this.editorsOf(congregationId, types);
       const count = m.parts.length + m.duties.length;
       // Each round of «filled again after a clearance» is a new message; the
       // key keeps one round to one message even if two runs overlap.
@@ -861,13 +928,16 @@ export class NotHeldService {
       for (const u of readers) {
         const lang = coerceLanguage(u.uiLanguage);
         const w = WORDS[lang];
-        const what =
-          `${m.event?.title ?? ''} ${formatDay(m.date ?? m.weekStartDate, lang)}`.trim();
+        const dayOf = formatDay(m.date ?? m.weekStartDate, lang);
+        // «Региональный конгресс 20–22 ноября: 20 назначений без встречи».
+        const what = m.event
+          ? `${m.event.title} ${formatSpan(m.event.date, m.event.endDate, lang)}`
+          : dayOf;
         await this.notifications.notify({
           tenantId: congregationId,
           userIds: [u.id],
-          title: w.title(count),
-          body: w.body(what),
+          title: w.title(what, count),
+          body: w.body(dayOf),
           kind: 'schedule',
           key: `not_held:${m.weekStartDate}:${m.eventType}:${round}:${u.id}`,
           data: {
@@ -887,7 +957,98 @@ export class NotHeldService {
       );
       sent += 1;
     }
+    return sent + (await this.alertHeldAgain(congregationId));
+  }
+
+  /**
+   * The event moved and the meeting is held again: what was taken off waits
+   * on the week. Its editors are told once (8 November 2026), or it would
+   * wait until somebody happened to open that week.
+   */
+  private async alertHeldAgain(congregationId: string): Promise<number> {
+    const today = await this.clock.todayFor(congregationId);
+    const rows = await this.clearances.find({
+      where: {
+        congregationId,
+        restoredAt: IsNull(),
+        heldAgainToldAt: IsNull(),
+        weekStartDate: MoreThanOrEqual(mondayOf(today)),
+      },
+    });
+    if (rows.length === 0) return 0;
+    const ctx = await this.weekRules.contextOf(congregationId);
+    let sent = 0;
+    for (const r of rows) {
+      const kind = r.eventType as MeetingKind;
+      const week = day(r.weekStartDate);
+      const rules = this.weekRules.rulesFrom(ctx, week);
+      if (NotHeldService.reasonOf(rules, kind) !== null) continue;
+      const lock = await this.freeze.lockOf(congregationId, {
+        weekStartDate: week,
+        eventType: kind as unknown as EventType,
+      });
+      if (lock.held) continue;
+      const types = [
+        ...(r.parts.length
+          ? EVENT_TYPE_RESPONSIBILITY[kind as unknown as EventType]
+          : []),
+        ...(r.duties.length
+          ? EVENT_TYPE_RESPONSIBILITY[EventType.AV_DUTY]
+          : []),
+      ];
+      const count = r.parts.length + r.duties.length;
+      for (const u of await this.editorsOf(congregationId, types)) {
+        const lang = coerceLanguage(u.uiLanguage);
+        const w = WORDS[lang];
+        await this.notifications.notify({
+          tenantId: congregationId,
+          userIds: [u.id],
+          title: w.againTitle(formatDay(rules.dateOf(kind) ?? week, lang)),
+          body: w.againBody(count),
+          kind: 'schedule',
+          key: `not_held_back:${r.id}:${u.id}`,
+          data: {
+            type: 'meeting_not_held',
+            weekStartDate: week,
+            eventType: kind,
+          },
+        });
+      }
+      await this.clearances.update(
+        { id: r.id, congregationId },
+        { heldAgainToldAt: new Date() },
+      );
+      sent += 1;
+    }
     return sent;
+  }
+
+  /** Who keeps these: the holders of the responsibilities, else the admins. */
+  private async editorsOf(
+    congregationId: string,
+    types: ResponsibilityType[],
+  ): Promise<Pick<User, 'id' | 'uiLanguage'>[]> {
+    let userIds = types.length
+      ? (
+          await this.responsibilities.find({
+            where: { congregationId, type: In(types) },
+            select: { userId: true },
+          })
+        ).map((r) => r.userId)
+      : [];
+    if (userIds.length === 0) {
+      userIds = (
+        await this.users.find({
+          where: { congregationId, role: UserRole.ADMIN, isActive: true },
+          select: { id: true },
+        })
+      ).map((u) => u.id);
+    }
+    if (userIds.length === 0) return [];
+    return this.users.find({
+      where: { id: In([...new Set(userIds)]), isActive: true },
+      select: { id: true, uiLanguage: true },
+    });
   }
 
   private async namesOf(
@@ -918,4 +1079,34 @@ function formatDay(iso: string, lang: SupportedLanguage): string {
     month: 'long',
     timeZone: 'UTC',
   }).format(new Date(Date.UTC(y, m - 1, d)));
+}
+
+/** «20–22 ноября», «20.–22. November», «November 20 – 22»; one day as one day. */
+function formatSpan(
+  from: string,
+  to: string | null,
+  lang: SupportedLanguage,
+): string {
+  if (!to || to === from) return formatDay(from, lang);
+  const at = (iso: string) => {
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d));
+  };
+  return new Intl.DateTimeFormat(lang, {
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'UTC',
+  }).formatRange(at(from), at(to));
+}
+
+/** Russian has three forms; the server runs on Node, which has PluralRules. */
+function plural(
+  lang: 'ru',
+  n: number,
+  one: string,
+  few: string,
+  many: string,
+): string {
+  const form = new Intl.PluralRules(lang).select(n);
+  return form === 'one' ? one : form === 'few' ? few : many;
 }
