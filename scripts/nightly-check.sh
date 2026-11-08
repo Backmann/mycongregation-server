@@ -54,12 +54,20 @@ else
   fi
 fi
 
-# 2. The copy reached the Storage Box: backup-db.sh logs «offsite verified».
-offsite=$(sh -c "$OFFSITE_LOG_CMD" </dev/null 2>/dev/null | grep -c 'offsite verified' || true)
-if [ "${offsite:-0}" -gt 0 ]; then
-  ok "offsite copy: verified $offsite time(s) in ${MAX_AGE_HOURS}h"
+# 2. The copy reached the Storage Box. What backup-db.sh sends to syslog
+#    (read on the server, 8 November 2026): after a verified send
+#    «offsite mycongregation: OK <file>»; on trouble «offsite <project>:
+#    SEND FAILED …» or «… MISMATCH after send». («offsite verified» is only in
+#    its own output, never in the journal — the first run here looked for it.)
+log=$(sh -c "$OFFSITE_LOG_CMD" </dev/null 2>/dev/null)
+offsite=$(printf '%s\n' "$log" | grep -c '^offsite mycongregation: OK ' || true)
+broken=$(printf '%s\n' "$log" | grep -E '^offsite [a-z0-9]+: (SEND FAILED|MISMATCH)' | sed 's/:.*//' | sort -u | tr '\n' ' ' || true)
+if [ -n "$broken" ]; then
+  fail "offsite copy: send failed or differs (${broken% }) in ${MAX_AGE_HOURS}h"
+elif [ "${offsite:-0}" -gt 0 ]; then
+  ok "offsite copy: confirmed $offsite time(s) in ${MAX_AGE_HOURS}h"
 else
-  fail "offsite copy: no «offsite verified» in the log for ${MAX_AGE_HOURS}h"
+  fail "offsite copy: no «offsite mycongregation: OK» in the log for ${MAX_AGE_HOURS}h"
 fi
 
 # 3. Disk. The build cache filled it once (11 August) and nearly again (5 November).
