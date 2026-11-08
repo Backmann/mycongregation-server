@@ -167,6 +167,10 @@ describe('a person’s agenda (real database)', () => {
       'elders_meetings',
       'talk_exchange',
       'external_congregations',
+      'pioneer_school_duties',
+      'pioneer_school_helpers',
+      'pioneer_school_days',
+      'pioneer_schools',
     ]) {
       await h.sql(`DELETE FROM ${t} WHERE congregation_id = $1`, [tenant]);
     }
@@ -437,6 +441,58 @@ describe('a person’s agenda (real database)', () => {
     expect(hers.map((i) => [i.scope, i.title])).toEqual([
       ['event', 'Посещение районного старейшины'],
     ]);
+  });
+
+  it('the pioneer school: one event per day with every duty in it; its own absence marks the meeting, not the school', async () => {
+    const [{ id: school }] = await h.sql<{ id: string }>(
+      `INSERT INTO pioneer_schools (congregation_id, title, start_date, end_date, hall_name, hall_address)
+       VALUES ($1, 'Школа', '2027-03-01', '2027-03-06', 'Зал', 'Lindenstraße 12') RETURNING id`,
+      [tenant],
+    );
+    const [{ id: wed }] = await h.sql<{ id: string }>(
+      `INSERT INTO pioneer_school_days (congregation_id, school_id, date) VALUES ($1, $2, '2027-03-03') RETURNING id`,
+      [tenant, school],
+    );
+    const [{ id: helper }] = await h.sql<{ id: string }>(
+      `INSERT INTO pioneer_school_helpers (congregation_id, first_name, last_name, publisher_id)
+       VALUES ($1, 'x', 'y', $2) RETURNING id`,
+      [tenant, peter],
+    );
+    const [{ id: audio }] = await h.sql<{ id: string }>(
+      `INSERT INTO pioneer_school_duties (congregation_id, day_id, duty_type, slot_index, helper_id)
+       VALUES ($1, $2, 'audio_video', 0, $3) RETURNING id`,
+      [tenant, wed, helper],
+    );
+    await h.sql(
+      `INSERT INTO pioneer_school_duties (congregation_id, day_id, duty_type, slot_index, helper_id)
+       VALUES ($1, $2, 'attendant', 0, $3)`,
+      [tenant, wed, helper],
+    );
+    // What the school writes for a helper on a meeting day: one absence,
+    // tied to one of his duties that day.
+    await h.sql(
+      `INSERT INTO absences (congregation_id, publisher_id, start_date, pioneer_school_duty_id)
+       VALUES ($1, $2, '2027-03-03', $3)`,
+      [tenant, peter, audio],
+    );
+    await part(W1, 'midweek', 'midweek_closing_prayer', peter, {
+      title: 'Заключительная молитва: Иегова справедливо осудил Вавилон',
+    });
+    const items = await agenda('peter');
+    const days = items.filter((i) => i.kind === 'pioneer_school');
+    expect(days).toHaveLength(1);
+    expect(days[0]).toMatchObject({
+      date: '2027-03-03',
+      state: 'ok',
+      place: 'Зал, Lindenstraße 12',
+    });
+    expect(days[0].title).toMatch(/^Школа пионерского служения — .+, .+$/);
+    // The meeting that evening: he is away — and a prayer carries no
+    // borrowed theme of the next part.
+    expect(items.find((i) => i.kind === 'part')).toMatchObject({
+      state: 'away',
+      detail: null,
+    });
   });
 
   it('big events only: a campaign or «other» is not one', async () => {

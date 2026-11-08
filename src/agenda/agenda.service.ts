@@ -68,6 +68,16 @@ const day = (d: string | Date): string =>
 const nameOf = (p: { firstName?: string | null; lastName?: string | null }) =>
   [p.firstName, p.lastName].filter(Boolean).join(' ').trim();
 
+/** Parts whose programme line says nothing of their own. */
+const NO_DETAIL = new Set([
+  'midweek_chairman',
+  'midweek_opening_prayer',
+  'midweek_closing_prayer',
+  'weekend_chairman',
+  'weekend_opening_prayer',
+  'weekend_closing_prayer',
+]);
+
 /** The order of things on one day when they share an hour (or have none). */
 const KIND_ORDER: Record<AgendaKind, number> = {
   event: 0,
@@ -204,20 +214,23 @@ export class AgendaService {
     const absences = await this.ds.getRepository(Absence).find({
       where: { congregationId, publisherId: pid },
     });
-    /** Away that day — not counting the absence the item itself made (a talk elsewhere, the school). */
+    /**
+     * Away that day — not counting the absence the item itself made: a talk
+     * elsewhere marks its own day, and the school writes one absence per
+     * helper and meeting day (so nobody is put on that evening's meeting) —
+     * that one belongs to every school duty of the day, not to one of them
+     * (8 November 2026, seen in the first real calendar).
+     */
     const awayOn = (
       date: string,
-      own?: { talkExchangeId?: string; pioneerSchoolDutyId?: string },
+      own?: { talkExchangeId?: string; school?: boolean },
     ) =>
       absences.some(
         (a) =>
           a.startDate <= date &&
           (a.endDate ?? a.startDate) >= date &&
           !(own?.talkExchangeId && a.talkExchangeId === own.talkExchangeId) &&
-          !(
-            own?.pioneerSchoolDutyId &&
-            a.pioneerSchoolDutyId === own.pioneerSchoolDutyId
-          ),
+          !(own?.school && a.pioneerSchoolDutyId),
       );
 
     const base = (
@@ -242,7 +255,7 @@ export class AgendaService {
     });
     const push = (
       item: AgendaItem,
-      own?: { talkExchangeId?: string; pioneerSchoolDutyId?: string },
+      own?: { talkExchangeId?: string; school?: boolean },
     ) => {
       if (
         !inSpan(item.date) &&
@@ -316,7 +329,12 @@ export class AgendaService {
           start: m.start,
           end: m.end,
           title,
-          detail: detailOf(a.partTitle, title),
+          // A chairman's or a prayer's line in the programme carries the
+          // NEXT part along (seen in the first real calendar: the opening
+          // prayer «· Иегова справедливо осудил…»): nothing to add for them.
+          detail: NO_DETAIL.has(String(a.partKey))
+            ? null
+            : detailOf(a.partTitle, title),
           meetingKey: m.key,
           meeting: kind,
           asAssistant,
@@ -784,31 +802,46 @@ export class AgendaService {
       .andWhere('s.deleted_at IS NULL')
       .andWhere('y.date BETWEEN :from AND :to', { from, to })
       .getMany();
+    // One event per school day, every duty of the day in it: two duties
+    // on one day read as two whole-day events side by side (8 November 2026).
+    const schoolDays = new Map<string, typeof school>();
     for (const d of school) {
-      const type = String(d.dutyType);
-      const name =
-        d.customLabel?.trim() ||
-        DUTY_NAMES[lang][type] ||
-        DUTY_NAMES[lang].custom;
-      const s = d.day.school;
+      const key = `${d.day.schoolId}|${day(d.day.date)}`;
+      schoolDays.set(key, [...(schoolDays.get(key) ?? []), d]);
+    }
+    for (const [key, duties] of schoolDays) {
+      const first = duties[0];
+      const s = first.day.school;
+      const names = duties
+        .sort(
+          (a, b) =>
+            String(a.dutyType).localeCompare(String(b.dutyType)) ||
+            a.slotIndex - b.slotIndex,
+        )
+        .map((d) => {
+          const type = String(d.dutyType);
+          const name =
+            d.customLabel?.trim() ||
+            DUTY_NAMES[lang][type] ||
+            DUTY_NAMES[lang].custom;
+          return type === 'microphone' && s.microphoneSlots > 1
+            ? `${name} ${d.slotIndex + 1}`
+            : name;
+        });
       push(
         base({
-          id: `pioneer_school:${d.id}`,
+          id: `pioneer_school:${key.replace('|', ':')}`,
           kind: 'pioneer_school',
-          date: day(d.day.date),
-          start: hhmm(d.day.startTime) ?? hhmm(s.startTime),
-          end: hhmm(d.day.endTime) ?? hhmm(s.endTime),
-          title: words.pioneerSchool(
-            type === 'microphone' && s.microphoneSlots > 1
-              ? `${name} ${d.slotIndex + 1}`
-              : name,
-          ),
+          date: day(first.day.date),
+          start: hhmm(first.day.startTime) ?? hhmm(s.startTime),
+          end: hhmm(first.day.endTime) ?? hhmm(s.endTime),
+          title: words.pioneerSchool([...new Set(names)].join(', ')),
           place:
             [s.hallName?.trim(), s.hallAddress?.trim()]
               .filter(Boolean)
               .join(', ') || null,
         }),
-        { pioneerSchoolDutyId: d.id },
+        { school: true },
       );
     }
 

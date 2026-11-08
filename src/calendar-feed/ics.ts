@@ -59,7 +59,8 @@ const WORDS: Record<SupportedLanguage, Words> = {
     memorial: 'Вечеря воспоминания',
     andMore: (n) => ` и ещё ${n}`,
     away: 'вы в отъезде',
-    awayHint: 'Вы отметили, что в этот день вас не будет: сообщите о замене.',
+    awayHint:
+      'На этот день у вас отмечено отсутствие: если так и есть, сообщите о замене.',
     with: 'вместе',
     yourPart: 'У вас',
     open: 'Открыть в приложении',
@@ -76,7 +77,7 @@ const WORDS: Record<SupportedLanguage, Words> = {
     andMore: (n) => ` and ${n} more`,
     away: 'you are away',
     awayHint:
-      'You marked yourself away that day: please arrange a replacement.',
+      'You are marked away on this day: if so, please arrange a replacement.',
     with: 'with',
     yourPart: 'Yours',
     open: 'Open in the app',
@@ -93,7 +94,7 @@ const WORDS: Record<SupportedLanguage, Words> = {
     andMore: (n) => ` und ${n} weitere`,
     away: 'Sie sind abwesend',
     awayHint:
-      'Sie haben sich für diesen Tag abwesend gemeldet: bitte um Vertretung kümmern.',
+      'Für diesen Tag sind Sie als abwesend vermerkt: falls das stimmt, kümmern Sie sich bitte um eine Vertretung.',
     with: 'mit',
     yourPart: 'Ihre Aufgabe',
     open: 'In der App öffnen',
@@ -181,6 +182,20 @@ const stamp = (d: Date) =>
     .replace(/[-:]/g, '')
     .replace(/\.\d{3}Z$/, 'Z');
 const dateValue = (iso: string) => iso.replace(/-/g, '');
+
+/** No blank lines at the ends, never two in a row. */
+export function tidy(text: string): string {
+  return text.replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '');
+}
+
+/** «Augsburger Str. 9\n33378 Rheda» → «Augsburger Str. 9, 33378 Rheda». */
+export function oneLine(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .join(', ');
+}
 
 // ── Events from the agenda ─────────────────────────────────────────────────
 
@@ -365,8 +380,12 @@ export function buildIcs(
       );
     }
     lines.push(`SUMMARY:${escapeText(e.summary)}`);
-    if (e.description) lines.push(`DESCRIPTION:${escapeText(e.description)}`);
-    if (e.location) lines.push(`LOCATION:${escapeText(e.location)}`);
+    if (e.description) {
+      lines.push(`DESCRIPTION:${escapeText(tidy(e.description))}`);
+    }
+    // An address typed on two lines is one place: a calendar puts LOCATION
+    // into a map search, where a line break only gets in the way.
+    if (e.location) lines.push(`LOCATION:${escapeText(oneLine(e.location))}`);
     if (e.url) lines.push(`URL:${e.url}`);
     lines.push('TRANSP:OPAQUE', 'END:VEVENT');
   }
