@@ -43,6 +43,7 @@ import { MailModule } from './mail/mail.module';
 import { MeModule } from './me/me.module';
 import { AgendaModule } from './agenda/agenda.module';
 import { CalendarFeedModule } from './calendar-feed/calendar-feed.module';
+import { NotHeldModule } from './not-held/not-held.module';
 import { PushNotificationsModule } from './push-notifications/push-notifications.module';
 import { WebPushModule } from './web-push/web-push.module';
 import { ActivityFeedModule } from './activity-feed/activity-feed.module';
@@ -140,6 +141,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     MeModule,
     AgendaModule,
     CalendarFeedModule,
+    NotHeldModule,
     PushNotificationsModule,
     WebPushModule,
     ResponsibilitiesModule,

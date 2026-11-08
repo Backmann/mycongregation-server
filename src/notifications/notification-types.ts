@@ -36,6 +36,7 @@ export const NOTIFICATION_TYPES = [
   'cleaning_general_planned',
   'assignment_reminder',
   'meeting_gaps',
+  'meeting_not_held',
   'cart_published',
   'cart_dobor_request',
   'cart_cancel',
