@@ -35,6 +35,25 @@ function copy(name: string, bytes: number, hoursAgo: number): void {
   utimesSync(p, t, t);
 }
 
+/**
+ * What backup-db.sh wrote to the journal on a good night — copied from the
+ * production server on 8 November 2026 (`journalctl -t backup-db -o cat`).
+ */
+const GOOD_NIGHT = [
+  '30sec: OK 30sec_20261108_030001.sql.gz.gpg (193059 bytes)',
+  'offsite 30sec: OK 30sec_20261108_030001.sql.gz.gpg',
+  'mycongregation: OK mycongregation_20261108_030001.sql.gz.gpg (1125506 bytes)',
+  'offsite mycongregation: OK mycongregation_20261108_030001.sql.gz.gpg',
+  'Backup run finished OK',
+];
+
+/** A command that prints these journal lines. */
+function journal(lines: string[]): string {
+  const p = join(dir, `journal-${Math.random().toString(36).slice(2)}.txt`);
+  writeFileSync(p, lines.join('\n') + '\n');
+  return `cat '${p}'`;
+}
+
 /** A machine where everything is in order; each test breaks one thing. */
 function healthy(): Record<string, string> {
   rmSync(join(dir, 'backups'), { recursive: true, force: true });
@@ -46,7 +65,7 @@ function healthy(): Record<string, string> {
     NOW: String(NOW),
     BACKUP_DIR: join(dir, 'backups'),
     DOCKER: stub('docker', 'echo "true healthy"'),
-    OFFSITE_LOG_CMD: 'echo "mycongregation offsite verified"',
+    OFFSITE_LOG_CMD: journal(GOOD_NIGHT),
     FACTS_CMD: 'echo "FACTS: OK (12 rules)"',
     CRONTAB_CMD: 'echo "0 3 * * * /root/backup-db.sh"',
     DF_CMD:
@@ -111,10 +130,41 @@ describe('nightly-check.sh', () => {
   });
 
   it('fails when the offsite copy is not confirmed', () => {
-    const env = { ...healthy(), OFFSITE_LOG_CMD: 'echo "dump done"' };
+    const env = {
+      ...healthy(),
+      OFFSITE_LOG_CMD: journal(
+        GOOD_NIGHT.filter((l) => !l.startsWith('offsite mycongregation')),
+      ),
+    };
+    const { code, out } = run(env);
+    expect(out).toContain('FAIL offsite copy: no «offsite mycongregation: OK»');
+    expect(code).toBe(1);
+  });
+
+  it('does not take the words of the script output for the journal line', () => {
+    const env = {
+      ...healthy(),
+      OFFSITE_LOG_CMD: journal(['OK   mycongregation: offsite verified']),
+    };
     const { code, out } = run(env);
     expect(out).toContain('FAIL offsite copy');
     expect(code).toBe(1);
+  });
+
+  it('fails on a failed or mismatched send, even beside a good one', () => {
+    for (const bad of [
+      'offsite 30sec: SEND FAILED - local copy is intact',
+      'offsite mycongregation: MISMATCH after send',
+    ]) {
+      const env = {
+        ...healthy(),
+        OFFSITE_LOG_CMD: journal([...GOOD_NIGHT, bad]),
+      };
+      const { code, out } = run(env);
+      expect(out).toContain('FAIL offsite copy: send failed or differs');
+      expect(out).toContain(bad.split(':')[0]);
+      expect(code).toBe(1);
+    }
   });
 
   it('warns on a filling disk and fails on a full one', () => {
