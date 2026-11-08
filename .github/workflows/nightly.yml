@@ -1,0 +1,80 @@
+name: Nightly check
+# Every night, and after every server deploy: is what runs in production what
+# was merged, and is the machine healthy (8 November 2026).
+#
+#   nightly-live    asks the site, the server and the service worker which
+#                   commit they serve and compares with GitHub (the app's
+#                   scripts/check-live.mjs, unchanged).
+#   nightly-server  logs in with a key that can run ONE thing on the server —
+#                   scripts/nightly-check.sh, which only reads: the daily
+#                   database copy, its offsite copy, disk, containers, the
+#                   live database's rules, the backup job in cron.
+#
+# A red run is the alarm: GitHub mails it, and Claude's morning task reads it.
+# This log is public — both jobs print no names and no personal data.
+on:
+  schedule:
+    # 04:30 UTC = 05:30 in Berlin in winter (06:30 in summer): after the copy
+    # at 03:00, the Monday verify at 04:00 and the cache clean-up at 04:15.
+    - cron: '30 4 * * *'
+  workflow_run:
+    workflows: [Deploy to production]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  nightly-live:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout the app (check-live.mjs reads its history)
+        uses: actions/checkout@v4
+        with:
+          repository: Backmann/mycongregation-app
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: What is live
+        run: node app/scripts/check-live.mjs
+
+  nightly-server:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Setup SSH (the nightly key, not the deploy key)
+        env:
+          KEY: ${{ secrets.NIGHTLY_SSH_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::Secret NIGHTLY_SSH_KEY is not set."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/nightly_key
+          chmod 600 ~/.ssh/nightly_key
+          echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config << 'EOF'
+          Host myserver
+              HostName ${{ secrets.SSH_HOST }}
+              User ${{ secrets.SSH_USER }}
+              IdentityFile ~/.ssh/nightly_key
+              UserKnownHostsFile ~/.ssh/known_hosts
+              IdentitiesOnly yes
+              StrictHostKeyChecking yes
+              BatchMode yes
+          EOF
+          chmod 600 ~/.ssh/config
+      # The key's forced command runs the check whatever is asked; the exit
+      # code of ssh is the check's own.
+      - name: The machine
+        run: ssh myserver </dev/null
