@@ -273,7 +273,9 @@ export class NotHeldService {
     for (const c of candidates) {
       const p = parts.filter(
         (a) =>
-          day(a.weekStartDate) === c.week && String(a.eventType) === c.kind,
+          day(a.weekStartDate) === c.week &&
+          String(a.eventType) === c.kind &&
+          hasPerson(a),
       );
       const d = duties.filter(
         (x) =>
@@ -505,7 +507,7 @@ export class NotHeldService {
     const cleared: ClearedPart[] = [];
     let talk = false;
     if (input.parts) {
-      const rows = await this.assignments.find({
+      let rows = await this.assignments.find({
         where: {
           congregationId,
           weekStartDate: week,
@@ -513,6 +515,8 @@ export class NotHeldService {
           status: Not(AssignmentStatus.CANCELLED),
         },
       });
+      // Only lines that name somebody: a song is no one's assignment.
+      rows = rows.filter(hasPerson);
       for (const a of rows) {
         cleared.push({ id: a.id, status: a.status });
         if (a.partKey === PUBLIC_TALK) talk = true;
@@ -899,6 +903,10 @@ export class NotHeldService {
     return new Map(cards.map((p) => [p.id, p.displayName]));
   }
 }
+
+/** A line that names somebody — not a song or a heading. */
+const hasPerson = (a: Assignment): boolean =>
+  !!(a.publisherId || a.assistantPublisherId || a.speakerName?.trim());
 
 const day = (d: string | Date): string =>
   typeof d === 'string' ? d.slice(0, 10) : d.toISOString().slice(0, 10);

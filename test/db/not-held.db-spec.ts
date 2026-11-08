@@ -229,6 +229,8 @@ describe('assignments on meetings that are not held (real database)', () => {
     await part(CONGRESS, 'midweek', 'bible_reading', anna);
     await part(CONGRESS, 'weekend', 'watchtower_reader', peter);
     await duty(CONGRESS, 'weekend', 'attendant', anna);
+    // A song names nobody: not an assignment, not counted, left as it is.
+    const song = await part(CONGRESS, 'weekend', 'song_opening', null);
     // A part already cancelled is not counted.
     await part(CONGRESS, 'weekend', 'chairman', peter, { status: 'cancelled' });
     const v = await view('admin');
@@ -246,6 +248,11 @@ describe('assignments on meetings that are not held (real database)', () => {
     expect(weekend.duties.map((d) => [d.dutyType, d.person])).toEqual([
       ['attendant', 'Берг Анна'],
     ]);
+    expect((await clear('admin', CONGRESS, 'weekend')).body).toMatchObject({
+      parts: 1,
+      duties: 1,
+    });
+    expect((await status(song)).status).toBe('published');
   });
 
   it('the circuit overseer’s week is held (on Tuesday): nothing to show', async () => {
