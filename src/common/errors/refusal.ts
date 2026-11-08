@@ -285,6 +285,11 @@ export const REFUSAL_CODES = [
   'PIONEER_END_FUTURE',
   'PIONEER_NO_QUOTA_NOT_REGULAR',
   'PIONEER_NO_QUOTA_DATE',
+  // ---- assignments on a meeting that is not held (8 November 2026) ----
+  'NOT_HELD_MEETING_HELD',
+  'NOT_HELD_NOTHING_CHOSEN',
+  'NOT_HELD_PAST',
+  'NOT_HELD_ALREADY_RESTORED',
   // ---- the annual meeting with the pioneers (S-211) ----
   'PIONEER_MEETING_NOT_FOUND',
   'PIONEER_MEETING_INVALID',

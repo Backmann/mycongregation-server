@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { NotHeldService } from '../not-held/not-held.service';
 import { PioneerMeetingsService } from '../pioneer-meetings/pioneer-meetings.service';
 import { AttendanceReminderService } from '../meeting-attendance/attendance-reminder.service';
 import { Cron } from '@nestjs/schedule';
@@ -89,7 +90,28 @@ export class ScheduledJobsService {
     /** The stand: sign-up closing, a plan not published, a permit ending. */
     @Optional()
     private readonly cartReminders?: CartRemindersService,
+    /** Assignments left on meetings that are not held: one notice to the editor. */
+    @Optional()
+    private readonly notHeld?: NotHeldService,
   ) {}
+
+  /**
+   * A congress, the Memorial or an event replacing a meeting can leave parts
+   * and duties on a meeting that will not take place (8 November 2026). Every
+   * quarter of an hour the editors of such a meeting hear of it once; the
+   * alert row keeps it to once, and goes when the meeting is cleared.
+   */
+  @Cron('*/15 * * * *', {
+    name: 'not-held-alert',
+    timeZone: 'UTC',
+  })
+  async handleNotHeldAlert(): Promise<void> {
+    try {
+      await this.notHeld?.alertAll();
+    } catch (err) {
+      this.logger.error(`not-held alert failed: ${(err as Error).message}`);
+    }
+  }
 
   /**
    * The stand's own reminders, once a morning (2 November 2026): the day

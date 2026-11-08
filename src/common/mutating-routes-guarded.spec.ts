@@ -26,6 +26,8 @@ const CHECKED_IN_SERVICE: Record<string, string> = {
   'local-needs': 'service: life-and-ministry overseer',
   me: 'the caller\u2019s own data',
   'me/calendar-feed': 'the caller\u2019s own calendar link',
+  'not-held':
+    'service: rightsOf — midweek overseer, weekend coordinator, duties coordinator, admin',
   'meeting-moves':
     'service: life-and-ministry overseer (midweek), body coordinator (weekend), admin; after the fact admin or body coordinator',
   'pioneer-meetings':
