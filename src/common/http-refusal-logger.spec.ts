@@ -85,4 +85,12 @@ describe('httpRefusalLogger', () => {
     expect(warn[0]).not.toContain('brother@example.org');
     expect(warn[0]).not.toContain('Bearer');
   });
+
+  it('never writes the secret of a calendar link, which lives in the path', () => {
+    const token = 'h6_x6Qe9vB3kLmN0pR2sT4uV6wX8yZ1aC3dE5fG7hJ9';
+    const { warn } = run(429, { path: `/api/calendar/${token}.ics` });
+
+    expect(warn[0]).toContain('429 GET /api/calendar/…');
+    expect(warn[0]).not.toContain(token.slice(0, 10));
+  });
 });

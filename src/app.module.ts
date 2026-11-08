@@ -42,6 +42,7 @@ import { HallsModule } from './halls/halls.module';
 import { MailModule } from './mail/mail.module';
 import { MeModule } from './me/me.module';
 import { AgendaModule } from './agenda/agenda.module';
+import { CalendarFeedModule } from './calendar-feed/calendar-feed.module';
 import { PushNotificationsModule } from './push-notifications/push-notifications.module';
 import { WebPushModule } from './web-push/web-push.module';
 import { ActivityFeedModule } from './activity-feed/activity-feed.module';
@@ -138,6 +139,7 @@ import { PublisherActivityModule } from './publisher-activity/publisher-activity
     MailModule,
     MeModule,
     AgendaModule,
+    CalendarFeedModule,
     PushNotificationsModule,
     WebPushModule,
     ResponsibilitiesModule,

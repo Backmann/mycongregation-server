@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
+import { createHash } from 'crypto';
 import type { Request } from 'express';
 import { clientIp } from '../client-ip';
 
@@ -26,8 +27,27 @@ import { clientIp } from '../client-ip';
 @Injectable()
 export class UserOrIpThrottlerGuard extends ThrottlerGuard {
   protected async getTracker(req: Record<string, any>): Promise<string> {
+    // A calendar feed is keyed by its link, not by the address: Google and
+    // Apple read every subscriber's calendar from a few shared machines, and
+    // one bucket per address would let one busy subscriber close the door on
+    // all the others (7 November 2026).
+    const feed = feedKey(req);
+    if (feed) return feed;
     const userId = req.user?.id as string | undefined;
     if (userId) return `user:${userId}`;
     return `ip:${clientIp(req as unknown as Request)}`;
   }
+}
+
+/** `feed:<hash of the link>` for a calendar feed request, else null. */
+export function feedKey(req: {
+  route?: { path?: unknown };
+  params?: Record<string, unknown>;
+}): string | null {
+  const path = typeof req.route?.path === 'string' ? req.route.path : '';
+  const file = req.params?.file;
+  if (!path.includes('calendar/:file') || typeof file !== 'string') {
+    return null;
+  }
+  return `feed:${createHash('sha256').update(file).digest('hex').slice(0, 32)}`;
 }

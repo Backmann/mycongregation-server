@@ -27,13 +27,23 @@ import type { NextFunction, Request, Response } from 'express';
  */
 const logger = new Logger('Http');
 
+/**
+ * The path as it may be written down. A calendar link carries its secret IN
+ * the path (/api/calendar/<token>.ics) — a calendar app can send nothing
+ * else — so that one piece is cut out: a «429» on a live link must not leave
+ * the key to someone's agenda in the server's log (8 November 2026).
+ */
+export function loggablePath(path: string): string {
+  return path.replace(/(\/calendar\/)[^/]+/, '$1…');
+}
+
 export function httpRefusalLogger() {
   return (req: Request, res: Response, next: NextFunction): void => {
     res.on('finish', () => {
       if (res.statusCode < 400) return;
       const who =
         (req as Request & { user?: { id?: string } }).user?.id ?? 'anonymous';
-      const line = `${res.statusCode} ${req.method} ${req.path} · ${who}`;
+      const line = `${res.statusCode} ${req.method} ${loggablePath(req.path)} · ${who}`;
       if (res.statusCode >= 500) {
         logger.error(line);
       } else {
