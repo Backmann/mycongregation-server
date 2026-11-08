@@ -94,6 +94,26 @@ describe('calendar feed (real database)', () => {
     expect(r.body).toMatchObject({ connected: false, url: null });
   });
 
+  it('every answer that carries the link points at the host the app reached — connect, read, change, switches (8 November 2026: a changed link pointed at the website)', async () => {
+    const as = (req: ReturnType<ReturnType<Harness['as']>['get']>) =>
+      req.set('Host', 'api.example.org').set('X-Forwarded-Proto', 'https');
+    const want =
+      /^https:\/\/api\.example\.org\/api\/calendar\/[A-Za-z0-9_-]{43}\.ics$/;
+    const views = [
+      await as(h.as('anna').post('/me/calendar-feed')),
+      await as(h.as('anna').get('/me/calendar-feed')),
+      await as(h.as('anna').post('/me/calendar-feed/rotate')),
+      await as(h.as('anna').patch('/me/calendar-feed').send({ names: true })),
+    ];
+    for (const r of views) {
+      expect(r.status).toBe(200);
+      expect((r.body as View).url).toMatch(want);
+      expect((r.body as View).webcalUrl).toMatch(
+        /^webcal:\/\/api\.example\.org\/api\/calendar\//,
+      );
+    }
+  });
+
   it('connect: a link of 43 secret characters; pressing again gives the same link', async () => {
     const a = await connect();
     expect(a.connected).toBe(true);

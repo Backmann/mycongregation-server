@@ -134,7 +134,12 @@ export class CalendarFeedService {
     ).replace(/\/+$/, '');
   }
 
-  private view(feed: CalendarFeed | null, base?: string | null): FeedView {
+  /**
+   * `base` is REQUIRED on purpose (8 November 2026): as an optional argument
+   * it was forgotten in two handlers, and a changed link pointed at the
+   * website instead of the server.
+   */
+  private view(feed: CalendarFeed | null, base: string | null): FeedView {
     const live = !!feed && !feed.revokedAt;
     const url = live
       ? `${this.apiBase(base)}/calendar/${feed.token}.ics`
@@ -155,7 +160,7 @@ export class CalendarFeedService {
     };
   }
 
-  async get(userId: string, base?: string | null): Promise<FeedView> {
+  async get(userId: string, base: string | null): Promise<FeedView> {
     return this.view(await this.feeds.findOne({ where: { userId } }), base);
   }
 
@@ -163,7 +168,7 @@ export class CalendarFeedService {
   async connect(
     congregationId: string,
     userId: string,
-    base?: string | null,
+    base: string | null,
   ): Promise<FeedView> {
     const existing = await this.feeds.findOne({ where: { userId } });
     if (existing && !existing.revokedAt) return this.view(existing, base);
@@ -174,7 +179,7 @@ export class CalendarFeedService {
   async rotate(
     congregationId: string,
     userId: string,
-    base?: string | null,
+    base: string | null,
   ): Promise<FeedView> {
     const existing = await this.feeds.findOne({ where: { userId } });
     return this.view(await this.fresh(congregationId, userId, existing), base);
@@ -183,7 +188,7 @@ export class CalendarFeedService {
   async setOptions(
     userId: string,
     patch: Partial<FeedOptions>,
-    base?: string | null,
+    base: string | null,
   ): Promise<FeedView> {
     const feed = await this.feeds.findOne({
       where: { userId, revokedAt: IsNull() },
@@ -205,7 +210,7 @@ export class CalendarFeedService {
       );
       await this.feeds.delete({ id: feed.id });
     }
-    return this.view(null);
+    return this.view(null, null);
   }
 
   /** Keeps the hash of a link that stops working, so it can still say so. */

@@ -43,13 +43,21 @@ export class CalendarFeedSettingsController {
 
   @Post('rotate')
   @HttpCode(200)
-  rotate(@TenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.feeds.rotate(tenantId, user.id);
+  rotate(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.feeds.rotate(tenantId, user.id, requestBase(req.headers));
   }
 
   @Patch()
-  options(@CurrentUser() user: AuthenticatedUser, @Body() dto: FeedOptionsDto) {
-    return this.feeds.setOptions(user.id, dto);
+  options(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: FeedOptionsDto,
+    @Req() req: Request,
+  ) {
+    return this.feeds.setOptions(user.id, dto, requestBase(req.headers));
   }
 
   @Delete()
