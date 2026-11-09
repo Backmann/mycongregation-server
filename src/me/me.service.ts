@@ -18,7 +18,11 @@ import { MemorialItem } from '../entities/memorial-item.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { PioneerMeeting } from '../entities/pioneer-meeting.entity';
 import { PioneerSpell } from '../entities/pioneer-spell.entity';
-import { invitedOn } from '../pioneer-meetings/pioneer-meeting-rules';
+import {
+  conductorIdsOf,
+  conductorsOf,
+  invitedOn,
+} from '../pioneer-meetings/pioneer-meeting-rules';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { mondayOf } from '../common/week';
 import { memorialTakesKind } from '../common/week-rules';
@@ -77,6 +81,11 @@ export interface MyAssignmentItem {
    * assignment. The flag alone was not enough.
    */
   partnerName?: string;
+  /**
+   * The same people one by one, where there may be more than one — the two
+   * who conduct the meeting with the pioneers (9 November 2026).
+   */
+  partnerNames?: string[];
   /** Field-service visit: he comes as the service overseer's assistant. */
   asOverseerAssistant?: boolean;
   /** Field-service visit: whose group is being visited. */
@@ -924,16 +933,36 @@ export class MeService {
             where: { congregationId: tenantId, publisherId: pid },
           })
         : [];
+      const cards = new Map(
+        (meetings.length
+          ? await this.publishersRepo.find({
+              where: {
+                congregationId: tenantId,
+                id: In([
+                  ...new Set(meetings.flatMap((m) => conductorIdsOf(m))),
+                ]),
+              },
+              withDeleted: true,
+            })
+          : []
+        ).map((c) => [c.id, c]),
+      );
       for (const m of meetings) {
         const day = String(m.date).slice(0, 10);
-        const conducts = m.conductorPublisherId === pid;
+        // One or two conduct it, by card or by a written name (9 November
+        // 2026); conducting it is his invitation.
+        const places = conductorsOf(m);
+        const conducts = places.some((c) => c.publisherId === pid);
         if (!conducts && !invitedOn(mySpells, day).includes(pid)) continue;
-        const conductor = conducts
-          ? null
-          : await this.publishersRepo.findOne({
-              where: { id: m.conductorPublisherId, congregationId: tenantId },
-              withDeleted: true,
-            });
+        const others = places
+          .filter((c) => !conducts || c.publisherId !== pid)
+          .map((c) => {
+            const card = c.publisherId ? cards.get(c.publisherId) : undefined;
+            return card
+              ? [card.lastName, card.firstName].filter(Boolean).join(' ')
+              : (c.name ?? '');
+          })
+          .filter(Boolean);
         items.push({
           agendaId: `pioneer_meeting:${m.id}`,
           kind: 'pioneer_meeting',
@@ -943,11 +972,9 @@ export class MeService {
           endTime: m.timeEnd ?? undefined,
           label: conducts ? 'conduct' : 'invited',
           location: m.place ?? undefined,
-          partnerName: conductor
-            ? [conductor.lastName, conductor.firstName]
-                .filter(Boolean)
-                .join(' ')
-            : undefined,
+          // For the invited: who conducts it; for a conductor: the other one.
+          partnerName: others.length ? others.join(', ') : undefined,
+          partnerNames: others.length ? others : undefined,
         });
       }
     }

@@ -399,10 +399,17 @@ export const PLAN: Record<string, TablePlan> = {
       created_at updated_at`),
     remove('note'),
   ),
+  // The conductors: their cards copied, a name written by hand replaced.
   pioneer_meetings: table(
     copy(`id congregation_id date time_start time_end conductor_publisher_id
-      created_by_id created_at updated_at deleted_at`),
-    { place: 'label:Место', note: 'null' },
+      second_conductor_publisher_id created_by_id created_at updated_at
+      deleted_at`),
+    {
+      place: 'label:Место',
+      note: 'null',
+      conductor_name: 'label:Проводящий',
+      second_conductor_name: 'label:Проводящий',
+    },
   ),
   pioneer_spells: table(
     copy(`id congregation_id publisher_id pioneer_type start_month end_month

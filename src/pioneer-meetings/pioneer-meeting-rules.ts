@@ -61,8 +61,66 @@ export type MeetingWarning =
   | { kind: 'outsideSeason' }
   /** An assembly, a convention or the circuit overseer's visit that day. */
   | { kind: 'event'; eventType: string; title: string }
-  /** The elder who conducts it is away that day. */
-  | { kind: 'conductorAway' };
+  /** One who conducts it is away that day (named: there may be two). */
+  | { kind: 'conductorAway'; name?: string };
 
 /** HH:mm, or nothing. */
 export const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** The four columns of the two conductor places (entity, 9 November 2026). */
+export interface ConductorColumns {
+  conductorPublisherId: string | null;
+  conductorName: string | null;
+  secondConductorPublisherId: string | null;
+  secondConductorName: string | null;
+}
+
+/** One conductor: a card, or a name written by hand. */
+export interface ConductorPlace {
+  publisherId: string | null;
+  name: string | null;
+}
+
+/** Who conducts it, in order: one or two places, never an empty one. */
+export function conductorsOf(m: ConductorColumns): ConductorPlace[] {
+  return [
+    { publisherId: m.conductorPublisherId, name: m.conductorName },
+    { publisherId: m.secondConductorPublisherId, name: m.secondConductorName },
+  ]
+    .map((c) => ({
+      publisherId: c.publisherId || null,
+      name: c.publisherId ? null : c.name?.trim() || null,
+    }))
+    .filter((c) => c.publisherId || c.name);
+}
+
+/** The cards of those who conduct it — they are invited by conducting. */
+export function conductorIdsOf(m: ConductorColumns): string[] {
+  return conductorsOf(m)
+    .map((c) => c.publisherId)
+    .filter((x): x is string => !!x);
+}
+
+/** A name written by hand, tidied: one space between words. */
+export function tidyName(name: string | null | undefined): string {
+  return (name ?? '').replace(/\s+/g, ' ').trim();
+}
+
+/** The same person twice — by card, or by the same written name. */
+export function repeats(places: ConductorPlace[]): boolean {
+  const keys = places.map((c) =>
+    c.publisherId
+      ? `id:${c.publisherId}`
+      : `name:${tidyName(c.name).toLowerCase()}`,
+  );
+  return new Set(keys).size !== keys.length;
+}
+
+/**
+ * The season a meeting belongs to — the service year of its December and
+ * January — or null for a day outside them. Once a season (Lionel, 9
+ * November 2026: «встреча проходит один раз с декабря по январь»).
+ */
+export function seasonYearOf(day: string): number | null {
+  return inSeason(day) ? serviceYearOfDay(day) : null;
+}

@@ -115,9 +115,10 @@ describe('an inactive publisher is put on nothing (real database)', () => {
   it('a meeting with the pioneers', async () => {
     refused(
       await h.as('admin').post('/pioneer-meetings', {
-        date: inDays(12),
+        // In its season (December or January): only inactivity refuses it.
+        date: `${new Date().getUTCFullYear() + 1}-12-12`,
         timeStart: '11:30',
-        conductorPublisherId: ids.away,
+        conductors: [{ publisherId: ids.away }],
       }),
     );
   });
