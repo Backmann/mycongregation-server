@@ -1,7 +1,12 @@
 import { PioneerType } from '../common/enums/pioneer-type.enum';
 import {
+  conductorIdsOf,
+  conductorsOf,
   inSeason,
   invitedOn,
+  repeats,
+  seasonYearOf,
+  tidyName,
   seasonOf,
   serviceYearOfDay,
 } from './pioneer-meeting-rules';
@@ -55,13 +60,80 @@ describe('the annual meeting with the pioneers — rules', () => {
   });
 });
 
+describe('the annual meeting with the pioneers — who conducts it', () => {
+  const cols = {
+    conductorPublisherId: null,
+    conductorName: null,
+    secondConductorPublisherId: null,
+    secondConductorName: null,
+  };
+
+  it('one or two places, a card or a written name; empty places drop out', () => {
+    expect(conductorsOf({ ...cols, conductorPublisherId: 'a' })).toEqual([
+      { publisherId: 'a', name: null },
+    ]);
+    expect(
+      conductorsOf({
+        ...cols,
+        conductorPublisherId: 'a',
+        secondConductorName: '  Гость  ',
+      }),
+    ).toEqual([
+      { publisherId: 'a', name: null },
+      { publisherId: null, name: 'Гость' },
+    ]);
+    expect(conductorsOf({ ...cols, secondConductorName: '   ' })).toEqual([]);
+    // A card wins over a stray name in the same place.
+    expect(
+      conductorsOf({ ...cols, conductorPublisherId: 'a', conductorName: 'x' }),
+    ).toEqual([{ publisherId: 'a', name: null }]);
+    expect(
+      conductorIdsOf({
+        ...cols,
+        conductorName: 'Гость',
+        secondConductorPublisherId: 'b',
+      }),
+    ).toEqual(['b']);
+  });
+
+  it('the same person twice is caught, by card or by name in any case', () => {
+    expect(
+      repeats([
+        { publisherId: 'a', name: null },
+        { publisherId: 'a', name: null },
+      ]),
+    ).toBe(true);
+    expect(
+      repeats([
+        { publisherId: null, name: 'Иван  Петров' },
+        { publisherId: null, name: 'иван петров' },
+      ]),
+    ).toBe(true);
+    expect(
+      repeats([
+        { publisherId: 'a', name: null },
+        { publisherId: 'b', name: null },
+      ]),
+    ).toBe(false);
+    expect(tidyName('  Иван \n Петров ')).toBe('Иван Петров');
+  });
+
+  it('one season: December and the January after it; other months none', () => {
+    expect(seasonYearOf('2026-12-01')).toBe(2027);
+    expect(seasonYearOf('2027-01-31')).toBe(2027);
+    expect(seasonYearOf('2027-12-05')).toBe(2028);
+    expect(seasonYearOf('2027-02-01')).toBeNull();
+    expect(seasonYearOf('2026-11-30')).toBeNull();
+  });
+});
+
 describe('the annual meeting with the pioneers — words', () => {
   const f = {
     date: '2026-12-12',
     timeStart: '11:30',
     timeEnd: '12:30',
     place: 'Зал Царства',
-    conductorName: 'Вебер Андреас',
+    conductorNames: ['Вебер Андреас'],
   };
 
   it('tells the invited when, where and who conducts it', () => {
@@ -70,6 +142,28 @@ describe('the annual meeting with the pioneers — words', () => {
     expect(m.body).toContain('11:30–12:30');
     expect(m.body).toContain('Зал Царства');
     expect(m.body).toContain('Проводит Вебер Андреас.');
+  });
+
+  it('two conductors: «Проводят А и Б»; each conductor hears of the other', () => {
+    const two = { ...f, conductorNames: ['Вебер Андреас', 'Фогт Маркус'] };
+    expect(meetingText('created', false, two, 'ru').body).toContain(
+      'Проводят Вебер Андреас и Фогт Маркус.',
+    );
+    expect(meetingText('tomorrow', false, two, 'de').body).toContain(
+      'Leitung: Вебер Андреас und Фогт Маркус.',
+    );
+    const mine = meetingText(
+      'created',
+      true,
+      { ...two, partnerName: 'Фогт Маркус' },
+      'ru',
+    );
+    expect(mine.body).toContain('Второй проводящий — Фогт Маркус.');
+    // Reverse: alone, there is no second one to name.
+    expect(meetingText('created', true, f, 'ru').body).not.toContain('Второй');
+    expect(meetingText('conductorFreed', true, f, 'ru').body).toContain(
+      'Вы больше не проводите эту встречу.',
+    );
   });
 
   it('tells the elder he conducts it, on the outline S-211', () => {
@@ -92,7 +186,7 @@ describe('the annual meeting with the pioneers — words', () => {
         const m = meetingText(
           news,
           news === 'reminderWeek',
-          { ...f, place: null, conductorName: '' },
+          { ...f, place: null, conductorNames: [] },
           lang,
         );
         expect(`${m.title} ${m.body}`).not.toMatch(/[А-я]/);

@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { assertAssignable } from '../common/inactive';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, In, IsNull, LessThanOrEqual, Repository } from 'typeorm';
+import { Between, In, IsNull, LessThanOrEqual, Not, Repository } from 'typeorm';
 import { createHash } from 'crypto';
 import { PioneerMeeting } from '../entities/pioneer-meeting.entity';
 import { PioneerSpell } from '../entities/pioneer-spell.entity';
@@ -32,21 +32,47 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import {
   HM,
+  conductorIdsOf,
+  conductorsOf,
   inSeason,
   invitedOn,
+  repeats,
   seasonOf,
+  seasonYearOf,
   serviceYearOfDay,
+  tidyName,
+  type ConductorPlace,
   type MeetingWarning,
 } from './pioneer-meeting-rules';
 import { meetingText, type MeetingNews } from './pioneer-meeting-messages';
+
+/** One who conducts it, as the form sends it: a card or a written name. */
+export interface ConductorInput {
+  publisherId?: string | null;
+  name?: string | null;
+}
 
 export interface PioneerMeetingInput {
   date: string;
   timeStart?: string | null;
   timeEnd?: string | null;
   place?: string | null;
-  conductorPublisherId: string;
+  /** One or two; the second may be left out (9 November 2026). */
+  conductors?: ConductorInput[];
+  /**
+   * The app before 9 November 2026 sent one elder here. Read as the first
+   * place; a second one already set is kept, not dropped by an old form.
+   */
+  conductorPublisherId?: string | null;
   note?: string | null;
+}
+
+export interface ConductorView {
+  /** The card — null for a name written by hand. */
+  id: string | null;
+  name: string;
+  /** elder / ministerial_servant; null for a written name. */
+  appointment: string | null;
 }
 
 export interface PioneerMeetingView {
@@ -57,7 +83,11 @@ export interface PioneerMeetingView {
   place: string | null;
   note: string | null;
   serviceYear: number;
+  /** Those who conduct it, in order — one or two. */
+  conductors: ConductorView[];
+  /** The first of them, for the app before 9 November 2026. */
   conductor: { id: string; name: string };
+  /** The pioneers invited — those who conduct it are not counted here. */
   invitedCount: number;
 }
 
@@ -75,6 +105,19 @@ const TASK_MONTH = 11;
 
 const nameOf = (p: Pick<Publisher, 'firstName' | 'lastName'>) =>
   [p.lastName, p.firstName].filter(Boolean).join(' ').trim();
+
+/** Who may conduct it: an elder, rarely a ministerial servant (Lionel). */
+const MAY_CONDUCT: string[] = [
+  PublisherAppointment.ELDER,
+  PublisherAppointment.MINISTERIAL_SERVANT,
+];
+
+/** A name written by hand: long enough to be a name, short enough to fit. */
+const NAME_MIN = 2;
+const NAME_MAX = 120;
+
+const dayOf = (d: string | Date) =>
+  typeof d === 'string' ? d.slice(0, 10) : d.toISOString().slice(0, 10);
 
 /**
  * THE ANNUAL MEETING OF THE ELDERS WITH THE PIONEERS (S-211; Lionel, 30
@@ -152,22 +195,81 @@ export class PioneerMeetingsService {
     return this.spells.find({ where: { congregationId: tenantId } });
   }
 
+  /** The cards of these people, the removed too — history keeps names. */
+  private async cardsOf(
+    tenantId: string,
+    ids: (string | null | undefined)[],
+  ): Promise<Map<string, Publisher>> {
+    const want = [...new Set(ids.filter((x): x is string => !!x))];
+    if (want.length === 0) return new Map();
+    const cards = await this.publishers.find({
+      where: { congregationId: tenantId, id: In(want) },
+      withDeleted: true,
+    });
+    return new Map(cards.map((c) => [c.id, c]));
+  }
+
+  private conductorViews(
+    m: PioneerMeeting,
+    cards: Map<string, Publisher>,
+  ): ConductorView[] {
+    return conductorsOf(m).map((c) => {
+      const card = c.publisherId ? cards.get(c.publisherId) : undefined;
+      return {
+        id: c.publisherId,
+        name: card ? nameOf(card) : (c.name ?? ''),
+        appointment: card ? (card.appointment ?? null) : null,
+      };
+    });
+  }
+
+  /** The pioneers it invites: of its day, still in the congregation, not conducting it. */
+  private async invitedIds(
+    tenantId: string,
+    m: PioneerMeeting,
+    spells: PioneerSpell[],
+    present?: Set<string>,
+  ): Promise<string[]> {
+    const conducting = new Set(conductorIdsOf(m));
+    const ids = invitedOn(spells, dayOf(m.date)).filter(
+      (id) => !conducting.has(id),
+    );
+    const here =
+      present ??
+      new Set(
+        (ids.length
+          ? await this.publishers.find({
+              select: { id: true },
+              where: {
+                congregationId: tenantId,
+                id: In(ids),
+                removedAt: IsNull(),
+              },
+            })
+          : []
+        ).map((p) => p.id),
+      );
+    return ids.filter((id) => here.has(id));
+  }
+
   private view(
     m: PioneerMeeting,
-    conductor: Publisher | undefined,
+    cards: Map<string, Publisher>,
     invitedCount: number,
   ): PioneerMeetingView {
+    const conductors = this.conductorViews(m, cards);
     return {
       id: m.id,
-      date: String(m.date).slice(0, 10),
+      date: dayOf(m.date),
       timeStart: m.timeStart,
       timeEnd: m.timeEnd,
       place: m.place,
       note: m.note,
-      serviceYear: serviceYearOfDay(String(m.date)),
+      serviceYear: serviceYearOfDay(dayOf(m.date)),
+      conductors,
       conductor: {
-        id: m.conductorPublisherId,
-        name: conductor ? nameOf(conductor) : '',
+        id: conductors[0]?.id ?? '',
+        name: conductors[0]?.name ?? '',
       },
       invitedCount,
     };
@@ -193,26 +295,35 @@ export class PioneerMeetingsService {
       where: { congregationId: tenantId },
       order: { date: 'DESC' },
     });
-    const cards = rows.length
-      ? await this.publishers.find({
-          where: {
-            congregationId: tenantId,
-            id: In(rows.map((r) => r.conductorPublisherId)),
-          },
-          withDeleted: true,
-        })
-      : [];
+    const cards = await this.cardsOf(
+      tenantId,
+      rows.flatMap((m) => conductorIdsOf(m)),
+    );
     const spells = await this.spellsOf(tenantId);
-    return {
-      canManage: await this.canManage(tenantId, user),
-      meetings: rows.map((m) =>
-        this.view(
-          m,
-          cards.find((c) => c.id === m.conductorPublisherId),
-          invitedOn(spells, String(m.date)).length,
-        ),
-      ),
-    };
+    // Who is still here, asked once for every meeting: the count in the
+    // list is the list inside the meeting (it counted the removed too).
+    const everInvited = [
+      ...new Set(rows.flatMap((m) => invitedOn(spells, dayOf(m.date)))),
+    ];
+    const present = new Set(
+      (everInvited.length
+        ? await this.publishers.find({
+            select: { id: true },
+            where: {
+              congregationId: tenantId,
+              id: In(everInvited),
+              removedAt: IsNull(),
+            },
+          })
+        : []
+      ).map((p) => p.id),
+    );
+    const meetings: PioneerMeetingView[] = [];
+    for (const m of rows) {
+      const invited = await this.invitedIds(tenantId, m, spells, present);
+      meetings.push(this.view(m, cards, invited.length));
+    }
+    return { canManage: await this.canManage(tenantId, user), meetings };
   }
 
   /** One meeting with who is invited and what is worth knowing first. */
@@ -229,11 +340,11 @@ export class PioneerMeetingsService {
         refusal('PIONEER_MEETING_NOT_FOUND', 'No such meeting.'),
       );
     }
-    const conductor = await this.publishers.findOne({
-      where: { id: m.conductorPublisherId, congregationId: tenantId },
-      withDeleted: true,
-    });
-    const isConductor = !!conductor?.userId && conductor.userId === user.id;
+    const conductorIds = conductorIdsOf(m);
+    const cards = await this.cardsOf(tenantId, conductorIds);
+    const isConductor = conductorIds.some(
+      (id) => !!cards.get(id)?.userId && cards.get(id)?.userId === user.id,
+    );
     if (!this.isElder(user) && !isConductor) {
       throw new ForbiddenException(
         refusal('NEEDS_ROLE', 'Only elders see who is invited.', {
@@ -241,19 +352,15 @@ export class PioneerMeetingsService {
         }),
       );
     }
-    const day = String(m.date).slice(0, 10);
+    const day = dayOf(m.date);
     const spells = await this.spellsOf(tenantId);
-    const ids = invitedOn(spells, day);
+    const ids = await this.invitedIds(tenantId, m, spells);
     const people = ids.length
       ? await this.publishers.find({
-          where: { congregationId: tenantId, id: In(ids), removedAt: IsNull() },
+          where: { congregationId: tenantId, id: In(ids) },
         })
       : [];
-    const away = await this.awayOn(
-      tenantId,
-      [...ids, m.conductorPublisherId],
-      day,
-    );
+    const away = await this.awayOn(tenantId, [...ids, ...conductorIds], day);
     const kindOf = (pid: string) =>
       spells.find(
         (s) =>
@@ -262,7 +369,7 @@ export class PioneerMeetingsService {
           (!s.endMonth || String(s.endMonth).slice(0, 7) >= day.slice(0, 7)),
       )?.pioneerType ?? 'regular';
     return {
-      ...this.view(m, conductor ?? undefined, people.length),
+      ...this.view(m, cards, people.length),
       invited: people
         .map((p) => ({
           id: p.id,
@@ -271,7 +378,7 @@ export class PioneerMeetingsService {
           away: away.has(p.id),
         }))
         .sort((a, b) => a.name.localeCompare(b.name)),
-      warnings: await this.warningsFor(tenantId, m, away),
+      warnings: await this.warningsFor(tenantId, m, away, cards),
       canManage: await this.canManage(tenantId, user),
     };
   }
@@ -300,6 +407,7 @@ export class PioneerMeetingsService {
     tenantId: string,
     m: PioneerMeeting,
     away: Set<string>,
+    cards: Map<string, Publisher>,
   ): Promise<MeetingWarning[]> {
     const day = String(m.date).slice(0, 10);
     const out: MeetingWarning[] = [];
@@ -320,16 +428,62 @@ export class PioneerMeetingsService {
         out.push({ kind: 'event', eventType: e.type ?? '', title: e.title });
       }
     }
-    if (away.has(m.conductorPublisherId)) out.push({ kind: 'conductorAway' });
+    for (const id of conductorIdsOf(m)) {
+      const card = cards.get(id);
+      if (away.has(id)) {
+        out.push({ kind: 'conductorAway', name: card ? nameOf(card) : '' });
+      }
+    }
     return out;
   }
 
   // ---- writing -------------------------------------------------------------
 
+  private invalid(): BadRequestException {
+    return new BadRequestException(
+      refusal(
+        'PIONEER_MEETING_INVALID',
+        'A day, and a time written as HH:mm that ends after it starts.',
+      ),
+    );
+  }
+
+  /**
+   * The form's places, tidied: a card where one is chosen, otherwise the
+   * name written by hand; empty places dropped. An old form sends its one
+   * elder only — then a second place already set stays as it was.
+   */
+  private placesOf(
+    input: PioneerMeetingInput,
+    prev: PioneerMeeting | null,
+  ): ConductorPlace[] {
+    const raw: ConductorInput[] =
+      input.conductors !== undefined
+        ? input.conductors
+        : [
+            { publisherId: input.conductorPublisherId ?? null },
+            ...(prev ? conductorsOf(prev).slice(1) : []),
+          ];
+    return raw
+      .map((c) => ({
+        publisherId: c.publisherId || null,
+        name: c.publisherId ? null : tidyName(c.name) || null,
+      }))
+      .filter((c) => c.publisherId || c.name);
+  }
+
   private async checked(
     tenantId: string,
     input: PioneerMeetingInput,
-  ): Promise<PioneerMeetingInput> {
+    prev: PioneerMeeting | null = null,
+  ): Promise<{
+    date: string;
+    timeStart: string | null;
+    timeEnd: string | null;
+    place: string | null;
+    note: string | null;
+    places: ConductorPlace[];
+  }> {
     const day = (input.date ?? '').slice(0, 10);
     const t = input.timeStart?.trim() || null;
     const e = input.timeEnd?.trim() || null;
@@ -340,36 +494,122 @@ export class PioneerMeetingsService {
       (e && !t) ||
       (t && e && e <= t)
     ) {
+      throw this.invalid();
+    }
+
+    // Who conducts it: one or two, never the same one twice.
+    const places = this.placesOf(input, prev);
+    if (places.length === 0) {
       throw new BadRequestException(
         refusal(
-          'PIONEER_MEETING_INVALID',
-          'A day, and a time written as HH:mm that ends after it starts.',
+          'PIONEER_MEETING_NO_CONDUCTOR',
+          'Somebody conducts the meeting: choose him or write his name.',
         ),
       );
     }
-    const conductor = await this.publishers.findOne({
-      where: {
-        id: input.conductorPublisherId,
-        congregationId: tenantId,
-        removedAt: IsNull(),
-      },
-    });
-    if (!conductor || conductor.appointment !== PublisherAppointment.ELDER) {
+    if (
+      places.length > 2 ||
+      places.some(
+        (c) => c.name && (c.name.length < NAME_MIN || c.name.length > NAME_MAX),
+      )
+    ) {
+      throw this.invalid();
+    }
+    if (repeats(places)) {
       throw new BadRequestException(
         refusal(
-          'PIONEER_MEETING_NOT_ELDER',
-          'The meeting with the pioneers is conducted by an elder.',
+          'PIONEER_MEETING_SAME_CONDUCTOR',
+          'The two who conduct it are two different brothers.',
         ),
       );
+    }
+    const ids = places
+      .map((c) => c.publisherId)
+      .filter((x): x is string => !!x);
+    const cards = ids.length
+      ? await this.publishers.find({
+          where: { id: In(ids), congregationId: tenantId, removedAt: IsNull() },
+        })
+      : [];
+    // A card already on the meeting stays even if he is no longer appointed
+    // since: the elders may still change its time (as with inactivity).
+    const held = new Set(prev ? conductorIdsOf(prev) : []);
+    for (const id of ids) {
+      const card = cards.find((c) => c.id === id);
+      const ok = card && MAY_CONDUCT.includes(String(card.appointment));
+      if (!ok && !(held.has(id) && card)) {
+        throw new BadRequestException(
+          refusal(
+            'PIONEER_MEETING_NOT_APPOINTED',
+            'The meeting with the pioneers is conducted by an elder or a ministerial servant.',
+          ),
+        );
+      }
+    }
+
+    // December or January, once a season (Lionel, 9 November 2026). A
+    // meeting kept from before on another day keeps its day if it is not
+    // moved.
+    const moved = !prev || dayOf(prev.date) !== day;
+    const season = seasonYearOf(day);
+    if (moved && season === null) {
+      throw new BadRequestException(
+        refusal(
+          'PIONEER_MEETING_OUT_OF_SEASON',
+          'The meeting with the pioneers is held in December or January.',
+        ),
+      );
+    }
+    if (season !== null) {
+      const { from, to } = seasonOf(season);
+      const other = await this.meetings.findOne({
+        where: {
+          congregationId: tenantId,
+          date: Between(from, to),
+          ...(prev ? { id: Not(prev.id) } : {}),
+        },
+      });
+      if (other) {
+        throw new BadRequestException(
+          refusal(
+            'PIONEER_MEETING_SEASON_TAKEN',
+            'This season already has its meeting with the pioneers.',
+            { date: dayOf(other.date), meetingId: other.id },
+          ),
+        );
+      }
     }
     return {
       date: day,
       timeStart: t,
       timeEnd: e,
       place: input.place?.trim().slice(0, 200) || null,
-      conductorPublisherId: conductor.id,
       note: input.note?.trim() || null,
+      places,
     };
+  }
+
+  /** The four columns of the places. */
+  private columnsOf(places: ConductorPlace[]) {
+    const [a, b] = places;
+    return {
+      conductorPublisherId: a?.publisherId ?? null,
+      conductorName: a && !a.publisherId ? a.name : null,
+      secondConductorPublisherId: b?.publisherId ?? null,
+      secondConductorName: b && !b.publisherId ? b.name : null,
+    };
+  }
+
+  /** Past meetings are history: frozen from the day after (CLAUDE.md). */
+  private async assertNotPast(m: PioneerMeeting): Promise<void> {
+    if (dayOf(m.date) < (await this.clock.todayFor(m.congregationId))) {
+      throw new BadRequestException(
+        refusal(
+          'PIONEER_MEETING_PAST_LOCKED',
+          'A meeting that has taken place is kept as it was.',
+        ),
+      );
+    }
   }
 
   async create(
@@ -379,18 +619,21 @@ export class PioneerMeetingsService {
   ): Promise<PioneerMeetingDetail> {
     await this.assertManage(tenantId, user);
     const ok = await this.checked(tenantId, input);
-    await assertAssignable(this.meetings.manager, tenantId, [
-      ok.conductorPublisherId,
-    ]);
+    const cols = this.columnsOf(ok.places);
+    await assertAssignable(
+      this.meetings.manager,
+      tenantId,
+      conductorIdsOf(cols),
+    );
     const saved = await this.meetings.save(
       this.meetings.create({
         congregationId: tenantId,
         date: ok.date,
-        timeStart: ok.timeStart ?? null,
-        timeEnd: ok.timeEnd ?? null,
-        place: ok.place ?? null,
-        conductorPublisherId: ok.conductorPublisherId,
-        note: ok.note ?? null,
+        timeStart: ok.timeStart,
+        timeEnd: ok.timeEnd,
+        place: ok.place,
+        ...cols,
+        note: ok.note,
         createdById: user.id,
       }),
     );
@@ -399,7 +642,7 @@ export class PioneerMeetingsService {
       entityType: 'pioneer_meeting',
       entityId: saved.id,
       actorUserId: user.id,
-      after: { date: ok.date, conductorPublisherId: ok.conductorPublisherId },
+      after: { date: ok.date, ...cols },
     });
     await this.syncTask(tenantId, serviceYearOfDay(ok.date), user.id);
     await this.announce(saved, 'created');
@@ -421,20 +664,22 @@ export class PioneerMeetingsService {
         refusal('PIONEER_MEETING_NOT_FOUND', 'No such meeting.'),
       );
     }
-    const ok = await this.checked(tenantId, input);
+    await this.assertNotPast(m);
+    const ok = await this.checked(tenantId, input, m);
+    const cols = this.columnsOf(ok.places);
     await assertAssignable(
       this.meetings.manager,
       tenantId,
-      [ok.conductorPublisherId],
-      [m.conductorPublisherId],
+      conductorIdsOf(cols),
+      conductorIdsOf(m),
     );
     const before = { ...m };
     m.date = ok.date;
-    m.timeStart = ok.timeStart ?? null;
-    m.timeEnd = ok.timeEnd ?? null;
-    m.place = ok.place ?? null;
-    m.conductorPublisherId = ok.conductorPublisherId;
-    m.note = ok.note ?? null;
+    m.timeStart = ok.timeStart;
+    m.timeEnd = ok.timeEnd;
+    m.place = ok.place;
+    Object.assign(m, cols);
+    m.note = ok.note;
     const saved = await this.meetings.save(m);
     await this.audit.logUpdate({
       tenantId,
@@ -449,27 +694,29 @@ export class PioneerMeetingsService {
         'timeEnd',
         'place',
         'conductorPublisherId',
+        'conductorName',
+        'secondConductorPublisherId',
+        'secondConductorName',
         'note',
       ],
     });
     const moved =
-      String(before.date).slice(0, 10) !== ok.date ||
+      dayOf(before.date) !== ok.date ||
       before.timeStart !== saved.timeStart ||
       before.timeEnd !== saved.timeEnd ||
       before.place !== saved.place;
-    if (before.conductorPublisherId !== saved.conductorPublisherId) {
-      // The new elder hears he conducts it; the one before, that he does not.
-      await this.announce(saved, 'conductorNew');
-      await this.announceTo(
-        saved,
-        [before.conductorPublisherId],
-        'conductorFreed',
-      );
-    }
-    if (moved) await this.announce(saved, 'changed');
+    // A new one hears he conducts it; one taken off, that he does not; the
+    // one who stays hears only of a move.
+    const was = new Set(conductorIdsOf(before));
+    const now = new Set(conductorIdsOf(saved));
+    const added = [...now].filter((id) => !was.has(id));
+    const freed = [...was].filter((id) => !now.has(id));
+    if (added.length) await this.announceConductors(saved, added, 'created');
+    if (freed.length) await this.announceTo(saved, freed, 'conductorFreed');
+    if (moved) await this.announce(saved, 'changed', new Set(added));
     await this.syncTask(
       tenantId,
-      serviceYearOfDay(String(before.date)),
+      serviceYearOfDay(dayOf(before.date)),
       user.id,
     );
     await this.syncTask(tenantId, serviceYearOfDay(ok.date), user.id);
@@ -490,6 +737,7 @@ export class PioneerMeetingsService {
         refusal('PIONEER_MEETING_NOT_FOUND', 'No such meeting.'),
       );
     }
+    await this.assertNotPast(m);
     await this.meetings.softRemove(m);
     await this.audit.logEvent({
       tenantId,
@@ -519,40 +767,91 @@ export class PioneerMeetingsService {
     return cards.filter((c) => !!c.userId);
   }
 
-  private async announce(m: PioneerMeeting, news: MeetingNews): Promise<void> {
+  /** The names of those who conduct it, in order, as the app writes people. */
+  private async namesOf(m: PioneerMeeting): Promise<string[]> {
+    const cards = await this.cardsOf(m.congregationId, conductorIdsOf(m));
+    return this.conductorViews(m, cards).map((c) => c.name);
+  }
+
+  /**
+   * Tell the invited pioneers, and each one who conducts it (with the other
+   * one named). `skip` — conductors already told something fuller.
+   */
+  private async announce(
+    m: PioneerMeeting,
+    news: MeetingNews,
+    skip: Set<string> = new Set(),
+  ): Promise<void> {
     try {
-      const day = String(m.date).slice(0, 10);
-      const today = await this.clock.todayFor(m.congregationId);
-      if (day < today) return;
-      const conductor = await this.publishers.findOne({
-        where: { id: m.conductorPublisherId, congregationId: m.congregationId },
-        withDeleted: true,
-      });
-      const invited = invitedOn(
-        await this.spellsOf(m.congregationId),
-        day,
-      ).filter((pid) => pid !== m.conductorPublisherId);
-      if (news !== 'conductorNew') {
+      const day = dayOf(m.date);
+      if (day < (await this.clock.todayFor(m.congregationId))) return;
+      const names = await this.namesOf(m);
+      // The pioneers: everything but the week's reminder, which is the
+      // conductors' time to prepare (it used to go to the pioneers alone).
+      if (news !== 'conductorNew' && news !== 'reminderWeek') {
+        const invited = await this.invitedIds(
+          m.congregationId,
+          m,
+          await this.spellsOf(m.congregationId),
+        );
         await this.send(
           m,
           await this.usersOf(m.congregationId, invited),
           news,
           false,
-          conductor,
+          names,
+          null,
         );
       }
-      if (news !== 'reminderWeek') {
-        await this.send(
-          m,
-          await this.usersOf(m.congregationId, [m.conductorPublisherId]),
-          news === 'conductorNew' ? 'created' : news,
-          true,
-          conductor,
-        );
-      }
+      await this.tellConductors(
+        m,
+        conductorIdsOf(m).filter((id) => !skip.has(id)),
+        news === 'conductorNew' ? 'created' : news,
+        names,
+      );
     } catch (err) {
       this.logger.warn(
         `pioneer meeting ${m.id} ${news}: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /** Tell these conductors alone (one added to the meeting). */
+  private async announceConductors(
+    m: PioneerMeeting,
+    ids: string[],
+    news: MeetingNews,
+  ): Promise<void> {
+    try {
+      if (dayOf(m.date) < (await this.clock.todayFor(m.congregationId))) return;
+      await this.tellConductors(m, ids, news, await this.namesOf(m));
+    } catch (err) {
+      this.logger.warn(
+        `pioneer meeting ${m.id} ${news}: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /** Each conductor separately: his message names the other one. */
+  private async tellConductors(
+    m: PioneerMeeting,
+    ids: string[],
+    news: MeetingNews,
+    names: string[],
+  ): Promise<void> {
+    const views = this.conductorViews(
+      m,
+      await this.cardsOf(m.congregationId, conductorIdsOf(m)),
+    );
+    for (const id of ids) {
+      const other = views.find((v) => v.id !== id);
+      await this.send(
+        m,
+        await this.usersOf(m.congregationId, [id]),
+        news,
+        true,
+        names,
+        other?.name ?? null,
       );
     }
   }
@@ -563,13 +862,13 @@ export class PioneerMeetingsService {
     news: MeetingNews,
   ): Promise<void> {
     try {
-      const day = String(m.date).slice(0, 10);
-      if (day < (await this.clock.todayFor(m.congregationId))) return;
+      if (dayOf(m.date) < (await this.clock.todayFor(m.congregationId))) return;
       await this.send(
         m,
         await this.usersOf(m.congregationId, publisherIds),
         news,
         true,
+        [],
         null,
       );
     } catch (err) {
@@ -584,19 +883,30 @@ export class PioneerMeetingsService {
     cards: Publisher[],
     news: MeetingNews,
     asConductor: boolean,
-    conductor: Publisher | null | undefined,
+    conductorNames: string[],
+    partnerName: string | null,
   ): Promise<void> {
     if (cards.length === 0) return;
     const facts = {
-      date: String(m.date).slice(0, 10),
+      date: dayOf(m.date),
       timeStart: m.timeStart,
       timeEnd: m.timeEnd,
       place: m.place,
-      conductorName: conductor ? nameOf(conductor) : '',
+      conductorNames,
+      partnerName,
     };
     const stamp = createHash('sha1')
       .update(
-        `${facts.date}|${facts.timeStart}|${facts.timeEnd}|${facts.place}|${m.conductorPublisherId}`,
+        [
+          facts.date,
+          facts.timeStart,
+          facts.timeEnd,
+          facts.place,
+          m.conductorPublisherId,
+          m.conductorName,
+          m.secondConductorPublisherId,
+          m.secondConductorName,
+        ].join('|'),
       )
       .digest('hex')
       .slice(0, 12);
@@ -606,7 +916,7 @@ export class PioneerMeetingsService {
       text: (lang) => meetingText(news, asConductor, facts, lang),
       kind: asConductor ? 'pioneer_meeting_conduct' : 'pioneer_meeting',
       key: `pioneer-meeting:${m.id}:${news}:${asConductor ? 'c' : 'i'}:${stamp}`,
-      // «c» opens the meeting for the conductor; «i» — Home, for a pioneer.
+      // «c» opens the meeting for a conductor; «i» — Home, for a pioneer.
       data: {
         type: 'pioneer_meeting',
         meetingId: m.id,

@@ -13,6 +13,10 @@ import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { Hall } from '../entities/hall.entity';
 import { MemorialItem } from '../entities/memorial-item.entity';
 import { PioneerMeeting } from '../entities/pioneer-meeting.entity';
+import {
+  conductorIdsOf,
+  conductorsOf,
+} from '../pioneer-meetings/pioneer-meeting-rules';
 import { PioneerSchoolDuty } from '../entities/pioneer-school-duty.entity';
 import { PioneerSpell } from '../entities/pioneer-spell.entity';
 import { PublicTalk } from '../entities/public-talk.entity';
@@ -778,11 +782,18 @@ export class AgendaService {
       const spells = await this.ds.getRepository(PioneerSpell).find({
         where: { congregationId, publisherId: pid },
       });
-      const conductors = await names(pm.map((m) => m.conductorPublisherId));
+      const conductors = await names(pm.flatMap((m) => conductorIdsOf(m)));
       for (const m of pm) {
         const d = day(m.date);
-        const conducts = m.conductorPublisherId === pid;
+        // Up to two conduct it — a card or a name written by hand
+        // (9 November 2026); those who conduct it are invited by doing so.
+        const places = conductorsOf(m);
+        const conducts = places.some((c) => c.publisherId === pid);
         if (!conducts && !invitedOn(spells, d).includes(pid)) continue;
+        const nameOfPlace = (c: (typeof places)[number]) =>
+          c.publisherId
+            ? (conductors.get(c.publisherId) ?? '')
+            : (c.name ?? '');
         push(
           base({
             id: `pioneer_meeting:${m.id}`,
@@ -793,10 +804,13 @@ export class AgendaService {
             title: conducts
               ? words.pioneerMeetingConduct
               : words.pioneerMeetingInvited,
-            with:
-              !conducts && conductors.get(m.conductorPublisherId)
-                ? [conductors.get(m.conductorPublisherId)!]
-                : [],
+            // A conductor: the other one; a pioneer: who conducts it.
+            with: withNames
+              ? places
+                  .filter((c) => !conducts || c.publisherId !== pid)
+                  .map(nameOfPlace)
+                  .filter(Boolean)
+              : [],
             place: m.place?.trim() || null,
           }),
         );

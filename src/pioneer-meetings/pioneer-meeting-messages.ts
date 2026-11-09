@@ -1,7 +1,7 @@
 import { SupportedLanguage } from '../common/i18n/supported-languages';
 
 /**
- * What the pioneers and the conducting elder are told — pure, in each
+ * What the pioneers and those who conduct it are told — pure, in each
  * language, so every wording is read and tested in one place.
  */
 export type MeetingNews =
@@ -11,7 +11,7 @@ export type MeetingNews =
   | 'tomorrow'
   /** A week ahead, to the conducting elder alone: time to prepare. */
   | 'reminderWeek'
-  /** The conductor was changed: the new elder hears he conducts it. */
+  /** A conductor was added or changed: the new one hears he conducts it. */
   | 'conductorNew'
   /** …and the one before hears he does not. */
   | 'conductorFreed';
@@ -21,7 +21,10 @@ export interface MeetingFacts {
   timeStart: string | null;
   timeEnd: string | null;
   place: string | null;
-  conductorName: string;
+  /** Who conducts it, one or two, as the app writes people. */
+  conductorNames: string[];
+  /** For a conductor: the other one, if there is one. */
+  partnerName?: string | null;
 }
 
 const LOCALE: Record<SupportedLanguage, string> = {
@@ -50,7 +53,8 @@ const T: Record<
   {
     title: string;
     conductTitle: string;
-    by: (n: string) => string;
+    by: (names: string[]) => string;
+    partner: (n: string) => string;
     created: string;
     conductCreated: string;
     changed: string;
@@ -63,19 +67,27 @@ const T: Record<
   ru: {
     title: 'Ежегодная встреча старейшин с пионерами',
     conductTitle: 'Вы проводите встречу с пионерами',
-    by: (n) => `Проводит ${n}.`,
+    by: (n) =>
+      n.length > 1
+        ? `Проводят ${n.slice(0, -1).join(', ')} и ${n[n.length - 1]}.`
+        : `Проводит ${n[0]}.`,
+    partner: (n) => `Второй проводящий — ${n}.`,
     created: 'Вы приглашены.',
     conductCreated: 'По плану S-211. Список приглашённых — в приложении.',
     changed: 'Встреча перенесена.',
     cancelled: 'Встреча отменена.',
     tomorrow: 'Завтра.',
     week: 'Через неделю — время подготовиться по плану S-211.',
-    freed: 'Встречу проводит другой старейшина.',
+    freed: 'Вы больше не проводите эту встречу.',
   },
   de: {
     title: 'Jährliches Treffen der Ältesten mit den Pionieren',
     conductTitle: 'Sie leiten das Treffen mit den Pionieren',
-    by: (n) => `Leitung: ${n}.`,
+    by: (n) =>
+      n.length > 1
+        ? `Leitung: ${n.slice(0, -1).join(', ')} und ${n[n.length - 1]}.`
+        : `Leitung: ${n[0]}.`,
+    partner: (n) => `Gemeinsam mit ${n}.`,
     created: 'Sie sind eingeladen.',
     conductCreated:
       'Nach der Gliederung S-211. Die Eingeladenen stehen in der App.',
@@ -83,19 +95,23 @@ const T: Record<
     cancelled: 'Das Treffen fällt aus.',
     tomorrow: 'Morgen.',
     week: 'In einer Woche — Zeit, sich nach S-211 vorzubereiten.',
-    freed: 'Das Treffen leitet ein anderer Ältester.',
+    freed: 'Sie leiten dieses Treffen nicht mehr.',
   },
   en: {
     title: 'Annual meeting of the elders with the pioneers',
     conductTitle: 'You conduct the meeting with the pioneers',
-    by: (n) => `Conducted by ${n}.`,
+    by: (n) =>
+      n.length > 1
+        ? `Conducted by ${n.slice(0, -1).join(', ')} and ${n[n.length - 1]}.`
+        : `Conducted by ${n[0]}.`,
+    partner: (n) => `Together with ${n}.`,
     created: 'You are invited.',
     conductCreated: 'On the outline S-211. Who is invited is in the app.',
     changed: 'The meeting has been moved.',
     cancelled: 'The meeting is canceled.',
     tomorrow: 'Tomorrow.',
     week: 'In a week — time to prepare on the outline S-211.',
-    freed: 'Another elder conducts the meeting.',
+    freed: 'You no longer conduct this meeting.',
   },
 };
 
@@ -107,12 +123,17 @@ export function meetingText(
 ): { title: string; body: string } {
   const s = T[lang] ?? T.ru;
   const at = when(f, lang);
-  const by = f.conductorName ? ` ${s.by(f.conductorName)}` : '';
+  const names = f.conductorNames.filter(Boolean);
+  const by = names.length ? ` ${s.by(names)}` : '';
+  const partner = f.partnerName ? ` ${s.partner(f.partnerName)}` : '';
   switch (news) {
     case 'created':
     case 'conductorNew':
       return asConductor
-        ? { title: s.conductTitle, body: `${at}. ${s.conductCreated}` }
+        ? {
+            title: s.conductTitle,
+            body: `${at}.${partner} ${s.conductCreated}`,
+          }
         : { title: s.title, body: `${at}.${by} ${s.created}` };
     case 'changed':
       return {
@@ -127,7 +148,7 @@ export function meetingText(
         body: `${s.tomorrow} ${at}.${asConductor ? '' : by}`,
       };
     case 'reminderWeek':
-      return { title: s.conductTitle, body: `${s.week} ${at}.` };
+      return { title: s.conductTitle, body: `${s.week} ${at}.${partner}` };
     case 'conductorFreed':
       return { title: s.title, body: `${s.freed} ${at}.` };
   }
