@@ -37,6 +37,12 @@ export type MyAssignmentKind =
   | 'pioneer_meeting';
 
 export interface MyAssignmentItem {
+  /**
+   * The same row's id in the agenda (agenda.types.ts), or its first part —
+   * `part:<id>` stands for `part:<id>:assistant` too, `cart:<day>` for the
+   * day's shifts. Home ties «изменено» to its rows by it (9 November 2026).
+   */
+  agendaId?: string;
   kind: MyAssignmentKind;
   /** Best-known calendar date (exact for cart/field service; Monday otherwise). */
   sortDate: string;
@@ -532,6 +538,7 @@ export class MeService {
       const otherId =
         a.assistantPublisherId === pid ? a.publisherId : a.assistantPublisherId;
       items.push({
+        agendaId: `part:${a.id}`,
         kind: 'meeting',
         sortDate: a.weekStartDate,
         weekStartDate: a.weekStartDate,
@@ -583,6 +590,7 @@ export class MeService {
           ? memorialByWeek.get(d.weekStartDate)
           : undefined;
       items.push({
+        agendaId: `duty:${d.id}`,
         kind: 'duty',
         sortDate: event?.date ?? d.weekStartDate,
         weekStartDate: d.weekStartDate,
@@ -617,6 +625,7 @@ export class MeService {
         const event = eventById.get(line.specialEventId);
         if (!event) continue;
         items.push({
+          agendaId: `memorial_part:${line.id}`,
           kind: 'meeting',
           sortDate: event.date,
           weekStartDate: mondayOf(event.date),
@@ -645,6 +654,7 @@ export class MeService {
         .getMany();
       for (const c of cleanings) {
         items.push({
+          agendaId: `cleaning:${c.id}`,
           kind: 'cleaning',
           sortDate: c.weekStartDate,
           weekStartDate: c.weekStartDate,
@@ -672,6 +682,7 @@ export class MeService {
       .getMany();
     for (const c of generalCleanings) {
       items.push({
+        agendaId: `cleaning:${c.id}`,
         kind: 'cleaning',
         sortDate: c.weekStartDate,
         weekStartDate: c.weekStartDate,
@@ -709,6 +720,7 @@ export class MeService {
         .map((o) => ({ startTime: o.start_time, endTime: o.end_time }));
       for (const s of cartMinus(a, off)) {
         items.push({
+          agendaId: `cart:${a.dayId}`,
           kind: 'cart',
           sortDate: a.day.date,
           date: a.day.date,
@@ -790,6 +802,7 @@ export class MeService {
           : f.serviceOverseerAssistantId
         : null;
       items.push({
+        agendaId: `field_service:${f.id}`,
         kind: 'field_service',
         sortDate: exact,
         weekStartDate: f.weekStartDate,
@@ -827,6 +840,7 @@ export class MeService {
         ? await this.publicTalksRepo.findOne({ where: { id: e.publicTalkId } })
         : null;
       items.push({
+        agendaId: `outgoing_talk:${e.id}`,
         kind: 'outgoing_talk',
         sortDate: e.date,
         date: e.date,
@@ -855,6 +869,7 @@ export class MeService {
     for (const c of coLunches) {
       if (c.itemDate < today) continue;
       items.push({
+        agendaId: `co_visit:${c.id}`,
         kind: 'co_lunch',
         sortDate: c.itemDate,
         date: c.itemDate,
@@ -888,6 +903,7 @@ export class MeService {
       const cong =
         card?.externalCongregation?.name ?? e.speakerCongregation ?? undefined;
       items.push({
+        agendaId: `guest_lunch:${e.id}`,
         kind: 'guest_lunch',
         sortDate: String(e.date).slice(0, 10),
         date: String(e.date).slice(0, 10),
@@ -919,6 +935,7 @@ export class MeService {
               withDeleted: true,
             });
         items.push({
+          agendaId: `pioneer_meeting:${m.id}`,
           kind: 'pioneer_meeting',
           sortDate: day,
           date: day,
