@@ -149,6 +149,8 @@ function toMark(n: AssignmentNotice): ReminderMark {
     labelTitle: n.labelTitle,
     assistant: n.assistant,
     slot: n.slot,
+    partnerId: n.partnerPublisherId ?? null,
+    partnerKnown: !!n.partnerKnown,
   };
 }
 
@@ -319,6 +321,31 @@ export class AssignmentRemindersService {
       out.set(publisherId, [...(out.get(publisherId) ?? []), item]);
     };
 
+    // The other half of each pair, by name: each is told whom he works with.
+    const pairIds = [
+      ...new Set(
+        parts
+          .filter((a) => a.publisherId && a.assistantPublisherId)
+          .flatMap((a) => [a.publisherId, a.assistantPublisherId])
+          .filter((x): x is string => !!x),
+      ),
+    ];
+    const pairCards = pairIds.length
+      ? await this.publishers.find({
+          where: { congregationId, id: In(pairIds) },
+        })
+      : [];
+    const pairName = new Map(
+      pairCards.map((p) => [
+        p.id,
+        `${p.lastName ?? ''} ${p.firstName ?? ''}`.trim(),
+      ]),
+    );
+    const withOf = (id: string | null): string[] => {
+      const n = id ? pairName.get(id) : undefined;
+      return n ? [n] : [];
+    };
+
     for (const a of parts) {
       const kind = String(a.eventType);
       if (kind !== 'midweek' && kind !== 'weekend') continue;
@@ -334,8 +361,18 @@ export class AssignmentRemindersService {
         slot: null,
         order: a.partOrder,
       };
-      add(a.publisherId, { ...base, assistant: false });
-      add(a.assistantPublisherId, { ...base, assistant: true });
+      add(a.publisherId, {
+        ...base,
+        assistant: false,
+        partnerId: a.assistantPublisherId ?? null,
+        with: withOf(a.assistantPublisherId),
+      });
+      add(a.assistantPublisherId, {
+        ...base,
+        assistant: true,
+        partnerId: a.publisherId ?? null,
+        with: withOf(a.publisherId),
+      });
     }
 
     for (const m of service) {
@@ -616,6 +653,9 @@ export class AssignmentRemindersService {
         labelTitle: i.labelTitle,
         assistant: i.assistant,
         slot: i.slot,
+        // A part says whom it is done with; anything else keeps no pair.
+        partnerPublisherId: i.type === 'part' ? (i.partnerId ?? null) : null,
+        partnerKnown: i.type === 'part' && i.partnerId !== undefined,
       })),
       { conflictPaths: ['userId', 'itemType', 'itemId'] },
     );
@@ -1000,6 +1040,9 @@ export class AssignmentRemindersService {
               labelTitle: r.partTitle,
               assistant,
               slot: null,
+              // He was told whom he works with: the other half, or nobody.
+              partnerId:
+                (assistant ? r.publisherId : r.assistantPublisherId) ?? null,
             },
           ]);
         }
@@ -1010,15 +1053,15 @@ export class AssignmentRemindersService {
   }
 
   /**
-   * Which of these parts each of these people has already been told of —
-   * as `userId|assignmentId`.
+   * Which of these parts each of these people has already been told of, and
+   * whom they were told they work with on it — keyed `userId|assignmentId`.
    */
   async toldParts(
     congregationId: string,
     userIds: string[],
     assignmentIds: string[],
-  ): Promise<Set<string>> {
-    if (userIds.length === 0 || assignmentIds.length === 0) return new Set();
+  ): Promise<Map<string, Pick<ReminderMark, 'partnerId' | 'partnerKnown'>>> {
+    if (userIds.length === 0 || assignmentIds.length === 0) return new Map();
     const marks = await this.notices.find({
       where: {
         congregationId,
@@ -1026,9 +1069,36 @@ export class AssignmentRemindersService {
         userId: In(userIds),
         itemId: In(assignmentIds),
       },
-      select: { userId: true, itemId: true },
+      select: {
+        userId: true,
+        itemId: true,
+        partnerPublisherId: true,
+        partnerKnown: true,
+      },
     });
-    return new Set(marks.map((m) => `${m.userId}|${m.itemId}`));
+    return new Map(
+      marks.map((m) => [
+        `${m.userId}|${m.itemId}`,
+        {
+          partnerId: m.partnerPublisherId ?? null,
+          partnerKnown: !!m.partnerKnown,
+        },
+      ]),
+    );
+  }
+
+  /**
+   * Days from the congregation's today to this meeting's own day — null when
+   * it is not held. A word said this close should say how close it is.
+   */
+  async daysUntil(
+    congregationId: string,
+    weekStartDate: string,
+    kind: MeetingKindOf,
+  ): Promise<number | null> {
+    const date = await this.dayOf(congregationId, weekStartDate, kind);
+    if (!date) return null;
+    return daysBetween(await this.todayOf(congregationId), date);
   }
 
   /** Marks on this meeting whose item is no longer that person's. */

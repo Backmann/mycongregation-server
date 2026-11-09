@@ -105,7 +105,23 @@ export interface ReminderItem {
   /** For a shift at the stand: when it ends, its kind, who stands with him. */
   endTime?: string | null;
   equipmentKind?: string | null;
+  /**
+   * Who stands with him: at the stand, everybody on the shift; on a part,
+   * the one person of the pair who is not he — the assistant when he has
+   * the part, the one who has it when he assists.
+   */
   with?: string[];
+  /**
+   * A part's other half, as a card: what the record of «сказано» keeps, so
+   * that a later word can say the pair CHANGED. Null — a part with no second
+   * person; undefined — not a part, or not known.
+   */
+  partnerId?: string | null;
+  /**
+   * The pair is not what this person was last told: a new second person
+   * («новый помощник») or none any more. Set only where that is news.
+   */
+  partnerChange?: 'new' | 'none';
   place?: string | null;
   /**
    * A talk of ours in another congregation: the Watchtower study's songs
@@ -130,6 +146,29 @@ export interface ReminderMark {
   labelTitle: string | null;
   assistant: boolean;
   slot: number | null;
+  /**
+   * Whom he was told he works with on this part. `partnerKnown` false — a
+   * mark written before the pair was recorded (9 November 2026): no change
+   * can be read from it, so none is claimed.
+   */
+  partnerId?: string | null;
+  partnerKnown?: boolean;
+}
+
+/**
+ * Did the pair change since this person was told? Only a part, and only when
+ * what he was told is on record.
+ */
+export function partnerChangeOf(
+  told: Pick<ReminderMark, 'partnerId' | 'partnerKnown'> | undefined,
+  now: Pick<ReminderItem, 'type' | 'partnerId'>,
+): 'new' | 'none' | undefined {
+  if (!told?.partnerKnown || now.type !== 'part') return undefined;
+  if (now.partnerId === undefined) return undefined;
+  const was = told.partnerId ?? null;
+  const is = now.partnerId ?? null;
+  if (was === is) return undefined;
+  return is ? 'new' : 'none';
 }
 
 export interface DigestLine {
@@ -189,8 +228,22 @@ export function planDigest(input: {
       lines.push({ tone: 'reminder', item, daysLeft });
       continue;
     }
-    lines.push({ tone: told ? 'reminder' : 'new', item, daysLeft });
+    // A pair changed since he was last told — «тихо», or before the press —
+    // is said on the line that recalls it, and remembered as said.
+    const change = told ? partnerChangeOf(told, item) : undefined;
+    const said = change ? { ...item, partnerChange: change } : item;
+    lines.push({ tone: told ? 'reminder' : 'new', item: said, daysLeft });
     if (!told) mark.push(item);
+    else if (
+      change ||
+      (item.type === 'part' &&
+        item.partnerId !== undefined &&
+        !told.partnerKnown)
+    ) {
+      // Also a mark from before the pair was recorded: what was just said is
+      // the pair, so it is on record from now on.
+      if (told.date === item.date) mark.push(item);
+    }
   }
 
   for (const m of input.marks) {
@@ -312,6 +365,23 @@ interface Words {
   cart: (kind: string | null | undefined, place: string) => string;
   /** «вместе: Хоффман Феликс» */
   together: (names: string) => string;
+  /**
+   * A part done by two, as the person of each half reads it — names in the
+   * nominative, as the programme writes them: declining a name by rule
+   * («с Урбан Юлией») goes wrong too often to be worth it.
+   */
+  pair: {
+    /** He has the part: «помощник: Кох Виктория». */
+    helper: (name: string) => string;
+    /** He assists: «помощник, в паре: Урбан Юлия». */
+    helping: (name: string) => string;
+    /** He has the part, and the helper is not the one he was told of. */
+    newHelper: (name: string) => string;
+    /** He has the part, and the helper he was told of is gone. */
+    noHelper: string;
+    /** He assists, and the part is now somebody else's. */
+    newLead: (name: string) => string;
+  };
   and: string;
   when: (days: number) => string;
 }
@@ -361,6 +431,13 @@ const WORDS: Record<SupportedLanguage, Words> = {
       `на изучении «Сторожевой башни» ${n} — для вступления их не выбирайте`,
     cart: (k, place) => `${cartKind('ru', k)}${place ? ` ${place}` : ''}`,
     together: (n) => `вместе: ${n}`,
+    pair: {
+      helper: (n) => `помощник: ${n}`,
+      helping: (n) => `помощник, в паре: ${n}`,
+      newHelper: (n) => `новый помощник: ${n}`,
+      noHelper: 'помощника пока нет',
+      newLead: (n) => `помощник, теперь в паре: ${n}`,
+    },
     and: 'и',
     when: (d) =>
       d <= 0
@@ -393,6 +470,13 @@ const WORDS: Record<SupportedLanguage, Words> = {
       `the Watchtower study sings ${n} — do not choose them to open`,
     cart: (k, place) => `${cartKind('en', k)}${place ? ` at ${place}` : ''}`,
     together: (n) => `with ${n}`,
+    pair: {
+      helper: (n) => `assistant: ${n}`,
+      helping: (n) => `assistant to ${n}`,
+      newHelper: (n) => `new assistant: ${n}`,
+      noHelper: 'no assistant for now',
+      newLead: (n) => `assistant, now to ${n}`,
+    },
     and: 'and',
     when: (d) =>
       d <= 0
@@ -426,6 +510,13 @@ const WORDS: Record<SupportedLanguage, Words> = {
       `beim Wachtturm-Studium: ${n} — bitte nicht als Anfangslied wählen`,
     cart: (k, place) => `${cartKind('de', k)}${place ? ` ${place}` : ''}`,
     together: (n) => `mit ${n}`,
+    pair: {
+      helper: (n) => `Partner: ${n}`,
+      helping: (n) => `Partner von ${n}`,
+      newHelper: (n) => `neuer Partner: ${n}`,
+      noHelper: 'vorerst kein Partner',
+      newLead: (n) => `Partner, jetzt von ${n}`,
+    },
     and: 'und',
     when: (d) =>
       d <= 0
@@ -471,7 +562,8 @@ export function labelOf(
   x: Pick<
     ReminderItem,
     'type' | 'labelKey' | 'labelTitle' | 'assistant' | 'slot'
-  >,
+  > &
+    Partial<Pick<ReminderItem, 'with' | 'partnerChange'>>,
   lang: SupportedLanguage,
 ): string {
   const w = WORDS[lang];
@@ -490,7 +582,43 @@ export function labelOf(
     // is better than printing `bible_reading` at somebody.
     name = (ROLE_NAMED.has(x.labelKey) ? role : head) || role || head || w.part;
   }
+  if (x.type === 'part') return withPair(name, x, lang);
   return x.assistant ? `${name} (${w.assistant})` : name;
+}
+
+/**
+ * A part's name with the other half of its pair, as this person reads it:
+ * «Начинайте разговор (помощник: Кох Виктория)», «… (помощник, в паре:
+ * Урбан Юлия)», «… (новый помощник: Рупп Олеся)», «… (помощника пока нет)».
+ * Without a second person it is the name alone — «(помощник)» on the
+ * assistant's side.
+ */
+export function withPair(
+  name: string,
+  x: { assistant: boolean } & Partial<
+    Pick<ReminderItem, 'with' | 'partnerChange'>
+  >,
+  lang: SupportedLanguage,
+): string {
+  const w = WORDS[lang];
+  const p = w.pair;
+  const other = x.with?.[0]?.trim();
+  if (x.assistant) {
+    if (!other) return `${name} (${w.assistant})`;
+    return `${name} (${x.partnerChange === 'new' ? p.newLead(other) : p.helping(other)})`;
+  }
+  if (x.partnerChange === 'none') return `${name} (${p.noHelper})`;
+  if (!other) return name;
+  return `${name} (${x.partnerChange === 'new' ? p.newHelper(other) : p.helper(other)})`;
+}
+
+/**
+ * «завтра», «через 2 дня» — said after an assignment that falls this close,
+ * so a late word reads as late: the pair has little time to meet.
+ */
+export const SOON_DAYS = 3;
+export function whenWord(days: number, lang: SupportedLanguage): string {
+  return WORDS[lang].when(days);
 }
 
 export interface DigestText {

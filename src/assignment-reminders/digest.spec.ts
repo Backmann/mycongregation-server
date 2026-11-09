@@ -2,7 +2,9 @@ import {
   DigestLine,
   ReminderItem,
   ReminderMark,
+  partnerChangeOf,
   planDigest,
+  withPair,
   writeDigest,
 } from './digest';
 
@@ -443,5 +445,51 @@ describe('the digest as it is read', () => {
     expect(at(12)).toContain('(через 12 дней)');
     expect(at(22)).toContain('(через 22 дня)');
     expect(at(31)).toContain('(через 31 день)');
+  });
+});
+
+describe('a part done by two, in each language', () => {
+  const lead = { assistant: false, with: ['Urban Julia'] };
+  const helper = { assistant: true, with: ['Urban Julia'] };
+
+  it('names the other half from either side', () => {
+    expect(withPair('Gespräche beginnen', lead, 'de')).toBe(
+      'Gespräche beginnen (Partner: Urban Julia)',
+    );
+    expect(withPair('Gespräche beginnen', helper, 'de')).toBe(
+      'Gespräche beginnen (Partner von Urban Julia)',
+    );
+    expect(withPair('Starting a conversation', helper, 'en')).toBe(
+      'Starting a conversation (assistant to Urban Julia)',
+    );
+  });
+
+  it('a part with nobody beside it stays as it was', () => {
+    expect(withPair('Речь', { assistant: false, with: [] }, 'ru')).toBe('Речь');
+    expect(withPair('Речь', { assistant: true, with: [] }, 'ru')).toBe(
+      'Речь (помощник)',
+    );
+  });
+
+  it('a change is read only from a mark that knows the pair', () => {
+    const now = { type: 'part' as const, partnerId: 'p-2' };
+    expect(partnerChangeOf({ partnerId: 'p-1', partnerKnown: true }, now)).toBe(
+      'new',
+    );
+    expect(
+      partnerChangeOf(
+        { partnerId: 'p-1', partnerKnown: true },
+        {
+          type: 'part',
+          partnerId: null,
+        },
+      ),
+    ).toBe('none');
+    expect(
+      partnerChangeOf({ partnerId: null, partnerKnown: false }, now),
+    ).toBeUndefined();
+    expect(
+      partnerChangeOf({ partnerId: 'p-2', partnerKnown: true }, now),
+    ).toBeUndefined();
   });
 });

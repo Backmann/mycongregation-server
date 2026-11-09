@@ -48,6 +48,23 @@ export class AssignmentNotice {
   @Column({ type: 'integer', nullable: true })
   slot!: number | null;
 
+  /**
+   * On a part done by two: whom he was told he works with — the assistant
+   * when the part is his, the one who has it when he assists; null, nobody.
+   * Lets a later word say «новый помощник» instead of a bare «изменилось»
+   * (9 November 2026: both halves of a pair must know of each other to
+   * prepare together).
+   */
+  @Column({ type: 'uuid', nullable: true })
+  partnerPublisherId!: string | null;
+
+  /**
+   * False on marks written before the pair was recorded: what they were told
+   * about a partner is unknown, so no change is claimed from them.
+   */
+  @Column({ type: 'boolean', default: false })
+  partnerKnown!: boolean;
+
   @Column({ type: 'timestamptz', default: () => 'now()' })
   toldAt!: Date;
 }
