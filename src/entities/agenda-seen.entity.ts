@@ -37,6 +37,15 @@ export class AgendaSeen {
   @Column({ type: 'text', nullable: true })
   place!: string | null;
 
+  /**
+   * The language the title was written in. After the person switches the
+   * app's language every title reads differently without anything having
+   * changed — so titles are compared only within one language. Null on rows
+   * from before 9 November 2026: compared as unknown, never as changed.
+   */
+  @Column({ type: 'varchar', length: 8, nullable: true })
+  lang!: string | null;
+
   @Column({ type: 'timestamptz', default: () => 'now()' })
   seenAt!: Date;
 }
