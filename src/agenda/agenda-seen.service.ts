@@ -39,8 +39,16 @@ export interface AgendaChanges {
   removed: AgendaRemoval[];
 }
 
-const sameList = (a: string[], b: string[]) =>
-  a.length === b.length && a.every((x, i) => x === b[i]);
+/**
+ * The same people, whatever the order of their names: snapshots kept before
+ * 9 November 2026 say «Лена Кляйн», the app's own order is «Кляйн Лена».
+ */
+const person = (name: string) => name.trim().split(/\s+/).sort().join(' ');
+const sameList = (a: string[], b: string[]) => {
+  const x = a.map(person).sort();
+  const y = b.map(person).sort();
+  return x.length === y.length && x.every((n, i) => n === y[i]);
+};
 
 /**
  * «Изменено» on Home (9 November 2026, Lionel's choice «б»): what changed in
@@ -65,7 +73,10 @@ export class AgendaSeenService {
     userId: string,
     lang: SupportedLanguage,
   ): Promise<AgendaItem[]> {
-    const a = await this.agenda.forUser(congregationId, userId, { lang });
+    const a = await this.agenda.forUser(congregationId, userId, {
+      lang,
+      lastNameFirst: true,
+    });
     return a.items.filter((x) => x.scope === 'mine');
   }
 

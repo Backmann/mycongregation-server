@@ -157,11 +157,41 @@ describe('what changed since Home was last seen (real database)', () => {
       id: `part:${id}`,
       kind: 'changed',
       fields: ['with'],
-      before: { with: ['Лена Кляйн'] },
+      before: { with: ['Кляйн Лена'] },
     });
     // The assistant sees her own row as new, not Anna's change.
     const lenaFirst = await changes('lena');
     expect(lenaFirst.first).toBe(true);
+  });
+
+  it('names as the app writes them; a snapshot in the old order is no change', async () => {
+    const id = await part(W1, 'starting_conversation_1', anna, lena);
+    await seen('anna');
+    const [{ with: w }] = await h.sql<{ with: string[] }>(
+      `SELECT "with" FROM agenda_seen WHERE item_id = $1`,
+      [`part:${id}`],
+    );
+    expect(w).toEqual(['Кляйн Лена']);
+    // The calendar keeps its own order.
+    const ag = await h.as('anna').get('/me/agenda');
+    const row = (
+      ag.body as { items: { id: string; with: string[] }[] }
+    ).items.find((x) => x.id === `part:${id}`);
+    expect(row?.with).toEqual(['Лена Кляйн']);
+    // Kept before the change: «Лена Кляйн» — the same person.
+    await h.sql(
+      `UPDATE agenda_seen SET "with" = '["Лена Кляйн"]' WHERE item_id = $1`,
+      [`part:${id}`],
+    );
+    expect((await changes('anna')).changes).toEqual([]);
+    // Reverse: somebody else in the old order IS a change.
+    await h.sql(
+      `UPDATE agenda_seen SET "with" = '["Петра Шульц"]' WHERE item_id = $1`,
+      [`part:${id}`],
+    );
+    expect((await changes('anna')).changes.map((c) => c.fields)).toEqual([
+      ['with'],
+    ]);
   });
 
   it('another part instead: «changed: title»', async () => {

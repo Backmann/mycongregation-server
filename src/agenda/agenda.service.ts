@@ -65,8 +65,14 @@ const hhmm = (t: string | null | undefined): string | null =>
   t ? String(t).slice(0, 5) : null;
 const day = (d: string | Date): string =>
   typeof d === 'string' ? d.slice(0, 10) : d.toISOString().slice(0, 10);
-const nameOf = (p: { firstName?: string | null; lastName?: string | null }) =>
-  [p.firstName, p.lastName].filter(Boolean).join(' ').trim();
+const nameOf = (
+  p: { firstName?: string | null; lastName?: string | null },
+  lastNameFirst = false,
+) =>
+  (lastNameFirst ? [p.lastName, p.firstName] : [p.firstName, p.lastName])
+    .filter(Boolean)
+    .join(' ')
+    .trim();
 
 /** Parts whose programme line says nothing of their own. */
 const NO_DETAIL = new Set([
@@ -99,6 +105,11 @@ export interface AgendaOptions {
   to?: string;
   /** Names of the people one does it with; on by default. */
   withNames?: boolean;
+  /**
+   * «Кляйн Лена» as the app writes people, instead of the calendar's
+   * «Лена Кляйн» — for Home's «изменено» (9 November 2026).
+   */
+  lastNameFirst?: boolean;
   /** The reader's language; the login's own when not given. */
   lang?: SupportedLanguage;
 }
@@ -282,7 +293,7 @@ export class AgendaService {
         where: { congregationId, id: In(want) },
         withDeleted: true,
       });
-      return new Map(cards.map((p) => [p.id, nameOf(p)]));
+      return new Map(cards.map((p) => [p.id, nameOf(p, opts.lastNameFirst)]));
     };
 
     // ── Programme parts (midweek and weekend) ────────────────────────────
