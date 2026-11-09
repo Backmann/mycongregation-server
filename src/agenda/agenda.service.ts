@@ -128,19 +128,22 @@ export class AgendaService {
     const me = await this.ds.getRepository(Publisher).findOne({
       where: { congregationId, userId },
     });
-    const user = await this.ds
-      .getRepository(User)
-      .findOne({ where: { id: userId } });
-    const lang =
-      opts.lang ??
-      (user && isSupportedLanguage(user.uiLanguage)
-        ? user.uiLanguage
-        : DEFAULT_LANGUAGE);
+    const lang = opts.lang ?? (await this.languageOf(userId));
     if (!me) {
       const { from, to } = await this.span(congregationId, opts);
       return { publisherId: null, from, to, items: [] };
     }
     return this.forPublisher(congregationId, me, { ...opts, lang });
+  }
+
+  /** The language the person reads the app in — and so the agenda's words. */
+  async languageOf(userId: string): Promise<SupportedLanguage> {
+    const user = await this.ds
+      .getRepository(User)
+      .findOne({ where: { id: userId } });
+    return user && isSupportedLanguage(user.uiLanguage)
+      ? user.uiLanguage
+      : DEFAULT_LANGUAGE;
   }
 
   /** From/to as asked, or today and a year on; never wider than MAX_SPAN_DAYS. */

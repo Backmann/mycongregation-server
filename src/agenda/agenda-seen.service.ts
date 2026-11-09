@@ -5,6 +5,7 @@ import { AgendaSeen } from '../entities/agenda-seen.entity';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { AgendaService } from './agenda.service';
 import type { AgendaItem } from './agenda.types';
+import type { SupportedLanguage } from '../common/i18n/supported-languages';
 
 /** What of an item counts as a change worth «изменено». */
 export type ChangedField = 'date' | 'start' | 'title' | 'with' | 'place';
@@ -62,8 +63,9 @@ export class AgendaSeenService {
   private async mine(
     congregationId: string,
     userId: string,
+    lang: SupportedLanguage,
   ): Promise<AgendaItem[]> {
-    const a = await this.agenda.forUser(congregationId, userId);
+    const a = await this.agenda.forUser(congregationId, userId, { lang });
     return a.items.filter((x) => x.scope === 'mine');
   }
 
@@ -72,8 +74,9 @@ export class AgendaSeenService {
     userId: string,
   ): Promise<AgendaChanges> {
     const today = await this.clock.todayFor(congregationId);
+    const lang = await this.agenda.languageOf(userId);
     const [items, rows] = await Promise.all([
-      this.mine(congregationId, userId),
+      this.mine(congregationId, userId, lang),
       this.seen.find({ where: { congregationId, userId } }),
     ]);
     if (rows.length === 0) return { first: true, changes: [], removed: [] };
@@ -89,7 +92,8 @@ export class AgendaSeenService {
       const fields: ChangedField[] = [];
       if (day(was.date) !== it.date) fields.push('date');
       if ((was.start ?? null) !== (it.start ?? null)) fields.push('start');
-      if (was.title !== it.title) fields.push('title');
+      // Titles are words of one language: after a switch they all differ.
+      if (was.lang === lang && was.title !== it.title) fields.push('title');
       if (!sameList(was.with ?? [], withNow)) fields.push('with');
       if ((was.place ?? null) !== (it.place ?? null)) fields.push('place');
       if (fields.length) {
@@ -127,7 +131,8 @@ export class AgendaSeenService {
     userId: string,
   ): Promise<{ items: number }> {
     const today = await this.clock.todayFor(congregationId);
-    const items = await this.mine(congregationId, userId);
+    const lang = await this.agenda.languageOf(userId);
+    const items = await this.mine(congregationId, userId, lang);
     await this.seen.manager.transaction(async (em) => {
       const repo = em.getRepository(AgendaSeen);
       await repo.delete({ congregationId, userId });
@@ -142,6 +147,7 @@ export class AgendaSeenService {
             title: it.title,
             with: [...it.with].sort(),
             place: it.place ?? null,
+            lang,
           })),
         );
       }

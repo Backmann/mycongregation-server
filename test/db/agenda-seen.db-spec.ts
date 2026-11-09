@@ -205,6 +205,45 @@ describe('what changed since Home was last seen (real database)', () => {
     expect(d.fields).toEqual(['date']);
   });
 
+  it('another app language: titles are not «changed», a moved day still is', async () => {
+    const id = await part(W1, 'bible_reading', anna);
+    await seen('anna');
+    await h.sql(
+      `UPDATE users SET ui_language = 'en' WHERE login_name = 'anna'`,
+    );
+    try {
+      expect((await changes('anna')).changes).toEqual([]);
+      // Reverse: the old row did hold another title — compared, it would differ.
+      const [{ title }] = await h.sql<{ title: string }>(
+        `SELECT title FROM agenda_seen WHERE item_id = $1`,
+        [`part:${id}`],
+      );
+      const r = await h.as('anna').get('/me/agenda');
+      const now = (r.body as { items: { id: string; title: string }[] }).items;
+      expect(now.find((x) => x.id === `part:${id}`)?.title).not.toBe(title);
+      // What really moved is still said.
+      await h.sql(`UPDATE agenda_seen SET date = date - 1 WHERE item_id = $1`, [
+        `part:${id}`,
+      ]);
+      expect((await changes('anna')).changes.map((c) => c.fields)).toEqual([
+        ['date'],
+      ]);
+      // Seen in the new language, its titles are compared again.
+      await seen('anna');
+      await h.sql(
+        `UPDATE agenda_seen SET title = 'Something else' WHERE item_id = $1`,
+        [`part:${id}`],
+      );
+      expect((await changes('anna')).changes.map((c) => c.fields)).toEqual([
+        ['title'],
+      ]);
+    } finally {
+      await h.sql(
+        `UPDATE users SET ui_language = 'ru' WHERE login_name = 'anna'`,
+      );
+    }
+  });
+
   it('a part taken away is «removed», with what it was', async () => {
     const id = await part(W1, 'bible_reading', anna);
     await part(W2, 'bible_reading', anna);
