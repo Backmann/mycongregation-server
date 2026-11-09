@@ -533,3 +533,152 @@ describe('what stands between a press and a device', () => {
     });
   });
 });
+
+/**
+ * A PART DONE BY TWO (9 November 2026): «и тот у кого задание, и тот кто ему
+ * напарник должны знать об этом, чтобы их подготовка прошла наилучшим
+ * образом». Each half is told the other's name, and a changed pair is said as
+ * a changed pair — never as a bare «изменилось».
+ */
+describe('a part done by two', () => {
+  /** What the editor does to a published part's pair. */
+  const pair = (
+    w: ReturnType<typeof world>,
+    lead: string | null,
+    helper: string | null,
+  ) =>
+    Object.assign(w.row('reader'), {
+      publisherId: lead,
+      assistantPublisherId: helper,
+      changedSincePublish: true,
+    });
+  const last = (w: ReturnType<typeof world>, u: string) =>
+    w.to(u).at(-1)?.body ?? '';
+
+  it('each half hears the other by name', async () => {
+    const w = world();
+    pair(w, 'p-b', 'p-a');
+    await w.tellNow();
+
+    expect(last(w, 'u-b')).toContain('(помощник: Андрей)');
+    expect(last(w, 'u-a')).toContain('(помощник, в паре: Борис)');
+  });
+
+  it('a helper added later is a new helper to the one who has the part', async () => {
+    const w = world();
+    pair(w, 'p-b', null);
+    await w.tellNow();
+    expect(last(w, 'u-b')).not.toContain('помощник');
+    w.later(60_000);
+
+    pair(w, 'p-b', 'p-a');
+    await w.tellNow();
+
+    expect(w.to('u-b').at(-1)?.title).toBe('Ваше назначение изменилось');
+    expect(last(w, 'u-b')).toContain('(новый помощник: Андрей)');
+    expect(last(w, 'u-a')).toContain('(помощник, в паре: Борис)');
+  });
+
+  it('a helper replaced: the new one, the one replaced, and the one who has the part', async () => {
+    const w = world();
+    pair(w, 'p-b', 'p-a');
+    await w.tellNow();
+    w.later(60_000);
+
+    pair(w, 'p-b', 'p-c');
+    await w.tellNow();
+
+    expect(last(w, 'u-b')).toContain('(новый помощник: Виктор)');
+    expect(last(w, 'u-c')).toContain('(помощник, в паре: Борис)');
+    expect(w.to('u-a').at(-1)?.title).toBe('Назначение отменено');
+  });
+
+  it('a helper taken away leaves «помощника пока нет»', async () => {
+    const w = world();
+    pair(w, 'p-b', 'p-a');
+    await w.tellNow();
+    w.later(60_000);
+
+    pair(w, 'p-b', null);
+    await w.tellNow();
+
+    expect(last(w, 'u-b')).toContain('(помощника пока нет)');
+  });
+
+  it('the part given to another: the helper hears whom he is with now', async () => {
+    const w = world();
+    pair(w, 'p-b', 'p-a');
+    await w.tellNow();
+    w.later(60_000);
+
+    pair(w, 'p-c', 'p-a');
+    await w.tellNow();
+
+    expect(last(w, 'u-a')).toContain('(помощник, теперь в паре: Виктор)');
+    expect(last(w, 'u-c')).toContain('(помощник: Андрей)');
+  });
+
+  it('a pair the same as before is not called new', async () => {
+    const w = world();
+    pair(w, 'p-b', 'p-a');
+    await w.tellNow();
+    w.later(60_000);
+
+    // Something else about the part changed; the pair did not.
+    Object.assign(w.row('reader'), { changedSincePublish: true });
+    await w.tellNow();
+
+    expect(last(w, 'u-b')).toContain('(помощник: Андрей)');
+    expect(last(w, 'u-b')).not.toContain('новый');
+  });
+
+  it('a mark from before the pair was recorded claims no change', async () => {
+    const w = world();
+    pair(w, 'p-b', 'p-a');
+    await w.tellNow();
+    for (const n of w.notices.rows) {
+      Object.assign(n, { partnerKnown: false, partnerPublisherId: null });
+    }
+    w.later(60_000);
+
+    pair(w, 'p-b', 'p-c');
+    await w.tellNow();
+
+    expect(last(w, 'u-b')).toContain('(помощник: Виктор)');
+    expect(last(w, 'u-b')).not.toContain('новый');
+  });
+
+  it('a pair changed «тихо» is said as changed on the next step, once', async () => {
+    const w = world();
+    pair(w, 'p-b', 'p-a');
+    await w.tellNow();
+    w.later(60_000);
+
+    pair(w, 'p-b', 'p-c');
+    await w.notNow();
+    await w.reminders.sendDigests(C, '2026-10-04'); // 14 days: a step
+
+    expect(last(w, 'u-b')).toContain('(новый помощник: Виктор)');
+
+    await w.reminders.sendDigests(C, '2026-10-11'); // 7 days: a step
+    expect(last(w, 'u-b')).toContain('(помощник: Виктор)');
+    expect(last(w, 'u-b')).not.toContain('новый');
+  });
+
+  it('close to the meeting the word says how close', async () => {
+    const w = world();
+    w.at('2026-10-16T08:00:00Z'); // Friday; the meeting is on Sunday
+    pair(w, 'p-b', 'p-a');
+    await w.tellNow();
+
+    expect(last(w, 'u-b')).toMatch(/\(помощник: Андрей\) — через 2 дня$/);
+  });
+
+  it('far from the meeting it does not', async () => {
+    const w = world();
+    pair(w, 'p-b', 'p-a');
+    await w.tellNow();
+
+    expect(last(w, 'u-b')).not.toContain('через');
+  });
+});

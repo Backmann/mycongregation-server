@@ -43,6 +43,12 @@ import {
   PUSH_STRINGS,
 } from '../common/i18n/push-strings';
 import {
+  partnerChangeOf,
+  SOON_DAYS,
+  whenWord,
+  withPair,
+} from '../assignment-reminders/digest';
+import {
   coerceLanguage,
   DEFAULT_LANGUAGE,
 } from '../common/i18n/supported-languages';
@@ -1563,8 +1569,16 @@ export class AssignmentsService {
           congregationId,
           id: In([...partsByPublisher.keys()]),
         },
-        select: { id: true, userId: true },
+        select: { id: true, userId: true, firstName: true, lastName: true },
       });
+      // Both halves of every pair are among them: each is told whom he works
+      // with, as the programme writes the name.
+      const nameOf = new Map(
+        publishers.map((p) => [
+          p.id,
+          `${p.lastName ?? ''} ${p.firstName ?? ''}`.trim(),
+        ]),
+      );
       const userIds = publishers
         .map((p) => p.userId)
         .filter((id): id is string => !!id);
@@ -1585,7 +1599,15 @@ export class AssignmentsService {
           congregationId,
           userIds,
           rows.map((r) => r.id).filter(Boolean),
-        )) ?? new Set<string>();
+        )) ?? new Map();
+      // A word close to the meeting says how close: the pair has little time
+      // left to meet.
+      const daysLeft =
+        (await this.reminders?.daysUntil(
+          congregationId,
+          weekStartDate,
+          eventType,
+        )) ?? null;
 
       // ONE PRESS, ONE MESSAGE — and the next press is news again.
       //
@@ -1610,13 +1632,52 @@ export class AssignmentsService {
           : PUSH_STRINGS[lang].myAssignmentChanged;
         const meeting = MEETING_NAMES[eventType][lang];
         const range = formatWeekRange(weekStartDate, lang);
+        // Each part by the name the digest gives it, with the other half of
+        // its pair — and, when the pair is not the one he was told of, that
+        // it changed (9 November 2026: both must know of each other to
+        // prepare together).
         const names = mine
-          .map((m) => m.partTitle?.trim() || PART_NAMES[lang][m.partKey])
+          .map((m) => {
+            const assisting =
+              m.assistantPublisherId === publisher.id &&
+              m.publisherId !== publisher.id;
+            const otherId =
+              (assisting ? m.publisherId : m.assistantPublisherId) ?? null;
+            const other = otherId ? nameOf.get(otherId) : undefined;
+            const was = told.get(`${publisher.userId}|${m.id}`);
+            const change = partnerChangeOf(was, {
+              type: 'part',
+              partnerId: otherId,
+            });
+            const title = m.partTitle?.trim() ?? '';
+            // A part done by two is named by its head only — «Начинайте
+            // разговор», not the imported note after it — or the pair would
+            // sit at the end of 120 characters, cut off on a locked screen.
+            const head =
+              otherId || change || assisting
+                ? title.split(': ')[0].trim()
+                : title;
+            const plain = head || PART_NAMES[lang][m.partKey] || '';
+            if (!plain) return '';
+            return withPair(
+              plain,
+              {
+                assistant: assisting,
+                with: other ? [other] : [],
+                partnerChange: change,
+              },
+              lang,
+            );
+          })
           .filter((n): n is string => !!n);
+        const soon =
+          daysLeft !== null && daysLeft >= 0 && daysLeft <= SOON_DAYS
+            ? ` — ${whenWord(daysLeft, lang)}`
+            : '';
         const body =
-          names.length > 0
+          (names.length > 0
             ? strings.body({ meeting, range, parts: names.join(', ') })
-            : strings.count({ meeting, range, n: mine.length });
+            : strings.count({ meeting, range, n: mine.length })) + soon;
 
         await this.notifications.notify({
           tenantId: congregationId,

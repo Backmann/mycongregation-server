@@ -17,6 +17,7 @@ describe('links to a card are database keys (real database)', () => {
 
   const LINKS: [string, string][] = [
     ['service_groups', 'overseer_publisher_id'],
+    ['assignment_notices', 'partner_publisher_id'],
     ['service_groups', 'assistant_publisher_id'],
     ['field_service_meetings', 'service_overseer_publisher_id'],
     ['field_service_meetings', 'service_overseer_assistant_id'],
