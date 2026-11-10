@@ -51,6 +51,11 @@ import {
 } from '../cart-weeks/cart-time';
 import { DUTY_NAMES, labelOf } from '../assignment-reminders/digest';
 import { AGENDA_WORDS, BIG_EVENT_TYPES } from './agenda-words';
+import {
+  INVITE_ONLY_TYPES,
+  inviteesOf,
+  isInvited,
+} from '../special-events/invitations';
 import { Agenda, AgendaItem, AgendaKind, NotHeldReason } from './agenda.types';
 
 /** A congregation meeting lasts this long, both of them (7 November 2026, Lionel). */
@@ -934,6 +939,41 @@ export class AgendaService {
                 ? [h.name?.trim(), h.address?.trim()].filter(Boolean).join(', ')
                 : null) ||
               null,
+          }),
+        );
+      }
+    }
+
+    // ── Events for the invited only: the person's own, if invited ─────────
+    // (10 November 2026). In the calendar as his, whatever his choice about
+    // big events — it is an invitation, not news of the congregation.
+    {
+      const invitations = await this.ds.getRepository(SpecialEvent).find({
+        where: { congregationId, type: In(Object.keys(INVITE_ONLY_TYPES)) },
+      });
+      for (const e of invitations) {
+        const who = inviteesOf(e.type);
+        if (!who || !isInvited(me, who, day(e.date))) continue;
+        const date = day(e.date);
+        const endDate = e.endDate ? day(e.endDate) : null;
+        const many = !!endDate && endDate !== date;
+        push(
+          base({
+            id: `event:${e.id}`,
+            kind: 'event',
+            scope: 'mine',
+            date,
+            endDate: many ? endDate : null,
+            start: hhmm(e.time),
+            end: hhmm(e.timeEnd) ?? null,
+            title: words.events[String(e.type)] ?? e.title,
+            detail:
+              e.title?.trim() && e.title.trim() !== words.events[String(e.type)]
+                ? e.title.trim()
+                : null,
+            place: e.address?.trim() || null,
+            mapUrl: e.mapUrl ?? null,
+            eventType: String(e.type),
           }),
         );
       }

@@ -17,6 +17,7 @@ import { CreateSpecialEventDto } from './dto/create-special-event.dto';
 import { UpdateSpecialEventDto } from './dto/update-special-event.dto';
 import { QuerySpecialEventsDto } from './dto/query-special-events.dto';
 import { UpdateAccommodationDto } from './dto/update-accommodation.dto';
+import { QueryBusyDto } from './dto/query-busy.dto';
 import {
   CurrentUser,
   type AuthenticatedUser,
@@ -47,6 +48,20 @@ export class SpecialEventsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.findAll(tenantId, query, user);
+  }
+
+  /**
+   * Who of the invited is busy on which days (10 November 2026): for the
+   * pickers of those who plan meetings, duties and field service. Not the
+   * event — only who, when and its kind. Anyone else gets an empty list.
+   */
+  @Get('busy')
+  busy(
+    @TenantId() tenantId: string,
+    @Query() query: QueryBusyDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.busyFor(tenantId, user, query.from, query.to);
   }
 
   @Get(':id')

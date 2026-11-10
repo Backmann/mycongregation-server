@@ -517,6 +517,35 @@ async function main() {
     }
   }
 
+  // 6⅛. Events for the invited only (10 November 2026): the school for
+  //     elders on the Saturday of the week after next (Андрей is an elder:
+  //     the admin sees it, Anna does not), the pioneers' special meeting six
+  //     weeks on (Захар and Галина are pioneers), and a convention for all.
+  await post('/special-events', {
+    title: 'Школа царственного служения для старейшин',
+    type: 'kingdom_ministry_school_elders',
+    date: iso(addDays(WEEKS[3], 5)),
+    endDate: iso(addDays(WEEKS[3], 6)),
+    time: '09:30',
+    timeEnd: '16:00',
+    address: 'Зал конгрессов',
+  });
+  await post('/special-events', {
+    title: 'Специальная встреча с пионерами района',
+    type: 'pioneer_special_meeting',
+    date: iso(addDays(WEEKS[3], 40)),
+    time: '09:30',
+    address: 'Зал конгрессов',
+  });
+  await post('/special-events', {
+    title: 'Региональный конгресс',
+    type: 'regional_convention',
+    date: iso(addDays(WEEKS[3], 75)),
+    endDate: iso(addDays(WEEKS[3], 77)),
+    time: '09:30',
+    address: 'Конгресс-холл',
+  });
+
   // 6¼. A service overseer's visit: Андрей (Группа 1) visits Группа 2 on a
   //     Friday at 10:30, and the congregation has a combined meeting that
   //     morning at 09:00 — next week (Home's two weeks: both rows, the

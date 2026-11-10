@@ -380,6 +380,12 @@ export class ScheduledJobsService {
     } catch (err) {
       this.logger.error('[EventReminders] tick failed', err as Error);
     }
+    // The invited are also reminded a week ahead (10 November 2026).
+    try {
+      await this.eventNotifications.remindWeekBefore();
+    } catch (err) {
+      this.logger.error('[EventReminders] week-before failed', err as Error);
+    }
   }
 
   /**

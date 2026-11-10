@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { SpecialEvent } from '../entities/special-event.entity';
+import { inviteesOf } from '../special-events/invitations';
 import { PioneerSchool } from '../entities/pioneer-school.entity';
 import { PioneerSchoolDay } from '../entities/pioneer-school-day.entity';
 
@@ -84,6 +85,9 @@ export class HallBusyService {
       where: { congregationId, date: LessThanOrEqual(to) },
     });
     for (const e of events) {
+      // An event for the invited is held elsewhere, and its very existence
+      // is for the invited (10 November 2026): it says nothing about the hall.
+      if (inviteesOf(e.type)) continue;
       const start = e.date.slice(0, 10);
       const end = (e.endDate ?? e.date).slice(0, 10);
       if (end < from) continue;

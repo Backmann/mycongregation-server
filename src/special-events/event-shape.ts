@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { inviteesOf } from './invitations';
 
 /**
  * What an event must look like to be saved (27 September).
@@ -19,6 +20,10 @@ export const EVENT_TYPES = [
   // everybody to see, and with `auxReducedHours` a month where auxiliary
   // pioneers may take 15 hours. It changes no meeting.
   'campaign',
+  // For the invited only (10 November 2026) — see invitations.ts.
+  'kingdom_ministry_school_elders',
+  'kingdom_ministry_school_servants',
+  'pioneer_special_meeting',
   'other',
 ] as const;
 
@@ -55,6 +60,21 @@ export function assertEventShape(
     if (!(EVENT_TYPES as readonly string[]).includes(next.type!)) {
       throw refuse('EVENT_TYPE_UNKNOWN', 'Unknown kind of event');
     }
+  }
+  // The kind of an event for the invited decides who was told about it: a
+  // school for elders turned into one for servants would leave the elders
+  // with a message about nothing and the servants with none (10 November
+  // 2026). Such a kind is not changed, nor is another kind changed into it —
+  // delete and enter it again.
+  if (
+    prev &&
+    changed('type') &&
+    (inviteesOf(prev.type) !== null || inviteesOf(next.type) !== null)
+  ) {
+    throw refuse(
+      'EVENT_TYPE_LOCKED',
+      'The kind of an event for the invited cannot be changed; delete it and enter it again',
+    );
   }
 
   if (changed('time') || changed('timeEnd')) {
