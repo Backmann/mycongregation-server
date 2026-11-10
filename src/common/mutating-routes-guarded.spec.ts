@@ -20,6 +20,8 @@ const CHECKED_IN_SERVICE: Record<string, string> = {
   'conduct-live': 'service: chairman, timekeeper or admin of that week',
   'conduct-runs': 'service: chairman, timekeeper or admin of that week',
   cart: 'the self-service routes (a wish, its withdrawal, «не смогу»); the rest carry @UseGuards(ResponsibilityGuard)',
+  'client-errors':
+    'a failure report, open by design: the sign-in screen can fail too; throttled, bounded and scrubbed, it changes nothing but the journal',
   cleaning: 'the group plans its own day; the service checks the group',
   'external-congregations': 'service: talk coordinators',
   journal: 'service: assertMayAsk (admin)',

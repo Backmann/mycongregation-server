@@ -85,6 +85,8 @@ export const PLAN: Record<string, TablePlan> = {
   calendar_feed_retired: 'skip',
   /** What a person last saw on Home; rebuilt on the next visit. */
   agenda_seen: 'skip',
+  /** Failures met in the app: technical, thirty days, of no use to a copy. */
+  client_errors: 'skip',
   not_held_clearances: 'skip',
   not_held_alerts: 'skip',
   /** Addresses of real devices. */
