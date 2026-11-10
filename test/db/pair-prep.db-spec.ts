@@ -284,6 +284,51 @@ describe('two people of a part agree when to prepare it (real database)', () => 
     ).toBe(0);
   }, 30_000);
 
+  it('both send at the same moment: the second becomes the answer, nobody gets an error', async () => {
+    const a = await person('ppa7', 'Мария', 'Морозова');
+    const b = await person('ppb7', 'Нина', 'Никитина');
+    const id = await part(week(), a.card, b.card);
+    expect(
+      (await h.as(a.login).post(`/pair-prep/${id}/propose`, { key: 'self' }))
+        .status,
+    ).toBe(201);
+    // b read «no proposal yet» just before a's row was written: replay that
+    // moment by hiding the row from b's first read only.
+    const rows = (
+      svc as unknown as {
+        rows: { findOne: (...x: unknown[]) => Promise<unknown> };
+      }
+    ).rows;
+    const real = rows.findOne.bind(rows);
+    let hidden = false;
+    const spy = jest
+      .spyOn(rows, 'findOne')
+      .mockImplementation(async (...x: unknown[]) => {
+        if (!hidden) {
+          hidden = true;
+          return null;
+        }
+        return real(...x);
+      });
+    try {
+      const r = await svc.propose(tenantId, b.user!, id, 'self');
+      expect(r.agreement).toMatchObject({
+        status: 'proposed',
+        proposedByMe: true,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    const left = await h.sql<{ status: string; messages_count: number }>(
+      `SELECT status, messages_count FROM pair_agreements WHERE assignment_id = $1`,
+      [id],
+    );
+    expect(left).toEqual([{ status: 'proposed', messages_count: 2 }]);
+    expect((await told(a.user!)).at(-1)).toContain(
+      'Никитина Нина предлагает договориться о подготовке',
+    );
+  }, 30_000);
+
   it('a partner’s duty is left out and named', async () => {
     const a = await person('ppa5', 'Вера', 'Гусева-Два');
     const b = await person('ppb5', 'Галина', 'Данилова');

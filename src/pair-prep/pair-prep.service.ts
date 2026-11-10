@@ -11,7 +11,10 @@ import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 import { CleaningSlotType } from '../common/enums/cleaning-slot-type.enum';
-import { WeekRulesService } from '../common/week-rules.service';
+import {
+  WeekRulesContext,
+  WeekRulesService,
+} from '../common/week-rules.service';
 import { addDaysISO, isoDowOf } from '../common/week-rules';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { todayIn } from '../common/congregation-clock';
@@ -127,10 +130,15 @@ export class PairPrepService {
   private async meetingOf(
     tenantId: string,
     a: Pick<Assignment, 'weekStartDate' | 'eventType'>,
+    ctx?: WeekRulesContext,
   ): Promise<MeetingFact | null> {
     const kind = String(a.eventType);
     if (kind !== 'midweek' && kind !== 'weekend') return null;
-    const rules = await this.weekRules.forWeek(tenantId, a.weekStartDate);
+    // One context a request: Home asks for this on every visit, and loading
+    // the settings and events once per part was a query per part for nothing.
+    const rules = ctx
+      ? this.weekRules.rulesFrom(ctx, a.weekStartDate)
+      : await this.weekRules.forWeek(tenantId, a.weekStartDate);
     const date = rules.dateOf(kind);
     if (!date || !rules.meetings.some((m) => m.kind === kind)) return null;
     return { date, kind, time: rules.timeOf(kind), weekStart: a.weekStartDate };
@@ -233,9 +241,12 @@ export class PairPrepService {
       ],
     });
     const items: PairPrepItem[] = [];
-    for (const a of parts.filter((p) => p.weekStartDate >= from)) {
+    const upcoming = parts.filter((p) => p.weekStartDate >= from);
+    if (upcoming.length === 0) return [];
+    const ctx = await this.weekRules.contextOf(tenantId);
+    for (const a of upcoming) {
       if (!a.publisherId || !a.assistantPublisherId) continue;
-      const meeting = await this.meetingOf(tenantId, a);
+      const meeting = await this.meetingOf(tenantId, a, ctx);
       if (!meeting || meeting.date < today) continue;
       const partnerId =
         a.publisherId === card.id ? a.assistantPublisherId : a.publisherId;
@@ -283,8 +294,9 @@ export class PairPrepService {
       weeks.push(w);
     }
     const meetings: MeetingFact[] = [];
+    const ctx = await this.weekRules.contextOf(tenantId);
     for (const w of weeks) {
-      const rules = await this.weekRules.forWeek(tenantId, w);
+      const rules = this.weekRules.rulesFrom(ctx, w);
       for (const m of rules.meetings) {
         meetings.push({ ...m, time: rules.timeOf(m.kind), weekStart: w });
       }
@@ -359,6 +371,7 @@ export class PairPrepService {
     userId: string,
     assignmentId: string,
     key: string,
+    retried = false,
   ): Promise<PairPrepItem> {
     const { me, a, partner, meeting, today } = await this.load(
       tenantId,
@@ -409,25 +422,36 @@ export class PairPrepService {
     }
     const count = this.countToday(row, today);
 
-    const saved = await this.rows.save({
-      ...(row ?? {}),
-      congregationId: tenantId,
-      assignmentId: a.id,
-      holderPublisherId: a.publisherId!,
-      assistantPublisherId: a.assistantPublisherId!,
-      proposedByPublisherId: me.id,
-      optionKind: chosen.kind,
-      optionDate: chosen.date,
-      optionTime: chosen.time,
-      optionMeeting: chosen.meeting,
-      status: 'proposed',
-      proposedAt: new Date(),
-      answeredAt: null,
-      meetingDate: meeting.date,
-      lastStartedOn: starts ? today : row!.lastStartedOn,
-      messagesOn: today,
-      messagesCount: count + 1,
-    });
+    let saved: PairAgreement;
+    try {
+      saved = await this.rows.save({
+        ...(row ?? {}),
+        congregationId: tenantId,
+        assignmentId: a.id,
+        holderPublisherId: a.publisherId!,
+        assistantPublisherId: a.assistantPublisherId!,
+        proposedByPublisherId: me.id,
+        optionKind: chosen.kind,
+        optionDate: chosen.date,
+        optionTime: chosen.time,
+        optionMeeting: chosen.meeting,
+        status: 'proposed',
+        proposedAt: new Date(),
+        answeredAt: null,
+        meetingDate: meeting.date,
+        lastStartedOn: starts ? today : row!.lastStartedOn,
+        messagesOn: today,
+        messagesCount: count + 1,
+      });
+    } catch (err: any) {
+      // Both pressed «send» at the same moment, each seeing no proposal: the
+      // second row meets the first in the unique index. Asked again, this
+      // one now finds the partner's open proposal and becomes its answer.
+      if (!row && err?.code === '23505' && !retried) {
+        return this.propose(tenantId, userId, assignmentId, key, true);
+      }
+      throw err;
+    }
 
     await this.tell(tenantId, partnerUser.id, a, meeting, saved, (lang) => {
       const w = pairWords(lang);
