@@ -500,10 +500,10 @@ async function main() {
       slotType: 'after_meeting',
       serviceGroupId: groups[WEEKS.indexOf(w) % 3],
     });
-    for (const [dayOfWeek, startTime, who] of [
-      [2, '10:00', 'Захар'],
-      [6, '09:30', 'Андрей'],
-      [6, '11:00', 'Галина'],
+    for (const [dayOfWeek, startTime, who, topic] of [
+      [2, '10:00', 'Захар', 'Как предложить изучение Библии'],
+      [6, '09:30', 'Андрей', 'Как начать разговор с соседом'],
+      [6, '11:00', 'Галина', null],
     ]) {
       await post('/field-service-meetings', {
         weekStartDate: iso(w),
@@ -511,9 +511,39 @@ async function main() {
         startTime,
         address: 'Зал Царства',
         conductorPublisherId: P(who),
+        ...(topic ? { topic } : {}),
         notifyConductor: false,
       });
     }
+  }
+
+  // 6¼. A service overseer's visit: Андрей (Группа 1) visits Группа 2 on a
+  //     Friday at 10:30, and the congregation has a combined meeting that
+  //     morning at 09:00 — next week (Home's two weeks: both rows, the
+  //     combined one with the hour of his visit) and the week after (beyond
+  //     them: the visit's row names the combined meeting).
+  for (const w of [WEEKS[2], WEEKS[3]]) {
+    await post('/field-service-meetings', {
+      weekStartDate: iso(w),
+      dayOfWeek: 5,
+      startTime: '09:00',
+      address: 'Зал Царства',
+      isGeneral: true,
+      conductorPublisherId: P('Захар'),
+      topic: 'Как рассказать о надежде тому, кто горюет',
+      notifyConductor: false,
+    });
+    await post('/field-service-meetings', {
+      weekStartDate: iso(w),
+      dayOfWeek: 5,
+      startTime: '10:30',
+      address: 'Зал Царства',
+      serviceGroupId: groups[1],
+      serviceOverseerVisit: true,
+      serviceOverseerPublisherId: P('Андрей'),
+      conductorPublisherId: P('Андрей'),
+      notifyConductor: false,
+    });
   }
 
   // 6½. «Договориться о подготовке»: Вера, Anna's partner in the current
