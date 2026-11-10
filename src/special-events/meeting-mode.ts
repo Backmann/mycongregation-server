@@ -14,6 +14,11 @@ const OWN_RULE_TYPES = new Set([
   'circuit_overseer_visit',
   // A campaign leaves every meeting as it is (29 October 2026).
   'campaign',
+  // Neither do the schools and the pioneers' meeting (10 November 2026):
+  // they are held elsewhere, for some, and the congregation meets as usual.
+  'kingdom_ministry_school_elders',
+  'kingdom_ministry_school_servants',
+  'pioneer_special_meeting',
 ]);
 
 /** Whether an event of this kind carries the three-way meeting answer. */

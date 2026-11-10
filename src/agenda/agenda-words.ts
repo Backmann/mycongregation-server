@@ -64,6 +64,11 @@ export const AGENDA_WORDS: Record<SupportedLanguage, AgendaWords> = {
       circuit_overseer_visit: 'Посещение районного старейшины',
       branch_representative_visit: 'Посещение представителя филиала',
       memorial: 'Вечеря воспоминания',
+      kingdom_ministry_school_elders:
+        'Школа царственного служения для старейшин',
+      kingdom_ministry_school_servants:
+        'Школа царственного служения для служебных помощников',
+      pioneer_special_meeting: 'Специальная встреча с пионерами района',
     },
   },
   en: {
@@ -96,6 +101,11 @@ export const AGENDA_WORDS: Record<SupportedLanguage, AgendaWords> = {
       circuit_overseer_visit: 'Circuit overseer visit',
       branch_representative_visit: 'Branch representative visit',
       memorial: 'Memorial',
+      kingdom_ministry_school_elders: 'Kingdom Ministry School for elders',
+      kingdom_ministry_school_servants:
+        'Kingdom Ministry School for ministerial servants',
+      pioneer_special_meeting:
+        'Special meeting with the pioneers of the circuit',
     },
   },
   de: {
@@ -129,6 +139,11 @@ export const AGENDA_WORDS: Record<SupportedLanguage, AgendaWords> = {
       circuit_overseer_visit: 'Besuch des Kreisaufsehers',
       branch_representative_visit: 'Besuch des Zweigvertreters',
       memorial: 'Gedächtnismahl',
+      kingdom_ministry_school_elders: 'Königreichsdienstschule für Älteste',
+      kingdom_ministry_school_servants:
+        'Königreichsdienstschule für Dienstamtgehilfen',
+      pioneer_special_meeting:
+        'Sonderzusammenkunft mit den Pionieren des Kreises',
     },
   },
 };

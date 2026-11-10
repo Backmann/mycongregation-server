@@ -12,6 +12,8 @@ import { PioneerSchoolModule } from '../pioneer-school/pioneer-school.module';
 import { EventNotificationsService } from './event-notifications.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { User } from '../entities/user.entity';
+import { Publisher } from '../entities/publisher.entity';
+import { InvitationsService } from './invitations.service';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { CongregationClockModule } from '../common/congregation-clock.module';
 
@@ -20,7 +22,13 @@ import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
 @Module({
   imports: [
     CongregationClockModule,
-    TypeOrmModule.forFeature([SpecialEvent, Responsibility, Assignment, User]),
+    TypeOrmModule.forFeature([
+      SpecialEvent,
+      Responsibility,
+      Assignment,
+      User,
+      Publisher,
+    ]),
     NotificationsModule,
     AuditLogModule,
     CoVisitTemplateModule,
@@ -32,8 +40,13 @@ import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
   providers: [
     SpecialEventsService,
     EventNotificationsService,
+    InvitationsService,
     ResponsibilityGuard,
   ],
-  exports: [SpecialEventsService, EventNotificationsService],
+  exports: [
+    SpecialEventsService,
+    EventNotificationsService,
+    InvitationsService,
+  ],
 })
 export class SpecialEventsModule {}

@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, IsNull, Repository } from 'typeorm';
 import { SpecialEvent } from '../entities/special-event.entity';
@@ -19,7 +19,13 @@ import {
   reminderDayOf,
   reminderMessage,
   signatureOf,
+  weekBeforeMessage,
 } from './event-messages';
+import { inviteesOf } from './invitations';
+import { InvitationsService } from './invitations.service';
+
+/** The invited are reminded a week ahead too: a school is a journey. */
+export const WEEK_BEFORE_DAYS = 7;
 
 /** The reminder goes out from this hour on the evening before … */
 export const REMINDER_FROM_HOUR = 18;
@@ -57,7 +63,29 @@ export class EventNotificationsService {
     private readonly clock: CongregationClock,
     private readonly notifications: NotificationsService,
     private readonly memorial: MemorialService,
+    /** Who is invited to an event for the invited only (10 November 2026). */
+    @Optional()
+    private readonly invitations?: InvitationsService,
   ) {}
+
+  /**
+   * Whom an event is told to, by language: the whole congregation, or for an
+   * event for the invited only the invited (10 November 2026). With no way
+   * to know who is invited, nobody — never everybody.
+   */
+  private async audienceByLanguage(
+    e: SpecialEvent,
+  ): Promise<Map<SupportedLanguage, string[]>> {
+    if (!inviteesOf(e.type)) return this.membersByLanguage(e.congregationId);
+    const out = new Map<SupportedLanguage, string[]>();
+    if (!this.invitations) return out;
+    const ids = await this.invitations.invitedUserIds(e);
+    for (const u of await this.invitations.usersByIds(ids)) {
+      const lang = coerceLanguage(u.uiLanguage);
+      out.set(lang, [...(out.get(lang) ?? []), u.id]);
+    }
+    return out;
+  }
 
   /** Everyone in the congregation who can sign in, by language. */
   private async membersByLanguage(
@@ -109,7 +137,7 @@ export class EventNotificationsService {
     try {
       const today = await this.clock.todayFor(e.congregationId);
       if ((e.endDate ?? e.date) < today) return;
-      const byLang = await this.membersByLanguage(e.congregationId);
+      const byLang = await this.audienceByLanguage(e);
       for (const [lang, userIds] of byLang) {
         const msg = eventMessage(change, e, lang);
         await this.notifications.notify({
@@ -153,7 +181,7 @@ export class EventNotificationsService {
       if (minutes < REMINDER_FROM_HOUR * 60) continue;
       if (minutes >= REMINDER_UNTIL_HOUR * 60) continue;
 
-      const byLang = await this.membersByLanguage(e.congregationId);
+      const byLang = await this.audienceByLanguage(e);
       // Those with a part at the Memorial are told at 19:00 with their part.
       const told =
         e.type === 'memorial'
@@ -176,6 +204,48 @@ export class EventNotificationsService {
       sent += 1;
     }
     if (sent > 0) this.logger.log(`event reminders: ${sent}`);
+    return sent;
+  }
+
+  /**
+   * «Через неделю — …» to the invited of an event for the invited only, in
+   * the same evening hours, seven days ahead (10 November 2026): a school
+   * at an assembly hall is a journey, and a day's notice is too little.
+   */
+  async remindWeekBefore(now: Date = new Date()): Promise<number> {
+    const from = addDaysISO(todayIn(now, 'UTC'), WEEK_BEFORE_DAYS - 1);
+    const to = addDaysISO(todayIn(now, 'UTC'), WEEK_BEFORE_DAYS + 1);
+    const candidates = await this.events.find({
+      where: { date: Between(from, to), deletedAt: IsNull() },
+    });
+    let sent = 0;
+    for (const e of candidates) {
+      if (!inviteesOf(e.type)) continue;
+      const tz = await this.clock.timezoneOf(e.congregationId);
+      const day = todayIn(
+        new Date(now.getTime() + WEEK_BEFORE_DAYS * 86400000),
+        tz,
+      );
+      if (e.date.slice(0, 10) !== day) continue;
+      const minutes = minutesOfDayIn(now, tz);
+      if (minutes < REMINDER_FROM_HOUR * 60) continue;
+      if (minutes >= REMINDER_UNTIL_HOUR * 60) continue;
+      for (const [lang, userIds] of await this.audienceByLanguage(e)) {
+        if (userIds.length === 0) continue;
+        const msg = weekBeforeMessage(e, lang);
+        await this.notifications.notify({
+          tenantId: e.congregationId,
+          userIds,
+          title: msg.title,
+          body: msg.body,
+          kind: EVENT_KIND,
+          key: `event:${e.id}:week:${day}`,
+          data: { type: 'special_event', eventId: e.id },
+        });
+      }
+      sent += 1;
+    }
+    if (sent > 0) this.logger.log(`event week-before reminders: ${sent}`);
     return sent;
   }
 }

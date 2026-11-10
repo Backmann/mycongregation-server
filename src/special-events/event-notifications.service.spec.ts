@@ -183,3 +183,72 @@ describe('the Memorial, the evening before', () => {
     expect(sentTo.sort()).toEqual(['u-de', 'u-ru', 'u-ru2']);
   });
 });
+
+describe('an event for the invited only (10 November 2026)', () => {
+  const school = ev({
+    title: 'Школа царственного служения для старейшин',
+    type: 'kingdom_ministry_school_elders',
+    date: '2026-10-10',
+  });
+  function withInvited(events: SpecialEvent[], invited: string[] | null) {
+    const notify = jest.fn();
+    const users = { find: jest.fn().mockResolvedValue([{ id: 'u-all' }]) };
+    const clock = clockStub('Europe/Berlin');
+    jest.spyOn(clock, 'todayFor').mockResolvedValue('2026-09-27');
+    const invitations = invited
+      ? {
+          invitedUserIds: jest.fn(async () => invited),
+          usersByIds: jest.fn(async (ids: string[]) =>
+            ids.map((id) => ({ id, uiLanguage: 'ru' })),
+          ),
+        }
+      : undefined;
+    const svc = new EventNotificationsService(
+      users as never,
+      { find: jest.fn().mockResolvedValue(events) } as never,
+      clock,
+      { notify } as never,
+      { assigneeUserIds: jest.fn(async () => []) } as never,
+      invitations as never,
+    );
+    return { svc, notify };
+  }
+
+  it('is announced to the invited only, as an invitation', async () => {
+    const { svc, notify } = withInvited([], ['u-elder']);
+    await svc.announce(school, 'created');
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0][0].userIds).toEqual(['u-elder']);
+    expect(notify.mock.calls[0][0].title).toBe(
+      'Вас приглашают: Школа царственного служения для старейшин',
+    );
+  });
+
+  it('without a way to know who is invited, is told to nobody — never to all', async () => {
+    const { svc, notify } = withInvited([], null);
+    await svc.announce(school, 'created');
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('is reminded a week ahead, in the evening, once', async () => {
+    const { svc, notify } = withInvited([school], ['u-elder']);
+    // 3 October 2026, 19:00 in Berlin — a week before the 10th.
+    await svc.remindWeekBefore(new Date('2026-10-03T17:00:00Z'));
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0][0].key).toBe('event:e1:week:2026-10-10');
+    expect(notify.mock.calls[0][0].title).toMatch(/^Через неделю — /);
+    // The day before that week: nothing.
+    notify.mockClear();
+    await svc.remindWeekBefore(new Date('2026-10-02T17:00:00Z'));
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('an event for everybody gets no week-ahead reminder', async () => {
+    const { svc, notify } = withInvited(
+      [ev({ date: '2026-10-10' })],
+      ['u-elder'],
+    );
+    await svc.remindWeekBefore(new Date('2026-10-03T17:00:00Z'));
+    expect(notify).not.toHaveBeenCalled();
+  });
+});

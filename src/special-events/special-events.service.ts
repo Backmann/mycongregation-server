@@ -32,6 +32,8 @@ import { MemorialService } from '../memorial/memorial.service';
 import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
 import { signatureOf } from './event-messages';
 import { settleMeeting } from './meeting-mode';
+import { inviteesOf } from './invitations';
+import { InvitationsService } from './invitations.service';
 import { assertEventShape, serviceYearOf } from './event-shape';
 
 /** The fields the journal records for an event — the ones a reader can follow. */
@@ -90,7 +92,41 @@ export class SpecialEventsService {
     @Optional()
     @Inject(SCHOOL_SYNC)
     private readonly schools?: SchoolSync,
+    /** Who is invited to an event for the invited only (10 November 2026). */
+    @Optional()
+    private readonly invitations?: InvitationsService,
   ) {}
+
+  /**
+   * The events this person may see: an event for the invited only to the
+   * invited and to those who keep the events (10 November 2026). Those who
+   * keep them also learn how many are invited.
+   */
+  private async visibleTo(
+    user: AuthenticatedUser,
+    rows: SpecialEvent[],
+  ): Promise<SpecialEvent[]> {
+    if (!rows.some((e) => inviteesOf(e.type))) return rows;
+    const manages = await this.canManage(user);
+    const card =
+      manages || !this.invitations
+        ? null
+        : await this.invitations.cardOf(user.congregationId, user.id);
+    const out: SpecialEvent[] = [];
+    for (const e of rows) {
+      if (!inviteesOf(e.type)) {
+        out.push(e);
+      } else if (manages) {
+        const count = this.invitations
+          ? await this.invitations.invitedCount(e)
+          : null;
+        out.push(Object.assign(e, { invitedCount: count }));
+      } else if (this.invitations?.isFor(e, card)) {
+        out.push(e);
+      }
+    }
+    return out;
+  }
 
   /**
    * A visit, an assembly or the Memorial moves or takes a meeting: the
@@ -125,6 +161,33 @@ export class SpecialEventsService {
       },
     });
     return n > 0;
+  }
+
+  /**
+   * Plans who does what — the readers of everybody's absences: an
+   * administrator, an elder, or anyone holding a responsibility. They pick
+   * people for parts, duties and field service, and must know who is away.
+   */
+  private async plans(user: AuthenticatedUser): Promise<boolean> {
+    if (user.role === UserRole.ADMIN || user.role === UserRole.ELDER) {
+      return true;
+    }
+    const n = await this.responsibilities.count({
+      where: { congregationId: user.congregationId, userId: user.id },
+    });
+    return n > 0;
+  }
+
+  /** The invited busy between two days — see InvitationsService.busy. */
+  async busyFor(
+    tenantId: string,
+    user: AuthenticatedUser,
+    from: string,
+    to: string,
+  ) {
+    if (!this.invitations || !(await this.plans(user))) return [];
+    if (to < from) return [];
+    return this.invitations.busy(tenantId, from.slice(0, 10), to.slice(0, 10));
   }
 
   /** Keeps the events — the controller's own guard, asked here for reads. */
@@ -232,7 +295,7 @@ export class SpecialEventsService {
     const rows = await qb.getMany();
     if (!user) return rows;
     const sees = await this.seesAccommodation(user);
-    return rows.map((e) => this.present(e, sees));
+    return (await this.visibleTo(user, rows)).map((e) => this.present(e, sees));
   }
 
   async findOne(tenantId: string, id: string): Promise<SpecialEvent> {
@@ -259,7 +322,10 @@ export class SpecialEventsService {
     if (event.deletedAt && !(await this.canManage(user))) {
       throw new NotFoundException('Special event not found');
     }
-    return this.present(event, await this.seesAccommodation(user));
+    // Not invited: as if there were no such event.
+    const [shown] = await this.visibleTo(user, [event]);
+    if (!shown) throw new NotFoundException('Special event not found');
+    return this.present(shown, await this.seesAccommodation(user));
   }
 
   private assertDates(date: string, endDate: string | null | undefined) {

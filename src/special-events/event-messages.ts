@@ -1,4 +1,5 @@
 import { SupportedLanguage } from '../common/i18n/supported-languages';
+import { inviteesOf } from './invitations';
 import {
   addDaysISO,
   isCongressEvent,
@@ -46,6 +47,9 @@ type Strings = {
   cancelled: (t: string) => string;
   restored: (t: string) => string;
   tomorrow: (t: string) => string;
+  /** An event for the invited only, announced to them (10 November 2026). */
+  invited: (t: string) => string;
+  inAWeek: (t: string) => string;
   now: string;
   startsAt: (time: string) => string;
   noMeetingsWeek: string;
@@ -69,6 +73,8 @@ const STR: Record<SupportedLanguage, Strings> = {
     cancelled: (t) => `Отменено: ${t}`,
     restored: (t) => `Снова в силе: ${t}`,
     tomorrow: (t) => `Завтра — ${t}`,
+    invited: (t) => `Вас приглашают: ${t}`,
+    inAWeek: (t) => `Через неделю — ${t}`,
     now: 'Теперь',
     startsAt: (time) => `начало в ${time}`,
     noMeetingsWeek: 'Встреч собрания на этой неделе не будет.',
@@ -93,6 +99,8 @@ const STR: Record<SupportedLanguage, Strings> = {
     cancelled: (t) => `Cancelled: ${t}`,
     restored: (t) => `On again: ${t}`,
     tomorrow: (t) => `Tomorrow — ${t}`,
+    invited: (t) => `You are invited: ${t}`,
+    inAWeek: (t) => `In a week — ${t}`,
     now: 'Now',
     startsAt: (time) => `starts at ${time}`,
     noMeetingsWeek: 'No congregation meetings this week.',
@@ -117,6 +125,8 @@ const STR: Record<SupportedLanguage, Strings> = {
     cancelled: (t) => `Abgesagt: ${t}`,
     restored: (t) => `Wieder geplant: ${t}`,
     tomorrow: (t) => `Morgen — ${t}`,
+    invited: (t) => `Sie sind eingeladen: ${t}`,
+    inAWeek: (t) => `In einer Woche — ${t}`,
     now: 'Jetzt',
     startsAt: (time) => `Beginn ${time}`,
     noMeetingsWeek: 'In dieser Woche finden keine Zusammenkünfte statt.',
@@ -257,7 +267,7 @@ export function eventMessage(
   switch (change) {
     case 'created':
       return {
-        title: s.created(e.title),
+        title: inviteesOf(e.type) ? s.invited(e.title) : s.created(e.title),
         body: sentence([head, effectOf(e, s, lang)]),
       };
     case 'restored':
@@ -300,6 +310,20 @@ export function reminderMessage(
   return {
     title: s.tomorrow(e.title),
     body: sentence([tp ? `${capitalize(tp)}.` : null, effectOf(e, s, lang)]),
+  };
+}
+
+/** «Через неделю — …», to the invited of an event for the invited only. */
+export function weekBeforeMessage(
+  e: EventForMessage,
+  lang: SupportedLanguage,
+): Message {
+  const s = STR[lang];
+  const when = capitalize(whenOf(e, lang));
+  const tp = timePlace(e, s);
+  return {
+    title: s.inAWeek(e.title),
+    body: tp ? `${when} · ${tp}.` : `${when}.`,
   };
 }
 

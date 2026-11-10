@@ -96,6 +96,7 @@ export const REFUSAL_CODES = [
   'EVENT_TIME_INVALID',
   'EVENT_TIME_ORDER',
   'EVENT_TYPE_UNKNOWN',
+  'EVENT_TYPE_LOCKED',
   'EVENT_SPECIAL_TALK_IN_JOURNAL',
   // ---- accounts and signing in ----
   'BAD_EMAIL',
