@@ -38,6 +38,8 @@ const PASSWORD = 'Screens-Check-2026!';
 export const LOGINS = {
   admin: 'admin@example.invalid',
   publisher: 'publisher',
+  // Anna's partner in the current week: she proposes a time to prepare.
+  partner: 'partner',
 };
 
 const host = new URL(API).hostname;
@@ -270,6 +272,12 @@ async function main() {
     password: PASSWORD,
     role: 'publisher',
     publisherId: byName('Анна'),
+  });
+  await post('/users', {
+    loginName: LOGINS.partner,
+    password: PASSWORD,
+    role: 'publisher',
+    publisherId: byName('Вера'),
   });
 
   // 3. The programme, through the same import the workbook uses.
@@ -507,6 +515,35 @@ async function main() {
       });
     }
   }
+
+  // 6½. «Договориться о подготовке»: Вера, Anna's partner in the current
+  //     week, proposes a last check before the meeting — Anna's card shows it with
+  //     the answers. Anna's part a week later is with Дарья, who has no
+  //     login: that card says to arrange it in person.
+  const adminToken = token;
+  token = (
+    await call(
+      'POST',
+      '/auth/login',
+      { login: LOGINS.partner, password: PASSWORD },
+      { as: null },
+    )
+  ).accessToken;
+  const mine = await get('/pair-prep/mine');
+  const withAnna = mine.find((i) => i.partnerName === 'Белова Анна');
+  if (withAnna) {
+    const { options } = await get(
+      `/pair-prep/${withAnna.assignmentId}/options`,
+    );
+    // «Before» the part's own meeting: the server offers moments by the real
+    // clock, and the screens freeze the browser on the part's week — this is
+    // the one moment that reads right on both.
+    const pick = options.find((o) => o.kind === 'before') ?? options[0];
+    await post(`/pair-prep/${withAnna.assignmentId}/propose`, {
+      key: pick.key,
+    });
+  }
+  token = adminToken;
 
   // 7. Two kinds of failure in the journal, so its screen is not empty.
   for (const message of [

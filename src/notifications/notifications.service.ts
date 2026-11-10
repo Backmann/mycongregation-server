@@ -69,6 +69,8 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
     kind === 'pioneer_meeting_conduct' ||
     // Entering the attendance figure is the brother's own duty.
     kind === 'attendance_due' ||
+    // The two people of a part arranging its preparation (10 November 2026).
+    kind === 'pair_prep' ||
     // One's own time at the stand is one's assignment: nobody learns too late
     // that his shift was called off because he switched «Служение» off
     // (2 November 2026).
