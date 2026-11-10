@@ -77,6 +77,8 @@ export const NOTIFICATION_TYPES = [
   'attendance_due',
   // A new kind of failure met in the app — for the administrator.
   'client_error',
+  // The two people of a part agreeing when to prepare it.
+  'pair_prep',
   'test',
 ] as const;
 

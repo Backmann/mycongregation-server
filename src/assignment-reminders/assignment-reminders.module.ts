@@ -1,3 +1,4 @@
+import { PairPrepModule } from '../pair-prep/pair-prep.module';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Absence } from '../entities/absence.entity';
@@ -38,6 +39,7 @@ import { AssignmentRemindersService } from './assignment-reminders.service';
       WebPushSubscription,
     ]),
     WeekRulesModule,
+    PairPrepModule,
     ReadinessModule,
     NotificationsModule,
   ],

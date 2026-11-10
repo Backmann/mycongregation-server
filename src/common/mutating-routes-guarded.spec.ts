@@ -34,6 +34,7 @@ const CHECKED_IN_SERVICE: Record<string, string> = {
     'service: life-and-ministry overseer (midweek), body coordinator (weekend), admin; after the fact admin or body coordinator',
   'pioneer-meetings':
     'service: admin, coordinator of the body of elders, service overseer',
+  'pair-prep': 'service: only the two people of the part, about that part',
   'pioneer-school': 'service: admin',
   'print-docs':
     'any signed-in person hands over a sheet the app already showed him, for Safari to print; it reads nothing',

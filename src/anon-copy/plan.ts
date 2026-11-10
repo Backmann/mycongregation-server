@@ -87,6 +87,8 @@ export const PLAN: Record<string, TablePlan> = {
   agenda_seen: 'skip',
   /** Failures met in the app: technical, thirty days, of no use to a copy. */
   client_errors: 'skip',
+  // Two people agreeing when to prepare a part: kept until the meeting only.
+  pair_agreements: 'skip',
   not_held_clearances: 'skip',
   not_held_alerts: 'skip',
   /** Addresses of real devices. */
