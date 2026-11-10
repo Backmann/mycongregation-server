@@ -493,3 +493,50 @@ describe('a part done by two, in each language', () => {
     ).toBeUndefined();
   });
 });
+
+describe('a pair is asked to meet before its part', () => {
+  const pair = { with: ['Кох Виктория'], labelKey: 'apply_yourself_1' };
+  const line = (
+    tone: DigestLine['tone'],
+    daysLeft: number,
+    over: Partial<ReminderItem> = {},
+  ): DigestLine => ({ tone, daysLeft, item: part(over) });
+  const hint = 'Договоритесь с напарником, когда подготовитесь вместе.';
+
+  it('a week before, once, under the lines', () => {
+    const t = writeDigest(
+      [line('reminder', 7, pair), line('reminder', 7, { ...pair, id: 'a2' })],
+      'ru',
+    )!;
+    expect(t.body.split('\n').at(-1)).toBe(hint);
+    expect(t.body.split(hint).length - 1).toBe(1);
+  });
+
+  it('at the first word of a part given less than a week before', () => {
+    expect(writeDigest([line('new', 4, pair)], 'ru')!.body).toContain(hint);
+  });
+
+  it('not three weeks or two weeks out, not on the eve, not alone', () => {
+    for (const [tone, d] of [
+      ['reminder', 21],
+      ['reminder', 14],
+      ['reminder', 3],
+      ['reminder', 1],
+      ['new', 1],
+    ] as const) {
+      expect(writeDigest([line(tone, d, pair)], 'ru')!.body).not.toContain(
+        hint,
+      );
+    }
+    expect(writeDigest([line('reminder', 7)], 'ru')!.body).not.toContain(hint);
+  });
+
+  it('in each language', () => {
+    expect(writeDigest([line('reminder', 7, pair)], 'de')!.body).toContain(
+      'Sprecht ab, wann ihr gemeinsam übt.',
+    );
+    expect(writeDigest([line('reminder', 7, pair)], 'en')!.body).toContain(
+      'Agree with your partner when to prepare together.',
+    );
+  });
+});
