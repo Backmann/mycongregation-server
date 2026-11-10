@@ -10,6 +10,11 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { Absence } from '../entities/absence.entity';
+import {
+  INVITE_ONLY_TYPES,
+  inviteesOf,
+  isInvited,
+} from '../special-events/invitations';
 import { FieldServiceRemovedDay } from '../entities/field-service-removed-day.entity';
 import { Gender } from '../common/enums/gender.enum';
 import { isInactive } from '../common/inactive';
@@ -279,6 +284,32 @@ export class FieldServicePlannerService {
         from: a.startDate,
         to: a.endDate ?? a.startDate,
       }));
+    // Invited to a school or the pioneers' meeting on those days: away just
+    // the same (10 November 2026) — see special-events/invitations.ts.
+    const invited = await this.eventsRepo.find({
+      where: {
+        congregationId,
+        type: In(Object.keys(INVITE_ONLY_TYPES)),
+        date: LessThanOrEqual(to),
+      },
+    });
+    const touching = invited.filter((e) => (e.endDate ?? e.date) >= from);
+    if (touching.length > 0) {
+      const cards = await this.publishersRepo.find({
+        where: { congregationId },
+      });
+      for (const e of touching) {
+        const who = inviteesOf(e.type)!;
+        for (const p of cards) {
+          if (!isInvited(p, who, e.date.slice(0, 10))) continue;
+          spans.push({
+            pid: p.id,
+            from: e.date.slice(0, 10),
+            to: (e.endDate ?? e.date).slice(0, 10),
+          });
+        }
+      }
+    }
     return (pid, date) =>
       spans.some((s) => s.pid === pid && s.from <= date && date <= s.to);
   }

@@ -235,6 +235,39 @@ describe('events for the invited only (real database)', () => {
     expect(out.body).toEqual([]);
   });
 
+  it('the field-service planner counts the invited as away on those days', async () => {
+    await h.sql(
+      `UPDATE publishers SET capabilities = '{"fs_meeting_conductor": true}'::jsonb WHERE id = ANY($1)`,
+      [[elder, servant]],
+    );
+    await create({
+      title: 'Школа',
+      type: 'kingdom_ministry_school_elders',
+      date: '2099-02-07',
+    });
+    const r = await h
+      .as('admin')
+      .get('/field-service-meetings/suggest-conductor?date=2099-02-07');
+    expect(r.status).toBe(200);
+    const by = new Map(
+      (r.body as { publisherId: string; reason: string }[]).map((c) => [
+        c.publisherId,
+        c.reason,
+      ]),
+    );
+    expect(by.get(elder)).toBe('absent');
+    expect(by.get(servant)).not.toBe('absent');
+    // A day later the elder is free again.
+    const next = await h
+      .as('admin')
+      .get('/field-service-meetings/suggest-conductor?date=2099-02-08');
+    expect(
+      (next.body as { publisherId: string; reason: string }[]).find(
+        (c) => c.publisherId === elder,
+      )?.reason,
+    ).not.toBe('absent');
+  });
+
   it('in the invited’s own agenda, as theirs; not in anyone else’s', async () => {
     const id = (
       (
