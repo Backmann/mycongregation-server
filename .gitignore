@@ -53,3 +53,9 @@ patch-*.cjs
 run-*.cjs
 commit-msg.txt
 /migrations/
+
+# Local state of scripts/screens-server.sh
+.screens-kek
+.screens-server.pid
+migrate.log
+server.log
