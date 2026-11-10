@@ -108,21 +108,25 @@ export class SpecialEventsService {
   ): Promise<SpecialEvent[]> {
     if (!rows.some((e) => inviteesOf(e.type))) return rows;
     const manages = await this.canManage(user);
-    const card =
-      manages || !this.invitations
-        ? null
-        : await this.invitations.cardOf(user.congregationId, user.id);
+    const card = this.invitations
+      ? await this.invitations.cardOf(user.congregationId, user.id)
+      : null;
     const out: SpecialEvent[] = [];
     for (const e of rows) {
       if (!inviteesOf(e.type)) {
         out.push(e);
-      } else if (manages) {
+        continue;
+      }
+      // `invited`: whether it is this person's own invitation — a keeper
+      // sees every such event, but Home and the calendar are about oneself.
+      const invited = !!this.invitations?.isFor(e, card);
+      if (manages) {
         const count = this.invitations
           ? await this.invitations.invitedCount(e)
           : null;
-        out.push(Object.assign(e, { invitedCount: count }));
-      } else if (this.invitations?.isFor(e, card)) {
-        out.push(e);
+        out.push(Object.assign(e, { invitedCount: count, invited }));
+      } else if (invited) {
+        out.push(Object.assign(e, { invited }));
       }
     }
     return out;

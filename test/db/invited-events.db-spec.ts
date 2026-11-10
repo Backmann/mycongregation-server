@@ -129,8 +129,17 @@ describe('events for the invited only (real database)', () => {
       expect((await h.as(who).get(`/special-events/${id}`)).status).toBe(404);
     }
     expect((await h.as('elder').get(`/special-events/${id}`)).status).toBe(200);
-    const kept = (await listOf('admin')).find((e) => e.id === id);
+    const kept = (await listOf('admin')).find((e) => e.id === id) as
+      | { invitedCount?: number; invited?: boolean }
+      | undefined;
     expect(kept?.invitedCount).toBe(1);
+    // The keeper sees it, but it is not his invitation.
+    expect(kept?.invited).toBe(false);
+    const own = (await listOf('elder')).find((e) => e.id === id) as
+      | { invited?: boolean; invitedCount?: number }
+      | undefined;
+    expect(own?.invited).toBe(true);
+    expect(own?.invitedCount).toBeUndefined();
 
     expect(await toldTo(id)).toEqual([await userOf('elder')]);
   });
