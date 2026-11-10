@@ -381,6 +381,11 @@ interface Words {
     noHelper: string;
     /** He assists, and the part is now somebody else's. */
     newLead: (name: string) => string;
+    /**
+     * Under a reminder a week before a part done by two, or under the first
+     * word of one that comes later than that: the pair has to meet first.
+     */
+    prepare: string;
   };
   and: string;
   when: (days: number) => string;
@@ -437,6 +442,7 @@ const WORDS: Record<SupportedLanguage, Words> = {
       newHelper: (n) => `новый помощник: ${n}`,
       noHelper: 'помощника пока нет',
       newLead: (n) => `помощник, теперь в паре: ${n}`,
+      prepare: 'Договоритесь с напарником, когда подготовитесь вместе.',
     },
     and: 'и',
     when: (d) =>
@@ -476,6 +482,7 @@ const WORDS: Record<SupportedLanguage, Words> = {
       newHelper: (n) => `new assistant: ${n}`,
       noHelper: 'no assistant for now',
       newLead: (n) => `assistant, now to ${n}`,
+      prepare: 'Agree with your partner when to prepare together.',
     },
     and: 'and',
     when: (d) =>
@@ -516,6 +523,7 @@ const WORDS: Record<SupportedLanguage, Words> = {
       newHelper: (n) => `neuer Partner: ${n}`,
       noHelper: 'vorerst kein Partner',
       newLead: (n) => `Partner, jetzt von ${n}`,
+      prepare: 'Sprecht ab, wann ihr gemeinsam übt.',
     },
     and: 'und',
     when: (d) =>
@@ -768,5 +776,17 @@ export function writeDigest(
     })
     .join('\n');
 
-  return { title, body };
+  // A PAIR HAS TO MEET (9 November 2026): a week before a part done by two —
+  // or at the first word of one given later than that, while there are still
+  // days to meet in — the reminder asks them to agree on when. Once, however
+  // many such parts the evening names; not on the eve, when it is too late.
+  const pairToMeet = live.some(
+    (l) =>
+      l.item.type === 'part' &&
+      !!(l.item as ReminderItem).with?.length &&
+      (l.daysLeft === 7 ||
+        (l.tone === 'new' && l.daysLeft >= 2 && l.daysLeft < 7)),
+  );
+
+  return { title, body: pairToMeet ? `${body}\n${w.pair.prepare}` : body };
 }
