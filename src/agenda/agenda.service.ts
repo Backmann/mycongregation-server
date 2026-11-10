@@ -88,6 +88,31 @@ const NO_DETAIL = new Set([
   'weekend_closing_prayer',
 ]);
 
+/**
+ * Where a part stands in its meeting (10 November 2026). Every part of one
+ * meeting carries the meeting's hour, so the hour cannot order them, and
+ * the row id is random: a calendar read «Заключительная молитва» before
+ * «Председатель». The programme's own order: the chairman and the opening
+ * prayer first, the closing prayer last, the parts between by their place
+ * in the programme.
+ */
+const OPENING_PARTS = [
+  'midweek_chairman',
+  'midweek_opening_prayer',
+  'weekend_chairman',
+  'weekend_opening_prayer',
+];
+const CLOSING_PARTS = new Set([
+  'midweek_closing_prayer',
+  'weekend_closing_prayer',
+]);
+export function partRank(partKey: string, partOrder: number): number {
+  const opening = OPENING_PARTS.indexOf(partKey);
+  if (opening >= 0) return opening % 2;
+  if (CLOSING_PARTS.has(partKey)) return 1_000_000;
+  return 1000 + (partOrder || 0);
+}
+
 /** The order of things on one day when they share an hour (or have none). */
 const KIND_ORDER: Record<AgendaKind, number> = {
   event: 0,
@@ -301,6 +326,8 @@ export class AgendaService {
     };
 
     // ── Programme parts (midweek and weekend) ────────────────────────────
+    /** Order within one meeting, by item id (see partRank). */
+    const rank = new Map<string, number>();
     const parts = await this.ds.getRepository(Assignment).find({
       where: [
         {
@@ -324,6 +351,10 @@ export class AgendaService {
       ),
     );
     for (const a of parts) {
+      rank.set(
+        `part:${a.id}${a.assistantPublisherId === pid ? ':assistant' : ''}`,
+        partRank(String(a.partKey), a.partOrder),
+      );
       const kind = String(a.eventType);
       if (kind !== 'midweek' && kind !== 'weekend') continue;
       const m = meetingOf(day(a.weekStartDate), kind);
@@ -953,6 +984,7 @@ export class AgendaService {
         a.date.localeCompare(b.date) ||
         (a.start ?? '').localeCompare(b.start ?? '') ||
         KIND_ORDER[a.kind] - KIND_ORDER[b.kind] ||
+        (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0) ||
         a.id.localeCompare(b.id),
     );
     return { publisherId: pid, from, to, items };
