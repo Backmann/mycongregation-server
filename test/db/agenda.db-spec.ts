@@ -58,12 +58,18 @@ describe('a person’s agenda (real database)', () => {
     kind: 'midweek' | 'weekend',
     key: string,
     who: string,
-    opts: { assistant?: string; status?: string; title?: string } = {},
+    opts: {
+      assistant?: string;
+      status?: string;
+      title?: string;
+      order?: number;
+      id?: string;
+    } = {},
   ): Promise<string> =>
     (
       await h.sql<{ id: string }>(
-        `INSERT INTO assignments (congregation_id, week_start_date, event_type, part_key, part_title, publisher_id, assistant_publisher_id, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+        `INSERT INTO assignments (id, congregation_id, week_start_date, event_type, part_key, part_title, publisher_id, assistant_publisher_id, status, part_order)
+         VALUES (COALESCE($9::uuid, gen_random_uuid()), $1, $2, $3, $4, $5, $6, $7, $8, $10) RETURNING id`,
         [
           tenant,
           week,
@@ -73,6 +79,8 @@ describe('a person’s agenda (real database)', () => {
           who,
           opts.assistant ?? null,
           opts.status ?? 'published',
+          opts.id ?? null,
+          opts.order ?? 0,
         ],
       )
     )[0].id;
@@ -504,6 +512,31 @@ describe('a person’s agenda (real database)', () => {
       'branch_representative_visit',
     ]);
     expect(events[0]).toMatchObject({ start: '10:00', endDate: null });
+  });
+
+  it('one meeting’s parts in the programme’s order, whatever their ids (10 November 2026)', async () => {
+    // Ids chosen against the programme: by id alone the closing prayer
+    // would come first and the chairman last.
+    await part(W1, 'midweek', 'midweek_closing_prayer', anna, {
+      order: 13,
+      id: '00000000-0000-4000-8000-000000000001',
+    });
+    await part(W1, 'midweek', 'bible_reading', anna, {
+      order: 5,
+      id: '00000000-0000-4000-8000-000000000002',
+    });
+    await part(W1, 'midweek', 'midweek_opening_prayer', anna, {
+      order: 2,
+      id: '00000000-0000-4000-8000-000000000003',
+    });
+    await part(W1, 'midweek', 'midweek_chairman', anna, {
+      order: 1,
+      id: '00000000-0000-4000-8000-000000000004',
+    });
+    const keys = (await agenda('anna'))
+      .filter((i) => i.meetingKey === 'midweek:2027-03-03')
+      .map((i) => i.id.slice(-1));
+    expect(keys).toEqual(['4', '3', '2', '1']);
   });
 
   it('stable ids: the same agenda twice is the same, item for item', async () => {
