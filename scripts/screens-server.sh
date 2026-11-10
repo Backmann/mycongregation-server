@@ -17,6 +17,8 @@ cd "$(dirname "$0")/.."
 export NODE_ENV="${NODE_ENV:-test}"
 export PORT="${PORT:-3000}"
 export TZ=UTC
+# The two static copies of the app (main and the pull request) in the app's CI.
+export CORS_ORIGIN="${CORS_ORIGIN:-http://localhost:8091,http://localhost:8092}"
 # Validated at boot but never connected to here.
 export REDIS_HOST="${REDIS_HOST:-localhost}" REDIS_PORT="${REDIS_PORT:-6379}" REDIS_PASSWORD="${REDIS_PASSWORD:-ci}"
 export JWT_SECRET="${JWT_SECRET:-screens-only-secret-that-is-long-enough}"
