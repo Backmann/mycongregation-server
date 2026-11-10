@@ -90,7 +90,12 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
   }
   if (kind.startsWith('cleaning')) return 'cleaning';
   if (kind === 'report_reminder') return 'reports';
-  if (kind === 'status_change' || kind === 'meeting_gaps') return 'admin';
+  if (
+    kind === 'status_change' ||
+    kind === 'meeting_gaps' ||
+    kind === 'client_error'
+  )
+    return 'admin';
   if (kind === 'special_event') return 'events';
   return 'other';
 }

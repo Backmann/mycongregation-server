@@ -75,6 +75,8 @@ export const NOTIFICATION_TYPES = [
   'pioneer_meeting',
   // Today's meeting still without its attendance figure, at 20:00.
   'attendance_due',
+  // A new kind of failure met in the app — for the administrator.
+  'client_error',
   'test',
 ] as const;
 
