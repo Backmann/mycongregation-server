@@ -216,6 +216,61 @@ jobs:
           kill "$APP_PID" 2>/dev/null || true
           exit 1
 
+  # The invented congregation the app's screen checks photograph
+  # (scripts/seed-screens.mjs). Built here too, so a change to the API that
+  # breaks it fails on the server's own pull request, not later in the app's.
+  seed:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Migrate, start and fill the database
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        run: scripts/screens-server.sh
+
+      - name: The data set refuses a database that is not empty
+        run: |
+          set +e
+          node scripts/seed-screens.mjs http://localhost:3000/api
+          code=$?
+          if [ "$code" != 3 ]; then echo "Expected refusal (3), got $code"; exit 1; fi
+          node scripts/seed-screens.mjs https://example.org/api
+          code=$?
+          if [ "$code" != 2 ]; then echo "Expected refusal of a remote address (2), got $code"; exit 1; fi
+          echo "Both refusals hold."
+
   deploy:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
