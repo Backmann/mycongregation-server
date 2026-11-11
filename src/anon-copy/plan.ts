@@ -389,6 +389,27 @@ export const PLAN: Record<string, TablePlan> = {
     { name: 'label:Группа' },
     remove('meeting_location notes'),
   ),
+  /** Territories (11 November 2026): outlines and numbers are no person's. */
+  territories: table(
+    copy(`id congregation_id number locality kind geometry last_completed_on
+      archived_at created_at updated_at`),
+    remove('note'),
+  ),
+  territory_shapes: copy(`id congregation_id territory_id geometry reason
+    from_territory_ids created_by_user_id created_at`),
+  territory_boundaries: copy(`id congregation_id geometry description
+    valid_from created_by_user_id created_at`),
+  territory_assignments: table(
+    copy(`id congregation_id territory_id publisher_id for_group_id assigned_on
+      due_on completed_on returned_on method extended imported
+      created_by_user_id created_at updated_at`),
+    { holder_name: 'full', for_group_name: 'label:Группа' },
+  ),
+  /** Addresses of householders who asked not to be called on. */
+  territory_no_calls: 'skip',
+  territory_settings: copy(
+    'congregation_id verified_at verified_by_user_id updated_at',
+  ),
   service_reports: table(
     copy(`id congregation_id publisher_id report_month served_this_month
       hours_reported bible_studies submitted_at submitted_by_id

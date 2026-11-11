@@ -28,6 +28,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ScheduledJobsModule } from './scheduled-jobs/scheduled-jobs.module';
 import { ReportRemindersModule } from './report-reminders/report-reminders.module';
 import { SpecialEventsModule } from './special-events/special-events.module';
+import { TerritoriesModule } from './territories/territories.module';
 import { AbsencesModule } from './absences/absences.module';
 import { LocalNeedsModule } from './local-needs/local-needs.module';
 import { LocalNeedsPlacementModule } from './local-needs/placement/local-needs-placement.module';
@@ -128,6 +129,7 @@ import { PairPrepModule } from './pair-prep/pair-prep.module';
     ScheduledJobsModule,
     ReportRemindersModule,
     SpecialEventsModule,
+    TerritoriesModule,
     AbsencesModule,
     LocalNeedsModule,
     LocalNeedsPlacementModule,

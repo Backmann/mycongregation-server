@@ -43,6 +43,8 @@ const CHECKED_IN_SERVICE: Record<string, string> = {
   'service-reports': 'service: own report, group overseer, secretary',
   'talk-exchange': 'service: talk coordinators',
   tasks: 'service: elders, addressees',
+  territories:
+    'service: TerritoryAccessService — keepers import and confirm; the committee only sees, once confirmed',
   'visiting-speakers': 'service: talk coordinators',
   'web-push-subscriptions': 'the caller\u2019s own browser',
 };
