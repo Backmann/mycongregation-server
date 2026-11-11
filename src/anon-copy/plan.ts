@@ -402,8 +402,10 @@ export const PLAN: Record<string, TablePlan> = {
   territory_assignments: table(
     copy(`id congregation_id territory_id publisher_id for_group_id assigned_on
       due_on completed_on returned_on method extended imported
-      created_by_user_id created_at updated_at`),
+      created_by_user_id created_at updated_at link_created_at`),
     { holder_name: 'full', for_group_name: 'label:Группа' },
+    // A working link must not reach a copy: the hash is dropped.
+    remove('link_hash'),
   ),
   /** Addresses of householders who asked not to be called on. */
   territory_no_calls: 'skip',

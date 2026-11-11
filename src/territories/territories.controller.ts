@@ -5,11 +5,16 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
+import { Public } from '../auth/decorators/public.decorator';
+import { TerritoryLinksService } from './territory-links.service';
 import {
   CurrentUser,
   type AuthenticatedUser,
@@ -41,6 +46,7 @@ export class TerritoriesController {
   constructor(
     private readonly service: TerritoriesService,
     private readonly given: TerritoryAssignmentsService,
+    private readonly links: TerritoryLinksService,
   ) {}
 
   /** The door: what the user may open, and the territories he has a part in. */
@@ -176,6 +182,34 @@ export class TerritoriesController {
     return this.given.extend(user, id, dto);
   }
 
+  /** A two-hour link to open the map in the phone's browser. */
+  @Post('assignments/:id/view-link')
+  @HttpCode(HttpStatus.OK)
+  viewLink(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.links.viewLink(user, id);
+  }
+
+  /** A link without login until the day it is due; replaces the last one. */
+  @Post('assignments/:id/share-link')
+  @HttpCode(HttpStatus.OK)
+  shareLink(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.links.shareLink(user, id);
+  }
+
+  @Delete('assignments/:id/share-link')
+  revokeShare(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.links.revokeShare(user, id);
+  }
+
   @Patch('assignments/:id')
   edit(
     @CurrentUser() user: AuthenticatedUser,
@@ -200,5 +234,26 @@ export class TerritoriesController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.service.detail(user, id);
+  }
+}
+
+/**
+ * The page behind a link without login (11 November 2026): one territory's
+ * outline and street map. Every link that does not work gets the same plain
+ * 404; the answer is never kept by a proxy, sent on as a referrer or indexed.
+ */
+@Controller('territory-links')
+export class TerritoryLinksController {
+  constructor(private readonly links: TerritoryLinksService) {}
+
+  @Public()
+  @Get(':token')
+  async shared(@Param('token') token: string, @Res() res: Response) {
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    const out = await this.links.shared(token);
+    if (!out) throw new NotFoundException();
+    res.status(200).json(out);
   }
 }

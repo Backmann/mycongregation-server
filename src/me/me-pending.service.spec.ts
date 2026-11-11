@@ -19,6 +19,7 @@ const USER = { id: 'u1', congregationId: 'c1' } as never;
 function build(opts: {
   publisher?: Record<string, unknown> | null;
   tasks?: Record<string, unknown>[];
+  territories?: Record<string, unknown>[];
 }) {
   const publishersRepo = {
     findOne: () =>
@@ -44,6 +45,7 @@ function build(opts: {
     tasks as never,
     clock as never,
     { waitingFor: () => Promise.resolve([]) } as never,
+    { mine: () => Promise.resolve(opts.territories ?? []) } as never,
   );
 }
 
@@ -55,6 +57,45 @@ afterAll(() => {
 });
 
 describe('MePendingService', () => {
+  it("lists a territory he holds, all the time he holds it — not his group's", async () => {
+    const r = await build({
+      territories: [
+        {
+          id: 't1',
+          number: 'T07',
+          assignment: { mine: true, dueOn: '2027-01-10' },
+        },
+        {
+          id: 't2',
+          number: 'T08',
+          assignment: { mine: false, dueOn: '2026-10-01' },
+        },
+        {
+          id: 't3',
+          number: 'T09',
+          assignment: { mine: true, dueOn: '2026-09-01' },
+        },
+      ],
+    }).pending('c1', USER);
+    const t = r.items.filter((i) => i.kind === 'territory');
+    expect(t).toEqual([
+      {
+        kind: 'territory',
+        id: 't3',
+        title: 'T09',
+        dueOn: '2026-09-01',
+        overdue: true,
+      },
+      {
+        kind: 'territory',
+        id: 't1',
+        title: 'T07',
+        dueOn: '2027-01-10',
+        overdue: false,
+      },
+    ]);
+  });
+
   it('says nothing is waiting for an account with no card of its own', async () => {
     const s = build({ publisher: null });
     await expect(s.pending('c1', USER)).resolves.toEqual({

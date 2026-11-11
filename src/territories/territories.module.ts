@@ -11,7 +11,13 @@ import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { AuditLogModule } from '../audit-log/audit-log.module';
-import { TerritoriesController } from './territories.controller';
+import {
+  TerritoriesController,
+  TerritoryLinksController,
+} from './territories.controller';
+import { TerritoryLinksService } from './territory-links.service';
+import { TerritoryRemindersService } from './territory-reminders.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { TerritoriesService } from './territories.service';
 import { TerritoryAccessService } from './territory-access.service';
 import { TerritoryAssignmentsService } from './territory-assignments.service';
@@ -31,13 +37,20 @@ import { TerritoryAssignmentsService } from './territory-assignments.service';
       Congregation,
     ]),
     AuditLogModule,
+    NotificationsModule,
   ],
-  controllers: [TerritoriesController],
+  controllers: [TerritoriesController, TerritoryLinksController],
   providers: [
     TerritoriesService,
     TerritoryAccessService,
     TerritoryAssignmentsService,
+    TerritoryLinksService,
+    TerritoryRemindersService,
   ],
-  exports: [TerritoryAccessService, TerritoryAssignmentsService],
+  exports: [
+    TerritoryAccessService,
+    TerritoryAssignmentsService,
+    TerritoryRemindersService,
+  ],
 })
 export class TerritoriesModule {}

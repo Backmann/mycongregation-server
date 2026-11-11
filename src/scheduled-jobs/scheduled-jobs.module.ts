@@ -1,3 +1,4 @@
+import { TerritoriesModule } from '../territories/territories.module';
 import { NotHeldModule } from '../not-held/not-held.module';
 import { CartWeeksModule } from '../cart-weeks/cart-weeks.module';
 import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneers.module';
@@ -52,6 +53,7 @@ import { PioneerSchoolModule } from '../pioneer-school/pioneer-school.module';
     PioneerMeetingsModule,
     CartWeeksModule,
     NotHeldModule,
+    TerritoriesModule,
   ],
   controllers: [AdminController],
   providers: [ScheduledJobsService],

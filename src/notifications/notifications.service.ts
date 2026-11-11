@@ -71,6 +71,9 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
     kind === 'attendance_due' ||
     // The two people of a part arranging its preparation (10 November 2026).
     kind === 'pair_prep' ||
+    // A territory given to him, and its day coming (11 November 2026).
+    kind === 'territory_assigned' ||
+    kind === 'territory_due' ||
     // One's own time at the stand is one's assignment: nobody learns too late
     // that his shift was called off because he switched «Служение» off
     // (2 November 2026).
@@ -86,7 +89,9 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
     kind === 'field_service_change' ||
     kind.startsWith('cart') ||
     // A pioneer invited to the annual meeting with the elders.
-    kind === 'pioneer_meeting'
+    kind === 'pioneer_meeting' ||
+    // The territory servant: a territory to take back.
+    kind === 'territory_return'
   ) {
     return 'ministry';
   }

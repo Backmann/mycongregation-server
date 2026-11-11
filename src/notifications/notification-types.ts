@@ -79,6 +79,10 @@ export const NOTIFICATION_TYPES = [
   'client_error',
   // The two people of a part agreeing when to prepare it.
   'pair_prep',
+  // The territories (11 November 2026): one's own — given out, due in two
+  // weeks; and for the territory servant, one to take back.
+  'territory',
+  'territory_keeper',
   'test',
 ] as const;
 

@@ -6,6 +6,7 @@ import { CongregationClock } from '../common/congregation-clock.service';
 import { todayIn } from '../common/congregation-clock';
 import { TasksService } from '../tasks/tasks.service';
 import { AuxApplicationsService } from '../auxiliary-pioneers/aux-applications.service';
+import { TerritoryAssignmentsService } from '../territories/territory-assignments.service';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
 /**
@@ -48,8 +49,12 @@ const MAX_ITEMS = 5;
  * 'aux_application': an application to serve as an auxiliary pioneer waiting
  * for THIS brother's answer — his place on the committee, or an open one he
  * may take (29 October 2026). `title` is the applicant's name: data.
+ *
+ * 'territory': a territory he holds himself (11 November 2026), the whole
+ * time he holds it — one line «Участок T07 · вернуть до …», which the app
+ * turns amber two weeks before the day. `title` is the number: data.
  */
-export type PendingKind = 'contacts' | 'task' | 'aux_application';
+export type PendingKind = 'contacts' | 'task' | 'aux_application' | 'territory';
 
 export interface PendingItem {
   kind: PendingKind;
@@ -77,6 +82,7 @@ export class MePendingService {
     private readonly tasks: TasksService,
     private readonly clock: CongregationClock,
     private readonly auxApplications: AuxApplicationsService,
+    private readonly territories: TerritoryAssignmentsService,
   ) {}
 
   async pending(
@@ -122,6 +128,17 @@ export class MePendingService {
         title: a.name,
         dueOn: firstDay,
         overdue: false,
+      });
+    }
+
+    for (const t of await this.territories.mine(user)) {
+      if (!t.assignment.mine) continue;
+      items.push({
+        kind: 'territory',
+        id: t.id,
+        title: t.number,
+        dueOn: t.assignment.dueOn,
+        overdue: !!t.assignment.dueOn && t.assignment.dueOn < today,
       });
     }
 

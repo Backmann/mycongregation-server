@@ -1,3 +1,4 @@
+import { TerritoryRemindersService } from '../territories/territory-reminders.service';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { NotHeldService } from '../not-held/not-held.service';
 import { PioneerMeetingsService } from '../pioneer-meetings/pioneer-meetings.service';
@@ -93,7 +94,31 @@ export class ScheduledJobsService {
     /** Assignments left on meetings that are not held: one notice to the editor. */
     @Optional()
     private readonly notHeld?: NotHeldService,
+    /** The territories: two weeks before the day; a territory to take back. */
+    @Optional()
+    private readonly territoryReminders?: TerritoryRemindersService,
   ) {}
+
+  /**
+   * The territories (11 November 2026): the holder two weeks before his
+   * territory is due, the territory servant when a holder has left.
+   */
+  @Cron('25 8 * * *', {
+    name: 'territory-reminders',
+    timeZone: 'Europe/Berlin',
+  })
+  async handleTerritoryReminders(): Promise<void> {
+    try {
+      const r = await this.territoryReminders?.tick();
+      if (r && r.due + r.takeBack > 0) {
+        this.logger.log(
+          `territory reminders: due ${r.due}, to take back ${r.takeBack}`,
+        );
+      }
+    } catch (err) {
+      this.logger.error(`territory reminders failed: ${String(err)}`);
+    }
+  }
 
   /**
    * A congress, the Memorial or an event replacing a meeting can leave parts
