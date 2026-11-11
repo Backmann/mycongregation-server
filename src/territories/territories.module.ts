@@ -14,6 +14,7 @@ import { AuditLogModule } from '../audit-log/audit-log.module';
 import { TerritoriesController } from './territories.controller';
 import { TerritoriesService } from './territories.service';
 import { TerritoryAccessService } from './territory-access.service';
+import { TerritoryAssignmentsService } from './territory-assignments.service';
 
 @Module({
   imports: [
@@ -32,7 +33,11 @@ import { TerritoryAccessService } from './territory-access.service';
     AuditLogModule,
   ],
   controllers: [TerritoriesController],
-  providers: [TerritoriesService, TerritoryAccessService],
-  exports: [TerritoryAccessService],
+  providers: [
+    TerritoriesService,
+    TerritoryAccessService,
+    TerritoryAssignmentsService,
+  ],
+  exports: [TerritoryAccessService, TerritoryAssignmentsService],
 })
 export class TerritoriesModule {}

@@ -329,6 +329,12 @@ export const REFUSAL_CODES = [
   'TERRITORY_HOLDER_UNKNOWN',
   'TERRITORY_TWO_OPEN',
   'TERRITORY_NONE',
+  // Giving out and taking back (11 November 2026).
+  'TERRITORY_NOT_OPEN',
+  'TERRITORY_HELD',
+  'TERRITORY_ENDED',
+  'TERRITORY_EXTENDED',
+  'TERRITORY_PAST_YEAR',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];

@@ -1,11 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
 } from '@nestjs/common';
 import {
@@ -13,6 +15,14 @@ import {
   type AuthenticatedUser,
 } from '../auth/decorators/current-user.decorator';
 import { TerritoriesService } from './territories.service';
+import { TerritoryAssignmentsService } from './territory-assignments.service';
+import {
+  AssignTerritoryDto,
+  CompleteAssignmentDto,
+  EditAssignmentDto,
+  ExtendAssignmentDto,
+  ReturnAssignmentDto,
+} from './dto/assignment.dto';
 import {
   ImportAssignmentsDto,
   ImportBoundaryDto,
@@ -28,11 +38,34 @@ import {
  */
 @Controller('territories')
 export class TerritoriesController {
-  constructor(private readonly service: TerritoriesService) {}
+  constructor(
+    private readonly service: TerritoriesService,
+    private readonly given: TerritoryAssignmentsService,
+  ) {}
 
+  /** The door: what the user may open, and the territories he has a part in. */
   @Get('access')
-  access(@CurrentUser() user: AuthenticatedUser) {
-    return this.service.accessOf(user);
+  async access(@CurrentUser() user: AuthenticatedUser) {
+    const [a, mine] = await Promise.all([
+      this.service.accessOf(user),
+      this.given.mine(user),
+    ]);
+    return {
+      ...a,
+      mine: mine.map((t) => ({
+        id: t.id,
+        number: t.number,
+        dueOn: t.assignment.dueOn,
+        mine: t.assignment.mine,
+        forGroupName: t.assignment.forGroupName,
+      })),
+    };
+  }
+
+  /** The holder's and his group's territories, with their shapes. */
+  @Get('mine')
+  mine(@CurrentUser() user: AuthenticatedUser) {
+    return this.given.mine(user);
   }
 
   @Get()
@@ -92,6 +125,72 @@ export class TerritoriesController {
   @HttpCode(HttpStatus.OK)
   verify(@CurrentUser() user: AuthenticatedUser) {
     return this.service.verify(user);
+  }
+
+  // ---- giving out and taking back ----
+
+  @Get(':id/candidates')
+  candidates(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.given.candidates(user, id);
+  }
+
+  @Post(':id/assign')
+  assign(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AssignTerritoryDto,
+  ) {
+    return this.given.assign(user, id, dto);
+  }
+
+  @Post('assignments/:id/complete')
+  @HttpCode(HttpStatus.OK)
+  complete(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CompleteAssignmentDto,
+  ) {
+    return this.given.complete(user, id, dto);
+  }
+
+  @Post('assignments/:id/return')
+  @HttpCode(HttpStatus.OK)
+  giveBack(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReturnAssignmentDto,
+  ) {
+    return this.given.giveBack(user, id, dto);
+  }
+
+  @Post('assignments/:id/extend')
+  @HttpCode(HttpStatus.OK)
+  extend(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ExtendAssignmentDto,
+  ) {
+    return this.given.extend(user, id, dto);
+  }
+
+  @Patch('assignments/:id')
+  edit(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: EditAssignmentDto,
+  ) {
+    return this.given.edit(user, id, dto);
+  }
+
+  @Delete('assignments/:id')
+  remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.given.remove(user, id);
   }
 
   // Last: a fixed path above must win over the id.
