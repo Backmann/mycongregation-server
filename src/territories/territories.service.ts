@@ -116,7 +116,8 @@ export class TerritoriesService {
     const lastDone = await this.assignments
       .createQueryBuilder('a')
       .select('a.territory_id', 'territoryId')
-      .addSelect('MAX(a.completed_on)', 'last')
+      // As text: a raw date column comes back as a JS Date.
+      .addSelect('MAX(a.completed_on)::text', 'last')
       .where('a.congregation_id = :tenantId', { tenantId })
       .groupBy('a.territory_id')
       .getRawMany<{ territoryId: string; last: string | null }>();

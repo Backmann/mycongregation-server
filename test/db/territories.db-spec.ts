@@ -193,6 +193,12 @@ describe('territories (real database)', () => {
     ).find((t) => t.number === 'A02');
     expect(a2?.holder?.name).toBe('Ушедший');
     expect(a2?.holder?.dueOn).toBeTruthy();
+    // A plain day, the way every date travels (a raw date column once came
+    // back as a timestamp and the app printed «Invalid Date»).
+    const a1 = (
+      list.body as { number: string; lastCompletedOn: string | null }[]
+    ).find((t) => t.number === 'A01');
+    expect(a1?.lastCompletedOn).toBe(from);
   });
 
   it('assignments: two open on one territory, a future date, a card from elsewhere are refused', async () => {
