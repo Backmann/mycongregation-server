@@ -604,6 +604,115 @@ async function main() {
   }
   token = adminToken;
 
+  // 6¾. Territories (11 November 2026): an invented boundary and six
+  //     invented squares far from anywhere real, brought over the way the
+  //     import does it, confirmed, then one given out. Anna holds one of
+  //     her own and walks a group one held by Захар; one is overdue, two
+  //     have been free for more than a year. Dates count from the real today:
+  //     the server judges by it, not by the browser's frozen clock.
+  {
+    const today = todayInZone();
+    const day = (n) => iso(addDays(today, n));
+    const square = (col, row) => {
+      const x = 10.0 + col * 0.012;
+      const y = 51.0 + row * 0.008;
+      return {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [x, y],
+            [x + 0.011, y],
+            [x + 0.011, y + 0.007],
+            [x, y + 0.007],
+            [x, y],
+          ],
+        ],
+      };
+    };
+    await post('/territories/import/boundary', {
+      geometry: {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [9.995, 50.995],
+            [10.04, 50.995],
+            [10.04, 51.02],
+            [9.995, 51.02],
+            [9.995, 50.995],
+          ],
+        ],
+      },
+      description: { north: 'Примерная улица', south: 'Полевая дорога' },
+    });
+    await post('/territories/import/territories', {
+      items: [
+        ['T01', 'Примерный город', 0, 0],
+        ['T02', 'Примерный город', 1, 0],
+        ['T03', 'Примерный город', 2, 0],
+        ['T04', 'Посёлок', 0, 1],
+        ['T05', 'Посёлок', 1, 1],
+        ['T06', 'Посёлок', 2, 1],
+      ].map(([number, locality, col, row]) => ({
+        number,
+        locality,
+        geometry: square(col, row),
+      })),
+    });
+    await post('/territories/import/assignments', {
+      items: [
+        // Held for 150 days: past its four months.
+        {
+          number: 'T03',
+          holderName: 'Озеров Виктор',
+          publisherId: P('Виктор'),
+          assignedOn: day(-150),
+        },
+        // A group territory, ten days before it is due.
+        {
+          number: 'T02',
+          holderName: 'Уваров Захар',
+          publisherId: P('Захар'),
+          forGroupId: groups[0],
+          assignedOn: day(-110),
+        },
+        // Worked 14 months ago: free for more than a year.
+        {
+          number: 'T04',
+          holderName: 'Лаптев Борис',
+          publisherId: P('Борис'),
+          assignedOn: day(-500),
+          completedOn: day(-420),
+        },
+        // Worked two months ago.
+        {
+          number: 'T05',
+          holderName: 'Гусева Вера',
+          publisherId: P('Вера'),
+          assignedOn: day(-100),
+          completedOn: day(-60),
+        },
+      ],
+    });
+    await post('/territories/import/no-calls', {
+      items: [
+        {
+          number: 'T01',
+          address: 'Примерная улица 12, 2 этаж',
+          notedOn: day(-30),
+        },
+        { number: 'T01', address: 'Полевая дорога 3', notedOn: day(-200) },
+      ],
+    });
+    await call('POST', '/territories/verify', undefined, { ok: [200] });
+    const list = await get('/territories');
+    const id = (n) => list.find((t) => t.number === n).id;
+    // Given out today: a day in the past may fall into the previous
+    // service year, which only the import may write.
+    await post(`/territories/${id('T01')}/assign`, {
+      publisherId: P('Анна'),
+    });
+  }
+
   // 7. Two kinds of failure in the journal, so its screen is not empty.
   for (const message of [
     "TypeError: Cannot read properties of undefined (reading 'title')",

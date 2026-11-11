@@ -408,7 +408,7 @@ export const PLAN: Record<string, TablePlan> = {
   /** Addresses of householders who asked not to be called on. */
   territory_no_calls: 'skip',
   territory_settings: copy(
-    'congregation_id verified_at verified_by_user_id updated_at',
+    'congregation_id verified_at verified_by_user_id map_built_at updated_at',
   ),
   service_reports: table(
     copy(`id congregation_id publisher_id report_month served_this_month

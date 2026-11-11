@@ -131,17 +131,24 @@ jobs:
           n=0
           while IFS=, read -r id x1 y1 x2 y2; do
             [ -n "$id" ] || continue
+            # The id comes from our own database; still, only a uuid goes on.
+            [[ "$id" =~ ^[0-9a-f-]{36}$ ]] || { echo "Skipping a malformed id"; continue; }
             n=$((n+1))
             box=$(awk -v a="$x1" -v b="$y1" -v c="$x2" -v d="$y2" -v m="$MARGIN" \
               'BEGIN { printf "%.5f,%.5f,%.5f,%.5f", a-m, b-m, c+m, d+m }')
             ~/go/bin/go-pmtiles extract \
               "https://build.protomaps.com/${{ steps.build.outputs.key }}" "map-$n.pmtiles" \
-              --bbox="$box" --maxzoom=${MAX_ZOOM} > "extract-$n.log" 2>&1 \
-              || { echo "Area $n failed"; tail -3 "extract-$n.log" | grep -v -E '[0-9]+\.[0-9]{3}' || true; exit 1; }
+              --bbox="$box" --maxzoom=${MAX_ZOOM} > "extract-$n.log" 2>&1 < /dev/null \
+              || { echo "Area $n failed"; exit 1; }
             ls -l "map-$n.pmtiles" | awk -v n="$n" '{printf "Area %d: %.1f MB\n", n, $5/1048576}'
+            # Every remote command below gets its own standard input: inside
+            # this loop ssh would otherwise read the rest of areas.csv.
             # Copy beside, then rename: a reader never sees half a file.
-            scp -q "map-$n.pmtiles" "myserver:/var/www/mycongregation-app/maps/$id.pmtiles.part"
-            ssh myserver "mv /var/www/mycongregation-app/maps/$id.pmtiles.part /var/www/mycongregation-app/maps/$id.pmtiles"
+            scp -q "map-$n.pmtiles" "myserver:/var/www/mycongregation-app/maps/$id.pmtiles.part" < /dev/null
+            ssh -n myserver "mv /var/www/mycongregation-app/maps/$id.pmtiles.part /var/www/mycongregation-app/maps/$id.pmtiles"
+            # Tell the app the file is there (it asks for it only then).
+            ssh myserver "docker exec -i mycongregation-postgres sh -c 'psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -qAt -v ON_ERROR_STOP=1'" \
+              <<< "INSERT INTO territory_settings (congregation_id, map_built_at) VALUES ('$id', now()) ON CONFLICT (congregation_id) DO UPDATE SET map_built_at = now();"
           done < areas.csv
           echo "Maps in place: $n"
 

@@ -320,4 +320,18 @@ describe('territory assignments (real database)', () => {
     ).toBe(200);
     expect(await seen('holder')).toEqual([]);
   });
+  it('the map file is asked for only once the map job has put it in place', async () => {
+    const before = (await h.as('holder').get('/territories/access')).body;
+    expect(before.mapReady).toBe(false);
+    // What the «Territory map» job writes on the server after the copy.
+    await h.sql(
+      `INSERT INTO territory_settings (congregation_id, map_built_at) VALUES ($1, now())
+       ON CONFLICT (congregation_id) DO UPDATE SET map_built_at = now()`,
+      [congregationId],
+    );
+    const after = (await h.as('holder').get('/territories/access')).body;
+    expect(after.mapReady).toBe(true);
+    // A map in place is not a confirmation of the records.
+    expect(after.verified).toBe(false);
+  });
 });

@@ -95,7 +95,13 @@ export class TerritoriesService {
           where: { congregationId: user.congregationId, archivedAt: IsNull() },
         })
       : 0;
-    return { ...a, verifiedAt, territories: count };
+    const settings = await this.settings.findOne({
+      where: { congregationId: user.congregationId },
+      select: { congregationId: true, mapBuiltAt: true },
+    });
+    // The app asks for the map file only once it is there.
+    const mapReady = !!settings?.mapBuiltAt;
+    return { ...a, verifiedAt, territories: count, mapReady };
   }
 
   /** Every territory in use, with who has it now. */
