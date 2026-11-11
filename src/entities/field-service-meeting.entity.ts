@@ -166,6 +166,14 @@ export class FieldServiceMeeting {
   movedFromDate!: string | null;
 
   // ---- Timestamps ----
+  /**
+   * The territory the meeting goes out to (11 November 2026), chosen by its
+   * conductor from his own or his group's; set through the territory
+   * section, which decides who sees it.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  territoryId!: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 

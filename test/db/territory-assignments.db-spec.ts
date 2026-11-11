@@ -115,6 +115,7 @@ describe('territory assignments (real database)', () => {
   });
 
   afterEach(async () => {
+    await h.sql(`DELETE FROM field_service_meetings`);
     await h.sql(`DELETE FROM notification_outbox`);
     await h.sql(`UPDATE publishers SET removed_at = NULL`);
     await h.sql(`DELETE FROM territory_settings`);
@@ -486,5 +487,182 @@ describe('territory assignments (real database)', () => {
         card.holder,
       ]);
     }
+  });
+  const idOf = async (number: string) =>
+    (
+      await h.sql<{ id: string }>(
+        `SELECT id FROM territories WHERE number = $1`,
+        [number],
+      )
+    )[0].id;
+
+  it("a campaign: free territories worked at once in the keeper's name; one in someone's hands is refused", async () => {
+    await verify();
+    const a1 = await idOf('A01');
+    const a2 = await idOf('A02');
+    const r = await h
+      .as('keeper')
+      .post('/territories/campaign', { territoryIds: [a1, a2] });
+    expect(r.status).toBe(201);
+    expect(r.body).toEqual({ saved: 2 });
+    const rows = await h.sql<{
+      holder_name: string;
+      method: string;
+      completed_on: string;
+    }>(
+      `SELECT holder_name, method, completed_on::text FROM territory_assignments ORDER BY holder_name`,
+    );
+    expect(rows).toEqual([
+      {
+        holder_name: 'Тест Хранитель',
+        method: 'campaign',
+        completed_on: today,
+      },
+      {
+        holder_name: 'Тест Хранитель',
+        method: 'campaign',
+        completed_on: today,
+      },
+    ]);
+    // Worked again later is fine; one in someone's hands is not touched.
+    await h.sql(`DELETE FROM territory_assignments`);
+    await giveToHolder();
+    const held = await h
+      .as('keeper')
+      .post('/territories/campaign', { territoryIds: [a1, a2] });
+    expect(held.status).toBe(409);
+    expect(held.body.code).toBe('TERRITORY_HELD');
+    expect(
+      (
+        await h
+          .as('secretary')
+          .post('/territories/campaign', { territoryIds: [a2] })
+      ).status,
+    ).toBe(403);
+  });
+
+  it('a group territory whose holder no longer oversees the group is handed on, keeping its day', async () => {
+    await verify();
+    const a = await giveToHolder(groupOne);
+    const list = (await h.as('keeper').get('/territories')).body as {
+      number: string;
+      holder: { handOnTo: { publisherId: string } | null } | null;
+    }[];
+    expect(
+      list.find((t) => t.number === 'A01')?.holder?.handOnTo?.publisherId,
+    ).toBe(card.overseer);
+    const reminders = h.app.get(TerritoryRemindersService);
+    await reminders.forCongregation(congregationId);
+    await reminders.forCongregation(congregationId);
+    expect((await outbox('territory_hand_on')).map((r) => r.user_id)).toEqual([
+      await userOf('keeper'),
+    ]);
+    // A day other than four months on, so keeping it is visible.
+    const due = addDays(today, 30);
+    await h.sql(`UPDATE territory_assignments SET due_on = $1 WHERE id = $2`, [
+      due,
+      a.id,
+    ]);
+    const r = await h
+      .as('keeper')
+      .post(`/territories/assignments/${a.id}/transfer`, {});
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ publisherId: card.overseer, dueOn: due });
+    const old = await h.sql<{ returned_on: string }>(
+      `SELECT returned_on::text FROM territory_assignments WHERE id = $1`,
+      [a.id],
+    );
+    expect(old[0].returned_on).toBe(today);
+    expect(await seen('overseer')).toEqual(['A01']);
+    const after = (await h.as('keeper').get('/territories')).body as {
+      number: string;
+      holder: { handOnTo: unknown } | null;
+    }[];
+    expect(after.find((t) => t.number === 'A01')?.holder?.handOnTo).toBeNull();
+  });
+
+  it('a meeting for field service: its conductor sends it to his territory, and those it is for see it the day before', async () => {
+    await verify();
+    // A02 to the holder personally; a general meeting he conducts tomorrow.
+    const a2 = await idOf('A02');
+    const given = await h
+      .as('keeper')
+      .post(`/territories/${a2}/assign`, { publisherId: card.holder });
+    expect(given.status).toBe(201);
+    const tomorrow = addDays(today, 1);
+    const d = new Date(`${tomorrow}T00:00:00Z`);
+    const dow = d.getUTCDay() || 7;
+    const monday = addDays(tomorrow, 1 - dow);
+    const [m] = await h.sql<{ id: string }>(
+      `INSERT INTO field_service_meetings
+         (congregation_id, week_start_date, day_of_week, start_time, address,
+          conductor_publisher_id, is_general, published_at)
+       VALUES ($1, $2, $3, '10:00', 'Зал', $4, true, now()) RETURNING id`,
+      [congregationId, monday, dow, card.holder],
+    );
+    expect(await seen('stranger')).toEqual([]);
+    // Not his: refused. Somebody else: as if there were no meeting.
+    const free = await h
+      .as('holder')
+      .put(`/territories/meetings/${m.id}`, { territoryId: await idOf('A01') });
+    expect(free.body.code).toBe('TERRITORY_NOT_FOR_MEETING');
+    expect(
+      (
+        await h
+          .as('member')
+          .put(`/territories/meetings/${m.id}`, { territoryId: a2 })
+      ).status,
+    ).toBe(404);
+    const mine = (await h.as('holder').get('/territories/my-meetings')).body;
+    expect(mine[0].options.map((o: { number: string }) => o.number)).toEqual([
+      'A02',
+    ]);
+    const set = await h
+      .as('holder')
+      .put(`/territories/meetings/${m.id}`, { territoryId: a2 });
+    expect(set.status).toBe(200);
+    // A general meeting is for everyone: the stranger sees it, with the
+    // addresses, and may open its map.
+    const seenBy = (await h.as('stranger').get('/territories/mine')).body;
+    expect(seenBy.map((t: { number: string }) => t.number)).toEqual(['A02']);
+    expect(seenBy[0].meeting.date).toBe(tomorrow);
+    expect(
+      (
+        await h
+          .as('stranger')
+          .post(`/territories/assignments/${given.body.id}/view-link`)
+      ).status,
+    ).toBe(200);
+    // Called off: gone again.
+    await h.sql(
+      `UPDATE field_service_meetings SET cancelled_at = now() WHERE id = $1`,
+      [m.id],
+    );
+    expect(await seen('stranger')).toEqual([]);
+  });
+
+  it('the month in figures, and the committee hears of it once', async () => {
+    await verify();
+    const a = await giveToHolder();
+    await h.as('holder').post(`/territories/assignments/${a.id}/complete`, {});
+    const month = today.slice(0, 7);
+    const r = await h
+      .as('secretary')
+      .get(`/territories/summary?month=${month}`);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({
+      month,
+      given: 1,
+      worked: 1,
+      held: 0,
+      total: 2,
+    });
+    expect((await h.as('member').get('/territories/summary')).status).toBe(403);
+    const reminders = h.app.get(TerritoryRemindersService);
+    await reminders.monthly();
+    await reminders.monthly();
+    expect((await outbox('territory_summary')).map((x) => x.user_id)).toEqual([
+      await userOf('secretary'),
+    ]);
   });
 });
