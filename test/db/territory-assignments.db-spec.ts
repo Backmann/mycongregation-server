@@ -665,4 +665,62 @@ describe('territory assignments (real database)', () => {
       await userOf('secretary'),
     ]);
   });
+  it('the S-13 of a year: last worked before it, carried-over lines with their old day, a return without a worked day', async () => {
+    const start = serviceYearStart(serviceYearOf(today));
+    // Before confirming: lines brought over. Worked last year; still open
+    // from last year; given this year and handed back.
+    const r = await h.as('keeper').post('/territories/import/assignments', {
+      items: [
+        {
+          number: 'A01',
+          holderName: 'Прежний П.',
+          assignedOn: addDays(start, -100),
+          completedOn: addDays(start, -40),
+        },
+        {
+          number: 'A01',
+          holderName: 'Тест Держатель',
+          publisherId: card.holder,
+          assignedOn: addDays(start, -10),
+        },
+        {
+          number: 'A02',
+          holderName: 'Тест Участник',
+          assignedOn: start,
+          returnedOn: start,
+        },
+      ],
+    });
+    expect(r.status).toBe(201);
+    expect((await h.as('keeper').get('/territories/s13')).status).toBe(409);
+    await verify();
+    const s = await h.as('secretary').get('/territories/s13');
+    expect(s.status).toBe(200);
+    const a01 = s.body.territories.find(
+      (t: { number: string }) => t.number === 'A01',
+    );
+    expect(a01.lastCompletedBefore).toBe(addDays(start, -40));
+    expect(a01.assignments).toEqual([
+      expect.objectContaining({
+        holderName: 'Тест Держатель',
+        assignedOn: addDays(start, -10),
+        completedOn: null,
+      }),
+    ]);
+    const a02 = s.body.territories.find(
+      (t: { number: string }) => t.number === 'A02',
+    );
+    expect(a02.assignments).toEqual([
+      expect.objectContaining({ assignedOn: start, completedOn: null }),
+    ]);
+    // Only the kept years; nobody outside the section.
+    expect(
+      (
+        await h
+          .as('keeper')
+          .get(`/territories/s13?serviceYear=${serviceYearOf(today) - 2}`)
+      ).status,
+    ).toBe(400);
+    expect((await h.as('member').get('/territories/s13')).status).toBe(403);
+  });
 });

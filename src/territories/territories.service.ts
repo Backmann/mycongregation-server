@@ -32,7 +32,13 @@ import {
   overlaps,
   shareOutside,
 } from './geometry';
-import { addDays, keptFrom, TERM_DAYS } from './service-year';
+import {
+  addDays,
+  keptFrom,
+  serviceYearOf,
+  serviceYearStart,
+  TERM_DAYS,
+} from './service-year';
 import type {
   ImportAssignmentsDto,
   ImportBoundaryDto,
@@ -251,6 +257,84 @@ export class TerritoriesService {
       held: held.size,
       overdue: open.filter((a) => a.dueOn !== null && a.dueOn < today).length,
       idle,
+    };
+  }
+
+  /**
+   * What the S-13 «Данные о назначении участков» of one service year holds
+   * (11 November 2026): every territory in use, the day it was last worked
+   * before the year began, and the year's assignments in order — those given
+   * out in the year and those carried over into it with their old day. Only
+   * the kept years (current and previous); only once the records are
+   * confirmed. The app lays it out on the form.
+   */
+  async s13(user: AuthenticatedUser, serviceYear?: number) {
+    const a = await this.access.mustSeeAll(user);
+    if (!a.verified) {
+      throw new ConflictException(
+        refusal('TERRITORY_NOT_OPEN', 'The records are not confirmed yet.'),
+      );
+    }
+    const tenantId = user.congregationId;
+    const today = await this.today(tenantId);
+    const current = serviceYearOf(today);
+    const year = serviceYear ?? current;
+    if (year !== current && year !== current - 1) {
+      throw new BadRequestException(
+        refusal('TERRITORY_PAST_YEAR', 'Only the kept service years.'),
+      );
+    }
+    const from = serviceYearStart(year);
+    const to = addDays(serviceYearStart(year + 1), -1);
+    const rows = await this.territories.find({
+      where: { congregationId: tenantId, archivedAt: IsNull() },
+    });
+    const all = await this.assignments.find({
+      where: { congregationId: tenantId },
+      order: { assignedOn: 'ASC', createdAt: 'ASC' },
+    });
+    const byTerritory = new Map<string, TerritoryAssignment[]>();
+    for (const x of all) {
+      const list = byTerritory.get(x.territoryId) ?? [];
+      list.push(x);
+      byTerritory.set(x.territoryId, list);
+    }
+    return {
+      serviceYear: year,
+      from,
+      to,
+      territories: rows.map((t) => {
+        const list = byTerritory.get(t.id) ?? [];
+        const before = [
+          t.lastCompletedOn && t.lastCompletedOn < from
+            ? t.lastCompletedOn
+            : null,
+          ...list
+            .map((x) => x.completedOn)
+            .filter((d): d is string => !!d && d < from),
+        ]
+          .filter((d): d is string => !!d)
+          .sort()
+          .pop();
+        const inYear = list.filter((x) => {
+          if (x.assignedOn > to) return false;
+          const end = x.completedOn ?? x.returnedOn;
+          return !end || end >= from;
+        });
+        return {
+          number: t.number,
+          lastCompletedBefore: before ?? null,
+          assignments: inYear.map((x) => ({
+            holderName: x.holderName,
+            forGroupName: x.forGroupName,
+            assignedOn: x.assignedOn,
+            // A day after the year's end belongs to the next sheet.
+            completedOn:
+              x.completedOn && x.completedOn <= to ? x.completedOn : null,
+            method: x.completedOn && x.completedOn <= to ? x.method : null,
+          })),
+        };
+      }),
     };
   }
 

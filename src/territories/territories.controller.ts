@@ -90,6 +90,19 @@ export class TerritoriesController {
     return this.service.boundary(user);
   }
 
+  /** The S-13 of a kept service year, for printing. */
+  @Get('s13')
+  s13(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('serviceYear') serviceYear?: string,
+  ) {
+    const y = serviceYear ? Number(serviceYear) : undefined;
+    return this.service.s13(
+      user,
+      y !== undefined && Number.isInteger(y) ? y : undefined,
+    );
+  }
+
   /** A month of the territories, for the service committee. */
   @Get('summary')
   summary(@CurrentUser() user: AuthenticatedUser, @Query() q: SummaryQueryDto) {
