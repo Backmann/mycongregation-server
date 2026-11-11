@@ -85,6 +85,17 @@ export enum ResponsibilityType {
 
   /** Брат, дающий советы — counsels the student assignments. No assistant. */
   ADVISER = 'adviser',
+
+  /**
+   * Keeps the congregation's territories: the maps, who holds which one and
+   * the record of assignments (S-13). 11 November 2026. The section is seen
+   * whole by him, his assistant, the service committee and administrators;
+   * see territories/territory-access.service.ts.
+   */
+  TERRITORY_SERVANT = 'territory_servant',
+
+  /** Помощник ответственного за участки — the same permissions. */
+  TERRITORY_SERVANT_ASSISTANT = 'territory_servant_assistant',
 }
 
 /**
@@ -116,6 +127,10 @@ export const ASSISTANT_OF: ReadonlyArray<
   [
     ResponsibilityType.WT_STUDY_CONDUCTOR,
     ResponsibilityType.WT_STUDY_CONDUCTOR_BACKUP,
+  ],
+  [
+    ResponsibilityType.TERRITORY_SERVANT,
+    ResponsibilityType.TERRITORY_SERVANT_ASSISTANT,
   ],
 ];
 
