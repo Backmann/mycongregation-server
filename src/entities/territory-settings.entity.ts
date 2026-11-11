@@ -18,6 +18,13 @@ export class TerritorySettings {
   @Column({ type: 'uuid', nullable: true })
   verifiedByUserId!: string | null;
 
+  /**
+   * When the «Territory map» job last put the congregation's map file in
+   * place (written by the job itself, on the server). Null: no streets yet.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  mapBuiltAt!: Date | null;
+
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }

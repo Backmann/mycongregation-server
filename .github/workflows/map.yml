@@ -1,0 +1,157 @@
+name: Territory map
+# The map under the territory section (11 November 2026). The streets and
+# houses come from OpenStreetMap through Protomaps; the app must not ask a
+# foreign map server which streets we look at, so each congregation gets its
+# own small extract, kept on our server next to the APK and served from
+# https://mycongregation.org/app/maps/<congregation id>.pmtiles.
+#
+#   map-trial   on a pull request that touches this file: cuts an area of
+#               the same size as ours somewhere else and prints its size.
+#               Nothing goes anywhere.
+#   map-build   by hand (Actions → Territory map → Run): reads, on the server,
+#               the box around each congregation's boundary and territories,
+#               cuts it, and puts the file in place.
+#
+# This log is public: it prints sizes and counts, never a box or a place.
+on:
+  pull_request:
+    paths: ['.github/workflows/map.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: territory-map
+  cancel-in-progress: false
+
+env:
+  # A release older than two weeks, checked by the Go checksum database on
+  # install — the binary is built from the published source.
+  PMTILES_VERSION: v1.31.2
+  # Highest zoom Protomaps builds; the map zooms further by enlarging these.
+  MAX_ZOOM: '15'
+  # About two kilometres around the outermost territory.
+  MARGIN: '0.02'
+
+jobs:
+  map-trial:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: false
+      - name: Install pmtiles
+        run: go install github.com/protomaps/go-pmtiles@${PMTILES_VERSION}
+      - name: Latest Protomaps build
+        id: build
+        run: |
+          KEY=$(curl -fsS https://build-metadata.protomaps.dev/builds.json | jq -r '[.[] | .key] | sort | last')
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          echo "Build: $KEY"
+      - name: Cut a trial area (same size as ours, elsewhere)
+        run: |
+          # 0.53 x 0.33 degrees around a larger city: an upper bound for us.
+          time ~/go/bin/go-pmtiles extract \
+            "https://build.protomaps.com/${{ steps.build.outputs.key }}" trial.pmtiles \
+            --bbox=9.20,51.15,9.73,51.48 --maxzoom=${MAX_ZOOM} > extract.log 2>&1 \
+            || { tail -5 extract.log; exit 1; }
+          ls -l trial.pmtiles | awk '{printf "Trial extract: %.1f MB\n", $5/1048576}'
+          ~/go/bin/go-pmtiles show trial.pmtiles | grep -iE 'tile type|min zoom|max zoom|addressed tiles count' || true
+
+  map-build:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: false
+      - name: Install pmtiles
+        run: go install github.com/protomaps/go-pmtiles@${PMTILES_VERSION}
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config << 'EOF'
+          Host myserver
+              HostName ${{ secrets.SSH_HOST }}
+              User ${{ secrets.SSH_USER }}
+              IdentityFile ~/.ssh/deploy_key
+              UserKnownHostsFile ~/.ssh/known_hosts
+              IdentitiesOnly yes
+              StrictHostKeyChecking yes
+          EOF
+          chmod 600 ~/.ssh/config
+
+      # One line per congregation: id,minLon,minLat,maxLon,maxLat. Kept in a
+      # file on this runner and never printed.
+      - name: Read the areas on the server
+        run: |
+          ssh myserver "docker exec -i mycongregation-postgres sh -c 'psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -At -F, -v ON_ERROR_STOP=1'" > areas.csv << 'SQL'
+          WITH shapes AS (
+            SELECT congregation_id, geometry FROM territory_boundaries
+            UNION ALL
+            SELECT congregation_id, geometry FROM territories WHERE archived_at IS NULL
+          ), points AS (
+            SELECT s.congregation_id, p
+              FROM shapes s,
+                   jsonb_path_query(
+                     s.geometry,
+                     CASE WHEN s.geometry->>'type' = 'MultiPolygon'
+                          THEN '$.coordinates[*][*][*]'
+                          ELSE '$.coordinates[*][*]' END::jsonpath
+                   ) AS p
+          )
+          SELECT congregation_id,
+                 min((p->>0)::float), min((p->>1)::float),
+                 max((p->>0)::float), max((p->>1)::float)
+            FROM points GROUP BY congregation_id;
+          SQL
+          echo "Congregations with territories: $(grep -c . areas.csv || true)"
+
+      - name: Latest Protomaps build
+        id: build
+        run: |
+          KEY=$(curl -fsS https://build-metadata.protomaps.dev/builds.json | jq -r '[.[] | .key] | sort | last')
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          echo "Build: $KEY"
+
+      - name: Cut and put in place
+        run: |
+          set -euo pipefail
+          ssh myserver 'mkdir -p /var/www/mycongregation-app/maps'
+          n=0
+          while IFS=, read -r id x1 y1 x2 y2; do
+            [ -n "$id" ] || continue
+            # The id comes from our own database; still, only a uuid goes on.
+            [[ "$id" =~ ^[0-9a-f-]{36}$ ]] || { echo "Skipping a malformed id"; continue; }
+            n=$((n+1))
+            box=$(awk -v a="$x1" -v b="$y1" -v c="$x2" -v d="$y2" -v m="$MARGIN" \
+              'BEGIN { printf "%.5f,%.5f,%.5f,%.5f", a-m, b-m, c+m, d+m }')
+            ~/go/bin/go-pmtiles extract \
+              "https://build.protomaps.com/${{ steps.build.outputs.key }}" "map-$n.pmtiles" \
+              --bbox="$box" --maxzoom=${MAX_ZOOM} > "extract-$n.log" 2>&1 < /dev/null \
+              || { echo "Area $n failed"; exit 1; }
+            ls -l "map-$n.pmtiles" | awk -v n="$n" '{printf "Area %d: %.1f MB\n", n, $5/1048576}'
+            # Every remote command below gets its own standard input: inside
+            # this loop ssh would otherwise read the rest of areas.csv.
+            # Copy beside, then rename: a reader never sees half a file.
+            scp -q "map-$n.pmtiles" "myserver:/var/www/mycongregation-app/maps/$id.pmtiles.part" < /dev/null
+            ssh -n myserver "mv /var/www/mycongregation-app/maps/$id.pmtiles.part /var/www/mycongregation-app/maps/$id.pmtiles"
+            # Tell the app the file is there (it asks for it only then).
+            ssh myserver "docker exec -i mycongregation-postgres sh -c 'psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -qAt -v ON_ERROR_STOP=1'" \
+              <<< "INSERT INTO territory_settings (congregation_id, map_built_at) VALUES ('$id', now()) ON CONFLICT (congregation_id) DO UPDATE SET map_built_at = now();"
+          done < areas.csv
+          echo "Maps in place: $n"
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts ~/.ssh/config areas.csv

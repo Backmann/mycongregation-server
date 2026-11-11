@@ -31,5 +31,17 @@ export function addDays(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * 'YYYY-MM-DD' plus whole calendar months; a day the target month lacks
+ * falls on its last day (31 January + 1 month = 28 or 29 February).
+ */
+export function addMonths(date: string, months: number): string {
+  const y = Number(date.slice(0, 4));
+  const m = Number(date.slice(5, 7)) - 1 + months;
+  const d = Number(date.slice(8, 10));
+  const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(y, m, Math.min(d, last))).toISOString().slice(0, 10);
+}
+
 /** A territory is given for four months (about 120 days). */
 export const TERM_DAYS = 120;
