@@ -10,6 +10,8 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
+  Query,
   Res,
 } from '@nestjs/common';
 import type { Response } from 'express';
@@ -23,6 +25,10 @@ import { TerritoriesService } from './territories.service';
 import { TerritoryAssignmentsService } from './territory-assignments.service';
 import {
   AssignTerritoryDto,
+  CampaignDto,
+  MeetingTerritoryDto,
+  SummaryQueryDto,
+  TransferAssignmentDto,
   CompleteAssignmentDto,
   EditAssignmentDto,
   ExtendAssignmentDto,
@@ -82,6 +88,37 @@ export class TerritoriesController {
   @Get('boundary')
   boundary(@CurrentUser() user: AuthenticatedUser) {
     return this.service.boundary(user);
+  }
+
+  /** A month of the territories, for the service committee. */
+  @Get('summary')
+  summary(@CurrentUser() user: AuthenticatedUser, @Query() q: SummaryQueryDto) {
+    return this.service.summary(user, q.month);
+  }
+
+  /** The meetings for field service the user conducts, with what they may go to. */
+  @Get('my-meetings')
+  myMeetings(@CurrentUser() user: AuthenticatedUser) {
+    return this.given.myMeetings(user);
+  }
+
+  @Put('meetings/:meetingId')
+  setMeetingTerritory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('meetingId', ParseUUIDPipe) meetingId: string,
+    @Body() dto: MeetingTerritoryDto,
+  ) {
+    return this.given.setMeetingTerritory(
+      user,
+      meetingId,
+      dto.territoryId ?? null,
+    );
+  }
+
+  /** «Обработаны в кампанию». */
+  @Post('campaign')
+  campaign(@CurrentUser() user: AuthenticatedUser, @Body() dto: CampaignDto) {
+    return this.given.campaign(user, dto.territoryIds, dto.workedOn);
   }
 
   @Get('checks')
@@ -208,6 +245,16 @@ export class TerritoriesController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.links.revokeShare(user, id);
+  }
+
+  /** A group's territory to the group's new overseer. */
+  @Post('assignments/:id/transfer')
+  transfer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: TransferAssignmentDto,
+  ) {
+    return this.given.transfer(user, id, dto);
   }
 
   @Patch('assignments/:id')

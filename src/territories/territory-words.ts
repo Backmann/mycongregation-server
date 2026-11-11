@@ -102,3 +102,64 @@ export function takeBackWords(number: string, lang: SupportedLanguage): Words {
       };
   }
 }
+
+/** For the territory servant: a group's overseer changed. */
+export function handOnWords(number: string, lang: SupportedLanguage): Words {
+  switch (lang) {
+    case 'en':
+      return {
+        title: `Territory ${number}: the group has a new overseer`,
+        body: 'Hand the group territory on to him under «Territories».',
+      };
+    case 'de':
+      return {
+        title: `Gebiet ${number}: neuer Gruppenaufseher`,
+        body: 'Das Gruppengebiet unter «Gebiete» an ihn weitergeben.',
+      };
+    default:
+      return {
+        title: `Участок ${number}: у группы новый ответственный`,
+        body: 'Передайте ему участок группы в разделе «Участки».',
+      };
+  }
+}
+
+/** «Month in figures», for the service committee. */
+export function summaryWords(
+  s: {
+    month: string;
+    given: number;
+    worked: number;
+    held: number;
+    overdue: number;
+    idle: number;
+  },
+  lang: SupportedLanguage,
+): Words {
+  let month = s.month;
+  try {
+    month = new Intl.DateTimeFormat(lang, {
+      month: 'long',
+      timeZone: 'UTC',
+    }).format(new Date(`${s.month}-15T12:00:00Z`));
+  } catch {
+    /* the bare 'YYYY-MM' will do */
+  }
+  switch (lang) {
+    case 'en':
+      return {
+        title: `Territories in ${month}`,
+        body: `Assigned ${s.given}, worked ${s.worked}. Now out ${s.held}, over 4 months ${s.overdue}, free over a year ${s.idle}.`,
+      };
+    case 'de':
+      return {
+        title: `Gebiete im ${month}`,
+        body: `Ausgegeben ${s.given}, bearbeitet ${s.worked}. Jetzt ausgegeben ${s.held}, über 4 Monate ${s.overdue}, über ein Jahr frei ${s.idle}.`,
+      };
+    default:
+      return {
+        title: `Участки: ${month}`,
+        body: `Выдано ${s.given}, пройдено ${s.worked}. Сейчас на руках ${s.held}, дольше 4 месяцев ${s.overdue}, свободны больше года ${s.idle}.`,
+      };
+  }
+}

@@ -9,9 +9,19 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { todayIn } from '../common/congregation-clock';
-import { TERRITORY_KEEPERS } from './territory-access.service';
+import {
+  TERRITORY_COMMITTEE,
+  TERRITORY_KEEPERS,
+} from './territory-access.service';
+import { TerritoriesService } from './territories.service';
+import { ServiceGroup } from '../entities/service-group.entity';
 import { addDays } from './service-year';
-import { dueSoonWords, takeBackWords } from './territory-words';
+import {
+  dueSoonWords,
+  handOnWords,
+  summaryWords,
+  takeBackWords,
+} from './territory-words';
 
 /** The holder hears this many days before his territory is due. */
 export const DUE_SOON_DAYS = 14;
@@ -34,6 +44,7 @@ export class TerritoryRemindersService {
 
   constructor(
     private readonly notifications: NotificationsService,
+    private readonly territoriesService: TerritoriesService,
     @InjectRepository(TerritoryAssignment)
     private readonly assignments: Repository<TerritoryAssignment>,
     @InjectRepository(Territory)
@@ -46,7 +57,52 @@ export class TerritoryRemindersService {
     private readonly responsibilities: Repository<Responsibility>,
     @InjectRepository(Congregation)
     private readonly congregations: Repository<Congregation>,
+    @InjectRepository(ServiceGroup)
+    private readonly groups: Repository<ServiceGroup>,
   ) {}
+
+  private async userIdsOf(congregationId: string, types: string[]) {
+    const rows = await this.responsibilities.find({
+      where: { congregationId, type: In(types) },
+      select: { id: true, userId: true },
+    });
+    return [...new Set(rows.map((r) => r.userId).filter(Boolean))] as string[];
+  }
+
+  /**
+   * On the first of the month, the service committee hears how the
+   * territories stood in the month that ended (11 November 2026).
+   */
+  async monthly(): Promise<number> {
+    const open = await this.settings.find({
+      where: { verifiedAt: Not(IsNull()) },
+    });
+    let sent = 0;
+    for (const s of open) {
+      try {
+        const sum = await this.territoriesService.summaryOf(s.congregationId);
+        const userIds = await this.userIdsOf(
+          s.congregationId,
+          TERRITORY_COMMITTEE,
+        );
+        if (userIds.length === 0) continue;
+        await this.notifications.notify({
+          tenantId: s.congregationId,
+          userIds,
+          kind: 'territory_summary',
+          key: `territory-summary:${sum.month}`,
+          text: (lang) => summaryWords(sum, lang),
+          data: { type: 'territory_keeper' },
+        });
+        sent += 1;
+      } catch (e) {
+        this.logger.error(
+          `territory summary failed for ${s.congregationId}: ${String(e)}`,
+        );
+      }
+    }
+    return sent;
+  }
 
   async tick(now = new Date()): Promise<{ due: number; takeBack: number }> {
     const open = await this.settings.find({
@@ -151,6 +207,35 @@ export class TerritoryRemindersService {
           kind: 'territory_return',
           key: `territory-return:${a.id}`,
           text: (lang) => takeBackWords(number, lang),
+          data: { type: 'territory_keeper', territoryId: a.territoryId },
+        });
+      }
+    }
+    // A group's territory held by someone who no longer oversees the group.
+    const groupIds = [
+      ...new Set(held.map((a) => a.forGroupId).filter(Boolean)),
+    ] as string[];
+    if (groupIds.length > 0) {
+      const groups = await this.groups.find({
+        where: { id: In(groupIds), congregationId },
+        select: { id: true, overseerPublisherId: true },
+      });
+      const overseerOf = new Map(
+        groups.map((g) => [g.id, g.overseerPublisherId]),
+      );
+      const keepers = await this.userIdsOf(congregationId, TERRITORY_KEEPERS);
+      for (const a of held) {
+        if (!a.forGroupId || keepers.length === 0) continue;
+        const to = overseerOf.get(a.forGroupId);
+        if (!to || to === a.publisherId) continue;
+        const number = numbers.get(a.territoryId) ?? '';
+        await this.notifications.notify({
+          tenantId: congregationId,
+          userIds: keepers,
+          kind: 'territory_hand_on',
+          // Once for this holder and this new overseer.
+          key: `territory-hand-on:${a.id}:${to}`,
+          text: (lang) => handOnWords(number, lang),
           data: { type: 'territory_keeper', territoryId: a.territoryId },
         });
       }

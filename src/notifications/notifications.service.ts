@@ -90,8 +90,10 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
     kind.startsWith('cart') ||
     // A pioneer invited to the annual meeting with the elders.
     kind === 'pioneer_meeting' ||
-    // The territory servant: a territory to take back.
-    kind === 'territory_return'
+    // The territory servant: a territory to take back, or to hand on to a
+    // group's new overseer.
+    kind === 'territory_return' ||
+    kind === 'territory_hand_on'
   ) {
     return 'ministry';
   }
@@ -100,7 +102,9 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
   if (
     kind === 'status_change' ||
     kind === 'meeting_gaps' ||
-    kind === 'client_error'
+    kind === 'client_error' ||
+    // The month of the territories, for the service committee.
+    kind === 'territory_summary'
   )
     return 'admin';
   if (kind === 'special_event') return 'events';

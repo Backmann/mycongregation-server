@@ -10,6 +10,7 @@ import { Responsibility } from '../entities/responsibility.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Congregation } from '../entities/congregation.entity';
+import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import {
   TerritoriesController,
@@ -35,6 +36,7 @@ import { TerritoryAssignmentsService } from './territory-assignments.service';
       Publisher,
       ServiceGroup,
       Congregation,
+      FieldServiceMeeting,
     ]),
     AuditLogModule,
     NotificationsModule,

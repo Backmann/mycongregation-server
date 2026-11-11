@@ -14,6 +14,7 @@ import {
 import { TerritoryNoCall } from '../entities/territory-no-call.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
+import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -86,6 +87,8 @@ export class TerritoryAssignmentsService {
     private readonly groups: Repository<ServiceGroup>,
     @InjectRepository(Congregation)
     private readonly congregations: Repository<Congregation>,
+    @InjectRepository(FieldServiceMeeting)
+    private readonly meetings: Repository<FieldServiceMeeting>,
   ) {}
 
   private async today(congregationId: string): Promise<string> {
@@ -133,17 +136,71 @@ export class TerritoryAssignmentsService {
     return this.visibleTo(user.congregationId, me);
   }
 
+  /**
+   * The meetings for field service that go out to a territory the day
+   * before and on the day (11 November 2026): a group's meeting for its
+   * members and its conductor, any other for everyone — the way the group's
+   * own territory is seen. Only published meetings that are not called off.
+   */
+  async meetingsSeenBy(
+    congregationId: string,
+    me: TerritoryPerson,
+    today: string,
+  ) {
+    if (!me.publisherId) return [];
+    const tomorrow = addDays(today, 1);
+    const weeks = [...new Set([mondayOf(today), mondayOf(tomorrow)])];
+    const rows = await this.meetings.find({
+      where: {
+        congregationId,
+        weekStartDate: In(weeks),
+        territoryId: Not(IsNull()),
+        cancelledAt: IsNull(),
+        publishedAt: Not(IsNull()),
+      },
+    });
+    return rows
+      .map((m) => ({ m, date: addDays(m.weekStartDate, m.dayOfWeek - 1) }))
+      .filter(({ date }) => date === today || date === tomorrow)
+      .filter(
+        ({ m }) =>
+          !m.serviceGroupId ||
+          m.serviceGroupId === me.memberOf ||
+          me.oversees.includes(m.serviceGroupId) ||
+          m.conductorPublisherId === me.publisherId,
+      )
+      .map(({ m, date }) => ({
+        id: m.id,
+        territoryId: m.territoryId!,
+        date,
+        startTime: m.startTime,
+        address: m.address,
+      }));
+  }
+
   private async visibleTo(congregationId: string, me: TerritoryPerson) {
     if (!me.publisherId) return [];
     const groupIds = [
       ...new Set([...me.oversees, ...(me.memberOf ? [me.memberOf] : [])]),
     ];
     const open = { completedOn: IsNull(), returnedOn: IsNull() };
+    const today = await this.today(congregationId);
+    const viaMeeting = await this.meetingsSeenBy(congregationId, me, today);
+    const meetingOf = new Map(viaMeeting.map((m) => [m.territoryId, m]));
     const rows = await this.assignments.find({
       where: [
         { congregationId, publisherId: me.publisherId, ...open },
         ...(groupIds.length
           ? [{ congregationId, forGroupId: In(groupIds), ...open }]
+          : []),
+        ...(meetingOf.size
+          ? [
+              {
+                congregationId,
+                territoryId: In([...meetingOf.keys()]),
+                ...open,
+              },
+            ]
           : []),
       ],
       order: { dueOn: 'ASC' },
@@ -162,6 +219,7 @@ export class TerritoryAssignmentsService {
       .filter((a) => byId.has(a.territoryId))
       .map((a) => {
         const t = byId.get(a.territoryId)!;
+        const m = meetingOf.get(t.id);
         return {
           id: t.id,
           number: t.number,
@@ -177,6 +235,14 @@ export class TerritoryAssignmentsService {
             extended: a.extended,
             mine: a.publisherId === me.publisherId,
           },
+          meeting: m
+            ? {
+                id: m.id,
+                date: m.date,
+                startTime: m.startTime,
+                address: m.address,
+              }
+            : null,
           noCalls: calls
             .filter((n) => n.territoryId === t.id)
             .map((n) => ({
@@ -571,6 +637,347 @@ export class TerritoryAssignmentsService {
     return { ok: true };
   }
 
+  // ------------------------------------------------- meetings for service --
+
+  /** What a meeting may go out to: its conductor's own, or its group's. */
+  private async meetingOptions(m: FieldServiceMeeting) {
+    const open = { completedOn: IsNull(), returnedOn: IsNull() };
+    const where = [
+      ...(m.conductorPublisherId
+        ? [
+            {
+              congregationId: m.congregationId,
+              publisherId: m.conductorPublisherId,
+              ...open,
+            },
+          ]
+        : []),
+      ...(m.serviceGroupId
+        ? [
+            {
+              congregationId: m.congregationId,
+              forGroupId: m.serviceGroupId,
+              ...open,
+            },
+          ]
+        : []),
+    ];
+    if (where.length === 0) return [];
+    const held = await this.assignments.find({ where });
+    const ids = [...new Set(held.map((a) => a.territoryId))];
+    if (ids.length === 0) return [];
+    const terr = await this.territories.find({
+      where: {
+        id: In(ids),
+        congregationId: m.congregationId,
+        archivedAt: IsNull(),
+      },
+      select: { id: true, number: true, locality: true },
+      order: { number: 'ASC' },
+    });
+    return terr.map((t) => ({
+      territoryId: t.id,
+      number: t.number,
+      locality: t.locality,
+    }));
+  }
+
+  /**
+   * The meetings for field service the user conducts in the next two weeks,
+   * each with the territories he may send it to (his own, his group's).
+   */
+  async myMeetings(user: AuthenticatedUser) {
+    const verified =
+      (await this.access.verifiedAt(user.congregationId)) !== null;
+    if (!verified) return [];
+    const me = await this.access.person(user);
+    if (!me.publisherId) return [];
+    const today = await this.today(user.congregationId);
+    const until = addDays(today, 14);
+    const rows = await this.meetings.find({
+      where: {
+        congregationId: user.congregationId,
+        conductorPublisherId: me.publisherId,
+        cancelledAt: IsNull(),
+        weekStartDate: MoreThanOrEqual(mondayOf(today)),
+      },
+    });
+    const out: {
+      id: string;
+      date: string;
+      startTime: string;
+      address: string;
+      serviceGroupId: string | null;
+      territoryId: string | null;
+      options: {
+        territoryId: string;
+        number: string;
+        locality: string | null;
+      }[];
+    }[] = [];
+    for (const m of rows) {
+      const date = addDays(m.weekStartDate, m.dayOfWeek - 1);
+      if (date < today || date > until) continue;
+      out.push({
+        id: m.id,
+        date,
+        startTime: m.startTime,
+        address: m.address,
+        serviceGroupId: m.serviceGroupId,
+        territoryId: m.territoryId,
+        options: await this.meetingOptions(m),
+      });
+    }
+    return out.sort(
+      (a, b) =>
+        a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime),
+    );
+  }
+
+  /** The meeting's conductor (or a keeper) sends it to a territory, or none. */
+  async setMeetingTerritory(
+    user: AuthenticatedUser,
+    meetingId: string,
+    territoryId: string | null,
+  ) {
+    const verified =
+      (await this.access.verifiedAt(user.congregationId)) !== null;
+    if (!verified) throw this.notOpen();
+    const m = await this.meetings.findOne({
+      where: { id: meetingId, congregationId: user.congregationId },
+    });
+    if (!m) throw new NotFoundException('Meeting not found');
+    const access = await this.access.of(user);
+    const me = await this.access.person(user);
+    const conducts =
+      !!me.publisherId && m.conductorPublisherId === me.publisherId;
+    if (!conducts && !access.keeps) {
+      throw new NotFoundException('Meeting not found');
+    }
+    const today = await this.today(user.congregationId);
+    const date = addDays(m.weekStartDate, m.dayOfWeek - 1);
+    if (m.cancelledAt || date < today) {
+      throw new BadRequestException(
+        refusal('TERRITORY_DATES', 'The meeting is past or called off.'),
+      );
+    }
+    if (territoryId) {
+      const options = await this.meetingOptions(m);
+      if (!options.some((o) => o.territoryId === territoryId)) {
+        throw new BadRequestException(
+          refusal(
+            'TERRITORY_NOT_FOR_MEETING',
+            "Only the conductor's own territory or his group's.",
+          ),
+        );
+      }
+    }
+    await this.meetings.update({ id: m.id }, { territoryId });
+    await this.audit.logFact({
+      tenantId: user.congregationId,
+      entityType: 'territory_assignment',
+      entityId: m.id,
+      action: 'UPDATE',
+      actorUserId: user.id,
+      detail: { meeting: m.id, territoryId, date },
+    });
+    return { id: m.id, territoryId };
+  }
+
+  // ------------------------------------------------------------ campaign --
+
+  /**
+   * «Обработаны в кампанию»: free territories worked during a campaign, all
+   * at once (11 November 2026). Each gets a line in the keeper's name with
+   * the method «кампания» — the S-13 writes it «фамилия (кампания)». A
+   * territory in someone's hands is not touched: its holder marks it worked.
+   */
+  async campaign(
+    user: AuthenticatedUser,
+    territoryIds: string[],
+    workedOn?: string,
+  ) {
+    await this.mustKeepOpen(user);
+    const tenantId = user.congregationId;
+    const today = await this.today(tenantId);
+    const on = workedOn ?? today;
+    if (on > today) throw this.dates('worked in the future');
+    if (serviceYearOf(on) < serviceYearOf(today)) {
+      throw new BadRequestException(
+        refusal('TERRITORY_PAST_YEAR', 'Only the current service year.'),
+      );
+    }
+    const ids = [...new Set(territoryIds)];
+    const terr = await this.territories.find({
+      where: { id: In(ids), congregationId: tenantId, archivedAt: IsNull() },
+    });
+    if (terr.length !== ids.length) {
+      throw new NotFoundException('Territory not found');
+    }
+    const open = await this.assignments.find({
+      where: {
+        congregationId: tenantId,
+        territoryId: In(ids),
+        completedOn: IsNull(),
+        returnedOn: IsNull(),
+      },
+    });
+    if (open.length > 0) {
+      const number = terr.find((t) => t.id === open[0].territoryId)?.number;
+      throw new ConflictException(
+        refusal('TERRITORY_HELD', 'The territory is already given out.', {
+          number,
+        }),
+      );
+    }
+    const me = await this.access.person(user);
+    const card = me.publisherId
+      ? await this.publishers.findOne({
+          where: { id: me.publisherId, congregationId: tenantId },
+        })
+      : null;
+    const holderName = card ? holderNameOf(card) : '—';
+    for (const t of terr) {
+      const last = await this.assignments.findOne({
+        where: { territoryId: t.id, congregationId: tenantId },
+        order: { assignedOn: 'DESC' },
+      });
+      const lastEnd = last?.completedOn ?? last?.returnedOn ?? null;
+      if (lastEnd && on < lastEnd) {
+        throw new BadRequestException(
+          refusal('TERRITORY_DATES', `${t.number}: before it came back`, {
+            number: t.number,
+          }),
+        );
+      }
+    }
+    const saved = await this.assignments.manager.transaction((m) =>
+      m.save(
+        terr.map((t) =>
+          m.create(TerritoryAssignment, {
+            congregationId: tenantId,
+            territoryId: t.id,
+            publisherId: card?.id ?? null,
+            holderName,
+            forGroupId: null,
+            forGroupName: null,
+            assignedOn: on,
+            dueOn: null,
+            completedOn: on,
+            returnedOn: null,
+            method: 'campaign',
+            extended: false,
+            imported: false,
+            createdByUserId: user.id,
+          }),
+        ),
+      ),
+    );
+    await this.audit.logFact({
+      tenantId,
+      entityType: 'territory_assignment',
+      entityId: tenantId,
+      action: 'CREATE',
+      actorUserId: user.id,
+      detail: { campaign: terr.map((t) => t.number), workedOn: on },
+    });
+    return { saved: saved.length };
+  }
+
+  // --------------------------------------------------- a group's new head --
+
+  /**
+   * A group's territory still held by someone who no longer oversees that
+   * group (11 November 2026): the keeper passes it on — the old line ends as
+   * returned, a new one starts for the group's overseer on the same day and
+   * keeps the day it is due.
+   */
+  async transfer(
+    user: AuthenticatedUser,
+    id: string,
+    dto: { toPublisherId?: string; on?: string },
+  ) {
+    await this.mustKeepOpen(user);
+    const tenantId = user.congregationId;
+    const a = await this.assignments.findOne({
+      where: { id, congregationId: tenantId },
+    });
+    if (!a) throw new NotFoundException('Assignment not found');
+    if (a.completedOn || a.returnedOn) {
+      throw new ConflictException(
+        refusal('TERRITORY_ENDED', 'The territory has already come back.'),
+      );
+    }
+    const group = a.forGroupId
+      ? await this.groups.findOne({
+          where: { id: a.forGroupId, congregationId: tenantId },
+        })
+      : null;
+    const toId = dto.toPublisherId ?? group?.overseerPublisherId ?? null;
+    if (!toId || toId === a.publisherId) {
+      throw new BadRequestException(
+        refusal('PERSON_NOT_ASSIGNABLE', 'Choose who takes it on.'),
+      );
+    }
+    const p = await this.publishers.findOne({
+      where: { id: toId, congregationId: tenantId },
+    });
+    if (!p || p.removedAt || !p.isActive) {
+      throw new BadRequestException(
+        refusal(
+          'PERSON_NOT_ASSIGNABLE',
+          'This person cannot be given a task at the moment.',
+        ),
+      );
+    }
+    await assertAssignable(this.assignments.manager, tenantId, [p.id]);
+    const today = await this.today(tenantId);
+    const on = dto.on ?? today;
+    if (on > today || on < a.assignedOn) {
+      throw this.dates('handed on outside its term');
+    }
+    const t = await this.territories.findOne({
+      where: { id: a.territoryId, congregationId: tenantId },
+    });
+    const next = await this.assignments.manager.transaction(async (m) => {
+      await m.update(TerritoryAssignment, { id: a.id }, { returnedOn: on });
+      return m.save(
+        m.create(TerritoryAssignment, {
+          congregationId: tenantId,
+          territoryId: a.territoryId,
+          publisherId: p.id,
+          holderName: holderNameOf(p),
+          forGroupId: a.forGroupId,
+          forGroupName: group?.name ?? a.forGroupName,
+          assignedOn: on,
+          dueOn: a.dueOn,
+          completedOn: null,
+          returnedOn: null,
+          method: null,
+          extended: a.extended,
+          imported: false,
+          createdByUserId: user.id,
+        }),
+      );
+    });
+    await this.log(user, next, 'CREATE', {
+      transferredFrom: a.id,
+      on,
+      number: t?.number,
+    });
+    if (p.userId && t) {
+      await this.notifications.notify({
+        tenantId,
+        userIds: [p.userId],
+        kind: 'territory_assigned',
+        key: `territory-assigned:${next.id}`,
+        text: (lang) => assignedWords(t.number, next.dueOn, lang),
+        data: { type: 'territory', territoryId: t.id },
+      });
+    }
+    return next;
+  }
+
   private async log(
     user: AuthenticatedUser,
     a: TerritoryAssignment,
@@ -586,4 +993,11 @@ export class TerritoryAssignmentsService {
       detail: { territoryId: a.territoryId, ...detail },
     });
   }
+}
+
+/** The Monday of a 'YYYY-MM-DD' week. */
+function mondayOf(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  const dow = d.getUTCDay() || 7;
+  return addDays(iso, 1 - dow);
 }

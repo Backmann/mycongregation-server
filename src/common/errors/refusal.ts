@@ -335,6 +335,7 @@ export const REFUSAL_CODES = [
   'TERRITORY_ENDED',
   'TERRITORY_EXTENDED',
   'TERRITORY_PAST_YEAR',
+  'TERRITORY_NOT_FOR_MEETING',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];

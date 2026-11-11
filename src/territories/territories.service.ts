@@ -129,6 +129,38 @@ export class TerritoriesService {
       .getRawMany<{ territoryId: string; last: string | null }>();
     const lastOf = new Map(lastDone.map((r) => [r.territoryId, r.last]));
     const openOf = new Map(open.map((a) => [a.territoryId, a]));
+    // A group's territory held by someone who no longer oversees the group:
+    // the keeper is offered to hand it on (11 November 2026).
+    const groupIds = [
+      ...new Set(open.map((a) => a.forGroupId).filter(Boolean)),
+    ] as string[];
+    const groups = groupIds.length
+      ? await this.groups.find({
+          where: { id: In(groupIds), congregationId: tenantId },
+          select: { id: true, overseerPublisherId: true },
+        })
+      : [];
+    const overseerOf = new Map(
+      groups.map((g) => [g.id, g.overseerPublisherId]),
+    );
+    const overseerIds = [
+      ...new Set(groups.map((g) => g.overseerPublisherId).filter(Boolean)),
+    ] as string[];
+    const overseerName = new Map(
+      (overseerIds.length
+        ? await this.publishers.find({
+            where: { id: In(overseerIds), congregationId: tenantId },
+            select: { id: true, displayName: true },
+          })
+        : []
+      ).map((p) => [p.id, p.displayName]),
+    );
+    const handOnOf = (a: TerritoryAssignment) => {
+      if (!a.forGroupId) return null;
+      const to = overseerOf.get(a.forGroupId);
+      if (!to || to === a.publisherId) return null;
+      return { publisherId: to, name: overseerName.get(to) ?? '' };
+    };
     return rows.map((t) => {
       const a = openOf.get(t.id);
       const done = [t.lastCompletedOn, lastOf.get(t.id) ?? null]
@@ -150,10 +182,76 @@ export class TerritoriesService {
               forGroupName: a.forGroupName,
               assignedOn: a.assignedOn,
               dueOn: a.dueOn,
+              handOnTo: handOnOf(a),
             }
           : null,
       };
     });
+  }
+
+  /**
+   * A month of the territories (11 November 2026), for the service
+   * committee: given out, worked and handed back in that month, and how
+   * things stand now. `month` 'YYYY-MM'; the last full month when left out.
+   */
+  async summary(user: AuthenticatedUser, month?: string) {
+    await this.access.mustSeeAll(user);
+    return this.summaryOf(user.congregationId, month);
+  }
+
+  async summaryOf(congregationId: string, month?: string) {
+    const today = await this.today(congregationId);
+    const m = month ?? previousMonth(today);
+    const from = `${m}-01`;
+    const to = lastDayOf(m);
+    const count = async (column: string) =>
+      Number(
+        (
+          await this.assignments
+            .createQueryBuilder('a')
+            .select('COUNT(*)', 'n')
+            .where('a.congregation_id = :congregationId', { congregationId })
+            .andWhere(`a.${column} BETWEEN :from AND :to`, { from, to })
+            .andWhere('a.imported = false')
+            .getRawOne<{ n: string }>()
+        )?.n ?? 0,
+      );
+    const rows = await this.territories.find({
+      where: { congregationId, archivedAt: IsNull() },
+      select: { id: true, lastCompletedOn: true },
+    });
+    const open = await this.assignments.find({
+      where: { congregationId, completedOn: IsNull(), returnedOn: IsNull() },
+      select: { id: true, territoryId: true, dueOn: true },
+    });
+    const lastDone = await this.assignments
+      .createQueryBuilder('a')
+      .select('a.territory_id', 'territoryId')
+      .addSelect('MAX(a.completed_on)::text', 'last')
+      .where('a.congregation_id = :congregationId', { congregationId })
+      .groupBy('a.territory_id')
+      .getRawMany<{ territoryId: string; last: string | null }>();
+    const lastOf = new Map(lastDone.map((r) => [r.territoryId, r.last]));
+    const held = new Set(open.map((a) => a.territoryId));
+    const yearAgo = `${Number(today.slice(0, 4)) - 1}${today.slice(4)}`;
+    const idle = rows.filter((t) => {
+      if (held.has(t.id)) return false;
+      const done = [t.lastCompletedOn, lastOf.get(t.id) ?? null]
+        .filter((d): d is string => !!d)
+        .sort()
+        .pop();
+      return !done || done < yearAgo;
+    }).length;
+    return {
+      month: m,
+      given: await count('assigned_on'),
+      worked: await count('completed_on'),
+      returned: await count('returned_on'),
+      total: rows.length,
+      held: held.size,
+      overdue: open.filter((a) => a.dueOn !== null && a.dueOn < today).length,
+      idle,
+    };
   }
 
   /** One territory with its kept history and its «не беспокоить» addresses. */
@@ -611,4 +709,18 @@ export class TerritoriesService {
     });
     return { verifiedAt: now };
   }
+}
+
+/** 'YYYY-MM' of the month before the one `today` is in. */
+function previousMonth(today: string): string {
+  const y = Number(today.slice(0, 4));
+  const m = Number(today.slice(5, 7));
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+}
+
+/** The last day of a 'YYYY-MM' month. */
+function lastDayOf(month: string): string {
+  const y = Number(month.slice(0, 4));
+  const m = Number(month.slice(5, 7));
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
 }
