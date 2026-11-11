@@ -17,6 +17,8 @@ import { ServiceGroup } from '../entities/service-group.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { assignedWords } from './territory-words';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
 import { assertAssignable } from '../common/inactive';
@@ -71,6 +73,7 @@ export class TerritoryAssignmentsService {
   constructor(
     private readonly access: TerritoryAccessService,
     private readonly audit: AuditLogService,
+    private readonly notifications: NotificationsService,
     @InjectRepository(Territory)
     private readonly territories: Repository<Territory>,
     @InjectRepository(TerritoryAssignment)
@@ -367,6 +370,17 @@ export class TerritoryAssignmentsService {
       dueOn,
       forGroup: group?.name ?? null,
     });
+    // «Вам выдан участок …» — to the holder, if he has the app.
+    if (p.userId) {
+      await this.notifications.notify({
+        tenantId,
+        userIds: [p.userId],
+        kind: 'territory_assigned',
+        key: `territory-assigned:${saved.id}`,
+        text: (lang) => assignedWords(t.number, dueOn, lang),
+        data: { type: 'territory', territoryId: t.id },
+      });
+    }
     return saved;
   }
 

@@ -83,6 +83,16 @@ export class TerritoryAssignment {
   @Column({ type: 'uuid', nullable: true })
   createdByUserId!: string | null;
 
+  /**
+   * The hash of the link without login to this assignment's map; the link
+   * itself is shown once and never stored. Null: no link.
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true, select: false })
+  linkHash!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  linkCreatedAt!: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 

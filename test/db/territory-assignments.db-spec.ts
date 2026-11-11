@@ -1,4 +1,6 @@
 import { Harness, startHarness } from './harness';
+import { TerritoryRemindersService } from '../../src/territories/territory-reminders.service';
+import { InactiveHoldsService } from '../../src/tasks/inactive-holds.service';
 import {
   addDays,
   addMonths,
@@ -113,6 +115,8 @@ describe('territory assignments (real database)', () => {
   });
 
   afterEach(async () => {
+    await h.sql(`DELETE FROM notification_outbox`);
+    await h.sql(`UPDATE publishers SET removed_at = NULL`);
     await h.sql(`DELETE FROM territory_settings`);
     await h.sql(`DELETE FROM territory_assignments`);
     await h.sql(`DELETE FROM territory_no_calls`);
@@ -333,5 +337,154 @@ describe('territory assignments (real database)', () => {
     expect(after.mapReady).toBe(true);
     // A map in place is not a confirmation of the records.
     expect(after.verified).toBe(false);
+  });
+  const outbox = async (kind: string) =>
+    h.sql<{ user_id: string; title: string }>(
+      `SELECT user_id, title FROM notification_outbox WHERE kind = $1`,
+      [kind],
+    );
+  const userOf = async (login: string) =>
+    (
+      await h.sql<{ id: string }>(
+        `SELECT id FROM users WHERE login_name = $1`,
+        [login],
+      )
+    )[0].id;
+
+  it('a share link shows the map without login until it comes back, and nothing else', async () => {
+    await verify();
+    const a = await giveToHolder();
+    // Only the holder or a keeper makes one.
+    expect(
+      (await h.as('member').post(`/territories/assignments/${a.id}/share-link`))
+        .status,
+    ).toBe(404);
+    const made = await h
+      .as('holder')
+      .post(`/territories/assignments/${a.id}/share-link`);
+    expect(made.status).toBe(200);
+    const token = String(made.body.path).replace('/t/', '');
+    // Only the hash is kept.
+    const [row] = await h.sql<{ link_hash: string }>(
+      `SELECT link_hash FROM territory_assignments WHERE id = $1`,
+      [a.id],
+    );
+    expect(row.link_hash).not.toContain(token);
+    const page = await h.as(null).get(`/territory-links/${token}`);
+    expect(page.status).toBe(200);
+    expect(page.body.number).toBe('A01');
+    // No addresses, no names on a page without login.
+    expect(JSON.stringify(page.body)).not.toContain('Musterstraße');
+    expect(JSON.stringify(page.body)).not.toContain('Тест');
+    expect(page.headers['cache-control']).toContain('no-store');
+    // A wrong link and an ended one look the same.
+    expect(
+      (await h.as(null).get(`/territory-links/${'x'.repeat(32)}`)).status,
+    ).toBe(404);
+    await h.as('holder').post(`/territories/assignments/${a.id}/complete`, {});
+    expect((await h.as(null).get(`/territory-links/${token}`)).status).toBe(
+      404,
+    );
+  });
+
+  it('a new share link replaces the old one', async () => {
+    await verify();
+    const a = await giveToHolder();
+    const first = await h
+      .as('keeper')
+      .post(`/territories/assignments/${a.id}/share-link`);
+    const second = await h
+      .as('keeper')
+      .post(`/territories/assignments/${a.id}/share-link`);
+    const tok = (r: { body: { path: string } }) => r.body.path.slice(3);
+    expect(
+      (await h.as(null).get(`/territory-links/${tok(first)}`)).status,
+    ).toBe(404);
+    expect(
+      (await h.as(null).get(`/territory-links/${tok(second)}`)).status,
+    ).toBe(200);
+  });
+
+  it('a view link: for whoever sees the territory, and it cannot be forged', async () => {
+    await verify();
+    const a = await giveToHolder(groupOne);
+    const member = await h
+      .as('member')
+      .post(`/territories/assignments/${a.id}/view-link`);
+    expect(member.status).toBe(200);
+    const token = String(member.body.path).replace('/t/', '');
+    expect((await h.as(null).get(`/territory-links/${token}`)).status).toBe(
+      200,
+    );
+    expect(
+      (
+        await h
+          .as('stranger')
+          .post(`/territories/assignments/${a.id}/view-link`)
+      ).status,
+    ).toBe(404);
+    // One changed character in the signature.
+    const forged = token.slice(0, -1) + (token.endsWith('0') ? '1' : '0');
+    expect((await h.as(null).get(`/territory-links/${forged}`)).status).toBe(
+      404,
+    );
+  });
+
+  it('the holder is told when it is given, and two weeks before the day', async () => {
+    await verify();
+    const a = await giveToHolder();
+    const holder = await userOf('holder');
+    expect((await outbox('territory_assigned')).map((r) => r.user_id)).toEqual([
+      holder,
+    ]);
+    const soon = addDays(today, 14);
+    await h.sql(`UPDATE territory_assignments SET due_on = $1 WHERE id = $2`, [
+      soon,
+      a.id,
+    ]);
+    const reminders = h.app.get(TerritoryRemindersService);
+    await reminders.forCongregation(congregationId);
+    await reminders.forCongregation(congregationId);
+    // Once, however often the morning job runs.
+    expect((await outbox('territory_due')).map((r) => r.user_id)).toEqual([
+      holder,
+    ]);
+  });
+
+  it('a holder who has left: the territory servant is told once, nobody else', async () => {
+    await verify();
+    await giveToHolder();
+    await h.sql(`UPDATE publishers SET removed_at = now() WHERE id = $1`, [
+      card.holder,
+    ]);
+    const reminders = h.app.get(TerritoryRemindersService);
+    await reminders.forCongregation(congregationId);
+    await reminders.forCongregation(congregationId);
+    expect((await outbox('territory_return')).map((r) => r.user_id)).toEqual([
+      await userOf('keeper'),
+    ]);
+  });
+  it("an inactive holder: his territory is on the elders' list, not reported to the territory servant", async () => {
+    await verify();
+    await giveToHolder();
+    const holds = await h.app
+      .get(InactiveHoldsService)
+      .holdsOf(congregationId, { id: card.holder, userId: null }, today);
+    expect(holds).toEqual([
+      expect.objectContaining({ kind: 'territory', label: 'A01' }),
+    ]);
+    await h.sql(`UPDATE publishers SET status = 'inactive' WHERE id = $1`, [
+      card.holder,
+    ]);
+    try {
+      await h.app
+        .get(TerritoryRemindersService)
+        .forCongregation(congregationId);
+      expect(await outbox('territory_return')).toEqual([]);
+    } finally {
+      await h.sql(`UPDATE publishers SET status = NULL WHERE id = $1`, [
+        card.holder,
+      ]);
+    }
   });
 });

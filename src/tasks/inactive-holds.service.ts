@@ -12,6 +12,8 @@ import { Publisher } from '../entities/publisher.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { TalkExchange } from '../entities/talk-exchange.entity';
+import { TerritoryAssignment } from '../entities/territory-assignment.entity';
+import { Territory } from '../entities/territory.entity';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 import { TalkExchangeStatus } from '../common/enums/talk-exchange.enum';
@@ -34,7 +36,8 @@ export interface InactiveHold {
     | 'field_service'
     | 'talk'
     | 'group'
-    | 'responsibility';
+    | 'responsibility'
+    | 'territory';
   /** The day, or the Monday of the week for a meeting part or duty. */
   date: string | null;
   /** True when `date` is the week's Monday rather than the day itself. */
@@ -206,6 +209,30 @@ export class InactiveHoldsService {
         label: g.name,
         code: g.overseerPublisherId === pid ? 'overseer' : 'assistant',
       });
+
+    // A territory still in his hands (11 November 2026): the elders decide
+    // whether it comes back; the territory servant marks the return.
+    const territories = await this.repo(TerritoryAssignment).find({
+      where: {
+        congregationId,
+        publisherId: pid,
+        completedOn: IsNull(),
+        returnedOn: IsNull(),
+      },
+    });
+    for (const a of territories) {
+      const t = await this.repo(Territory).findOne({
+        where: { id: a.territoryId, congregationId },
+        select: { id: true, number: true },
+      });
+      out.push({
+        kind: 'territory',
+        date: a.dueOn,
+        week: false,
+        label: t?.number ?? null,
+        code: null,
+      });
+    }
 
     if (publisher.userId) {
       const held = await this.responsibilities.find({

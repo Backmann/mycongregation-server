@@ -1,3 +1,4 @@
+import { TerritoriesModule } from '../territories/territories.module';
 import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneers.module';
 import { PioneerMeeting } from '../entities/pioneer-meeting.entity';
 import { PioneerSpell } from '../entities/pioneer-spell.entity';
@@ -29,6 +30,7 @@ import { MePendingService } from './me-pending.service';
   imports: [
     TasksModule,
     AuxiliaryPioneersModule,
+    TerritoriesModule,
     CongregationClockModule,
     NotificationsModule,
     AuditLogModule,
