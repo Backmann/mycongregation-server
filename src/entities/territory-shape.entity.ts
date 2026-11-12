@@ -27,12 +27,19 @@ export class TerritoryShape {
   @Column({ type: 'jsonb' })
   geometry!: TerritoryGeometry;
 
-  /** Why: 'import', 'edit', 'split', 'merge'. */
+  /** Why: 'import', 'edit', 'undo', 'split', 'merge'. */
   @Column({ type: 'varchar', length: 12 })
   reason!: string;
 
   @Column({ type: 'uuid', array: true, default: () => "'{}'" })
   fromTerritoryIds!: string[];
+
+  /**
+   * One change by hand that may touch several territories (a shared border
+   * moves in both); «undo» puts back every outline with the same id.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  editId!: string | null;
 
   @Column({ type: 'uuid', nullable: true })
   createdByUserId!: string | null;

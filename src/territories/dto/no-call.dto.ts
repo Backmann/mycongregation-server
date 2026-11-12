@@ -1,5 +1,6 @@
 import {
   IsOptional,
+  IsUUID,
   IsString,
   Length,
   Matches,
@@ -43,4 +44,9 @@ export class UpdateNoCallDto {
   @IsOptional()
   @Matches(DAY)
   notedOn?: string;
+
+  /** Moved to another territory in use (a boundary drawn again). */
+  @IsOptional()
+  @IsUUID()
+  territoryId?: string;
 }

@@ -23,6 +23,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { TerritoriesService } from './territories.service';
 import { TerritoryAccessService } from './territory-access.service';
 import { TerritoryAssignmentsService } from './territory-assignments.service';
+import { TerritoryOutlineService } from './territory-outline.service';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { TerritoryAssignmentsService } from './territory-assignments.service';
     TerritoryAssignmentsService,
     TerritoryLinksService,
     TerritoryNoCallsService,
+    TerritoryOutlineService,
     TerritoryRemindersService,
   ],
   exports: [

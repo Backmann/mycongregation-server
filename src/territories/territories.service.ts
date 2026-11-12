@@ -180,6 +180,8 @@ export class TerritoriesService {
         kind: t.kind,
         category: t.category,
         geometry: t.geometry,
+        // The outline editor sends it back: a change in between is refused.
+        updatedAt: t.updatedAt,
         lastCompletedOn: done ?? null,
         holder: a
           ? {

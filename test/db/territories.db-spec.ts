@@ -416,4 +416,232 @@ describe('territories (real database)', () => {
       ).rejects.toThrow();
     });
   });
+  describe('a boundary drawn again by hand (12 November 2026)', () => {
+    const idOf = async (n: string) =>
+      (
+        await h.sql<{ id: string }>(
+          `SELECT id FROM territories WHERE number = $1 AND archived_at IS NULL`,
+          [n],
+        )
+      )[0].id;
+    const rect = (x1: number, x2: number, spike?: [number, number]) => ({
+      type: 'Polygon',
+      coordinates: [
+        [
+          [x1, 51],
+          [x2, 51],
+          ...(spike ? [spike] : []),
+          [x2, 51.01],
+          [x1, 51.01],
+          [x1, 51],
+        ],
+      ],
+    });
+    const stamp = async (id: string) =>
+      (
+        await h.sql<{ u: Date }>(
+          `SELECT updated_at AS u FROM territories WHERE id = $1`,
+          [id],
+        )
+      )[0].u.toISOString();
+    const outline = async (id: string) =>
+      (
+        await h.sql<{ g: { coordinates: number[][][] } }>(
+          `SELECT geometry AS g FROM territories WHERE id = $1`,
+          [id],
+        )
+      )[0].g.coordinates[0];
+    const ready = async () => {
+      await importTwo();
+      expect((await h.as('keeper').post('/territories/verify')).status).toBe(
+        200,
+      );
+      return { a1: await idOf('A01'), a2: await idOf('A02') };
+    };
+
+    it('a shared border moves in both; undo puts both back, once', async () => {
+      const { a1, a2 } = await ready();
+      const list = await h.as('keeper').get('/territories');
+      expect(list.body[0].updatedAt).toBeTruthy();
+      const body = {
+        geometry: rect(7, 7.012),
+        updatedAt: await stamp(a1),
+        neighbours: [
+          { id: a2, geometry: rect(7.012, 7.02), updatedAt: await stamp(a2) },
+        ],
+      };
+      // The committee sees, it does not draw.
+      expect(
+        (await h.as('secretary').put(`/territories/${a1}/outline`, body))
+          .status,
+      ).toBe(403);
+      const check = await h
+        .as('keeper')
+        .post(`/territories/${a1}/outline/check`, body);
+      expect(check.status).toBe(200);
+      expect(check.body.overlaps).toEqual([]);
+      const [r1, r2] = check.body.territories;
+      expect(r1).toMatchObject({ number: 'A01', leaving: 0, held: false });
+      expect(r1.gaining).toBeGreaterThanOrEqual(15);
+      expect(r2).toMatchObject({ number: 'A02', leaving: 20, gaining: 0 });
+      // Checking saved nothing.
+      expect((await outline(a1))[1][0]).toBe(7.01);
+
+      const saved = await h
+        .as('keeper')
+        .put(`/territories/${a1}/outline`, body);
+      expect(saved.status).toBe(200);
+      expect(saved.body.saved).toBe(2);
+      expect((await outline(a1))[1][0]).toBe(7.012);
+      expect((await outline(a2))[0][0]).toBe(7.012);
+      const shapes = await h.sql<{ e: string; reason: string }>(
+        `SELECT edit_id AS e, reason FROM territory_shapes WHERE reason <> 'import'`,
+      );
+      expect(shapes).toHaveLength(2);
+      expect(shapes[0].e).toBe(shapes[1].e);
+      // One line in the journal for each of the two (sealed at rest).
+      const journal = await h.sql<{ id: string }>(
+        `SELECT entity_id AS id FROM audit_logs WHERE entity_type = 'territory' AND entity_id IN ($1, $2)`,
+        [a1, a2],
+      );
+      expect(journal.map((j) => j.id).sort()).toEqual([a1, a2].sort());
+
+      // The same request again: the outlines changed in between.
+      const stale = await h
+        .as('keeper')
+        .put(`/territories/${a1}/outline`, body);
+      expect(stale.status).toBe(409);
+      expect(stale.body.code).toBe('TERRITORY_CHANGED');
+
+      // Undo from the neighbour's side puts both back.
+      const undo = await h.as('keeper').post(`/territories/${a2}/outline/undo`);
+      expect(undo.status).toBe(200);
+      expect((await outline(a1))[1][0]).toBe(7.01);
+      expect((await outline(a2))[0][0]).toBe(7.01);
+      const again = await h
+        .as('keeper')
+        .post(`/territories/${a1}/outline/undo`);
+      expect(again.body.code).toBe('TERRITORY_NOTHING_TO_UNDO');
+    });
+
+    it('undo waits while a neighbour changed since', async () => {
+      const { a1, a2 } = await ready();
+      await h.as('keeper').put(`/territories/${a1}/outline`, {
+        geometry: rect(7, 7.012),
+        updatedAt: await stamp(a1),
+        neighbours: [
+          { id: a2, geometry: rect(7.012, 7.02), updatedAt: await stamp(a2) },
+        ],
+      });
+      // Then A02 alone gets a new eastern edge.
+      const own = await h.as('keeper').put(`/territories/${a2}/outline`, {
+        geometry: rect(7.012, 7.019),
+        updatedAt: await stamp(a2),
+      });
+      expect(own.status).toBe(200);
+      const undo = await h.as('keeper').post(`/territories/${a1}/outline/undo`);
+      expect(undo.body.code).toBe('TERRITORY_CHANGED');
+      expect((await outline(a1))[1][0]).toBe(7.012);
+    });
+
+    it('a held territory: a small change passes, more than a tenth waits', async () => {
+      const { a1, a2 } = await ready();
+      const given = await h
+        .as('keeper')
+        .post(`/territories/${a2}/assign`, { publisherId: holderCard });
+      expect(given.status).toBe(201);
+      const move = async (x: number) =>
+        h.as('keeper').put(`/territories/${a1}/outline`, {
+          geometry: rect(7, x),
+          updatedAt: await stamp(a1),
+          neighbours: [
+            { id: a2, geometry: rect(x, 7.02), updatedAt: await stamp(a2) },
+          ],
+        });
+      const big = await move(7.012);
+      expect(big.status).toBe(409);
+      expect(big.body).toMatchObject({
+        code: 'TERRITORY_HELD_SHAPE',
+        number: 'A02',
+        share: 20,
+      });
+      // Nothing was saved, A01 neither.
+      expect((await outline(a1))[1][0]).toBe(7.01);
+      const small = await move(7.0105);
+      expect(small.status).toBe(200);
+      expect(small.body.territories[1]).toMatchObject({
+        held: true,
+        leaving: 5,
+        tooMuch: false,
+      });
+    });
+
+    it('a new overlap is refused, also one no corner shows; another kind may lie over', async () => {
+      const { a1, a2 } = await ready();
+      // Slid over the neighbour, which stays as it was.
+      const slid = await h.as('keeper').put(`/territories/${a1}/outline`, {
+        geometry: rect(7, 7.012),
+        updatedAt: await stamp(a1),
+      });
+      expect(slid.status).toBe(409);
+      expect(slid.body).toMatchObject({
+        code: 'TERRITORY_OVERLAP',
+        number: 'A01',
+        other: 'A02',
+      });
+      // A neighbour of the other kind cannot share a border with it…
+      await h.sql(
+        `UPDATE territories SET category = 'business' WHERE id = $1`,
+        [a2],
+      );
+      const mixed = await h.as('keeper').put(`/territories/${a1}/outline`, {
+        geometry: rect(7, 7.012),
+        updatedAt: await stamp(a1),
+        neighbours: [
+          { id: a2, geometry: rect(7.012, 7.02), updatedAt: await stamp(a2) },
+        ],
+      });
+      expect(mixed.body.code).toBe('TERRITORY_NOT_NEIGHBOUR');
+      // …and lying over it is no fault: business streets run through homes.
+      const over = await h.as('keeper').put(`/territories/${a1}/outline`, {
+        geometry: rect(7, 7.012, [7.015, 51.005]),
+        updatedAt: await stamp(a1),
+      });
+      expect(over.status).toBe(200);
+      // A broken outline is refused with its words.
+      const broken = await h.as('keeper').put(`/territories/${a1}/outline`, {
+        geometry: { type: 'Point', coordinates: [7, 51] },
+        updatedAt: await stamp(a1),
+      });
+      expect(broken.body.code).toBe('TERRITORY_GEOMETRY');
+    });
+
+    it('a «не посещать» address moves to the neighbour', async () => {
+      const { a1, a2 } = await ready();
+      const n = await h
+        .as('keeper')
+        .post(`/territories/${a1}/no-calls`, { address: 'Weg 1' });
+      expect(n.status).toBe(201);
+      await h
+        .as('keeper')
+        .post(`/territories/${a2}/no-calls`, { address: 'Weg 2' });
+      const moved = await h
+        .as('keeper')
+        .patch(`/territories/no-calls/${n.body.id}`, { territoryId: a2 });
+      expect(moved.status).toBe(200);
+      const [row] = await h.sql<{ t: string }>(
+        `SELECT territory_id AS t FROM territory_no_calls WHERE id = $1`,
+        [n.body.id],
+      );
+      expect(row.t).toBe(a2);
+      // The same address twice in one territory is refused.
+      const n3 = await h
+        .as('keeper')
+        .post(`/territories/${a1}/no-calls`, { address: 'Weg 2' });
+      const twice = await h
+        .as('keeper')
+        .patch(`/territories/no-calls/${n3.body.id}`, { territoryId: a2 });
+      expect(twice.body.code).toBe('TERRITORY_NO_CALL_TWICE');
+    });
+  });
 });
