@@ -15,7 +15,7 @@ name: Territory map
 # This log is public: it prints sizes and counts, never a box or a place.
 on:
   pull_request:
-    paths: ['.github/workflows/map.yml']
+    paths: ['.github/workflows/map.yml', 'scripts/map-houses.mjs']
   workflow_dispatch:
 
 permissions:
@@ -40,6 +40,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      # Only for scripts/map-houses.mjs (pmtiles, vector-tile, pbf).
+      - name: Install the reader of the map file
+        run: npm ci --ignore-scripts
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
@@ -61,12 +69,30 @@ jobs:
             || { tail -5 extract.log; exit 1; }
           ls -l trial.pmtiles | awk '{printf "Trial extract: %.1f MB\n", $5/1048576}'
           ~/go/bin/go-pmtiles show trial.pmtiles | grep -iE 'tile type|min zoom|max zoom|addressed tiles count' || true
+      - name: Houses from the trial file
+        run: |
+          set -euo pipefail
+          node scripts/map-houses.mjs trial.pmtiles 9.20,51.15,9.73,51.48 00000000-0000-4000-8000-000000000000 > houses.csv
+          n=$(wc -l < houses.csv)
+          echo "Houses in the trial area: $n"
+          # A small town and its villages: far more than a thousand buildings.
+          [ "$n" -gt 1000 ] || { echo "Too few houses: the reader is broken"; exit 1; }
+          awk -F, 'NF != 5 { bad++ } END { if (bad) { print bad " malformed lines"; exit 1 } }' houses.csv
+          head -3 houses.csv | cut -d, -f2-
 
   map-build:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      # Only for scripts/map-houses.mjs (pmtiles, vector-tile, pbf).
+      - name: Install the reader of the map file
+        run: npm ci --ignore-scripts
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
@@ -146,6 +172,19 @@ jobs:
             # Copy beside, then rename: a reader never sees half a file.
             scp -q "map-$n.pmtiles" "myserver:/var/www/mycongregation-app/maps/$id.pmtiles.part" < /dev/null
             ssh -n myserver "mv /var/www/mycongregation-app/maps/$id.pmtiles.part /var/www/mycongregation-app/maps/$id.pmtiles"
+            # The register of houses from the same file, replacing the old
+            # one in one transaction (12 November 2026).
+            node scripts/map-houses.mjs "map-$n.pmtiles" "$box" "$id" > "houses-$n.csv" < /dev/null
+            echo "Area $n: $(wc -l < "houses-$n.csv") houses"
+            {
+              echo "BEGIN;"
+              echo "DELETE FROM map_houses WHERE congregation_id = '$id';"
+              echo "COPY map_houses (congregation_id, osm_id, lon, lat, area_m2) FROM STDIN WITH (FORMAT csv);"
+              cat "houses-$n.csv"
+              echo '\.'
+              echo "INSERT INTO territory_settings (congregation_id, houses_built_at) VALUES ('$id', now()) ON CONFLICT (congregation_id) DO UPDATE SET houses_built_at = now();"
+              echo "COMMIT;"
+            } | ssh myserver "docker exec -i mycongregation-postgres sh -c 'psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -qAt -v ON_ERROR_STOP=1'"
             # Tell the app the file is there (it asks for it only then).
             ssh myserver "docker exec -i mycongregation-postgres sh -c 'psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -qAt -v ON_ERROR_STOP=1'" \
               <<< "INSERT INTO territory_settings (congregation_id, map_built_at) VALUES ('$id', now()) ON CONFLICT (congregation_id) DO UPDATE SET map_built_at = now();"
@@ -154,4 +193,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts ~/.ssh/config areas.csv
+        run: rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts ~/.ssh/config areas.csv houses-*.csv

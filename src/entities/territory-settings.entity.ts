@@ -25,6 +25,10 @@ export class TerritorySettings {
   @Column({ type: 'timestamptz', nullable: true })
   mapBuiltAt!: Date | null;
 
+  /** When the register of houses was last filled from the map (map_houses). */
+  @Column({ type: 'timestamptz', nullable: true })
+  housesBuiltAt!: Date | null;
+
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }

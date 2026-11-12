@@ -411,8 +411,10 @@ export const PLAN: Record<string, TablePlan> = {
   /** Addresses of householders who asked not to be called on. */
   territory_no_calls: 'skip',
   territory_settings: copy(
-    'congregation_id verified_at verified_by_user_id map_built_at updated_at',
+    'congregation_id verified_at verified_by_user_id map_built_at houses_built_at updated_at',
   ),
+  /** Buildings from OpenStreetMap: public map data, no people. */
+  map_houses: copy('congregation_id osm_id lon lat area_m2'),
   service_reports: table(
     copy(`id congregation_id publisher_id report_month served_this_month
       hours_reported bible_studies submitted_at submitted_by_id
