@@ -26,6 +26,7 @@ import { TerritoryAssignmentsService } from './territory-assignments.service';
 import {
   AssignTerritoryDto,
   CampaignDto,
+  PrintLinksDto,
   MeetingTerritoryDto,
   SummaryQueryDto,
   TransferAssignmentDto,
@@ -126,6 +127,16 @@ export class TerritoriesController {
       meetingId,
       dto.territoryId ?? null,
     );
+  }
+
+  /** Links (and, if asked, addresses) for printed territory maps. */
+  @Post('print-links')
+  @HttpCode(HttpStatus.OK)
+  printLinks(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: PrintLinksDto,
+  ) {
+    return this.links.printLinks(user, dto.assignmentIds, !!dto.withNoCalls);
   }
 
   /** «Обработаны в кампанию». */
