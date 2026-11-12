@@ -19,11 +19,12 @@ import { Congregation } from '../entities/congregation.entity';
 import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { assignedWords } from './territory-words';
+import { assignedWords, meetingDroppedWords } from './territory-words';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
 import { assertAssignable } from '../common/inactive';
-import { todayIn } from '../common/congregation-clock';
+import { minutesOfDayIn, todayIn } from '../common/congregation-clock';
+import { meetingHasBegun } from './meeting-time';
 import {
   TerritoryAccess,
   TerritoryAccessService,
@@ -159,7 +160,7 @@ export class TerritoryAssignmentsService {
         publishedAt: Not(IsNull()),
       },
     });
-    return rows
+    const near = rows
       .map((m) => ({ m, date: addDays(m.weekStartDate, m.dayOfWeek - 1) }))
       .filter(({ date }) => date === today || date === tomorrow)
       .filter(
@@ -168,14 +169,21 @@ export class TerritoryAssignmentsService {
           m.serviceGroupId === me.memberOf ||
           me.oversees.includes(m.serviceGroupId) ||
           m.conductorPublisherId === me.publisherId,
-      )
-      .map(({ m, date }) => ({
-        id: m.id,
-        territoryId: m.territoryId!,
-        date,
-        startTime: m.startTime,
-        address: m.address,
-      }));
+      );
+    // Only while the territory is still its conductor's or his group's
+    // (12 November 2026): a territory taken back, or a meeting handed to
+    // another conductor, must not send anyone to someone else's ground.
+    const still: typeof near = [];
+    for (const x of near) {
+      if (await this.meetingStillHolds(x.m)) still.push(x);
+    }
+    return still.map(({ m, date }) => ({
+      id: m.id,
+      territoryId: m.territoryId!,
+      date,
+      startTime: m.startTime,
+      address: m.address,
+    }));
   }
 
   private async visibleTo(congregationId: string, me: TerritoryPerson) {
@@ -502,6 +510,7 @@ export class TerritoryAssignmentsService {
       completedOn: on,
       method: a.method,
     });
+    await this.releaseMeetings(user, saved.territoryId);
     return saved;
   }
 
@@ -518,6 +527,7 @@ export class TerritoryAssignmentsService {
     a.returnedOn = on;
     const saved = await this.assignments.save(a);
     await this.log(user, saved, 'UPDATE', { returnedOn: on });
+    await this.releaseMeetings(user, saved.territoryId);
     return saved;
   }
 
@@ -645,6 +655,7 @@ export class TerritoryAssignmentsService {
       throw e;
     }
     await this.log(user, saved, 'UPDATE', { before, after: dto });
+    await this.releaseMeetings(user, saved.territoryId);
     return saved;
   }
 
@@ -656,6 +667,7 @@ export class TerritoryAssignmentsService {
       assignedOn: a.assignedOn,
       holder: a.holderName,
     });
+    await this.releaseMeetings(user, a.territoryId);
     return { ok: true };
   }
 
@@ -704,6 +716,82 @@ export class TerritoryAssignmentsService {
     }));
   }
 
+  /** The meeting's territory is still one it may go out to. */
+  private async meetingStillHolds(m: FieldServiceMeeting): Promise<boolean> {
+    if (!m.territoryId) return false;
+    return (await this.meetingOptions(m)).some(
+      (o) => o.territoryId === m.territoryId,
+    );
+  }
+
+  /**
+   * After a territory changed hands (12 November 2026): the meetings from
+   * today on that were sent to it and may no longer go there lose it, and
+   * their conductor is told once. Called after the change is saved.
+   */
+  private async releaseMeetings(
+    user: AuthenticatedUser,
+    territoryId: string,
+  ): Promise<void> {
+    const tenantId = user.congregationId;
+    const c = await this.congregations.findOne({
+      where: { id: tenantId },
+      select: { id: true, timezone: true },
+    });
+    const now = new Date();
+    const today = todayIn(now, c?.timezone);
+    const nowMinutes = minutesOfDayIn(now, c?.timezone);
+    const rows = await this.meetings.find({
+      where: {
+        congregationId: tenantId,
+        territoryId,
+        cancelledAt: IsNull(),
+        weekStartDate: MoreThanOrEqual(mondayOf(today)),
+      },
+    });
+    if (rows.length === 0) return;
+    const t = await this.territories.findOne({
+      where: { id: territoryId, congregationId: tenantId },
+      select: { id: true, number: true },
+    });
+    for (const m of rows) {
+      const date = addDays(m.weekStartDate, m.dayOfWeek - 1);
+      // A meeting that has already begun went out to it: its record stays.
+      if (meetingHasBegun(date, m.startTime, today, nowMinutes)) continue;
+      if (await this.meetingStillHolds(m)) continue;
+      await this.meetings.update({ id: m.id }, { territoryId: null });
+      await this.audit.logFact({
+        tenantId,
+        entityType: 'territory_assignment',
+        entityId: m.id,
+        action: 'UPDATE',
+        actorUserId: user.id,
+        detail: {
+          meeting: m.id,
+          territoryId: null,
+          droppedFrom: territoryId,
+          date,
+        },
+      });
+      const conductor = m.conductorPublisherId
+        ? await this.publishers.findOne({
+            where: { id: m.conductorPublisherId, congregationId: tenantId },
+            select: { id: true, userId: true },
+          })
+        : null;
+      if (conductor?.userId && t) {
+        await this.notifications.notify({
+          tenantId,
+          userIds: [conductor.userId],
+          kind: 'territory_meeting_dropped',
+          key: `territory-meeting-dropped:${m.id}:${territoryId}`,
+          text: (lang) => meetingDroppedWords(t.number, date, lang),
+          data: { type: 'territory', territoryId },
+        });
+      }
+    }
+  }
+
   /**
    * The meetings for field service the user conducts in the next two weeks,
    * each with the territories he may send it to (his own, his group's).
@@ -731,6 +819,8 @@ export class TerritoryAssignmentsService {
       address: string;
       serviceGroupId: string | null;
       territoryId: string | null;
+      /** Sent to a territory it may no longer go to (another's now). */
+      dropped: { number: string } | null;
       options: {
         territoryId: string;
         number: string;
@@ -740,14 +830,26 @@ export class TerritoryAssignmentsService {
     for (const m of rows) {
       const date = addDays(m.weekStartDate, m.dayOfWeek - 1);
       if (date < today || date > until) continue;
+      const options = await this.meetingOptions(m);
+      const holds =
+        !!m.territoryId && options.some((o) => o.territoryId === m.territoryId);
+      let dropped: { number: string } | null = null;
+      if (m.territoryId && !holds) {
+        const t = await this.territories.findOne({
+          where: { id: m.territoryId, congregationId: user.congregationId },
+          select: { id: true, number: true },
+        });
+        dropped = t ? { number: t.number } : null;
+      }
       out.push({
         id: m.id,
         date,
         startTime: m.startTime,
         address: m.address,
         serviceGroupId: m.serviceGroupId,
-        territoryId: m.territoryId,
-        options: await this.meetingOptions(m),
+        territoryId: holds ? m.territoryId : null,
+        dropped,
+        options,
       });
     }
     return out.sort(
@@ -987,6 +1089,7 @@ export class TerritoryAssignmentsService {
       on,
       number: t?.number,
     });
+    await this.releaseMeetings(user, a.territoryId);
     if (p.userId && t) {
       await this.notifications.notify({
         tenantId,

@@ -93,7 +93,9 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
     // The territory servant: a territory to take back, or to hand on to a
     // group's new overseer.
     kind === 'territory_return' ||
-    kind === 'territory_hand_on'
+    kind === 'territory_hand_on' ||
+    // His meeting's territory left his hands (12 November 2026).
+    kind === 'territory_meeting_dropped'
   ) {
     return 'ministry';
   }
