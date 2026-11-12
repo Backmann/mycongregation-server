@@ -248,6 +248,20 @@ describe('territory assignments (real database)', () => {
     expect(keeper.body.dueOn).toBe(later);
   });
 
+  it('an overdue territory is extended a month from today, not from its long-gone day', async () => {
+    await verify();
+    const a = await giveToHolder();
+    await h.sql(
+      `UPDATE territory_assignments SET assigned_on = $1, due_on = $2 WHERE id = $3`,
+      [addDays(today, -300), addDays(today, -180), a.id],
+    );
+    const r = await h
+      .as('holder')
+      .post(`/territories/assignments/${a.id}/extend`, {});
+    expect(r.status).toBe(200);
+    expect(r.body.dueOn).toBe(addMonths(today, 1));
+  });
+
   it('the holder marks it worked; a group member cannot; worked twice is refused', async () => {
     await verify();
     const a = await giveToHolder(groupOne);
@@ -326,6 +340,42 @@ describe('territory assignments (real database)', () => {
       (await h.as('keeper').delete(`/territories/assignments/${a.id}`)).status,
     ).toBe(200);
     expect(await seen('holder')).toEqual([]);
+  });
+  it('a correction may not lay one line over another of the same territory; end to start the same day is fine', async () => {
+    await verify();
+    const start = serviceYearStart(serviceYearOf(today));
+    const d = (n: number) => addDays(start, n);
+    const [first] = await h.sql<{ id: string }>(
+      `INSERT INTO territory_assignments
+         (congregation_id, territory_id, holder_name, assigned_on, completed_on, method)
+       VALUES ($1, $2, 'Первый', $3, $4, 'door_to_door') RETURNING id`,
+      [congregationId, territoryId, d(1), d(20)],
+    );
+    const [second] = await h.sql<{ id: string }>(
+      `INSERT INTO territory_assignments
+         (congregation_id, territory_id, holder_name, assigned_on, returned_on)
+       VALUES ($1, $2, 'Второй', $3, $4) RETURNING id`,
+      [congregationId, territoryId, d(30), d(40)],
+    );
+    // The second moved to start inside the first: refused.
+    const over = await h
+      .as('keeper')
+      .patch(`/territories/assignments/${second.id}`, { assignedOn: d(10) });
+    expect(over.status).toBe(400);
+    expect(over.body.code).toBe('TERRITORY_DATES');
+    // The first stretched into the second: refused.
+    const into = await h
+      .as('keeper')
+      .patch(`/territories/assignments/${first.id}`, { completedOn: d(35) });
+    expect(into.body.code).toBe('TERRITORY_DATES');
+    // Starting the day the first was worked: fine.
+    expect(
+      (
+        await h
+          .as('keeper')
+          .patch(`/territories/assignments/${second.id}`, { assignedOn: d(20) })
+      ).status,
+    ).toBe(200);
   });
   it('the map file is asked for only once the map job has put it in place', async () => {
     const before = (await h.as('holder').get('/territories/access')).body;
@@ -452,6 +502,38 @@ describe('territory assignments (real database)', () => {
     expect((await outbox('territory_due')).map((r) => r.user_id)).toEqual([
       holder,
     ]);
+  });
+
+  it('a day missed, or less than two weeks left when brought over: still told, once; not after the day', async () => {
+    await verify();
+    const a = await giveToHolder();
+    const holder = await userOf('holder');
+    const reminders = h.app.get(TerritoryRemindersService);
+    // Further off than two weeks: nothing yet.
+    await h.sql(`UPDATE territory_assignments SET due_on = $1 WHERE id = $2`, [
+      addDays(today, 15),
+      a.id,
+    ]);
+    await reminders.forCongregation(congregationId);
+    expect(await outbox('territory_due')).toEqual([]);
+    // Four days left (the fourteenth day was missed): told, once.
+    await h.sql(`UPDATE territory_assignments SET due_on = $1 WHERE id = $2`, [
+      addDays(today, 4),
+      a.id,
+    ]);
+    await reminders.forCongregation(congregationId);
+    await reminders.forCongregation(congregationId);
+    expect((await outbox('territory_due')).map((r) => r.user_id)).toEqual([
+      holder,
+    ]);
+    // Past the day: overdue is the keeper's business, not a reminder.
+    await h.sql(`DELETE FROM notification_outbox`);
+    await h.sql(`UPDATE territory_assignments SET due_on = $1 WHERE id = $2`, [
+      addDays(today, -1),
+      a.id,
+    ]);
+    await reminders.forCongregation(congregationId);
+    expect(await outbox('territory_due')).toEqual([]);
   });
 
   it('a holder who has left: the territory servant is told once, nobody else', async () => {

@@ -527,7 +527,12 @@ export class TerritoryAssignmentsService {
    */
   async extend(user: AuthenticatedUser, id: string, dto: ExtendAssignmentDto) {
     const { a, keeps } = await this.openFor(user, id);
-    const due = a.dueOn ?? addDays(a.assignedOn, TERM_DAYS);
+    // A month from the day it is due — or from today, when that day has
+    // already passed: a month added to a day long gone is still overdue
+    // (12 November 2026, found on the brought-over records).
+    const today = await this.today(user.congregationId);
+    const dueDay = a.dueOn ?? addDays(a.assignedOn, TERM_DAYS);
+    const due = dueDay < today ? today : dueDay;
     let next: string;
     if (keeps && dto.dueOn) {
       next = dto.dueOn;
@@ -610,6 +615,23 @@ export class TerritoryAssignmentsService {
     }
     if (a.dueOn && a.dueOn <= a.assignedOn) {
       throw this.dates('due before given out');
+    }
+    // Moved dates must not lie over another line of the same territory: the
+    // S-13 would show two people holding it at once (12 November 2026). A
+    // line may start the day the one before it ended.
+    const others = await this.assignments.find({
+      where: { territoryId: a.territoryId, congregationId: a.congregationId },
+    });
+    const FAR = '9999-12-31';
+    const aEnd = end ?? FAR;
+    if (
+      others.some((o) => {
+        if (o.id === a.id) return false;
+        const oEnd = o.completedOn ?? o.returnedOn ?? FAR;
+        return o.assignedOn < aEnd && oEnd > a.assignedOn;
+      })
+    ) {
+      throw this.dates('lies over another line of this territory');
     }
     let saved: TerritoryAssignment;
     try {

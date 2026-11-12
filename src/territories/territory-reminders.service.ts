@@ -137,11 +137,13 @@ export class TerritoryRemindersService {
       ).map((p) => [p.id, p]),
     );
 
-    // Two weeks before.
+    // Two weeks before — or later, when the day was missed (a territory
+    // brought over or extended with less than two weeks left, a morning the
+    // server was down). Once per due day: the key below.
     const soon = addDays(today, DUE_SOON_DAYS);
     let due = 0;
     for (const a of held) {
-      if (a.dueOn !== soon) continue;
+      if (!a.dueOn || a.dueOn > soon || a.dueOn < today) continue;
       const p = people.get(a.publisherId!);
       if (!p?.userId || p.removedAt || p.deletedAt || !p.isActive) continue;
       const number = numbers.get(a.territoryId) ?? '';

@@ -4,6 +4,7 @@ import {
   GeometryError,
   overlaps,
   shareOutside,
+  areaShareOutside,
 } from './geometry';
 import { keptFrom, serviceYearOf } from './service-year';
 
@@ -119,6 +120,39 @@ describe('territory outlines', () => {
     });
     expect(shareOutside(strip, area)).toBe(0);
     expect(cutByBorder(strip, area)).toBe(true);
+    // ...and its ground outside is measured: the notch is a sliver.
+    const share = areaShareOutside(strip, area);
+    expect(share).toBeGreaterThan(0);
+    expect(share).toBeLessThan(0.03);
+  });
+
+  it('measures the ground outside, not the corners (12 November 2026)', () => {
+    const area = square(7, 51, 0.1);
+    // Half of a square across the border: half its ground.
+    expect(areaShareOutside(square(7.095, 51.02), area)).toBeCloseTo(0.5, 1);
+    // Wholly inside: nothing, and no measuring needed.
+    expect(areaShareOutside(square(7.02, 51.02), area)).toBe(0);
+    // A territory drawn with a ragged edge a hair past the border: most of
+    // its corners lie outside, almost none of its ground does.
+    const ragged = checkGeometry({
+      type: 'Polygon',
+      coordinates: [
+        [
+          [7.08, 51.02],
+          [7.1001, 51.02],
+          [7.0999, 51.022],
+          [7.1001, 51.024],
+          [7.0999, 51.026],
+          [7.1001, 51.028],
+          [7.0999, 51.029],
+          [7.1001, 51.03],
+          [7.08, 51.03],
+          [7.08, 51.02],
+        ],
+      ],
+    });
+    expect(shareOutside(ragged, area)).toBeGreaterThan(0.4);
+    expect(areaShareOutside(ragged, area)).toBeLessThan(0.01);
   });
 });
 
