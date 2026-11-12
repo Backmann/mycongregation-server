@@ -111,19 +111,6 @@ export class ScheduledJobsService {
     await this.territoryRemindersDaily();
   }
 
-  /** The service committee's month of the territories, on the first. */
-  @Cron('30 8 1 * *', {
-    name: 'territory-summary',
-    timeZone: 'Europe/Berlin',
-  })
-  async handleTerritorySummary(): Promise<void> {
-    try {
-      await this.territoryReminders?.monthly();
-    } catch (err) {
-      this.logger.error(`territory summary failed: ${String(err)}`);
-    }
-  }
-
   private async territoryRemindersDaily(): Promise<void> {
     try {
       const r = await this.territoryReminders?.tick();

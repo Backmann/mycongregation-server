@@ -1,4 +1,6 @@
+import { DataSource } from 'typeorm';
 import { Harness, startHarness } from './harness';
+import { AuditLog } from '../../src/entities/audit-log.entity';
 import { TerritoryRemindersService } from '../../src/territories/territory-reminders.service';
 import { InactiveHoldsService } from '../../src/tasks/inactive-holds.service';
 import {
@@ -641,7 +643,7 @@ describe('territory assignments (real database)', () => {
     expect(await seen('stranger')).toEqual([]);
   });
 
-  it('the month in figures, and the committee hears of it once', async () => {
+  it('the month in figures, seen in the section; the committee is sent no notice of it', async () => {
     await verify();
     const a = await giveToHolder();
     await h.as('holder').post(`/territories/assignments/${a.id}/complete`, {});
@@ -658,12 +660,14 @@ describe('territory assignments (real database)', () => {
       total: 2,
     });
     expect((await h.as('member').get('/territories/summary')).status).toBe(403);
-    const reminders = h.app.get(TerritoryRemindersService);
-    await reminders.monthly();
-    await reminders.monthly();
-    expect((await outbox('territory_summary')).map((x) => x.user_id)).toEqual([
-      await userOf('secretary'),
-    ]);
+    // Lionel, 12 November 2026: the committee hears of the territories only
+    // when «не посещать» addresses come up for review.
+    await h.app.get(TerritoryRemindersService).tick();
+    expect(
+      await h.sql(`SELECT kind FROM notification_outbox WHERE user_id = $1`, [
+        await userOf('secretary'),
+      ]),
+    ).toEqual([]);
   });
   it('the S-13 of a year: last worked before it, carried-over lines with their old day, a return without a worked day', async () => {
     const start = serviceYearStart(serviceYearOf(today));
@@ -755,5 +759,203 @@ describe('territory assignments (real database)', () => {
           .post('/territories/print-links', { assignmentIds: [a.id] })
       ).status,
     ).toBe(404);
+  });
+
+  describe('«не посещать» kept by hand (12 November 2026)', () => {
+    const list = async () =>
+      (await h.as('keeper').get(`/territories/${territoryId}`)).body
+        .noCalls as {
+        id: string;
+        address: string;
+        surname: string | null;
+        notedOn: string;
+        reviewOn: string;
+      }[];
+
+    it('the keeper adds, corrects and deletes; the same address twice is refused; others may not', async () => {
+      const add = await h
+        .as('keeper')
+        .post(`/territories/${territoryId}/no-calls`, {
+          address: 'Schleusenstr. 8',
+          surname: 'Vogt',
+          notedOn: '2026-10-25',
+        });
+      expect(add.status).toBe(201);
+      expect(add.body).toMatchObject({
+        address: 'Schleusenstr. 8',
+        surname: 'Vogt',
+        notedOn: '2026-10-25',
+        reviewOn: addDays('2026-10-25', 730),
+      });
+      // Written otherwise, still the same address.
+      const twice = await h
+        .as('keeper')
+        .post(`/territories/${territoryId}/no-calls`, {
+          address: 'Schleusenstrasse 8',
+        });
+      expect(twice.body.code).toBe('TERRITORY_NO_CALL_TWICE');
+      const twiceToo = await h
+        .as('keeper')
+        .post(`/territories/${territoryId}/no-calls`, {
+          address: 'musterstrasse  1',
+        });
+      expect(twiceToo.body.code).toBe('TERRITORY_NO_CALL_TWICE');
+      // Another house in the same street is another address.
+      expect(
+        (
+          await h.as('keeper').post(`/territories/${territoryId}/no-calls`, {
+            address: 'Schleusenstr. 18',
+          })
+        ).status,
+      ).toBe(201);
+      const future = await h
+        .as('keeper')
+        .post(`/territories/${territoryId}/no-calls`, {
+          address: 'Neue Str. 1',
+          notedOn: addDays(today, 3),
+        });
+      expect(future.body.code).toBe('TERRITORY_DATES');
+      // Not his to add: the secretary before the review, a publisher ever.
+      await verify();
+      for (const who of ['secretary', 'member']) {
+        expect(
+          (
+            await h.as(who).post(`/territories/${territoryId}/no-calls`, {
+              address: 'Andere Str. 2',
+            })
+          ).status,
+        ).toBe(403);
+      }
+      const fix = await h
+        .as('keeper')
+        .patch(`/territories/no-calls/${add.body.id}`, {
+          surname: '',
+          notedOn: '2026-10-24',
+        });
+      expect(fix.status).toBe(200);
+      expect(fix.body).toMatchObject({
+        surname: null,
+        reviewOn: addDays('2026-10-24', 730),
+      });
+      expect(
+        (await h.as('secretary').delete(`/territories/no-calls/${add.body.id}`))
+          .status,
+      ).toBe(403);
+      expect(
+        (await h.as('keeper').delete(`/territories/no-calls/${add.body.id}`))
+          .status,
+      ).toBe(200);
+      expect((await list()).map((n) => n.address).sort()).toEqual([
+        'Musterstraße 1',
+        'Schleusenstr. 18',
+      ]);
+      // The journal says what changed, never the address.
+      // Read through the app, so the journal's sealed text is opened.
+      const journal = await h.app
+        .get(DataSource)
+        .getRepository(AuditLog)
+        .find({
+          where: { entityType: 'territory_no_call' },
+          order: { createdAt: 'ASC' },
+        });
+      expect(journal.map((j) => j.action)).toEqual([
+        'CREATE',
+        'CREATE',
+        'UPDATE',
+        'DELETE',
+      ]);
+      expect(journal[0].afterJson).toContain('A01');
+      for (const j of journal) {
+        expect(j.afterJson ?? '').not.toContain('Schleusen');
+        expect(j.afterJson ?? '').not.toContain('Vogt');
+      }
+    });
+
+    it('the address and surname lie in the database as cipher, not as text', async () => {
+      await h.as('keeper').post(`/territories/${territoryId}/no-calls`, {
+        address: 'Geheimweg 7',
+        surname: 'Verborgen',
+      });
+      const raw = await h.sql<{ address: string; surname: string }>(
+        `SELECT address, surname FROM territory_no_calls WHERE surname IS NOT NULL`,
+      );
+      expect(raw).toHaveLength(1);
+      expect(raw[0].address.startsWith('enc:v1:')).toBe(true);
+      expect(raw[0].surname.startsWith('enc:v1:')).toBe(true);
+      expect(JSON.stringify(raw)).not.toContain('Geheimweg');
+      expect(JSON.stringify(raw)).not.toContain('Verborgen');
+    });
+
+    it('up for review: the committee may keep or remove only then, and hears of it once a day', async () => {
+      await verify();
+      const noted = addDays(today, -730 + 30);
+      const due = await h
+        .as('keeper')
+        .post(`/territories/${territoryId}/no-calls`, {
+          address: 'Am Dahlhof 6',
+          notedOn: noted,
+        });
+      expect(due.body.reviewOn).toBe(addDays(today, 30));
+      const fresh = (await list()).find((n) => n.address === 'Musterstraße 1')!;
+      const review = await h
+        .as('secretary')
+        .get('/territories/no-calls/review');
+      expect(review.status).toBe(200);
+      expect(review.body).toEqual([
+        expect.objectContaining({
+          id: due.body.id,
+          number: 'A01',
+          address: 'Am Dahlhof 6',
+        }),
+      ]);
+      expect(
+        (await h.as('member').get('/territories/no-calls/review')).status,
+      ).toBe(403);
+      // Not up for review yet: not the committee's.
+      expect(
+        (await h.as('secretary').post(`/territories/no-calls/${fresh.id}/keep`))
+          .status,
+      ).toBe(403);
+      // The month-ahead notice: keepers and committee, once.
+      const reminders = h.app.get(TerritoryRemindersService);
+      await reminders.tick();
+      await reminders.tick();
+      const sent = await outbox('territory_no_call_review');
+      expect(sent.map((x) => x.user_id).sort()).toEqual(
+        [await userOf('keeper'), await userOf('secretary')].sort(),
+      );
+      expect(sent[0].title).not.toContain('Dahlhof');
+      // And on the home screen, one line: how many, for keeper and committee.
+      for (const who of ['keeper', 'secretary']) {
+        const home = (await h.as(who).get('/me/pending')).body.items;
+        expect(
+          home.filter((i: { kind: string }) => i.kind === 'territory_review'),
+        ).toEqual([
+          expect.objectContaining({ title: '1', dueOn: addDays(today, 30) }),
+        ]);
+      }
+      expect(
+        (await h.as('member').get('/me/pending')).body.items.some(
+          (i: { kind: string }) => i.kind === 'territory_review',
+        ),
+      ).toBe(false);
+      const kept = await h
+        .as('secretary')
+        .post(`/territories/no-calls/${due.body.id}/keep`);
+      expect(kept.status).toBe(200);
+      expect(kept.body.reviewOn).toBe(addDays(today, 730));
+      expect(
+        (await h.as('secretary').get('/territories/no-calls/review')).body,
+      ).toEqual([]);
+      // Up again: the committee may remove it.
+      await h.sql(
+        `UPDATE territory_no_calls SET review_on = $1 WHERE id = $2`,
+        [today, due.body.id],
+      );
+      expect(
+        (await h.as('secretary').delete(`/territories/no-calls/${due.body.id}`))
+          .status,
+      ).toBe(200);
+    });
   });
 });

@@ -21,6 +21,7 @@ import { Congregation } from '../entities/congregation.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
+import { NO_CALL_REVIEW_DAYS } from './territory-no-calls.service';
 import { todayIn } from '../common/congregation-clock';
 import { TerritoryAccessService } from './territory-access.service';
 import {
@@ -47,9 +48,6 @@ import type {
 } from './dto/import.dto';
 
 const norm = (n: string): string => n.trim().toLowerCase();
-
-/** «Не беспокоить» is looked at again by the elders two years on. */
-const NO_CALL_REVIEW_DAYS = 730;
 
 /**
  * The territory section (11 November 2026). This first stage holds the

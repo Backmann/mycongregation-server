@@ -7,6 +7,7 @@ import { todayIn } from '../common/congregation-clock';
 import { TasksService } from '../tasks/tasks.service';
 import { AuxApplicationsService } from '../auxiliary-pioneers/aux-applications.service';
 import { TerritoryAssignmentsService } from '../territories/territory-assignments.service';
+import { TerritoryNoCallsService } from '../territories/territory-no-calls.service';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
 /**
@@ -53,8 +54,17 @@ const MAX_ITEMS = 5;
  * 'territory': a territory he holds himself (11 November 2026), the whole
  * time he holds it — one line «Участок T07 · вернуть до …», which the app
  * turns amber two weeks before the day. `title` is the number: data.
+ *
+ * 'territory_review': «не посещать» addresses up for review (12 November
+ * 2026), for the territory servant, his assistant and the service committee —
+ * one line; `title` is how many, `dueOn` the earliest review day.
  */
-export type PendingKind = 'contacts' | 'task' | 'aux_application' | 'territory';
+export type PendingKind =
+  | 'contacts'
+  | 'task'
+  | 'aux_application'
+  | 'territory'
+  | 'territory_review';
 
 export interface PendingItem {
   kind: PendingKind;
@@ -83,6 +93,7 @@ export class MePendingService {
     private readonly clock: CongregationClock,
     private readonly auxApplications: AuxApplicationsService,
     private readonly territories: TerritoryAssignmentsService,
+    private readonly noCalls: TerritoryNoCallsService,
   ) {}
 
   async pending(
@@ -139,6 +150,16 @@ export class MePendingService {
         title: t.number,
         dueOn: t.assignment.dueOn,
         overdue: !!t.assignment.dueOn && t.assignment.dueOn < today,
+      });
+    }
+
+    const review = await this.noCalls.waitingFor(user);
+    if (review) {
+      items.push({
+        kind: 'territory_review',
+        title: String(review.count),
+        dueOn: review.first,
+        overdue: review.first < today,
       });
     }
 

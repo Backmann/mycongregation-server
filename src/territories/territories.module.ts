@@ -17,6 +17,7 @@ import {
   TerritoryLinksController,
 } from './territories.controller';
 import { TerritoryLinksService } from './territory-links.service';
+import { TerritoryNoCallsService } from './territory-no-calls.service';
 import { TerritoryRemindersService } from './territory-reminders.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { TerritoriesService } from './territories.service';
@@ -47,10 +48,12 @@ import { TerritoryAssignmentsService } from './territory-assignments.service';
     TerritoryAccessService,
     TerritoryAssignmentsService,
     TerritoryLinksService,
+    TerritoryNoCallsService,
     TerritoryRemindersService,
   ],
   exports: [
     TerritoryAccessService,
+    TerritoryNoCallsService,
     TerritoryAssignmentsService,
     TerritoryRemindersService,
   ],

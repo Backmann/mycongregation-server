@@ -6,6 +6,8 @@ import { ServiceGroup } from '../entities/service-group.entity';
 import { AuditLog } from '../entities/audit-log.entity';
 import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { ExternalCongregation } from '../entities/external-congregation.entity';
+import { Territory } from '../entities/territory.entity';
+import { TerritoryNoCall } from '../entities/territory-no-call.entity';
 
 /**
  * Regression-protection for data-protection.md Phase 1.
@@ -121,5 +123,39 @@ describe('Encryption wiring — public-talk coordinator contacts', () => {
 
   it('covers exactly the 5 coordinator contact fields', () => {
     expect(TIER_2_FIELDS).toHaveLength(5);
+  });
+});
+
+// Territories (12 November 2026): addresses of householders who asked not to
+// be called on, the surname on the door, and the keepers' note on a territory.
+const TERRITORY_FIELDS: ExpectedField[] = [
+  {
+    name: 'TerritoryNoCall.address',
+    entity: TerritoryNoCall,
+    property: 'address',
+  },
+  {
+    name: 'TerritoryNoCall.surname',
+    entity: TerritoryNoCall,
+    property: 'surname',
+  },
+  { name: 'Territory.note', entity: Territory, property: 'note' },
+];
+
+describe('Encryption wiring — territories', () => {
+  it.each(TERRITORY_FIELDS)(
+    '$name uses encryptedTransformer',
+    ({ entity, property }) => {
+      const column = getMetadataArgsStorage().columns.find(
+        (c) => c.target === entity && c.propertyName === property,
+      );
+      expect(column).toBeDefined();
+      const t = column?.options.transformer as ValueTransformer | undefined;
+      expect(t).toBe(encryptedTransformer);
+    },
+  );
+
+  it('covers exactly the 3 territory fields', () => {
+    expect(TERRITORY_FIELDS).toHaveLength(3);
   });
 });
