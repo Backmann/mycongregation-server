@@ -12,12 +12,7 @@ import { TerritoryShape } from '../entities/territory-shape.entity';
 import { TerritoryBoundary } from '../entities/territory-boundary.entity';
 import { TerritoryAssignment } from '../entities/territory-assignment.entity';
 import { TerritorySettings } from '../entities/territory-settings.entity';
-import {
-  boxAround,
-  houseShift,
-  type HouseShift,
-  type HousePoint,
-} from './houses';
+import { housesAround, houseShift, type HouseShift } from './houses';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
@@ -341,28 +336,6 @@ export class TerritoryOutlineService {
   }
 
   /**
-   * The houses of the register round the given outlines, or null while the
-   * register has not been built for this congregation.
-   */
-  private async housesAround(
-    m: EntityManager,
-    tenantId: string,
-    shapes: TerritoryGeometry[],
-  ): Promise<HousePoint[] | null> {
-    const settings = await m.findOne(TerritorySettings, {
-      where: { congregationId: tenantId },
-    });
-    if (!settings?.housesBuiltAt) return null;
-    const [x0, y0, x1, y1] = boxAround(shapes);
-    const rows = await m.query<{ lon: number; lat: number }[]>(
-      `SELECT lon, lat FROM map_houses
-        WHERE congregation_id = $1 AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
-      [tenantId, y0, y1, x0, x1],
-    );
-    return rows.map((r) => [r.lon, r.lat]);
-  }
-
-  /**
    * Reads the territories involved (locked when saving), and works out what
    * the change does. Neighbours must be of the same kind as the territory:
    * a business territory lies over residential streets by design.
@@ -409,7 +382,7 @@ export class TerritoryOutlineService {
       where: { congregationId: tenantId },
       order: { createdAt: 'DESC' },
     });
-    const houses = await this.housesAround(m, tenantId, [
+    const houses = await housesAround(m, tenantId, [
       ...changes.map((c) => c.geometry),
       ...changes.map((c) => rows.get(c.id)!.geometry),
     ]);

@@ -1,4 +1,6 @@
+import type { EntityManager } from 'typeorm';
 import type { TerritoryGeometry } from '../entities/territory.entity';
+import { TerritorySettings } from '../entities/territory-settings.entity';
 import { boxOf, pointInside } from './geometry';
 
 /** A house of the register: [lon, lat]. */
@@ -57,4 +59,31 @@ export function boxAround(
     y1 = Math.max(y1, d);
   }
   return [x0, y0, x1, y1];
+}
+
+/**
+ * The houses of the register round the given outlines, or null while the
+ * register has not been built for this congregation.
+ */
+export async function housesAround(
+  m: EntityManager,
+  tenantId: string,
+  shapes: TerritoryGeometry[],
+): Promise<HousePoint[] | null> {
+  const settings = await m.findOne(TerritorySettings, {
+    where: { congregationId: tenantId },
+  });
+  if (!settings?.housesBuiltAt) return null;
+  const [x0, y0, x1, y1] = boxAround(shapes);
+  const rows = await m.query<{ lon: number; lat: number }[]>(
+    `SELECT lon, lat FROM map_houses
+      WHERE congregation_id = $1 AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
+    [tenantId, y0, y1, x0, x1],
+  );
+  return rows.map((r) => [r.lon, r.lat]);
+}
+
+/** Houses of the register inside one outline. */
+export function housesIn(g: TerritoryGeometry, houses: HousePoint[]): number {
+  return houseShift(g, g, houses).before;
 }

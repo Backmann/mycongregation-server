@@ -26,7 +26,17 @@ import {
 import { TerritoriesService } from './territories.service';
 import { EditTerritoryDto } from './dto/card.dto';
 import { OutlineDto } from './dto/outline.dto';
+import type { TerritoryCategory } from '../entities/territory.entity';
 import { TerritoryOutlineService } from './territory-outline.service';
+import { TerritoryReshapeService } from './territory-reshape.service';
+import {
+  CreateTerritoryDto,
+  MergeCheckDto,
+  MergeDto,
+  NewCheckDto,
+  SplitDto,
+  SplitLineDto,
+} from './dto/reshape.dto';
 import { TerritoryAssignmentsService } from './territory-assignments.service';
 import {
   AssignTerritoryDto,
@@ -61,6 +71,7 @@ export class TerritoriesController {
     private readonly links: TerritoryLinksService,
     private readonly noCalls: TerritoryNoCallsService,
     private readonly outline: TerritoryOutlineService,
+    private readonly reshape: TerritoryReshapeService,
   ) {}
 
   /** The door: what the user may open, and the territories he has a part in. */
@@ -160,6 +171,34 @@ export class TerritoriesController {
   }
 
   /** Out of use (12 November 2026). */
+  /** The next free number like the given one («Hamm42» → «Hamm74»). */
+  @Get('next-number')
+  nextNumber(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('like') like?: string,
+  ) {
+    return this.reshape.suggestNumber(user, like);
+  }
+
+  /** A new territory drawn by hand: what it would hold (12 November 2026). */
+  @Post('new/check')
+  @HttpCode(HttpStatus.OK)
+  newCheck(@CurrentUser() user: AuthenticatedUser, @Body() dto: NewCheckDto) {
+    return this.reshape.createCheck(
+      user,
+      dto.geometry,
+      (dto.category ?? 'residential') as TerritoryCategory,
+    );
+  }
+
+  @Post()
+  create(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateTerritoryDto,
+  ) {
+    return this.reshape.create(user, dto);
+  }
+
   /** The register of houses in a box, for the editor (12 November 2026). */
   @Get('houses')
   houses(@CurrentUser() user: AuthenticatedUser, @Query('box') box?: string) {
@@ -397,6 +436,58 @@ export class TerritoriesController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.outline.undo(user, id);
+  }
+
+  /** Cutting a free territory in two along a line (12 November 2026). */
+  @Post(':id/split/check')
+  @HttpCode(HttpStatus.OK)
+  splitCheck(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SplitLineDto,
+  ) {
+    return this.reshape.splitCheck(user, id, dto.line);
+  }
+
+  @Post(':id/split')
+  @HttpCode(HttpStatus.OK)
+  split(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SplitDto,
+  ) {
+    return this.reshape.split(user, id, dto);
+  }
+
+  /** Joining two free neighbours of the same kind (12 November 2026). */
+  @Post(':id/merge/check')
+  @HttpCode(HttpStatus.OK)
+  mergeCheck(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: MergeCheckDto,
+  ) {
+    return this.reshape.mergeCheck(user, id, dto.otherId);
+  }
+
+  @Post(':id/merge')
+  @HttpCode(HttpStatus.OK)
+  merge(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: MergeDto,
+  ) {
+    return this.reshape.merge(user, id, dto);
+  }
+
+  /** Undoes the last cut, join or new territory, while nothing happened since. */
+  @Post(':id/reshape/undo')
+  @HttpCode(HttpStatus.OK)
+  undoReshape(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.reshape.undo(user, id);
   }
 
   @Post(':id/archive')

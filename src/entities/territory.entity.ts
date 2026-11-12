@@ -79,6 +79,14 @@ export class Territory {
   @Column({ type: 'date', nullable: true })
   lastCompletedOn!: string | null;
 
+  /**
+   * Set when two territories are joined (12 November 2026): completions
+   * recorded before this day do not count for «last worked» — the joined
+   * territory is as fresh as the less fresh of the two.
+   */
+  @Column({ type: 'date', nullable: true })
+  workedFrom!: string | null;
+
   /** Taken out of use; its history stays until it ages out. */
   @Column({ type: 'timestamptz', nullable: true })
   archivedAt!: Date | null;

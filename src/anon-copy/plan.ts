@@ -393,11 +393,11 @@ export const PLAN: Record<string, TablePlan> = {
   /** Territories (11 November 2026): outlines and numbers are no person's. */
   territories: table(
     copy(`id congregation_id number locality kind category geometry last_completed_on
-      archived_at created_at updated_at`),
+      worked_from archived_at created_at updated_at`),
     remove('note'),
   ),
   territory_shapes: copy(`id congregation_id territory_id geometry reason
-    from_territory_ids edit_id created_by_user_id created_at`),
+    from_territory_ids edit_id detail created_by_user_id created_at`),
   territory_boundaries: copy(`id congregation_id geometry description
     valid_from created_by_user_id created_at`),
   territory_assignments: table(
