@@ -61,6 +61,22 @@ jobs:
             || { tail -5 extract.log; exit 1; }
           ls -l trial.pmtiles | awk '{printf "Trial extract: %.1f MB\n", $5/1048576}'
           ~/go/bin/go-pmtiles show trial.pmtiles | grep -iE 'tile type|min zoom|max zoom|addressed tiles count' || true
+      # A small piece around the invented stand congregation (scripts/
+      # seed-screens.mjs puts its squares at 10.0 E, 51.0 N), kept three days,
+      # so a printed territory map can be checked with real streets before
+      # any congregation's own file exists. Public OpenStreetMap data.
+      - name: Cut the stand's piece
+        run: |
+          ~/go/bin/go-pmtiles extract \
+            "https://build.protomaps.com/${{ steps.build.outputs.key }}" stand.pmtiles \
+            --bbox=9.97,50.98,10.07,51.04 --maxzoom=${MAX_ZOOM} > stand.log 2>&1 \
+            || { tail -5 stand.log; exit 1; }
+          ls -l stand.pmtiles | awk '{printf "Stand piece: %.1f MB\n", $5/1048576}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stand-map
+          path: stand.pmtiles
+          retention-days: 3
 
   map-build:
     if: github.event_name == 'workflow_dispatch'
