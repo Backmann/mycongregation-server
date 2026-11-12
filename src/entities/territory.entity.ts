@@ -21,6 +21,16 @@ export type TerritoryKind = 'city' | 'suburb' | 'village';
 export const TERRITORY_KINDS: TerritoryKind[] = ['city', 'suburb', 'village'];
 
 /**
+ * Residential or business (12 November 2026): separate lists, maps and S-13
+ * sheets, numbered separately (business ones «Д-1», «Д-2» …).
+ */
+export type TerritoryCategory = 'residential' | 'business';
+export const TERRITORY_CATEGORIES: TerritoryCategory[] = [
+  'residential',
+  'business',
+];
+
+/**
  * One territory of the congregation (11 November 2026).
  *
  * Its number is given once and kept: it is what the S-13 and the printed
@@ -55,6 +65,9 @@ export class Territory {
 
   @Column({ type: 'varchar', length: 8, nullable: true })
   kind!: TerritoryKind | null;
+
+  @Column({ type: 'varchar', length: 12, default: 'residential' })
+  category!: TerritoryCategory;
 
   @Column({ type: 'jsonb' })
   geometry!: TerritoryGeometry;

@@ -24,6 +24,7 @@ import {
   type AuthenticatedUser,
 } from '../auth/decorators/current-user.decorator';
 import { TerritoriesService } from './territories.service';
+import { EditTerritoryDto } from './dto/card.dto';
 import { TerritoryAssignmentsService } from './territory-assignments.service';
 import {
   AssignTerritoryDto,
@@ -99,11 +100,13 @@ export class TerritoriesController {
   s13(
     @CurrentUser() user: AuthenticatedUser,
     @Query('serviceYear') serviceYear?: string,
+    @Query('category') category?: string,
   ) {
     const y = serviceYear ? Number(serviceYear) : undefined;
     return this.service.s13(
       user,
       y !== undefined && Number.isInteger(y) ? y : undefined,
+      category === 'business' ? 'business' : 'residential',
     );
   }
 
@@ -151,6 +154,12 @@ export class TerritoriesController {
   @Get('checks')
   checks(@CurrentUser() user: AuthenticatedUser) {
     return this.service.checks(user);
+  }
+
+  /** Out of use (12 November 2026). */
+  @Get('archived')
+  archived(@CurrentUser() user: AuthenticatedUser) {
+    return this.service.archived(user);
   }
 
   @Post('import/boundary')
@@ -340,6 +349,34 @@ export class TerritoriesController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.noCalls.remove(user, id);
+  }
+
+  /** The card corrected by hand (12 November 2026). */
+  @Patch(':id')
+  editCard(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: EditTerritoryDto,
+  ) {
+    return this.service.editCard(user, id, dto);
+  }
+
+  @Post(':id/archive')
+  @HttpCode(HttpStatus.OK)
+  archive(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.archive(user, id);
+  }
+
+  @Post(':id/restore')
+  @HttpCode(HttpStatus.OK)
+  restore(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.restore(user, id);
   }
 
   // Last: a fixed path above must win over the id.
