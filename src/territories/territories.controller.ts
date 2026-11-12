@@ -160,6 +160,12 @@ export class TerritoriesController {
   }
 
   /** Out of use (12 November 2026). */
+  /** The register of houses in a box, for the editor (12 November 2026). */
+  @Get('houses')
+  houses(@CurrentUser() user: AuthenticatedUser, @Query('box') box?: string) {
+    return this.outline.housesIn(user, box);
+  }
+
   @Get('archived')
   archived(@CurrentUser() user: AuthenticatedUser) {
     return this.service.archived(user);

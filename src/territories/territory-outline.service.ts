@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -10,6 +11,13 @@ import { Territory, TerritoryGeometry } from '../entities/territory.entity';
 import { TerritoryShape } from '../entities/territory-shape.entity';
 import { TerritoryBoundary } from '../entities/territory-boundary.entity';
 import { TerritoryAssignment } from '../entities/territory-assignment.entity';
+import { TerritorySettings } from '../entities/territory-settings.entity';
+import {
+  boxAround,
+  houseShift,
+  type HouseShift,
+  type HousePoint,
+} from './houses';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
@@ -30,6 +38,10 @@ import type { OutlineDto } from './dto/outline.dto';
  * than a tenth of his ground going elsewhere waits until it comes back.
  */
 export const HELD_SHARE_LIMIT = 0.1;
+
+/** About 25 km: a town and its villages, not the whole register at once. */
+const MAX_HOUSES_BOX = 0.35;
+const MAX_HOUSES = 60000;
 
 /** Ground two territories may share before it counts as lying over. */
 const OVERLAP_LIMIT = 0.01;
@@ -53,6 +65,17 @@ export interface OutlineReport {
     leaving: number;
     /** Percent of its new ground that was not its own. */
     gaining: number;
+    /**
+     * Houses of the register (12 November 2026): in it before, leaving,
+     * coming. Null until the register is built from the map.
+     */
+    houses: HouseShift | null;
+    /**
+     * Held, and more than a tenth goes elsewhere — counted in houses when
+     * the register has some in it, else in ground.
+     */
+    /** The share (percent) the 10 % rule looks at: of its houses, else of its ground. */
+    heldShare: number;
     tooMuch: boolean;
     /** Percent of its new ground outside the congregation's boundary. */
     outsideBoundary: number;
@@ -202,8 +225,8 @@ export class TerritoryOutlineService {
         throw new ConflictException(
           refusal(
             'TERRITORY_HELD_SHAPE',
-            `${tooMuch.number} is held; ${tooMuch.leaving}% would go elsewhere.`,
-            { number: tooMuch.number, share: tooMuch.leaving },
+            `${tooMuch.number} is held; ${tooMuch.heldShare}% would go elsewhere.`,
+            { number: tooMuch.number, share: tooMuch.heldShare },
           ),
         );
       }
@@ -275,6 +298,71 @@ export class TerritoryOutlineService {
   }
 
   /**
+   * The houses of the register in a box (12 November 2026), for the editor:
+   * splitting by houses, houses changing hands. The box is
+   * «west,south,east,north» and at most about 25 km across.
+   */
+  async housesIn(user: AuthenticatedUser, boxText: string | undefined) {
+    await this.mustKeepOpen(user);
+    const box = (boxText ?? '').split(',').map(Number);
+    const [x0, y0, x1, y1] = box;
+    if (
+      box.length !== 4 ||
+      box.some((v) => !Number.isFinite(v)) ||
+      x1 <= x0 ||
+      y1 <= y0 ||
+      x1 - x0 > MAX_HOUSES_BOX ||
+      y1 - y0 > MAX_HOUSES_BOX
+    ) {
+      throw new BadRequestException(
+        refusal('INVALID_FIELD', 'box: west,south,east,north', {
+          field: 'box',
+        }),
+      );
+    }
+    const settings = await this.dataSource.manager.findOne(TerritorySettings, {
+      where: { congregationId: user.congregationId },
+    });
+    if (!settings?.housesBuiltAt) return { builtAt: null, houses: [] };
+    const rows = await this.dataSource.query<{ lon: number; lat: number }[]>(
+      `SELECT lon, lat FROM map_houses
+        WHERE congregation_id = $1 AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5
+        LIMIT ${MAX_HOUSES}`,
+      [user.congregationId, y0, y1, x0, x1],
+    );
+    return {
+      builtAt: settings.housesBuiltAt,
+      // Six decimals: ten centimetres, and a third shorter on the wire.
+      houses: rows.map((r) => [
+        Math.round(r.lon * 1e6) / 1e6,
+        Math.round(r.lat * 1e6) / 1e6,
+      ]),
+    };
+  }
+
+  /**
+   * The houses of the register round the given outlines, or null while the
+   * register has not been built for this congregation.
+   */
+  private async housesAround(
+    m: EntityManager,
+    tenantId: string,
+    shapes: TerritoryGeometry[],
+  ): Promise<HousePoint[] | null> {
+    const settings = await m.findOne(TerritorySettings, {
+      where: { congregationId: tenantId },
+    });
+    if (!settings?.housesBuiltAt) return null;
+    const [x0, y0, x1, y1] = boxAround(shapes);
+    const rows = await m.query<{ lon: number; lat: number }[]>(
+      `SELECT lon, lat FROM map_houses
+        WHERE congregation_id = $1 AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
+      [tenantId, y0, y1, x0, x1],
+    );
+    return rows.map((r) => [r.lon, r.lat]);
+  }
+
+  /**
    * Reads the territories involved (locked when saving), and works out what
    * the change does. Neighbours must be of the same kind as the territory:
    * a business territory lies over residential streets by design.
@@ -321,17 +409,28 @@ export class TerritoryOutlineService {
       where: { congregationId: tenantId },
       order: { createdAt: 'DESC' },
     });
+    const houses = await this.housesAround(m, tenantId, [
+      ...changes.map((c) => c.geometry),
+      ...changes.map((c) => rows.get(c.id)!.geometry),
+    ]);
     const territories = changes.map((c) => {
       const t = rows.get(c.id)!;
       const leaving = areaShareOutside(t.geometry, c.geometry);
       const isHeld = held.has(t.id);
+      const shift = houses ? houseShift(t.geometry, c.geometry, houses) : null;
+      // The decision of 12 November 2026 is about buildings; ground only
+      // where the register has none (no map yet, or fields).
+      const share =
+        shift && shift.before > 0 ? shift.leaving / shift.before : leaving;
       return {
         id: t.id,
         number: t.number,
         held: isHeld,
         leaving: pct(leaving),
         gaining: pct(areaShareOutside(c.geometry, t.geometry)),
-        tooMuch: isHeld && leaving > HELD_SHARE_LIMIT,
+        houses: shift,
+        heldShare: pct(share),
+        tooMuch: isHeld && share > HELD_SHARE_LIMIT,
         outsideBoundary: boundary
           ? pct(areaShareOutside(c.geometry, boundary.geometry))
           : 0,

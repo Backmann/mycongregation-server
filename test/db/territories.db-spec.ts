@@ -74,6 +74,7 @@ describe('territories (real database)', () => {
     await h.sql(`DELETE FROM territory_shapes`);
     await h.sql(`DELETE FROM territories`);
     await h.sql(`DELETE FROM territory_boundaries`);
+    await h.sql(`DELETE FROM map_houses`);
   });
 
   const importTwo = async () => {
@@ -614,6 +615,148 @@ describe('territories (real database)', () => {
         updatedAt: await stamp(a1),
       });
       expect(broken.body.code).toBe('TERRITORY_GEOMETRY');
+    });
+
+    describe('the register of houses (12 November 2026)', () => {
+      /** Fills the register as the map job does, and marks it built. */
+      const register = async (points: [number, number][]) => {
+        let n = 1;
+        for (const [lon, lat] of points) {
+          await h.sql(
+            `INSERT INTO map_houses (congregation_id, osm_id, lon, lat, area_m2) VALUES ($1, $2, $3, $4, 120)`,
+            [congregationId, n++, lon, lat],
+          );
+        }
+        await h.sql(
+          `INSERT INTO territory_settings (congregation_id, houses_built_at) VALUES ($1, now())
+           ON CONFLICT (congregation_id) DO UPDATE SET houses_built_at = now()`,
+          [congregationId],
+        );
+      };
+      /** A02 (7.01–7.02) gets `strip` houses next to A01 and the rest far east. */
+      const housesInA02 = (strip: number, total: number) => [
+        ...Array.from(
+          { length: strip },
+          (_, i) => [7.0102, 51.001 + i * 0.0005] as [number, number],
+        ),
+        ...Array.from(
+          { length: total - strip },
+          (_, i) => [7.017, 51.001 + i * 0.0004] as [number, number],
+        ),
+      ];
+      const moveBorder = async (a1: string, a2: string, x: number) =>
+        h.as('keeper').put(`/territories/${a1}/outline`, {
+          geometry: rect(7, x),
+          updatedAt: await stamp(a1),
+          neighbours: [
+            { id: a2, geometry: rect(x, 7.02), updatedAt: await stamp(a2) },
+          ],
+        });
+
+      it('without the register: no houses in the report', async () => {
+        const { a1, a2 } = await ready();
+        const r = await h
+          .as('keeper')
+          .post(`/territories/${a1}/outline/check`, {
+            geometry: rect(7, 7.012),
+            updatedAt: await stamp(a1),
+            neighbours: [
+              {
+                id: a2,
+                geometry: rect(7.012, 7.02),
+                updatedAt: await stamp(a2),
+              },
+            ],
+          });
+        expect(r.body.territories[1].houses).toBeNull();
+      });
+
+      it('a held territory: the tenth is counted in houses, not ground', async () => {
+        const { a1, a2 } = await ready();
+        expect(
+          (
+            await h
+              .as('keeper')
+              .post(`/territories/${a2}/assign`, { publisherId: holderCard })
+          ).status,
+        ).toBe(201);
+        // A fifth of the ground but one house in twenty: allowed now
+        // (by ground alone it was refused).
+        await register(housesInA02(1, 20));
+        const wide = await moveBorder(a1, a2, 7.012);
+        expect(wide.status).toBe(200);
+        expect(wide.body.territories[1]).toMatchObject({
+          number: 'A02',
+          leaving: 20,
+          houses: { before: 20, leaving: 1, coming: 0 },
+          heldShare: 5,
+          tooMuch: false,
+        });
+        expect(wide.body.territories[0].houses).toEqual({
+          before: 0,
+          leaving: 0,
+          coming: 1,
+        });
+      });
+
+      it('a held territory: little ground, but a fifth of its houses — refused', async () => {
+        const { a1, a2 } = await ready();
+        await h
+          .as('keeper')
+          .post(`/territories/${a2}/assign`, { publisherId: holderCard });
+        await register(housesInA02(4, 20));
+        const r = await moveBorder(a1, a2, 7.0105);
+        expect(r.status).toBe(409);
+        expect(r.body).toMatchObject({
+          code: 'TERRITORY_HELD_SHAPE',
+          number: 'A02',
+          share: 20,
+        });
+      });
+
+      it('the houses in a box: for keepers, a sane box only', async () => {
+        await ready();
+        const before = await h
+          .as('keeper')
+          .get('/territories/houses?box=7,51,7.02,51.01');
+        expect(before.body).toEqual({ builtAt: null, houses: [] });
+        await register([
+          [7.005, 51.005],
+          [7.0151234567, 51.0051234567],
+          [7.5, 51.5],
+        ]);
+        const r = await h
+          .as('keeper')
+          .get('/territories/houses?box=7,51,7.02,51.01');
+        expect(r.status).toBe(200);
+        expect(r.body.builtAt).toBeTruthy();
+        expect(r.body.houses).toEqual(
+          expect.arrayContaining([
+            [7.005, 51.005],
+            [7.015123, 51.005123],
+          ]),
+        );
+        expect(r.body.houses).toHaveLength(2);
+        expect(
+          (await h.as('keeper').get('/territories/houses?box=7,51,7.5,51.1'))
+            .status,
+        ).toBe(400);
+        expect(
+          (await h.as('keeper').get('/territories/houses?box=7,51,x,52'))
+            .status,
+        ).toBe(400);
+        expect(
+          (await h.as('keeper').get('/territories/houses?box=7,51,7.1,51.5'))
+            .status,
+        ).toBe(400);
+        expect(
+          (
+            await h
+              .as('secretary')
+              .get('/territories/houses?box=7,51,7.02,51.01')
+          ).status,
+        ).toBe(403);
+      });
     });
 
     it('a «не посещать» address moves to the neighbour', async () => {
