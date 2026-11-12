@@ -273,4 +273,147 @@ describe('territories (real database)', () => {
   function from(): string {
     return keptFrom(today);
   }
+
+  describe('the card by hand (12 November 2026)', () => {
+    const idOf = async (n: string) =>
+      (
+        await h.sql<{ id: string }>(
+          `SELECT id FROM territories WHERE number = $1 AND archived_at IS NULL`,
+          [n],
+        )
+      )[0].id;
+
+    it('the keeper corrects number, place, kind and note; a number in use is refused; the S-13 shows the new one', async () => {
+      await importTwo();
+      const a1 = await idOf('A01');
+      // Not before the records are confirmed.
+      const early = await h
+        .as('keeper')
+        .patch(`/territories/${a1}`, { number: 'A10' });
+      expect(early.body.code).toBe('TERRITORY_NOT_OPEN');
+      expect((await h.as('keeper').post('/territories/verify')).status).toBe(
+        200,
+      );
+      // The committee sees, it does not correct.
+      expect(
+        (await h.as('secretary').patch(`/territories/${a1}`, { number: 'A10' }))
+          .status,
+      ).toBe(403);
+      const taken = await h
+        .as('keeper')
+        .patch(`/territories/${a1}`, { number: ' a02 ' });
+      expect(taken.status).toBe(409);
+      expect(taken.body.code).toBe('TERRITORY_NUMBER_TWICE');
+      // The app's words name the number (12 November 2026: «{{number}}» showed).
+      expect(taken.body.number).toBe('a02');
+      const ok = await h.as('keeper').patch(`/territories/${a1}`, {
+        number: ' A10 ',
+        locality: '  ',
+        kind: 'suburb',
+        note: 'Многоэтажки — после 11:00',
+      });
+      expect(ok.status).toBe(200);
+      expect(ok.body).toMatchObject({
+        number: 'A10',
+        locality: null,
+        kind: 'suburb',
+      });
+      const bad = await h
+        .as('keeper')
+        .patch(`/territories/${a1}`, { kind: 'town' });
+      expect(bad.status).toBe(400);
+      const s13 = await h.as('keeper').get('/territories/s13');
+      expect(
+        s13.body.territories.map((t: { number: string }) => t.number).sort(),
+      ).toEqual(['A02', 'A10']);
+      // The old number stays in the journal; the note does not go there.
+      const [j] = await h.sql<{ n: string }>(
+        `SELECT count(*)::text AS n FROM audit_logs WHERE entity_type = 'territory' AND entity_id = $1`,
+        [a1],
+      );
+      expect(j.n).toBe('1');
+    });
+
+    it('out of use only when nobody holds it; back only while its number is free', async () => {
+      await importTwo();
+      expect((await h.as('keeper').post('/territories/verify')).status).toBe(
+        200,
+      );
+      const a1 = await idOf('A01');
+      const given = await h
+        .as('keeper')
+        .post(`/territories/${a1}/assign`, { publisherId: holderCard });
+      expect(given.status).toBe(201);
+      const held = await h.as('keeper').post(`/territories/${a1}/archive`);
+      expect(held.body.code).toBe('TERRITORY_HELD');
+      expect(
+        (
+          await h
+            .as('keeper')
+            .post(`/territories/assignments/${given.body.id}/return`, {})
+        ).status,
+      ).toBe(200);
+      expect(
+        (await h.as('keeper').post(`/territories/${a1}/archive`)).status,
+      ).toBe(200);
+      const list = await h.as('keeper').get('/territories');
+      expect(list.body.map((t: { number: string }) => t.number)).toEqual([
+        'A02',
+      ]);
+      const arch = await h.as('keeper').get('/territories/archived');
+      expect(arch.body.map((t: { number: string }) => t.number)).toEqual([
+        'A01',
+      ]);
+      // Its number is free: another may take it, and then it cannot come back.
+      const a2 = await idOf('A02');
+      expect(
+        (await h.as('keeper').patch(`/territories/${a2}`, { number: 'A01' }))
+          .status,
+      ).toBe(200);
+      const back = await h.as('keeper').post(`/territories/${a1}/restore`);
+      expect(back.body.code).toBe('TERRITORY_NUMBER_TWICE');
+      expect(
+        (await h.as('keeper').patch(`/territories/${a2}`, { number: 'A02' }))
+          .status,
+      ).toBe(200);
+      expect(
+        (await h.as('keeper').post(`/territories/${a1}/restore`)).status,
+      ).toBe(200);
+      expect((await h.as('keeper').get('/territories')).body).toHaveLength(2);
+      // The S-13 line of the archived time is still there.
+      const lines = await h.sql(
+        `SELECT id FROM territory_assignments WHERE territory_id = $1`,
+        [a1],
+      );
+      expect(lines).toHaveLength(1);
+    });
+
+    it('business territories have their own S-13; everything so far is residential', async () => {
+      await importTwo();
+      expect((await h.as('keeper').post('/territories/verify')).status).toBe(
+        200,
+      );
+      const list = await h.as('keeper').get('/territories');
+      expect(list.body.map((t: { category: string }) => t.category)).toEqual([
+        'residential',
+        'residential',
+      ]);
+      await h.sql(
+        `UPDATE territories SET category = 'business' WHERE number = 'A02'`,
+      );
+      const res = await h.as('keeper').get('/territories/s13');
+      const biz = await h
+        .as('keeper')
+        .get('/territories/s13?category=business');
+      expect(
+        res.body.territories.map((t: { number: string }) => t.number),
+      ).toEqual(['A01']);
+      expect(
+        biz.body.territories.map((t: { number: string }) => t.number),
+      ).toEqual(['A02']);
+      await expect(
+        h.sql(`UPDATE territories SET category = 'shop' WHERE number = 'A02'`),
+      ).rejects.toThrow();
+    });
+  });
 });

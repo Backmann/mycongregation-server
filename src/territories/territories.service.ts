@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import { Territory, TerritoryGeometry } from '../entities/territory.entity';
 import { TerritoryShape } from '../entities/territory-shape.entity';
 import { TerritoryBoundary } from '../entities/territory-boundary.entity';
@@ -39,6 +39,8 @@ import {
   serviceYearStart,
   TERM_DAYS,
 } from './service-year';
+import type { EditTerritoryDto } from './dto/card.dto';
+import type { TerritoryCategory } from '../entities/territory.entity';
 import type {
   ImportAssignmentsDto,
   ImportBoundaryDto,
@@ -47,6 +49,7 @@ import type {
 } from './dto/import.dto';
 
 const norm = (n: string): string => n.trim().toLowerCase();
+const PG_UNIQUE_VIOLATION = '23505';
 
 /**
  * The territory section (11 November 2026). This first stage holds the
@@ -175,6 +178,7 @@ export class TerritoriesService {
         number: t.number,
         locality: t.locality,
         kind: t.kind,
+        category: t.category,
         geometry: t.geometry,
         lastCompletedOn: done ?? null,
         holder: a
@@ -267,7 +271,11 @@ export class TerritoriesService {
    * the kept years (current and previous); only once the records are
    * confirmed. The app lays it out on the form.
    */
-  async s13(user: AuthenticatedUser, serviceYear?: number) {
+  async s13(
+    user: AuthenticatedUser,
+    serviceYear?: number,
+    category: TerritoryCategory = 'residential',
+  ) {
     const a = await this.access.mustSeeAll(user);
     if (!a.verified) {
       throw new ConflictException(
@@ -285,8 +293,9 @@ export class TerritoriesService {
     }
     const from = serviceYearStart(year);
     const to = addDays(serviceYearStart(year + 1), -1);
+    // Business territories have a sheet of their own (12 November 2026).
     const rows = await this.territories.find({
-      where: { congregationId: tenantId, archivedAt: IsNull() },
+      where: { congregationId: tenantId, archivedAt: IsNull(), category },
     });
     const all = await this.assignments.find({
       where: { congregationId: tenantId },
@@ -338,6 +347,179 @@ export class TerritoriesService {
   }
 
   /** One territory with its kept history and its «не беспокоить» addresses. */
+  // ------------------------------------------------------------ the card --
+
+  /** The territory servant, once the records are confirmed. */
+  private async mustKeepOpen(user: AuthenticatedUser): Promise<void> {
+    const a = await this.access.mustKeep(user);
+    if (!a.verified) {
+      throw new ConflictException(
+        refusal('TERRITORY_NOT_OPEN', 'The records are not confirmed yet.'),
+      );
+    }
+  }
+
+  private numberTaken(number: string): ConflictException {
+    return new ConflictException(
+      refusal(
+        'TERRITORY_NUMBER_TWICE',
+        'Another territory in use has this number.',
+        { number },
+      ),
+    );
+  }
+
+  /**
+   * The card corrected by hand (12 November 2026): number, place, kind of
+   * area, note. A new number shows on every line of the S-13 at once; the
+   * old one stays in the journal.
+   */
+  async editCard(user: AuthenticatedUser, id: string, dto: EditTerritoryDto) {
+    await this.mustKeepOpen(user);
+    const tenantId = user.congregationId;
+    const t = await this.territories.findOne({
+      where: { id, congregationId: tenantId, archivedAt: IsNull() },
+    });
+    if (!t) throw new NotFoundException('Territory not found');
+    const before = { number: t.number, locality: t.locality, kind: t.kind };
+    const noteBefore = t.note;
+    if (dto.number !== undefined) {
+      const n = dto.number.trim();
+      if (!n) throw this.numberTaken(n);
+      if (norm(n) !== norm(t.number)) {
+        const others = await this.territories.find({
+          where: { congregationId: tenantId, archivedAt: IsNull() },
+          select: { id: true, number: true },
+        });
+        if (others.some((o) => o.id !== t.id && norm(o.number) === norm(n))) {
+          throw this.numberTaken(n);
+        }
+      }
+      t.number = n;
+    }
+    if (dto.locality !== undefined) t.locality = dto.locality?.trim() || null;
+    if (dto.kind !== undefined)
+      t.kind = (dto.kind as Territory['kind']) ?? null;
+    if (dto.note !== undefined) t.note = dto.note?.trim() || null;
+    try {
+      await this.territories.save(t);
+    } catch (e) {
+      if ((e as { code?: string }).code === PG_UNIQUE_VIOLATION) {
+        throw this.numberTaken(t.number);
+      }
+      throw e;
+    }
+    await this.audit.logFact({
+      tenantId,
+      entityType: 'territory',
+      entityId: t.id,
+      action: 'UPDATE',
+      actorUserId: user.id,
+      detail: {
+        before,
+        after: { number: t.number, locality: t.locality, kind: t.kind },
+        noteChanged: noteBefore !== t.note,
+      },
+    });
+    return {
+      id: t.id,
+      number: t.number,
+      locality: t.locality,
+      kind: t.kind,
+      category: t.category,
+      note: t.note,
+    };
+  }
+
+  /**
+   * Out of use (12 November 2026): only a territory nobody holds. Its S-13
+   * lines and history stay until they age out; its number is free again.
+   */
+  async archive(user: AuthenticatedUser, id: string) {
+    await this.mustKeepOpen(user);
+    const tenantId = user.congregationId;
+    const t = await this.territories.findOne({
+      where: { id, congregationId: tenantId, archivedAt: IsNull() },
+    });
+    if (!t) throw new NotFoundException('Territory not found');
+    const held = await this.assignments.count({
+      where: {
+        territoryId: t.id,
+        congregationId: tenantId,
+        completedOn: IsNull(),
+        returnedOn: IsNull(),
+      },
+    });
+    if (held > 0) {
+      throw new ConflictException(
+        refusal('TERRITORY_HELD', 'Take the territory back first.'),
+      );
+    }
+    t.archivedAt = new Date();
+    await this.territories.save(t);
+    await this.audit.logFact({
+      tenantId,
+      entityType: 'territory',
+      entityId: t.id,
+      action: 'UPDATE',
+      actorUserId: user.id,
+      detail: { archived: true, number: t.number },
+    });
+    return { id: t.id, archivedAt: t.archivedAt };
+  }
+
+  /** Back into use, if its number is still free. */
+  async restore(user: AuthenticatedUser, id: string) {
+    await this.mustKeepOpen(user);
+    const tenantId = user.congregationId;
+    const t = await this.territories.findOne({
+      where: { id, congregationId: tenantId },
+    });
+    if (!t || !t.archivedAt) throw new NotFoundException('Territory not found');
+    const others = await this.territories.find({
+      where: { congregationId: tenantId, archivedAt: IsNull() },
+      select: { id: true, number: true },
+    });
+    if (others.some((o) => norm(o.number) === norm(t.number))) {
+      throw this.numberTaken(t.number);
+    }
+    t.archivedAt = null;
+    try {
+      await this.territories.save(t);
+    } catch (e) {
+      if ((e as { code?: string }).code === PG_UNIQUE_VIOLATION) {
+        throw this.numberTaken(t.number);
+      }
+      throw e;
+    }
+    await this.audit.logFact({
+      tenantId,
+      entityType: 'territory',
+      entityId: t.id,
+      action: 'UPDATE',
+      actorUserId: user.id,
+      detail: { archived: false, number: t.number },
+    });
+    return { id: t.id, archivedAt: null };
+  }
+
+  /** The territories out of use, for the territory servant. */
+  async archived(user: AuthenticatedUser) {
+    await this.mustKeepOpen(user);
+    const rows = await this.territories.find({
+      where: { congregationId: user.congregationId, archivedAt: Not(IsNull()) },
+      select: {
+        id: true,
+        number: true,
+        locality: true,
+        category: true,
+        archivedAt: true,
+      },
+      order: { number: 'ASC' },
+    });
+    return rows;
+  }
+
   async detail(user: AuthenticatedUser, id: string) {
     await this.access.mustSeeAll(user);
     const t = await this.territories.findOne({
