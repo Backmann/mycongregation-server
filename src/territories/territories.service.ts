@@ -130,7 +130,10 @@ export class TerritoriesService {
       .select('a.territory_id', 'territoryId')
       // As text: a raw date column comes back as a JS Date.
       .addSelect('MAX(a.completed_on)::text', 'last')
+      // A joined territory counts only what was worked after the join.
+      .innerJoin('territories', 't', 't.id = a.territory_id')
       .where('a.congregation_id = :tenantId', { tenantId })
+      .andWhere('(t.worked_from IS NULL OR a.completed_on >= t.worked_from)')
       .groupBy('a.territory_id')
       .getRawMany<{ territoryId: string; last: string | null }>();
     const lastOf = new Map(lastDone.map((r) => [r.territoryId, r.last]));
@@ -239,7 +242,9 @@ export class TerritoriesService {
       .createQueryBuilder('a')
       .select('a.territory_id', 'territoryId')
       .addSelect('MAX(a.completed_on)::text', 'last')
+      .innerJoin('territories', 't', 't.id = a.territory_id')
       .where('a.congregation_id = :congregationId', { congregationId })
+      .andWhere('(t.worked_from IS NULL OR a.completed_on >= t.worked_from)')
       .groupBy('a.territory_id')
       .getRawMany<{ territoryId: string; last: string | null }>();
     const lastOf = new Map(lastDone.map((r) => [r.territoryId, r.last]));
@@ -321,7 +326,10 @@ export class TerritoriesService {
             : null,
           ...list
             .map((x) => x.completedOn)
-            .filter((d): d is string => !!d && d < from),
+            .filter(
+              (d): d is string =>
+                !!d && d < from && (!t.workedFrom || d >= t.workedFrom),
+            ),
         ]
           .filter((d): d is string => !!d)
           .sort()
@@ -536,8 +544,21 @@ export class TerritoriesService {
       where: { territoryId: t.id },
       order: { notedOn: 'DESC' },
     });
+    // «Last worked» as the list counts it (a joined territory only after
+    // the join), so the screen does not work it out again on its own.
+    const lastWorkedOn =
+      [
+        t.lastCompletedOn,
+        ...history
+          .map((a) => a.completedOn)
+          .filter((d) => !!d && (!t.workedFrom || d >= t.workedFrom)),
+      ]
+        .filter((d): d is string => !!d)
+        .sort()
+        .pop() ?? null;
     return {
       ...t,
+      lastWorkedOn,
       assignments: history,
       noCalls: noCalls.map((n) => ({
         id: n.id,

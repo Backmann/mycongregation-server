@@ -788,3 +788,345 @@ describe('territories (real database)', () => {
     });
   });
 });
+
+describe('cutting, joining and new territories (12 November 2026)', () => {
+  let h: Harness;
+  let congregationId = '';
+  const rect = (x1: number, x2: number, y1 = 51, y2 = 51.01) => ({
+    type: 'Polygon',
+    coordinates: [
+      [
+        [x1, y1],
+        [x2, y1],
+        [x2, y2],
+        [x1, y2],
+        [x1, y1],
+      ],
+    ],
+  });
+  const idOf = async (n: string) =>
+    (
+      await h.sql<{ id: string }>(
+        `SELECT id FROM territories WHERE number = $1 AND archived_at IS NULL`,
+        [n],
+      )
+    )[0]?.id;
+  const stamp = async (id: string) =>
+    (
+      await h.sql<{ u: Date }>(
+        `SELECT updated_at AS u FROM territories WHERE id = $1`,
+        [id],
+      )
+    )[0].u.toISOString();
+  const worked = async (id: string, on: string) =>
+    h.sql(
+      `INSERT INTO territory_assignments (congregation_id, territory_id, holder_name, assigned_on, completed_on, method)
+       VALUES ($1, $2, 'Тест', $3, $3, 'door_to_door')`,
+      [congregationId, id, on],
+    );
+  const listed = async (n: string) =>
+    (
+      (await h.as('keeper').get('/territories')).body as {
+        number: string;
+        lastCompletedOn: string | null;
+      }[]
+    ).find((t) => t.number === n);
+  const day = (offset: number) => {
+    const d = new Date(keptFrom(new Date().toISOString().slice(0, 10)));
+    d.setUTCDate(d.getUTCDate() + offset);
+    return d.toISOString().slice(0, 10);
+  };
+
+  beforeAll(async () => {
+    h = await startHarness();
+    const [c] = await h.sql<{ id: string }>(`SELECT id FROM congregations`);
+    congregationId = c.id;
+    const card = await h.addPublisher({
+      firstName: 'Хранитель',
+      lastName: 'Тест',
+      gender: 'brother',
+      appointment: 'ministerial_servant',
+      baptismDate: '2001-01-01',
+    });
+    const keeper = await h.addUser({
+      login: 'keeper',
+      role: 'ministerial_servant',
+      publisherId: card,
+    });
+    await h.sql(
+      `INSERT INTO responsibilities (congregation_id, type, user_id) VALUES ($1, 'territory_servant', $2)`,
+      [congregationId, keeper],
+    );
+    const r = await h.as('keeper').post('/territories/import/territories', {
+      items: [
+        { number: 'A01', locality: 'Ahlen', geometry: rect(7, 7.01) },
+        { number: 'A02', locality: 'Ahlen', geometry: rect(7.01, 7.02) },
+        { number: 'A05', locality: 'Ahlen', geometry: rect(7.05, 7.06) },
+      ],
+    });
+    expect(r.status).toBe(201);
+    expect((await h.as('keeper').post('/territories/verify')).status).toBe(200);
+  });
+
+  afterAll(async () => {
+    await h?.close();
+  });
+
+  it('cut: the chosen part keeps the number, the other gets a new one and the date', async () => {
+    const a1 = await idOf('A01');
+    await worked(a1, day(10));
+    const n1 = await h
+      .as('keeper')
+      .post(`/territories/${a1}/no-calls`, { address: 'West 1' });
+    const n2 = await h
+      .as('keeper')
+      .post(`/territories/${a1}/no-calls`, { address: 'Ost 1' });
+    const line = [
+      [7.004, 50.99],
+      [7.004, 51.02],
+    ];
+    const check = await h
+      .as('keeper')
+      .post(`/territories/${a1}/split/check`, { line });
+    expect(check.status).toBe(200);
+    expect(check.body).toMatchObject({
+      newNumber: 'A06',
+      lastWorkedOn: day(10),
+    });
+    expect(check.body.parts).toHaveLength(2);
+    // Which part is east: the larger one, which the check offers to keep.
+    const east = check.body.parts.findIndex(
+      (p: { geometry: { coordinates: number[][][] } }) =>
+        p.geometry.coordinates[0].some(([x]) => x > 7.009),
+    );
+    expect(check.body.keep).toBe(east);
+    const west = 1 - east;
+    const r = await h.as('keeper').post(`/territories/${a1}/split`, {
+      line,
+      keep: east,
+      newNumber: 'A06',
+      updatedAt: await stamp(a1),
+      noCalls: [
+        { id: n1.body.id, part: west },
+        { id: n2.body.id, part: east },
+      ],
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.kept.number).toBe('A01');
+    expect(r.body.made.number).toBe('A06');
+    const made = r.body.made.id;
+    expect((await listed('A06'))?.lastCompletedOn).toBe(day(10));
+    const nc = await h.sql<{ id: string; t: string }>(
+      `SELECT id, territory_id AS t FROM territory_no_calls WHERE id IN ($1, $2)`,
+      [n1.body.id, n2.body.id],
+    );
+    expect(nc.find((x) => x.id === n1.body.id)?.t).toBe(made);
+    expect(nc.find((x) => x.id === n2.body.id)?.t).toBe(a1);
+    // The S-13 history stays with A01.
+    const lines = await h.sql(
+      `SELECT id FROM territory_assignments WHERE territory_id = $1`,
+      [a1],
+    );
+    expect(lines).toHaveLength(1);
+
+    // Undo: A01 whole again, A06 gone, the address back; then nothing more.
+    const undo = await h.as('keeper').post(`/territories/${a1}/reshape/undo`);
+    expect(undo.status).toBe(200);
+    expect(await idOf('A06')).toBeUndefined();
+    const [back] = await h.sql<{ g: { coordinates: number[][][] } }>(
+      `SELECT geometry AS g FROM territories WHERE id = $1`,
+      [a1],
+    );
+    expect(back.g.coordinates[0].map(([x]) => x).sort()[0]).toBe(7);
+    const [nb] = await h.sql<{ t: string }>(
+      `SELECT territory_id AS t FROM territory_no_calls WHERE id = $1`,
+      [n1.body.id],
+    );
+    expect(nb.t).toBe(a1);
+    const again = await h.as('keeper').post(`/territories/${a1}/reshape/undo`);
+    expect(again.body.code).toBe('TERRITORY_NOTHING_TO_UNDO');
+  });
+
+  it('cut: refused when held, for a number in use, for a line beside it', async () => {
+    const a1 = await idOf('A01');
+    const beside = await h.as('keeper').post(`/territories/${a1}/split/check`, {
+      line: [
+        [7.03, 50.99],
+        [7.03, 51.02],
+      ],
+    });
+    expect(beside.body.code).toBe('TERRITORY_LINE_NOT_THROUGH');
+    const line = [
+      [7.004, 50.99],
+      [7.004, 51.02],
+    ];
+    const taken = await h.as('keeper').post(`/territories/${a1}/split`, {
+      line,
+      keep: 0,
+      newNumber: ' a02 ',
+      updatedAt: await stamp(a1),
+    });
+    expect(taken.body.code).toBe('TERRITORY_NUMBER_TWICE');
+    await h.sql(
+      `INSERT INTO territory_assignments (congregation_id, territory_id, holder_name, assigned_on)
+       VALUES ($1, $2, 'Тест', $3)`,
+      [congregationId, a1, day(20)],
+    );
+    const held = await h.as('keeper').post(`/territories/${a1}/split`, {
+      line,
+      keep: 0,
+      newNumber: 'A07',
+      updatedAt: await stamp(a1),
+    });
+    expect(held.body.code).toBe('TERRITORY_HELD');
+    await h.sql(
+      `UPDATE territory_assignments SET returned_on = $2 WHERE territory_id = $1 AND completed_on IS NULL`,
+      [a1, day(21)],
+    );
+  });
+
+  it('join: the older date counts; the other goes out of use; undo brings all back', async () => {
+    const a1 = await idOf('A01');
+    const a2 = await idOf('A02');
+    await worked(a1, day(30));
+    await worked(a2, day(5));
+    const nc = await h
+      .as('keeper')
+      .post(`/territories/${a2}/no-calls`, { address: 'Gasse 9' });
+    // The same address on both: it stays where it was.
+    await h
+      .as('keeper')
+      .post(`/territories/${a1}/no-calls`, { address: 'Ost 1 ' });
+    const dup = await h
+      .as('keeper')
+      .post(`/territories/${a2}/no-calls`, { address: 'Ost 1' });
+    const check = await h
+      .as('keeper')
+      .post(`/territories/${a1}/merge/check`, { otherId: a2 });
+    expect(check.status).toBe(200);
+    expect(check.body.lastWorkedOn).toBe(day(5));
+    expect(check.body.geometry.type).toBe('Polygon');
+    const far = await h
+      .as('keeper')
+      .post(`/territories/${a1}/merge/check`, { otherId: await idOf('A05') });
+    expect(far.body.code).toBe('TERRITORY_NOT_TOUCHING');
+    const r = await h.as('keeper').post(`/territories/${a1}/merge`, {
+      otherId: a2,
+      keepId: a1,
+      updatedAt: await stamp(a1),
+      otherUpdatedAt: await stamp(a2),
+    });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({
+      kept: { number: 'A01' },
+      archived: { number: 'A02' },
+    });
+    // A01 was worked later, but the joined one counts from the older date.
+    expect((await listed('A01'))?.lastCompletedOn).toBe(day(5));
+    expect(await listed('A02')).toBeUndefined();
+    const detail = await h.as('keeper').get(`/territories/${a1}`);
+    expect(detail.body.lastWorkedOn).toBe(day(5));
+    const moved = await h.sql<{ id: string; t: string }>(
+      `SELECT id, territory_id AS t FROM territory_no_calls WHERE id IN ($1, $2)`,
+      [nc.body.id, dup.body.id],
+    );
+    expect(moved.find((x) => x.id === nc.body.id)?.t).toBe(a1);
+    expect(moved.find((x) => x.id === dup.body.id)?.t).toBe(a2);
+
+    const undo = await h.as('keeper').post(`/territories/${a1}/reshape/undo`);
+    expect(undo.status).toBe(200);
+    expect((await listed('A02'))?.lastCompletedOn).toBe(day(5));
+    expect((await listed('A01'))?.lastCompletedOn).toBe(day(30));
+    const [ncBack] = await h.sql<{ t: string }>(
+      `SELECT territory_id AS t FROM territory_no_calls WHERE id = $1`,
+      [nc.body.id],
+    );
+    expect(ncBack.t).toBe(a2);
+  });
+
+  it('join: refused when one is held or of the other kind; undo waits once given out', async () => {
+    const a1 = await idOf('A01');
+    const a2 = await idOf('A02');
+    await h.sql(`UPDATE territories SET category = 'business' WHERE id = $1`, [
+      a2,
+    ]);
+    const kind = await h
+      .as('keeper')
+      .post(`/territories/${a1}/merge/check`, { otherId: a2 });
+    expect(kind.body.code).toBe('TERRITORY_NOT_NEIGHBOUR');
+    await h.sql(
+      `UPDATE territories SET category = 'residential' WHERE id = $1`,
+      [a2],
+    );
+    await h.sql(
+      `INSERT INTO territory_assignments (congregation_id, territory_id, holder_name, assigned_on)
+       VALUES ($1, $2, 'Тест', $3)`,
+      [congregationId, a2, day(40)],
+    );
+    const held = await h.as('keeper').post(`/territories/${a1}/merge`, {
+      otherId: a2,
+      keepId: a1,
+      updatedAt: await stamp(a1),
+      otherUpdatedAt: await stamp(a2),
+    });
+    expect(held.body.code).toBe('TERRITORY_HELD');
+    await h.sql(
+      `UPDATE territory_assignments SET returned_on = $2 WHERE territory_id = $1 AND completed_on IS NULL`,
+      [a2, day(41)],
+    );
+    // Joined, then given out: the join stays.
+    const r = await h.as('keeper').post(`/territories/${a1}/merge`, {
+      otherId: a2,
+      keepId: a2,
+      updatedAt: await stamp(a1),
+      otherUpdatedAt: await stamp(a2),
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.kept.number).toBe('A02');
+    await h.sql(
+      `INSERT INTO territory_assignments (congregation_id, territory_id, holder_name, assigned_on)
+       VALUES ($1, $2, 'Тест', $3)`,
+      [congregationId, a2, day(42)],
+    );
+    const undo = await h.as('keeper').post(`/territories/${a2}/reshape/undo`);
+    expect(undo.body.code).toBe('TERRITORY_UNDO_GIVEN');
+  });
+
+  it('new: checked for houses and overlaps, made, refused over another, undone', async () => {
+    const free = rect(7.03, 7.04);
+    const check = await h
+      .as('keeper')
+      .post('/territories/new/check', { geometry: free });
+    expect(check.status).toBe(200);
+    expect(check.body.overlaps).toEqual([]);
+    const next = await h.as('keeper').get('/territories/next-number?like=A05');
+    expect(next.body.number).toBe('A06');
+    const over = await h.as('keeper').post('/territories', {
+      number: 'A08',
+      geometry: rect(7.035, 7.055),
+    });
+    expect(over.body).toMatchObject({
+      code: 'TERRITORY_OVERLAP',
+      other: 'A05',
+    });
+    // A business territory may lie over homes.
+    const biz = await h.as('keeper').post('/territories/new/check', {
+      geometry: rect(7.035, 7.055),
+      category: 'business',
+    });
+    expect(biz.body.overlaps).toEqual([]);
+    const made = await h.as('keeper').post('/territories', {
+      number: 'A06',
+      locality: 'Ahlen',
+      kind: 'city',
+      geometry: free,
+    });
+    expect(made.status).toBe(201);
+    expect(await idOf('A06')).toBe(made.body.id);
+    const undo = await h
+      .as('keeper')
+      .post(`/territories/${made.body.id}/reshape/undo`);
+    expect(undo.status).toBe(200);
+    expect(await idOf('A06')).toBeUndefined();
+  });
+});

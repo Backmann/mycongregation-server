@@ -24,6 +24,7 @@ import { TerritoriesService } from './territories.service';
 import { TerritoryAccessService } from './territory-access.service';
 import { TerritoryAssignmentsService } from './territory-assignments.service';
 import { TerritoryOutlineService } from './territory-outline.service';
+import { TerritoryReshapeService } from './territory-reshape.service';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { TerritoryOutlineService } from './territory-outline.service';
     TerritoryLinksService,
     TerritoryNoCallsService,
     TerritoryOutlineService,
+    TerritoryReshapeService,
     TerritoryRemindersService,
   ],
   exports: [
