@@ -271,6 +271,71 @@ describe('territories (real database)', () => {
     expect(c.body.overlapping).toEqual([['IN', 'OVER']]);
   });
 
+  it('checks: an outline slid over its neighbour is found; houses no territory holds are shown as spots', async () => {
+    // An L: the corner square at the north-east is outside, inside its box.
+    await h.as('keeper').post('/territories/import/boundary', {
+      geometry: {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [7, 51],
+            [7.05, 51],
+            [7.05, 51.025],
+            [7.025, 51.025],
+            [7.025, 51.05],
+            [7, 51.05],
+            [7, 51],
+          ],
+        ],
+      },
+    });
+    const slid = {
+      type: 'Polygon',
+      coordinates: [
+        [
+          [7.0, 51.0],
+          [7.012, 51.0],
+          [7.012, 51.01],
+          [7.0, 51.01],
+          [7.0, 51.0],
+        ],
+      ],
+    };
+    await h.as('keeper').post('/territories/import/territories', {
+      items: [
+        { number: 'W', geometry: slid },
+        { number: 'E', geometry: square(7.01, 51) },
+      ],
+    });
+    const c = await h.as('keeper').get('/territories/checks');
+    expect(c.body.overlapping).toEqual([['E', 'W']]);
+
+    // Before the register is built: nothing to show.
+    const none = await h.as('keeper').get('/territories/gaps');
+    expect(none.body).toMatchObject({ builtAt: null, houses: 0, spots: [] });
+    let id = 1;
+    const add = async (lon: number, lat: number) =>
+      h.sql(
+        `INSERT INTO map_houses (congregation_id, osm_id, lon, lat, area_m2) VALUES ($1, $2, $3, $4, 100)`,
+        [congregationId, id++, lon, lat],
+      );
+    for (let i = 0; i < 5; i++) await add(7.005, 51.001 + i * 0.001); // in W
+    for (let i = 0; i < 12; i++) await add(7.012 + i * 0.0002, 51.03); // a gap
+    for (let i = 0; i < 3; i++) await add(7.02, 51.045 - i * 0.004); // scattered
+    for (let i = 0; i < 4; i++) await add(7.045, 51.045 - i * 0.001); // outside the L
+    await h.sql(
+      `INSERT INTO territory_settings (congregation_id, houses_built_at) VALUES ($1, now())`,
+      [congregationId],
+    );
+    const g = await h.as('keeper').get('/territories/gaps');
+    expect(g.status).toBe(200);
+    expect(g.body.houses).toBe(15);
+    expect(g.body.spots).toHaveLength(1);
+    expect(g.body.spots[0]).toMatchObject({ houses: 12 });
+    expect(['E', 'W']).toContain(g.body.spots[0].near);
+    expect((await h.as('secretary').get('/territories/gaps')).status).toBe(403);
+  });
+
   function from(): string {
     return keptFrom(today);
   }

@@ -199,6 +199,12 @@ export class TerritoriesController {
     return this.reshape.create(user, dto);
   }
 
+  /** Houses no territory holds, grouped into spots (12 November 2026). */
+  @Get('gaps')
+  gaps(@CurrentUser() user: AuthenticatedUser) {
+    return this.service.gaps(user);
+  }
+
   /** The register of houses in a box, for the editor (12 November 2026). */
   @Get('houses')
   houses(@CurrentUser() user: AuthenticatedUser, @Query('box') box?: string) {

@@ -240,3 +240,23 @@ export function nextNumber(like: string, taken: string[]): string {
     if (!used.has(norm(c))) return c;
   }
 }
+
+/**
+ * How much two outlines lie over each other: the ground they share as a
+ * share of the smaller one, 0…1 (12 November 2026). Exact, unlike the
+ * grid of overlapShare, and fast enough for every pair of neighbours.
+ */
+export function sharedGround(
+  a: TerritoryGeometry,
+  b: TerritoryGeometry,
+): number {
+  const common = intersection(polygonsOf(a), polygonsOf(b));
+  if (common.length === 0) return 0;
+  const area = common.reduce(
+    (n, [outer, ...holes]) =>
+      n + ringArea(outer) - holes.reduce((m, h) => m + ringArea(h), 0),
+    0,
+  );
+  const smaller = Math.min(areaM2(a), areaM2(b));
+  return smaller > 0 ? area / smaller : 0;
+}

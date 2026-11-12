@@ -30,8 +30,9 @@ import {
   checkGeometry,
   areaShareOutside,
   GeometryError,
-  overlaps,
+  pointInside,
 } from './geometry';
+import { sharedGround } from './reshape';
 import {
   addDays,
   keptFrom,
@@ -50,6 +51,9 @@ import type {
 
 const norm = (n: string): string => n.trim().toLowerCase();
 const PG_UNIQUE_VIOLATION = '23505';
+/** A place of houses outside every territory, shown from this many on. */
+const GAP_SPOT_MIN = 10;
+const GAP_SPOTS = 40;
 
 /**
  * The territory section (11 November 2026). This first stage holds the
@@ -608,12 +612,17 @@ export class TerritoriesService {
           }))
           .filter((r) => r.share >= 1)
       : [];
+    // Laid over each other: by the ground they share (12 November 2026),
+    // a per cent of the smaller one or more, and only within one kind — a
+    // business territory lies over homes by design. Corners alone missed an
+    // outline slid over its neighbour.
     const boxes = rows.map((t) => boxOf(t.geometry));
     const overlapping: [string, string][] = [];
     for (let i = 0; i < rows.length; i++) {
       for (let j = i + 1; j < rows.length; j++) {
+        if (rows[i].category !== rows[j].category) continue;
         if (!boxesMeet(boxes[i], boxes[j])) continue;
-        if (overlaps(rows[i].geometry, rows[j].geometry)) {
+        if (sharedGround(rows[i].geometry, rows[j].geometry) >= 0.01) {
           overlapping.push([rows[i].number, rows[j].number]);
         }
       }
@@ -626,6 +635,103 @@ export class TerritoriesService {
       outsideBoundary: outside,
       overlapping,
       assignmentsWithoutCard: noCard,
+    };
+  }
+
+  /**
+   * Houses no territory holds (12 November 2026): from the register, inside
+   * the congregation's boundary, in no residential territory. Grouped into
+   * spots of about 300 m so the keeper sees places, not 12 000 dots; each
+   * spot names the nearest territory. Farms between towns may be outside on
+   * purpose — the screen says so; it only shows where they are.
+   */
+  async gaps(user: AuthenticatedUser) {
+    await this.access.mustKeep(user);
+    const tenantId = user.congregationId;
+    const settings = await this.settings.findOne({
+      where: { congregationId: tenantId },
+    });
+    const boundary = await this.currentBoundary(tenantId);
+    if (!settings?.housesBuiltAt || !boundary) {
+      return {
+        builtAt: settings?.housesBuiltAt ?? null,
+        hasBoundary: !!boundary,
+        houses: 0,
+        spots: [],
+      };
+    }
+    const rows = await this.territories.find({
+      where: {
+        congregationId: tenantId,
+        archivedAt: IsNull(),
+        category: 'residential',
+      },
+      select: { id: true, number: true, geometry: true },
+    });
+    const boxes = rows.map((t) => boxOf(t.geometry));
+    const [bx0, by0, bx1, by1] = boxOf(boundary.geometry);
+    const houses = await this.dataSource.query<{ lon: number; lat: number }[]>(
+      `SELECT lon, lat FROM map_houses
+        WHERE congregation_id = $1 AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
+      [tenantId, by0, by1, bx0, bx1],
+    );
+    const CELL_X = 0.0045;
+    const CELL_Y = 0.0028;
+    const cells = new Map<string, { n: number; x: number; y: number }>();
+    let total = 0;
+    for (const h of houses) {
+      const p: [number, number] = [h.lon, h.lat];
+      if (!pointInside(p, boundary.geometry)) continue;
+      const held = rows.some(
+        (t, i) =>
+          p[0] >= boxes[i][0] &&
+          p[0] <= boxes[i][2] &&
+          p[1] >= boxes[i][1] &&
+          p[1] <= boxes[i][3] &&
+          pointInside(p, t.geometry),
+      );
+      if (held) continue;
+      total += 1;
+      const key = `${Math.floor(p[0] / CELL_X)}:${Math.floor(p[1] / CELL_Y)}`;
+      const c = cells.get(key) ?? { n: 0, x: 0, y: 0 };
+      c.n += 1;
+      c.x += p[0];
+      c.y += p[1];
+      cells.set(key, c);
+    }
+    const nearest = (x: number, y: number) => {
+      let best = '';
+      let bestD = Infinity;
+      rows.forEach((t, i) => {
+        const cx = (boxes[i][0] + boxes[i][2]) / 2;
+        const cy = (boxes[i][1] + boxes[i][3]) / 2;
+        const d = Math.hypot((cx - x) * 0.62, cy - y);
+        if (d < bestD) {
+          bestD = d;
+          best = t.number;
+        }
+      });
+      return best || null;
+    };
+    const spots = [...cells.values()]
+      .filter((c) => c.n >= GAP_SPOT_MIN)
+      .sort((a, b) => b.n - a.n)
+      .slice(0, GAP_SPOTS)
+      .map((c) => {
+        const lon = c.x / c.n;
+        const lat = c.y / c.n;
+        return {
+          lon: Math.round(lon * 1e6) / 1e6,
+          lat: Math.round(lat * 1e6) / 1e6,
+          houses: c.n,
+          near: nearest(lon, lat),
+        };
+      });
+    return {
+      builtAt: settings.housesBuiltAt,
+      hasBoundary: true,
+      houses: total,
+      spots,
     };
   }
 
