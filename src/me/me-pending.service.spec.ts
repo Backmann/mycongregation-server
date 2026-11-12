@@ -20,6 +20,7 @@ function build(opts: {
   publisher?: Record<string, unknown> | null;
   tasks?: Record<string, unknown>[];
   territories?: Record<string, unknown>[];
+  review?: { count: number; first: string } | null;
 }) {
   const publishersRepo = {
     findOne: () =>
@@ -46,6 +47,7 @@ function build(opts: {
     clock as never,
     { waitingFor: () => Promise.resolve([]) } as never,
     { mine: () => Promise.resolve(opts.territories ?? []) } as never,
+    { waitingFor: () => Promise.resolve(opts.review ?? null) } as never,
   );
 }
 
@@ -57,6 +59,22 @@ afterAll(() => {
 });
 
 describe('MePendingService', () => {
+  it('lists «не посещать» addresses up for review as one line: how many, the earliest day', async () => {
+    const r = await build({
+      review: { count: 3, first: '2026-09-18' },
+    }).pending('c1', USER);
+    expect(r.items.filter((i) => i.kind === 'territory_review')).toEqual([
+      {
+        kind: 'territory_review',
+        title: '3',
+        dueOn: '2026-09-18',
+        overdue: true,
+      },
+    ]);
+    const none = await build({ review: null }).pending('c1', USER);
+    expect(none.items.some((i) => i.kind === 'territory_review')).toBe(false);
+  });
+
   it("lists a territory he holds, all the time he holds it — not his group's", async () => {
     const r = await build({
       territories: [

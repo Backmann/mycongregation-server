@@ -336,6 +336,8 @@ export const REFUSAL_CODES = [
   'TERRITORY_EXTENDED',
   'TERRITORY_PAST_YEAR',
   'TERRITORY_NOT_FOR_MEETING',
+  // «Не посещать» kept by hand (12 November 2026).
+  'TERRITORY_NO_CALL_TWICE',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];

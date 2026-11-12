@@ -83,6 +83,8 @@ export const NOTIFICATION_TYPES = [
   // weeks; and for the territory servant, one to take back.
   'territory',
   'territory_keeper',
+  // «Не посещать» addresses up for review: keepers and service committee.
+  'territory_review',
   'test',
 ] as const;
 

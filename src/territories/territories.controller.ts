@@ -17,6 +17,8 @@ import {
 import type { Response } from 'express';
 import { Public } from '../auth/decorators/public.decorator';
 import { TerritoryLinksService } from './territory-links.service';
+import { TerritoryNoCallsService } from './territory-no-calls.service';
+import { CreateNoCallDto, UpdateNoCallDto } from './dto/no-call.dto';
 import {
   CurrentUser,
   type AuthenticatedUser,
@@ -54,6 +56,7 @@ export class TerritoriesController {
     private readonly service: TerritoriesService,
     private readonly given: TerritoryAssignmentsService,
     private readonly links: TerritoryLinksService,
+    private readonly noCalls: TerritoryNoCallsService,
   ) {}
 
   /** The door: what the user may open, and the territories he has a part in. */
@@ -296,6 +299,47 @@ export class TerritoriesController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.given.remove(user, id);
+  }
+
+  // «Не посещать» kept by hand (12 November 2026).
+  @Get('no-calls/review')
+  noCallsReview(@CurrentUser() user: AuthenticatedUser) {
+    return this.noCalls.review(user);
+  }
+
+  @Post(':id/no-calls')
+  addNoCall(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateNoCallDto,
+  ) {
+    return this.noCalls.create(user, id, dto);
+  }
+
+  @Patch('no-calls/:id')
+  editNoCall(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateNoCallDto,
+  ) {
+    return this.noCalls.update(user, id, dto);
+  }
+
+  @Post('no-calls/:id/keep')
+  @HttpCode(200)
+  keepNoCall(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.noCalls.keep(user, id);
+  }
+
+  @Delete('no-calls/:id')
+  removeNoCall(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.noCalls.remove(user, id);
   }
 
   // Last: a fixed path above must win over the id.

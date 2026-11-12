@@ -124,42 +124,26 @@ export function handOnWords(number: string, lang: SupportedLanguage): Words {
   }
 }
 
-/** «Month in figures», for the service committee. */
-export function summaryWords(
-  s: {
-    month: string;
-    given: number;
-    worked: number;
-    held: number;
-    overdue: number;
-    idle: number;
-  },
+/** For the keepers and the service committee: addresses up for review. */
+export function noCallReviewWords(
+  count: number,
   lang: SupportedLanguage,
 ): Words {
-  let month = s.month;
-  try {
-    month = new Intl.DateTimeFormat(lang, {
-      month: 'long',
-      timeZone: 'UTC',
-    }).format(new Date(`${s.month}-15T12:00:00Z`));
-  } catch {
-    /* the bare 'YYYY-MM' will do */
-  }
   switch (lang) {
     case 'en':
       return {
-        title: `Territories in ${month}`,
-        body: `Assigned ${s.given}, worked ${s.worked}. Now out ${s.held}, over 4 months ${s.overdue}, free over a year ${s.idle}.`,
+        title: `«Do not call» addresses to review: ${count}`,
+        body: 'Two years have passed. Keep them or remove them under «Territories».',
       };
     case 'de':
       return {
-        title: `Gebiete im ${month}`,
-        body: `Ausgegeben ${s.given}, bearbeitet ${s.worked}. Jetzt ausgegeben ${s.held}, über 4 Monate ${s.overdue}, über ein Jahr frei ${s.idle}.`,
+        title: `«Nicht besuchen»-Adressen zur Prüfung: ${count}`,
+        body: 'Zwei Jahre sind vorbei. Unter «Gebiete» behalten oder entfernen.',
       };
     default:
       return {
-        title: `Участки: ${month}`,
-        body: `Выдано ${s.given}, пройдено ${s.worked}. Сейчас на руках ${s.held}, дольше 4 месяцев ${s.overdue}, свободны больше года ${s.idle}.`,
+        title: `Адреса «не посещать» на пересмотр: ${count}`,
+        body: 'Прошло два года. Оставьте или снимите их в разделе «Участки».',
       };
   }
 }

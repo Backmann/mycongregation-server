@@ -5,6 +5,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { SentFieldsOnlyValidationPipe } from './common/pipes/sent-fields-only-validation.pipe';
 import { ConfigService } from '@nestjs/config';
 import helmet from 'helmet';
+import { noStore } from './common/no-store';
 import { AppModule } from './app.module';
 import { httpRefusalLogger } from './common/http-refusal-logger';
 import { isTrustedHop } from './common/client-ip';
@@ -91,6 +92,9 @@ async function bootstrap() {
   );
 
   // -------------------------------------------------------------------------
+
+  // No answer of the API is kept by a browser or a proxy (src/common/no-store).
+  app.use(noStore());
 
   // Needed so the auth endpoints can read the httpOnly refresh cookie.
   app.use(cookieParser());

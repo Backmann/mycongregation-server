@@ -13,15 +13,16 @@ import {
   TERRITORY_COMMITTEE,
   TERRITORY_KEEPERS,
 } from './territory-access.service';
-import { TerritoriesService } from './territories.service';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { addDays } from './service-year';
 import {
   dueSoonWords,
   handOnWords,
-  summaryWords,
+  noCallReviewWords,
   takeBackWords,
 } from './territory-words';
+import { TerritoryNoCall } from '../entities/territory-no-call.entity';
+import { NO_CALL_REVIEW_AHEAD } from './territory-no-calls.service';
 
 /** The holder hears this many days before his territory is due. */
 export const DUE_SOON_DAYS = 14;
@@ -32,7 +33,10 @@ export const DUE_SOON_DAYS = 14;
  *    extension sets a new day and so a new reminder);
  *  - a territory whose holder has left the congregation (his card removed,
  *    marked as moved away, or deleted) is reported to the territory servant
- *    and his assistant, once, so they take it back.
+ *    and his assistant, once, so they take it back;
+ *  - «не посещать» addresses coming up for review (a month ahead, and on the
+ *    day) are announced to the keepers and the service committee — the one
+ *    territory notice the committee gets (Lionel, 12 November 2026).
  *
  * A holder who has become inactive is not reported here: whether he is
  * inactive is the elders' to know, and their task «Замена назначений»
@@ -44,13 +48,14 @@ export class TerritoryRemindersService {
 
   constructor(
     private readonly notifications: NotificationsService,
-    private readonly territoriesService: TerritoriesService,
     @InjectRepository(TerritoryAssignment)
     private readonly assignments: Repository<TerritoryAssignment>,
     @InjectRepository(Territory)
     private readonly territories: Repository<Territory>,
     @InjectRepository(TerritorySettings)
     private readonly settings: Repository<TerritorySettings>,
+    @InjectRepository(TerritoryNoCall)
+    private readonly noCalls: Repository<TerritoryNoCall>,
     @InjectRepository(Publisher)
     private readonly publishers: Repository<Publisher>,
     @InjectRepository(Responsibility)
@@ -67,41 +72,6 @@ export class TerritoryRemindersService {
       select: { id: true, userId: true },
     });
     return [...new Set(rows.map((r) => r.userId).filter(Boolean))] as string[];
-  }
-
-  /**
-   * On the first of the month, the service committee hears how the
-   * territories stood in the month that ended (11 November 2026).
-   */
-  async monthly(): Promise<number> {
-    const open = await this.settings.find({
-      where: { verifiedAt: Not(IsNull()) },
-    });
-    let sent = 0;
-    for (const s of open) {
-      try {
-        const sum = await this.territoriesService.summaryOf(s.congregationId);
-        const userIds = await this.userIdsOf(
-          s.congregationId,
-          TERRITORY_COMMITTEE,
-        );
-        if (userIds.length === 0) continue;
-        await this.notifications.notify({
-          tenantId: s.congregationId,
-          userIds,
-          kind: 'territory_summary',
-          key: `territory-summary:${sum.month}`,
-          text: (lang) => summaryWords(sum, lang),
-          data: { type: 'territory_keeper' },
-        });
-        sent += 1;
-      } catch (e) {
-        this.logger.error(
-          `territory summary failed for ${s.congregationId}: ${String(e)}`,
-        );
-      }
-    }
-    return sent;
   }
 
   async tick(now = new Date()): Promise<{ due: number; takeBack: number }> {
@@ -133,6 +103,7 @@ export class TerritoryRemindersService {
       select: { id: true, timezone: true },
     });
     const today = todayIn(now, c?.timezone);
+    await this.announceReviews(congregationId, today);
     const held = await this.assignments.find({
       where: {
         congregationId,
@@ -241,5 +212,33 @@ export class TerritoryRemindersService {
       }
     }
     return { due, takeBack: gone.length };
+  }
+
+  /**
+   * One notice a day at most: the addresses whose review falls a month from
+   * now, or today. Neither the address nor the territory is named on a
+   * locked screen — only how many.
+   */
+  async announceReviews(congregationId: string, today: string) {
+    const ahead = addDays(today, NO_CALL_REVIEW_AHEAD);
+    const rows = await this.noCalls.find({
+      where: { congregationId, reviewOn: In([today, ahead]) },
+      select: { id: true, reviewOn: true },
+    });
+    if (rows.length === 0) return 0;
+    const userIds = await this.userIdsOf(congregationId, [
+      ...TERRITORY_KEEPERS,
+      ...TERRITORY_COMMITTEE,
+    ]);
+    if (userIds.length === 0) return 0;
+    await this.notifications.notify({
+      tenantId: congregationId,
+      userIds,
+      kind: 'territory_no_call_review',
+      key: `territory-review:${today}`,
+      text: (lang) => noCallReviewWords(rows.length, lang),
+      data: { type: 'territory_review' },
+    });
+    return rows.length;
   }
 }

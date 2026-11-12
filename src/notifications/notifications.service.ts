@@ -103,8 +103,8 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
     kind === 'status_change' ||
     kind === 'meeting_gaps' ||
     kind === 'client_error' ||
-    // The month of the territories, for the service committee.
-    kind === 'territory_summary'
+    // «Не посещать» addresses up for review: keepers and service committee.
+    kind === 'territory_no_call_review'
   )
     return 'admin';
   if (kind === 'special_event') return 'events';
