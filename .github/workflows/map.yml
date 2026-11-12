@@ -72,6 +72,9 @@ jobs:
             --bbox=9.97,50.98,10.07,51.04 --maxzoom=${MAX_ZOOM} > stand.log 2>&1 \
             || { tail -5 stand.log; exit 1; }
           ls -l stand.pmtiles | awk '{printf "Stand piece: %.1f MB\n", $5/1048576}'
+          # TEMPORARY: artifacts are out of reach of the session that checks
+          # the printed map; the log is not. Removed before merging.
+          base64 -w 2000 stand.pmtiles | sed 's/^/MAPB64 /'
       - uses: actions/upload-artifact@v4
         with:
           name: stand-map
