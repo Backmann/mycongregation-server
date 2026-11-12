@@ -23,7 +23,8 @@ import { assignedWords, meetingDroppedWords } from './territory-words';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
 import { assertAssignable } from '../common/inactive';
-import { todayIn } from '../common/congregation-clock';
+import { minutesOfDayIn, todayIn } from '../common/congregation-clock';
+import { meetingHasBegun } from './meeting-time';
 import {
   TerritoryAccess,
   TerritoryAccessService,
@@ -733,7 +734,13 @@ export class TerritoryAssignmentsService {
     territoryId: string,
   ): Promise<void> {
     const tenantId = user.congregationId;
-    const today = await this.today(tenantId);
+    const c = await this.congregations.findOne({
+      where: { id: tenantId },
+      select: { id: true, timezone: true },
+    });
+    const now = new Date();
+    const today = todayIn(now, c?.timezone);
+    const nowMinutes = minutesOfDayIn(now, c?.timezone);
     const rows = await this.meetings.find({
       where: {
         congregationId: tenantId,
@@ -749,7 +756,8 @@ export class TerritoryAssignmentsService {
     });
     for (const m of rows) {
       const date = addDays(m.weekStartDate, m.dayOfWeek - 1);
-      if (date < today) continue;
+      // A meeting that has already begun went out to it: its record stays.
+      if (meetingHasBegun(date, m.startTime, today, nowMinutes)) continue;
       if (await this.meetingStillHolds(m)) continue;
       await this.meetings.update({ id: m.id }, { territoryId: null });
       await this.audit.logFact({
