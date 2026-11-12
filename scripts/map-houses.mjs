@@ -18,7 +18,7 @@
 import { open } from 'node:fs/promises';
 import { PMTiles } from 'pmtiles';
 import { VectorTile } from '@mapbox/vector-tile';
-import Pbf from 'pbf';
+import { PbfReader } from 'pbf';
 
 export const MIN_AREA_M2 = 35;
 
@@ -135,8 +135,8 @@ async function main() {
       const resp = await tiles.getZxy(z, x, y);
       if (!resp) continue;
       read += 1;
-      const layer = new VectorTile(new Pbf(new Uint8Array(resp.data))).layers
-        .buildings;
+      const layer = new VectorTile(new PbfReader(new Uint8Array(resp.data)))
+        .layers.buildings;
       if (!layer) continue;
       for (let i = 0; i < layer.length; i++) {
         const f = layer.feature(i);
