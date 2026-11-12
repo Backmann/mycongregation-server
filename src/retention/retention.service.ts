@@ -15,6 +15,8 @@ export interface RetentionPreviewRow {
   count: number;
   cascades?: string[];
   caution?: string;
+  /** What removal will do once switched on, where it is not plain deletion. */
+  does?: 'anonymise' | 'delete';
 }
 
 /**
@@ -41,6 +43,18 @@ export class RetentionService {
     const today = todayIn(now, congregation?.timezone);
     const rows: RetentionPreviewRow[] = [];
     for (const rule of RETENTION_RULES) {
+      if (rule.kind === 'counted') {
+        const before = rule.keptFrom(today);
+        rows.push({
+          key: rule.key,
+          what: rule.what,
+          basis: rule.basis,
+          before,
+          count: await rule.count(this.dataSource, congregationId, before),
+          does: rule.does,
+        });
+        continue;
+      }
       const before = cutoffDate(today, rule.keep);
       rows.push({
         key: rule.key,
@@ -60,7 +74,7 @@ export class RetentionService {
   }
 
   private async countPast(
-    rule: RetentionRule,
+    rule: Exclude<RetentionRule, { kind: 'counted' }>,
     congregationId: string,
     before: string,
   ): Promise<number> {

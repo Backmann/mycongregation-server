@@ -27,6 +27,7 @@ describe('retention preview (real database)', () => {
       const meta = ds.getMetadata(rule.entity);
       const has = (p: string) => !!meta.findColumnWithPropertyPath(p);
       expect([rule.key, has('congregationId')]).toEqual([rule.key, true]);
+      if (rule.kind === 'counted') continue;
       if (rule.kind === 'dated') {
         expect([rule.key, has(rule.column)]).toEqual([rule.key, true]);
         for (const p of Object.keys(rule.only ?? {}))

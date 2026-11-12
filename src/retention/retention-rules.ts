@@ -1,4 +1,4 @@
-import type { EntityTarget, ObjectLiteral } from 'typeorm';
+import type { DataSource, EntityTarget, ObjectLiteral } from 'typeorm';
 import { Absence } from '../entities/absence.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { AssignmentNotice } from '../entities/assignment-notice.entity';
@@ -22,6 +22,13 @@ import { ServiceGroup } from '../entities/service-group.entity';
 import { ServiceReport } from '../entities/service-report.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { TalkExchange } from '../entities/talk-exchange.entity';
+import { TerritoryAssignment } from '../entities/territory-assignment.entity';
+import {
+  countLinesBefore,
+  countNamedLinesBefore,
+  linesKeptFrom,
+  namesKeptFrom,
+} from '../territories/territory-retention';
 import { User } from '../entities/user.entity';
 import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 
@@ -75,7 +82,29 @@ export interface SoftDeletedRule {
   caution?: string;
 }
 
-export type RetentionRule = DatedRule | SoftDeletedRule;
+/**
+ * A rule whose date is not one column and whose period is not a plain count
+ * of months (12 November 2026: the S-13 keeps by service years, and a line
+ * ends on whichever of two days it ended). It also says what removal will do:
+ * clear a name and keep the record, or take the record away.
+ */
+export interface CountedRule {
+  kind: 'counted';
+  key: string;
+  what: string;
+  basis: string;
+  entity: EntityTarget<ObjectLiteral>;
+  does: 'anonymise' | 'delete';
+  /** The first day still kept, seen from the congregation's today. */
+  keptFrom: (today: string) => string;
+  count: (
+    ds: DataSource,
+    congregationId: string,
+    before: string,
+  ) => Promise<number>;
+}
+
+export type RetentionRule = DatedRule | SoftDeletedRule | CountedRule;
 
 const SCHEDULE =
   '§19: «Расписание встреч и список назначений — хранить не следует»; ' +
@@ -231,6 +260,33 @@ export const RETENTION_RULES: RetentionRule[] = [
     keep: { days: 7 },
     only: { status: 'approved' },
     cascades: ['aux_pioneer_application_seats'],
+  },
+
+  // The S-13 (12 November 2026): names for the current and the previous
+  // service year, the lines themselves for five.
+  {
+    kind: 'counted',
+    key: 'territory-names',
+    what: 'Имена держателей в записях об участках (S-13)',
+    basis:
+      'Бланк S-13: записи хранятся за текущий и прошлый служебный год; ' +
+      'решение 12.11.2026 — имя заменяется на «—», строка остаётся',
+    entity: TerritoryAssignment,
+    does: 'anonymise',
+    keptFrom: namesKeptFrom,
+    count: countNamedLinesBefore,
+  },
+  {
+    kind: 'counted',
+    key: 'territory-lines',
+    what: 'Строки истории участков старше пяти служебных лет',
+    basis:
+      'Решение 12.11.2026 — история участков 5 служебных лет, без имён; ' +
+      'последний день, когда участок пройден, переходит на сам участок',
+    entity: TerritoryAssignment,
+    does: 'delete',
+    keptFrom: linesKeptFrom,
+    count: countLinesBefore,
   },
 
   // «Deleted» rows stay in the table so a deletion can be undone. After
