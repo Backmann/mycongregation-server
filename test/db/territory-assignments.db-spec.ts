@@ -725,6 +725,102 @@ describe('territory assignments (real database)', () => {
     expect(await seen('stranger')).toEqual([]);
   });
 
+  // 12 November 2026: a meeting kept pointing at a territory after it left
+  // its conductor's hands — the group would go out to someone else's.
+  const meetingTomorrow = async (conductor: string) => {
+    const tomorrow = addDays(today, 1);
+    const d = new Date(`${tomorrow}T00:00:00Z`);
+    const dow = d.getUTCDay() || 7;
+    const monday = addDays(tomorrow, 1 - dow);
+    const [m] = await h.sql<{ id: string }>(
+      `INSERT INTO field_service_meetings
+         (congregation_id, week_start_date, day_of_week, start_time, address,
+          conductor_publisher_id, is_general, published_at)
+       VALUES ($1, $2, $3, '10:00', 'Зал', $4, true, now()) RETURNING id`,
+      [congregationId, monday, dow, conductor],
+    );
+    return m.id;
+  };
+  const meetingTerritory = async (id: string) =>
+    (
+      await h.sql<{ territory_id: string | null }>(
+        `SELECT territory_id FROM field_service_meetings WHERE id = $1`,
+        [id],
+      )
+    )[0].territory_id;
+
+  it('a territory that leaves the conductor comes off his meetings, and he is told', async () => {
+    await verify();
+    const a2 = await idOf('A02');
+    const given = await h
+      .as('keeper')
+      .post(`/territories/${a2}/assign`, { publisherId: card.holder });
+    expect(given.status).toBe(201);
+    const m = await meetingTomorrow(card.holder);
+    expect(
+      (
+        await h
+          .as('holder')
+          .put(`/territories/meetings/${m}`, { territoryId: a2 })
+      ).status,
+    ).toBe(200);
+    expect(await seen('stranger')).toEqual(['A02']);
+    // Taken back and given to someone else the day before the meeting.
+    const back = await h
+      .as('keeper')
+      .post(`/territories/assignments/${given.body.id}/return`, {});
+    expect(back.status).toBe(200);
+    const again = await h
+      .as('keeper')
+      .post(`/territories/${a2}/assign`, { publisherId: card.member });
+    expect(again.status).toBe(201);
+    // The meeting no longer goes there; nobody it is for sees it any more.
+    expect(await meetingTerritory(m)).toBeNull();
+    expect(await seen('stranger')).toEqual([]);
+    expect(
+      (
+        await h
+          .as('stranger')
+          .post(`/territories/assignments/${again.body.id}/view-link`)
+      ).status,
+    ).not.toBe(200);
+    // The conductor hears of it once.
+    const told = await h.sql<{ kind: string }>(
+      `SELECT kind FROM notification_outbox WHERE kind = 'territory_meeting_dropped'`,
+    );
+    expect(told).toHaveLength(1);
+  });
+
+  it('a meeting whose conductor changed does not send anyone to a territory that is not his', async () => {
+    await verify();
+    const a2 = await idOf('A02');
+    expect(
+      (
+        await h
+          .as('keeper')
+          .post(`/territories/${a2}/assign`, { publisherId: card.holder })
+      ).status,
+    ).toBe(201);
+    const m = await meetingTomorrow(card.holder);
+    expect(
+      (
+        await h
+          .as('holder')
+          .put(`/territories/meetings/${m}`, { territoryId: a2 })
+      ).status,
+    ).toBe(200);
+    // The meeting is handed to another conductor elsewhere in the app.
+    await h.sql(
+      `UPDATE field_service_meetings SET conductor_publisher_id = $1 WHERE id = $2`,
+      [card.stranger, m],
+    );
+    expect(await seen('member')).toEqual([]);
+    const theirs = (await h.as('stranger').get('/territories/my-meetings'))
+      .body;
+    expect(theirs[0].territoryId).toBeNull();
+    expect(theirs[0].dropped).toEqual({ number: 'A02' });
+  });
+
   it('the month in figures, seen in the section; the committee is sent no notice of it', async () => {
     await verify();
     const a = await giveToHolder();

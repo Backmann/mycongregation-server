@@ -147,3 +147,33 @@ export function noCallReviewWords(
       };
   }
 }
+
+/**
+ * A meeting the conductor had sent to a territory that is no longer his or
+ * his group's (12 November 2026): it goes out without one until he picks
+ * another.
+ */
+export function meetingDroppedWords(
+  number: string,
+  dateISO: string,
+  lang: SupportedLanguage,
+): Words {
+  const day = dayMonth(dateISO, lang);
+  switch (lang) {
+    case 'en':
+      return {
+        title: `Territory ${number} taken off your meeting`,
+        body: `It is no longer yours or your group's. Choose another for ${day} under «Ministry → Territories».`,
+      };
+    case 'de':
+      return {
+        title: `Gebiet ${number} vom Treffpunkt genommen`,
+        body: `Es ist nicht mehr Ihres oder das Ihrer Gruppe. Wählen Sie für den ${day} ein anderes unter «Dienst → Gebiete».`,
+      };
+    default:
+      return {
+        title: `Участок ${number} снят со встречи`,
+        body: `Он больше не у вас и не у вашей группы. Выберите другой на ${day} в «Служение → Участки».`,
+      };
+  }
+}
