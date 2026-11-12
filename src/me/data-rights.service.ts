@@ -28,6 +28,8 @@ import { PioneerType } from '../common/enums/pioneer-type.enum';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { refusal } from '../common/errors/refusal';
 import { Congregation } from '../entities/congregation.entity';
+import { Territory } from '../entities/territory.entity';
+import { TerritoryAssignment } from '../entities/territory-assignment.entity';
 import {
   coerceLanguage,
   type SupportedLanguage,
@@ -97,6 +99,35 @@ export class DataRightsService {
         ])
       : [[], [], [], [], [], [], []];
 
+    // The territories one held (12 November 2026): the S-13 lines that still
+    // carry one's name — the number and the days, nothing about others.
+    const territoryLines = pubId
+      ? await ds.getRepository(TerritoryAssignment).find({
+          where: { congregationId: tenantId, publisherId: pubId },
+          order: { assignedOn: 'ASC' },
+        })
+      : [];
+    const territoryNumbers = new Map(
+      territoryLines.length
+        ? (
+            await ds.getRepository(Territory).find({
+              where: { congregationId: tenantId },
+              select: { id: true, number: true },
+            })
+          ).map((t) => [t.id, t.number])
+        : [],
+    );
+    const territories = territoryLines.map((a) => ({
+      territory: territoryNumbers.get(a.territoryId) ?? null,
+      holderName: a.holderName,
+      forGroup: a.forGroupName,
+      assignedOn: a.assignedOn,
+      dueOn: a.dueOn,
+      completedOn: a.completedOn,
+      returnedOn: a.returnedOn,
+      method: a.method,
+    }));
+
     const responsibilities = await ds
       .getRepository(Responsibility)
       .find({ where: { congregationId: tenantId, userId } });
@@ -137,6 +168,7 @@ export class DataRightsService {
       talkExchanges,
       cartRequests,
       cartAssignments,
+      territories,
       responsibilities,
       devices: { webPushSubscriptions, pushTokens },
     };
