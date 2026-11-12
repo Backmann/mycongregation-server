@@ -192,9 +192,22 @@ export class TerritoryNoCallsService {
       n.reviewOn = addDays(dto.notedOn, NO_CALL_REVIEW_DAYS);
       changed.push('notedOn');
     }
+    // To the neighbour, when a boundary drawn again put the house there
+    // (12 November 2026).
+    let movedTo: string | null = null;
+    if (dto.territoryId !== undefined && dto.territoryId !== n.territoryId) {
+      const to = await this.territoryOf(user, dto.territoryId);
+      await this.mustBeUnique(to.id, n.address, n.id);
+      n.territoryId = to.id;
+      movedTo = to.number;
+      changed.push('territory');
+    }
     if (changed.length === 0) return this.shape(n);
     await this.noCalls.save(n);
-    await this.log(user, n, t.number, 'UPDATE', { changed });
+    await this.log(user, n, t.number, 'UPDATE', {
+      changed,
+      ...(movedTo ? { movedTo } : {}),
+    });
     return this.shape(n);
   }
 

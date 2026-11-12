@@ -246,3 +246,34 @@ export function boxesMeet(
 ): boolean {
   return a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
 }
+
+/**
+ * How much two territories lie over each other, 0…1: the larger of the two
+ * shares — of the first lying inside the second, and the other way round
+ * (12 November 2026). Counting corners misses one outline slid a little over
+ * its neighbour (every corner lands on the other's border); counting ground
+ * does not. A border drawn a hair across stays well under a per cent.
+ */
+export function overlapShare(
+  a: TerritoryGeometry,
+  b: TerritoryGeometry,
+  steps = 80,
+): number {
+  if (!boxesMeet(boxOf(a), boxOf(b))) return 0;
+  const inside = (g: TerritoryGeometry, other: TerritoryGeometry) => {
+    const [x1, y1, x2, y2] = boxOf(g);
+    let own = 0;
+    let both = 0;
+    for (let i = 0; i < steps; i++) {
+      const x = x1 + ((i + 0.5) * (x2 - x1)) / steps;
+      for (let j = 0; j < steps; j++) {
+        const y = y1 + ((j + 0.5) * (y2 - y1)) / steps;
+        if (!pointInside([x, y], g)) continue;
+        own += 1;
+        if (pointInside([x, y], other)) both += 1;
+      }
+    }
+    return own === 0 ? 0 : both / own;
+  };
+  return Math.max(inside(a, b), inside(b, a));
+}

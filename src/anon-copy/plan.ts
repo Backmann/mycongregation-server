@@ -397,7 +397,7 @@ export const PLAN: Record<string, TablePlan> = {
     remove('note'),
   ),
   territory_shapes: copy(`id congregation_id territory_id geometry reason
-    from_territory_ids created_by_user_id created_at`),
+    from_territory_ids edit_id created_by_user_id created_at`),
   territory_boundaries: copy(`id congregation_id geometry description
     valid_from created_by_user_id created_at`),
   territory_assignments: table(

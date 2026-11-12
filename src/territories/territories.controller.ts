@@ -25,6 +25,8 @@ import {
 } from '../auth/decorators/current-user.decorator';
 import { TerritoriesService } from './territories.service';
 import { EditTerritoryDto } from './dto/card.dto';
+import { OutlineDto } from './dto/outline.dto';
+import { TerritoryOutlineService } from './territory-outline.service';
 import { TerritoryAssignmentsService } from './territory-assignments.service';
 import {
   AssignTerritoryDto,
@@ -58,6 +60,7 @@ export class TerritoriesController {
     private readonly given: TerritoryAssignmentsService,
     private readonly links: TerritoryLinksService,
     private readonly noCalls: TerritoryNoCallsService,
+    private readonly outline: TerritoryOutlineService,
   ) {}
 
   /** The door: what the user may open, and the territories he has a part in. */
@@ -359,6 +362,35 @@ export class TerritoriesController {
     @Body() dto: EditTerritoryDto,
   ) {
     return this.service.editCard(user, id, dto);
+  }
+
+  /** What a boundary drawn again would do, without saving (12 November 2026). */
+  @Post(':id/outline/check')
+  @HttpCode(HttpStatus.OK)
+  checkOutline(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: OutlineDto,
+  ) {
+    return this.outline.check(user, id, dto);
+  }
+
+  @Put(':id/outline')
+  saveOutline(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: OutlineDto,
+  ) {
+    return this.outline.save(user, id, dto);
+  }
+
+  @Post(':id/outline/undo')
+  @HttpCode(HttpStatus.OK)
+  undoOutline(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.outline.undo(user, id);
   }
 
   @Post(':id/archive')

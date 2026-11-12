@@ -5,6 +5,7 @@ import {
   overlaps,
   shareOutside,
   areaShareOutside,
+  overlapShare,
 } from './geometry';
 import { keptFrom, serviceYearOf } from './service-year';
 
@@ -153,6 +154,39 @@ describe('territory outlines', () => {
     });
     expect(shareOutside(ragged, area)).toBeGreaterThan(0.4);
     expect(areaShareOutside(ragged, area)).toBeLessThan(0.01);
+  });
+});
+
+describe('two outlines lying over each other (12 November 2026)', () => {
+  const rect = (x1: number, x2: number) =>
+    checkGeometry({
+      type: 'Polygon',
+      coordinates: [
+        [
+          [x1, 51],
+          [x2, 51],
+          [x2, 51.01],
+          [x1, 51.01],
+          [x1, 51],
+        ],
+      ],
+    });
+
+  it('neighbours sharing a border do not lie over each other', () => {
+    expect(overlapShare(rect(7, 7.01), rect(7.01, 7.02))).toBe(0);
+    expect(overlapShare(rect(7, 7.01), rect(7.03, 7.04))).toBe(0);
+  });
+
+  it('one slid over its neighbour is caught, though no corner is inside', () => {
+    const a = rect(7, 7.012);
+    const b = rect(7.01, 7.02);
+    // Corners alone see nothing here: that is why the ground is counted.
+    expect(overlaps(a, b)).toBe(false);
+    expect(overlapShare(a, b)).toBeCloseTo(0.2, 2);
+  });
+
+  it('one inside the other counts whole', () => {
+    expect(overlapShare(rect(7, 7.02), rect(7.005, 7.01))).toBe(1);
   });
 });
 
