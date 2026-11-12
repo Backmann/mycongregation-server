@@ -174,6 +174,35 @@ export function shareOutside(
 }
 
 /**
+ * The share of a territory's AREA that lies outside an area, 0…1
+ * (12 November 2026). Counting corners told the keeper «26 %» for a territory
+ * with 3 % of its ground outside. Points are laid over the territory in an
+ * even grid — densest along the longer side — and those inside it are
+ * counted outside the area or not: within a per cent for any outline the
+ * import accepts. Corners all inside and no border crossing: 0 at once.
+ */
+export function areaShareOutside(
+  g: TerritoryGeometry,
+  area: TerritoryGeometry,
+  steps = 80,
+): number {
+  if (shareOutside(g, area) === 0 && !cutByBorder(g, area)) return 0;
+  const [x1, y1, x2, y2] = boxOf(g);
+  let inside = 0;
+  let out = 0;
+  for (let i = 0; i < steps; i++) {
+    const x = x1 + ((i + 0.5) * (x2 - x1)) / steps;
+    for (let j = 0; j < steps; j++) {
+      const y = y1 + ((j + 0.5) * (y2 - y1)) / steps;
+      if (!pointInside([x, y], g)) continue;
+      inside += 1;
+      if (!pointInside([x, y], area)) out += 1;
+    }
+  }
+  return inside === 0 ? 0 : out / inside;
+}
+
+/**
  * Whether the area's own border cuts through the territory: one of the
  * area's corners lies strictly inside it. Catches a territory that pokes out
  * between two of its own corners, which counting its corners alone misses.

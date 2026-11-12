@@ -28,10 +28,9 @@ import {
   boxOf,
   boxesMeet,
   checkGeometry,
-  cutByBorder,
+  areaShareOutside,
   GeometryError,
   overlaps,
-  shareOutside,
 } from './geometry';
 import {
   addDays,
@@ -392,18 +391,15 @@ export class TerritoriesService {
     const boundary = await this.currentBoundary(tenantId);
     const outside = boundary
       ? rows
-          .map((t) => {
-            const share = shareOutside(t.geometry, boundary.geometry);
-            // A territory poking out between its own corners still counts.
-            const cut =
-              share === 0 && cutByBorder(t.geometry, boundary.geometry);
-            return { number: t.number, share: cut ? 0.01 : share };
-          })
-          .filter((r) => r.share > 0)
-          .map((r) => ({
-            number: r.number,
-            share: Math.max(1, Math.round(r.share * 100)),
+          // The share of its ground outside (12 November 2026); a border
+          // drawn a hair across is not worth the keeper's time.
+          .map((t) => ({
+            number: t.number,
+            share: Math.round(
+              areaShareOutside(t.geometry, boundary.geometry) * 100,
+            ),
           }))
+          .filter((r) => r.share >= 1)
       : [];
     const boxes = rows.map((t) => boxOf(t.geometry));
     const overlapping: [string, string][] = [];
