@@ -751,6 +751,25 @@ describe('territory assignments (real database)', () => {
       ]),
     ).toEqual([]);
   });
+  it('the month in figures counts brought-over lines with their own days', async () => {
+    const month = today.slice(0, 7);
+    const r = await h.as('keeper').post('/territories/import/assignments', {
+      items: [
+        {
+          number: 'A01',
+          holderName: 'Прежний П.',
+          assignedOn: `${month}-01`,
+          completedOn: today,
+        },
+      ],
+    });
+    expect(r.status).toBe(201);
+    await verify();
+    const sum = await h
+      .as('secretary')
+      .get(`/territories/summary?month=${month}`);
+    expect(sum.body).toMatchObject({ given: 1, worked: 1 });
+  });
   it('the S-13 of a year: last worked before it, carried-over lines with their old day, a return without a worked day', async () => {
     const start = serviceYearStart(serviceYearOf(today));
     // Before confirming: lines brought over. Worked last year; still open

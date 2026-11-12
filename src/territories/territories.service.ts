@@ -214,8 +214,10 @@ export class TerritoriesService {
             .createQueryBuilder('a')
             .select('COUNT(*)', 'n')
             .where('a.congregation_id = :congregationId', { congregationId })
+            // Brought-over lines count too: they are the congregation's own
+            // history with their real days (12 November 2026 — October read
+            // «0 given, 0 worked» right after the records came over).
             .andWhere(`a.${column} BETWEEN :from AND :to`, { from, to })
-            .andWhere('a.imported = false')
             .getRawOne<{ n: string }>()
         )?.n ?? 0,
       );
