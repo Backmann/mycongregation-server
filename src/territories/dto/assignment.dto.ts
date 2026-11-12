@@ -133,3 +133,16 @@ export class SummaryQueryDto {
   @Matches(/^\d{4}-\d{2}$/)
   month?: string;
 }
+
+/** Links for printed territory maps, several at once. */
+export class PrintLinksDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @IsUUID('all', { each: true })
+  assignmentIds!: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  withNoCalls?: boolean;
+}

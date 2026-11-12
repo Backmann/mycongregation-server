@@ -5,7 +5,8 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
+import { TerritoryNoCall } from '../entities/territory-no-call.entity';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { Territory } from '../entities/territory.entity';
 import { TerritoryAssignment } from '../entities/territory-assignment.entity';
@@ -71,7 +72,85 @@ export class TerritoryLinksService {
     private readonly settings: Repository<TerritorySettings>,
     @InjectRepository(Congregation)
     private readonly congregations: Repository<Congregation>,
+    @InjectRepository(TerritoryNoCall)
+    private readonly noCalls: Repository<TerritoryNoCall>,
   ) {}
+
+  /**
+   * Links for printed territory maps (12 November 2026), several at once:
+   * a fresh share link for each open assignment — the one printed on a
+   * sheet before stops, and the answer says when that one was made so the
+   * app could warn first. With `withNoCalls`, the «не беспокоить» addresses
+   * for the back of the sheet (the keeper ticks it for a holder without a
+   * phone). Keepers only.
+   */
+  async printLinks(
+    user: AuthenticatedUser,
+    assignmentIds: string[],
+    withNoCalls: boolean,
+  ) {
+    const access = await this.access.of(user);
+    if (!access.keeps || !access.verified) {
+      throw new NotFoundException('Assignment not found');
+    }
+    const ids = [...new Set(assignmentIds)];
+    const rows = await this.assignments.find({
+      where: {
+        id: In(ids),
+        congregationId: user.congregationId,
+        completedOn: IsNull(),
+        returnedOn: IsNull(),
+      },
+    });
+    const calls = withNoCalls
+      ? await this.noCalls.find({
+          where: {
+            congregationId: user.congregationId,
+            territoryId: In([...new Set(rows.map((r) => r.territoryId))]),
+          },
+          order: { notedOn: 'DESC' },
+        })
+      : [];
+    const out: {
+      assignmentId: string;
+      territoryId: string;
+      path: string;
+      dueOn: string | null;
+      replacedLinkOf: Date | null;
+      noCalls: { address: string; surname: string | null }[];
+    }[] = [];
+    for (const a of rows) {
+      const token = randomBytes(24).toString('base64url');
+      await this.assignments.update(
+        { id: a.id },
+        { linkHash: hashOf(token), linkCreatedAt: new Date() },
+      );
+      out.push({
+        assignmentId: a.id,
+        territoryId: a.territoryId,
+        path: `/t/${token}`,
+        dueOn: a.dueOn,
+        replacedLinkOf: a.linkCreatedAt,
+        noCalls: calls
+          .filter((c) => c.territoryId === a.territoryId)
+          .map((c) => ({ address: c.address, surname: c.surname })),
+      });
+    }
+    if (out.length > 0) {
+      await this.audit.logFact({
+        tenantId: user.congregationId,
+        entityType: 'territory_assignment',
+        entityId: user.congregationId,
+        action: 'UPDATE',
+        actorUserId: user.id,
+        detail: {
+          printed: out.map((o) => o.assignmentId),
+          withNoCalls,
+        },
+      });
+    }
+    return out;
+  }
 
   private secret(): string {
     const s = this.config.get<string>('jwt.secret');

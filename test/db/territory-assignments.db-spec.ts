@@ -723,4 +723,37 @@ describe('territory assignments (real database)', () => {
     ).toBe(400);
     expect((await h.as('member').get('/territories/s13')).status).toBe(403);
   });
+  it('links for printed maps: one per sheet, the earlier sheet stops, addresses only when asked', async () => {
+    await verify();
+    const a = await giveToHolder();
+    const first = await h
+      .as('keeper')
+      .post('/territories/print-links', { assignmentIds: [a.id] });
+    expect(first.status).toBe(200);
+    expect(first.body[0].noCalls).toEqual([]);
+    expect(first.body[0].replacedLinkOf).toBeNull();
+    const second = await h.as('keeper').post('/territories/print-links', {
+      assignmentIds: [a.id],
+      withNoCalls: true,
+    });
+    expect(second.body[0].replacedLinkOf).not.toBeNull();
+    expect(second.body[0].noCalls).toEqual([
+      { address: 'Musterstraße 1', surname: null },
+    ]);
+    const tok = (b: { path: string }) => b.path.slice(3);
+    expect(
+      (await h.as(null).get(`/territory-links/${tok(first.body[0])}`)).status,
+    ).toBe(404);
+    expect(
+      (await h.as(null).get(`/territory-links/${tok(second.body[0])}`)).status,
+    ).toBe(200);
+    // The holder makes his own link elsewhere; printing is the keepers'.
+    expect(
+      (
+        await h
+          .as('holder')
+          .post('/territories/print-links', { assignmentIds: [a.id] })
+      ).status,
+    ).toBe(404);
+  });
 });
