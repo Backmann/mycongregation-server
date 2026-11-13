@@ -32,7 +32,7 @@ import {
   areaShareOutside,
   GeometryError,
   pointInside,
-  metresToOutline,
+  closestOutline,
 } from './geometry';
 import { sharedGround } from './reshape';
 import {
@@ -770,6 +770,7 @@ export class TerritoriesService {
       x: number;
       y: number;
       shop: number;
+      pts: [number, number][];
     };
     const cells = new Map<string, Cell>();
     let total = 0;
@@ -784,8 +785,17 @@ export class TerritoriesService {
       const cx = Math.floor(p[0] / GAP_CELL_X);
       const cy = Math.floor(p[1] / GAP_CELL_Y);
       const key = `${cx}:${cy}`;
-      const c = cells.get(key) ?? { cx, cy, n: 0, x: 0, y: 0, shop: 0 };
+      const c = cells.get(key) ?? {
+        cx,
+        cy,
+        n: 0,
+        x: 0,
+        y: 0,
+        shop: 0,
+        pts: [],
+      };
       c.n += 1;
+      c.pts.push(p);
       c.x += p[0];
       c.y += p[1];
       if (shop) c.shop += 1;
@@ -823,29 +833,39 @@ export class TerritoriesService {
           x: g.reduce((s, c) => s + c.x, 0) / n,
           y: g.reduce((s, c) => s + c.y, 0) / n,
           shop: g.reduce((s, c) => s + c.shop, 0),
+          pts: g.flatMap((c) => c.pts),
         };
       })
       .filter((g) => g.n >= GAP_SPOT_MIN)
       .sort((a, b) => b.n - a.n);
+    // A spot is told by one of its own houses — the one nearest its middle,
+    // so the mark never falls inside a territory when the houses ring it —
+    // and by the territory whose border comes closest to any of its houses:
+    // that is the one to widen (13 November 2026; measured from the middle,
+    // a spot along a long border was «1.4 km away»).
     const listed = spots.slice(0, GAP_SPOTS).map((g) => {
-      const p: [number, number] = [g.x, g.y];
-      let near: (typeof homes)[number] | null = null;
-      let metres = Infinity;
-      for (const t of homes) {
-        const d = metresToOutline(p, t.geometry);
-        if (d < metres) {
-          metres = d;
-          near = t;
+      let anchor = g.pts[0];
+      let anchorD = Infinity;
+      for (const q of g.pts) {
+        const d = Math.hypot((q[0] - g.x) * 0.62, q[1] - g.y);
+        if (d < anchorD) {
+          anchorD = d;
+          anchor = q;
         }
       }
+      const { index, metres } = closestOutline(
+        g.pts,
+        homes.map((t) => t.geometry),
+      );
+      const nearRow = index >= 0 ? homes[index] : null;
       return {
-        lon: Math.round(g.x * 1e6) / 1e6,
-        lat: Math.round(g.y * 1e6) / 1e6,
+        lon: Math.round(anchor[0] * 1e6) / 1e6,
+        lat: Math.round(anchor[1] * 1e6) / 1e6,
         houses: g.n,
         inBusiness: g.shop,
-        near: near?.number ?? null,
-        nearId: near?.id ?? null,
-        nearMetres: near ? Math.round(metres) : null,
+        near: nearRow?.number ?? null,
+        nearId: nearRow?.id ?? null,
+        nearMetres: nearRow ? Math.round(metres) : null,
       };
     });
     return {

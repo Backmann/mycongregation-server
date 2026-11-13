@@ -325,6 +325,9 @@ describe('territories (real database)', () => {
         // its border farther than Long's border.
         { number: 'Mid', geometry: area(7.0137, 51.0195, 7.0177, 51.0235) },
         { number: 'Shop', geometry: area(7.001, 51.04, 7.005, 51.044) },
+        // Small, right at the gap's west end: 49 m from its end house,
+        // farther than Long from the gap's middle.
+        { number: 'Edge', geometry: area(7.0105, 51.0295, 7.0118, 51.0305) },
       ],
     });
     await h.sql(
@@ -360,10 +363,16 @@ describe('territories (real database)', () => {
     expect(g.body.spots[0]).toMatchObject({
       houses: 14,
       inBusiness: 0,
-      near: 'Long',
+      near: 'Edge',
     });
-    expect(g.body.spots[0].nearMetres).toBeGreaterThan(100);
-    expect(g.body.spots[0].nearMetres).toBeLessThan(250);
+    expect(g.body.spots[0].nearMetres).toBeGreaterThan(35);
+    expect(g.body.spots[0].nearMetres).toBeLessThan(65);
+    // The mark is one of the spot's own houses, not its middle.
+    const gapHouses = Array.from({ length: 14 }, (_, i) =>
+      Math.round((7.0125 + i * 0.0005) * 1e6),
+    );
+    expect(gapHouses).toContain(Math.round(g.body.spots[0].lon * 1e6));
+    expect(g.body.spots[0].lat).toBe(51.03);
     expect(g.body.spots[1]).toMatchObject({ houses: 10, inBusiness: 10 });
     expect((await h.as('secretary').get('/territories/gaps')).status).toBe(403);
 

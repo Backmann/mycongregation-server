@@ -7,6 +7,7 @@ import {
   areaShareOutside,
   overlapShare,
   metresToOutline,
+  closestOutline,
 } from './geometry';
 import { keptFrom, serviceYearOf } from './service-year';
 
@@ -207,6 +208,33 @@ describe('distance from a point to an outline (13 November 2026)', () => {
     const d = metresToOutline([7.011, 51.011], sq);
     expect(d).toBeGreaterThan(125);
     expect(d).toBeLessThan(135);
+  });
+});
+
+describe('the outline closest to a spot of houses (13 November 2026)', () => {
+  it('none: -1', () => {
+    expect(closestOutline([[7, 51]], [])).toEqual({
+      index: -1,
+      metres: Infinity,
+    });
+  });
+  it('the border nearest any house wins, whatever the order', () => {
+    // Houses in a row from 7.02 to 7.05 at 51.005.
+    const houses: [number, number][] = [0, 1, 2, 3].map((i) => [
+      7.02 + i * 0.01,
+      51.005,
+    ]);
+    const far = square(7.0, 51.0, 0.005); // ~1 km from the first house
+    const mid = square(7.018, 51.007, 0.004); // ~220 m above the first house
+    const close = square(7.0, 51.0, 0.0195); // 35 m from the first house
+    // The closest comes last, after one close enough to tempt a skip.
+    const r = closestOutline(houses, [mid, far, close]);
+    expect(r.index).toBe(2);
+    expect(r.metres).toBeGreaterThan(30);
+    expect(r.metres).toBeLessThan(40);
+    expect(closestOutline([...houses].reverse(), [far, mid, close]).index).toBe(
+      2,
+    );
   });
 });
 

@@ -310,3 +310,33 @@ export function metresToOutline(
   }
   return best;
 }
+
+/**
+ * Which outline comes closest to any of the points, and how close, in
+ * metres (13 November 2026): the territory to widen over a spot of houses.
+ * Exact; a box is no closer than its outline, so outlines whose box is
+ * already farther than the best found are skipped. -1 when there are none.
+ */
+export function closestOutline(
+  points: [number, number][],
+  outlines: TerritoryGeometry[],
+): { index: number; metres: number } {
+  const boxes = outlines.map((g) => boxOf(g));
+  let index = -1;
+  let metres = Infinity;
+  for (const q of points) {
+    const kx = 111_320 * Math.cos((q[1] * Math.PI) / 180);
+    outlines.forEach((g, i) => {
+      const [x0, y0, x1, y1] = boxes[i];
+      const bx = Math.max(x0 - q[0], 0, q[0] - x1) * kx;
+      const by = Math.max(y0 - q[1], 0, q[1] - y1) * 110_540;
+      if (Math.hypot(bx, by) >= metres) return;
+      const d = metresToOutline(q, g);
+      if (d < metres) {
+        metres = d;
+        index = i;
+      }
+    });
+  }
+  return { index, metres };
+}
