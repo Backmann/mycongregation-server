@@ -23,6 +23,18 @@ export class NeighbourOutlineDto {
 }
 
 /**
+ * A «не посещать» address that the new border puts in another of the
+ * changed territories (13 November 2026): moved with the save, not before.
+ */
+export class NoCallMoveDto {
+  @IsUUID()
+  id!: string;
+
+  @IsUUID()
+  to!: string;
+}
+
+/**
  * A boundary drawn again by hand (12 November 2026): the territory's new
  * outline and those of the neighbours that share the moved border.
  */
@@ -39,4 +51,11 @@ export class OutlineDto {
   @ValidateNested({ each: true })
   @Type(() => NeighbourOutlineDto)
   neighbours?: NeighbourOutlineDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => NoCallMoveDto)
+  noCallMoves?: NoCallMoveDto[];
 }

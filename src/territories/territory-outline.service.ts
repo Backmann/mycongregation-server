@@ -8,7 +8,17 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 import { Territory, TerritoryGeometry } from '../entities/territory.entity';
-import { TerritoryShape } from '../entities/territory-shape.entity';
+import {
+  TerritoryShape,
+  type ReshapeDetail,
+} from '../entities/territory-shape.entity';
+import { TerritoryNoCall } from '../entities/territory-no-call.entity';
+import { Publisher } from '../entities/publisher.entity';
+import { Congregation } from '../entities/congregation.entity';
+import { NotificationsService } from '../notifications/notifications.service';
+import { todayIn } from '../common/congregation-clock';
+import { addressKey } from './territory-no-calls.service';
+import { outlineChangedWords } from './territory-words';
 import { TerritoryBoundary } from '../entities/territory-boundary.entity';
 import { TerritoryAssignment } from '../entities/territory-assignment.entity';
 import { TerritorySettings } from '../entities/territory-settings.entity';
@@ -42,6 +52,13 @@ const MAX_HOUSES = 60000;
 const OVERLAP_LIMIT = 0.01;
 
 const pct = (share: number): number => Math.round(share * 100);
+
+interface NoCallMove {
+  id: string;
+  to: string;
+  /** Undo: only if it is still in this territory. */
+  onlyFrom?: string | null;
+}
 
 interface Change {
   id: string;
@@ -95,6 +112,7 @@ export class TerritoryOutlineService {
     private readonly dataSource: DataSource,
     @InjectRepository(TerritoryShape)
     private readonly shapes: Repository<TerritoryShape>,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private async mustKeepOpen(user: AuthenticatedUser): Promise<void> {
@@ -147,7 +165,12 @@ export class TerritoryOutlineService {
 
   async save(user: AuthenticatedUser, id: string, dto: OutlineDto) {
     await this.mustKeepOpen(user);
-    return this.apply(user, this.changesOf(id, dto), 'edit');
+    return this.apply(
+      user,
+      this.changesOf(id, dto),
+      'edit',
+      (dto.noCallMoves ?? []).map((n) => ({ id: n.id, to: n.to })),
+    );
   }
 
   /**
@@ -180,6 +203,15 @@ export class TerritoryOutlineService {
         );
       }
     }
+    // The addresses moved with that change go back where they were — those
+    // still where the change put them.
+    const back = batch.flatMap((s) =>
+      (s.detail?.noCalls ?? []).map((n) => ({
+        id: n.id,
+        to: n.from,
+        onlyFrom: n.to ?? null,
+      })),
+    );
     return this.apply(
       user,
       batch.map((s) => ({
@@ -188,6 +220,7 @@ export class TerritoryOutlineService {
         updatedAt: null,
       })),
       'undo',
+      back,
     );
   }
 
@@ -195,6 +228,7 @@ export class TerritoryOutlineService {
     user: AuthenticatedUser,
     changes: Change[],
     reason: 'edit' | 'undo',
+    moves: NoCallMove[] = [],
   ) {
     const tenantId = user.congregationId;
     const editId = randomUUID();
@@ -239,8 +273,26 @@ export class TerritoryOutlineService {
           JSON.stringify(rows.get(c.id)!.geometry) !==
           JSON.stringify(c.geometry),
       );
-      for (const c of changed) {
+      const moved = await this.moveNoCalls(
+        m,
+        tenantId,
+        changed.map((c) => c.id),
+        moves,
+        reason === 'undo',
+      );
+      for (const [i, c] of changed.entries()) {
         const t = rows.get(c.id)!;
+        // The first outline kept carries the moves, for an undo to reverse.
+        const detail: ReshapeDetail | null =
+          i === 0 && reason === 'edit' && moved.length > 0
+            ? {
+                noCalls: moved.map((n) => ({
+                  id: n.id,
+                  from: n.from,
+                  to: n.to,
+                })),
+              }
+            : null;
         await m.save(
           m.create(TerritoryShape, {
             congregationId: tenantId,
@@ -249,6 +301,7 @@ export class TerritoryOutlineService {
             reason,
             editId,
             createdByUserId: user.id,
+            detail,
           }),
         );
         await m.update(
@@ -261,12 +314,34 @@ export class TerritoryOutlineService {
         where: { id: In(changes.map((c) => c.id)) },
         select: { id: true, updatedAt: true },
       });
-      return { report, changed, rows, after };
+      return { report, changed, rows, after, moved };
     });
+    const numberOf = (id: string) => result.rows.get(id)?.number ?? '';
+    for (const n of result.moved) {
+      await this.audit.logFact({
+        tenantId,
+        entityType: 'territory_no_call',
+        entityId: n.id,
+        action: 'UPDATE',
+        actorUserId: user.id,
+        detail: {
+          territory: numberOf(n.from),
+          changed: ['territory'],
+          movedTo: numberOf(n.to),
+        },
+      });
+    }
+    const told = await this.tellHolders(
+      tenantId,
+      result.report.territories.filter((r) =>
+        result.changed.some((c) => c.id === r.id),
+      ),
+    );
     const numbers = result.changed.map((c) => result.rows.get(c.id)!.number);
     for (const c of result.changed) {
       const t = result.rows.get(c.id)!;
       const r = result.report.territories.find((x) => x.id === c.id)!;
+      const out = result.moved.filter((n) => n.from === t.id).length;
       await this.audit.logFact({
         tenantId,
         entityType: 'territory',
@@ -279,17 +354,140 @@ export class TerritoryOutlineService {
           with: numbers.filter((n) => n !== t.number),
           leaving: r.leaving,
           gaining: r.gaining,
+          ...(out > 0 ? { noCallsMoved: out } : {}),
+          ...(told.includes(t.id) ? { holderTold: true } : {}),
         },
       });
     }
     return {
       ...result.report,
       saved: result.changed.length,
+      noCallsMoved: result.moved.length,
+      holdersTold: told.map(numberOf),
       updated: result.after.map((t) => ({
         id: t.id,
         updatedAt: t.updatedAt,
       })),
     };
+  }
+
+  /**
+   * «Не посещать» addresses the new border puts in another of the changed
+   * territories (13 November 2026), moved in the same transaction as the
+   * outlines: a border reset or never saved leaves them where they were.
+   * Only between territories this change touches. On undo the way back is
+   * taken by those still where the change put them; the rest stay.
+   */
+  private async moveNoCalls(
+    m: EntityManager,
+    tenantId: string,
+    changedIds: string[],
+    moves: NoCallMove[],
+    lenient: boolean,
+  ): Promise<{ id: string; from: string; to: string }[]> {
+    if (moves.length === 0) return [];
+    const rows = await m.find(TerritoryNoCall, {
+      where: { id: In(moves.map((n) => n.id)), congregationId: tenantId },
+    });
+    const byId = new Map(rows.map((n) => [n.id, n]));
+    const done: { id: string; from: string; to: string }[] = [];
+    const refuse = (why: string) =>
+      new ConflictException(refusal('TERRITORY_NO_CALL_MOVE', why));
+    for (const mv of moves) {
+      const n = byId.get(mv.id);
+      if (lenient) {
+        if (!n || n.territoryId === mv.to) continue;
+        if (mv.onlyFrom && n.territoryId !== mv.onlyFrom) continue;
+      } else {
+        if (!n) throw refuse('No such address.');
+        if (n.territoryId === mv.to) continue;
+        if (
+          !changedIds.includes(n.territoryId) ||
+          !changedIds.includes(mv.to)
+        ) {
+          throw refuse('Only between the territories whose border moved.');
+        }
+      }
+      const there = await m.find(TerritoryNoCall, {
+        where: { territoryId: mv.to, congregationId: tenantId },
+      });
+      const key = addressKey(n.address);
+      if (there.some((o) => o.id !== n.id && addressKey(o.address) === key)) {
+        if (lenient) continue;
+        throw new ConflictException(
+          refusal('TERRITORY_NO_CALL_TWICE', 'This address is already noted.'),
+        );
+      }
+      done.push({ id: n.id, from: n.territoryId, to: mv.to });
+      await m.update(
+        TerritoryNoCall,
+        { id: n.id, congregationId: tenantId },
+        { territoryId: mv.to },
+      );
+      n.territoryId = mv.to;
+    }
+    return done;
+  }
+
+  /**
+   * The holder of a territory whose border moved hears of it (13 November
+   * 2026): his map in the app is already the new one, a paper map is not.
+   * Only for a change he would notice — a whole per cent of ground or a
+   * house — and once a day per territory, so a change and its undo on the
+   * same day are one message. A group's territory has no one person to tell.
+   * Returns the territories whose holder was told.
+   */
+  private async tellHolders(
+    tenantId: string,
+    changed: OutlineReport['territories'],
+  ): Promise<string[]> {
+    const noticed = changed.filter(
+      (r) =>
+        r.held &&
+        (r.leaving >= 1 ||
+          r.gaining >= 1 ||
+          (r.houses !== null && (r.houses.leaving > 0 || r.houses.coming > 0))),
+    );
+    if (noticed.length === 0) return [];
+    const m = this.dataSource.manager;
+    const open = await m.find(TerritoryAssignment, {
+      where: {
+        territoryId: In(noticed.map((r) => r.id)),
+        congregationId: tenantId,
+        completedOn: IsNull(),
+        returnedOn: IsNull(),
+      },
+      select: { territoryId: true, publisherId: true },
+    });
+    const people = await m.find(Publisher, {
+      where: {
+        id: In(open.map((a) => a.publisherId).filter((x): x is string => !!x)),
+        congregationId: tenantId,
+      },
+      select: { id: true, userId: true },
+    });
+    const userOf = new Map(people.map((p) => [p.id, p.userId]));
+    const c = await m.findOne(Congregation, {
+      where: { id: tenantId },
+      select: { id: true, timezone: true },
+    });
+    const today = todayIn(new Date(), c?.timezone);
+    const told: string[] = [];
+    for (const r of noticed) {
+      const a = open.find((x) => x.territoryId === r.id);
+      const userId = a?.publisherId ? userOf.get(a.publisherId) : null;
+      if (!userId) continue;
+      await this.notifications.notify({
+        tenantId,
+        userIds: [userId],
+        kind: 'territory_outline_changed',
+        key: `territory-outline:${r.id}:${today}`,
+        text: (lang) => outlineChangedWords(r.number, lang),
+        data: { type: 'territory', territoryId: r.id },
+      });
+      told.push(r.id);
+    }
+    return told;
   }
 
   /**

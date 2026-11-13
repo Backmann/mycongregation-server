@@ -53,6 +53,33 @@ export function assignedWords(
   }
 }
 
+/**
+ * The border of a territory he holds moved (13 November 2026): the map in
+ * the app follows by itself, a paper map does not.
+ */
+export function outlineChangedWords(
+  number: string,
+  lang: SupportedLanguage,
+): Words {
+  switch (lang) {
+    case 'en':
+      return {
+        title: `The boundary of territory ${number} changed`,
+        body: 'The map in the app is already the new one. If you have a paper map, ask the territory servant for a new one.',
+      };
+    case 'de':
+      return {
+        title: `Die Grenze von Gebiet ${number} wurde geändert`,
+        body: 'Die Karte in der App ist schon die neue. Wenn Sie eine Papierkarte haben, holen Sie sich beim Gebietsdiener eine neue.',
+      };
+    default:
+      return {
+        title: `Граница участка ${number} изменилась`,
+        body: 'Карта в приложении уже новая. Если у вас бумажная карта — возьмите новую у ответственного за участки.',
+      };
+  }
+}
+
 /** Two weeks before the day. */
 export function dueSoonWords(
   number: string,

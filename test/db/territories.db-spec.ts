@@ -691,6 +691,108 @@ describe('territories (real database)', () => {
       });
     });
 
+    it('«не посещать» move with the save and back with the undo, only between the changed (13 November 2026)', async () => {
+      const { a1, a2 } = await ready();
+      const add = async (id: string, address: string) =>
+        (await h.as('keeper').post(`/territories/${id}/no-calls`, { address }))
+          .body.id as string;
+      const n1 = await add(a1, 'Weg 1');
+      const n2 = await add(a1, 'Weg 2');
+      const where = async (id: string) =>
+        (
+          await h.sql<{ t: string }>(
+            `SELECT territory_id AS t FROM territory_no_calls WHERE id = $1`,
+            [id],
+          )
+        )[0].t;
+
+      // Moving to a territory this change does not touch is refused, and
+      // nothing of the change is kept.
+      const wrong = await h.as('keeper').put(`/territories/${a2}/outline`, {
+        geometry: rect(7.01, 7.019),
+        updatedAt: await stamp(a2),
+        noCallMoves: [{ id: n2, to: a2 }],
+      });
+      expect(wrong.status).toBe(409);
+      expect(wrong.body.code).toBe('TERRITORY_NO_CALL_MOVE');
+      expect((await outline(a2))[1][0]).toBe(7.02);
+      expect(await where(n2)).toBe(a1);
+
+      // A01 gives ground to A02; Weg 1 is there now.
+      const saved = await h.as('keeper').put(`/territories/${a1}/outline`, {
+        geometry: rect(7, 7.008),
+        updatedAt: await stamp(a1),
+        neighbours: [
+          { id: a2, geometry: rect(7.008, 7.02), updatedAt: await stamp(a2) },
+        ],
+        noCallMoves: [
+          { id: n1, to: a2 },
+          { id: n2, to: a1 },
+        ],
+      });
+      expect(saved.status).toBe(200);
+      expect(saved.body.noCallsMoved).toBe(1);
+      expect(await where(n1)).toBe(a2);
+      expect(await where(n2)).toBe(a1);
+      const logged = await h.sql<{ id: string }>(
+        `SELECT entity_id AS id FROM audit_logs WHERE entity_type = 'territory_no_call' AND action = 'UPDATE'`,
+      );
+      expect(logged.map((l) => l.id)).toEqual([n1]);
+
+      // The undo puts the border back, and Weg 1 with it.
+      const undo = await h.as('keeper').post(`/territories/${a1}/outline/undo`);
+      expect(undo.status).toBe(200);
+      expect(await where(n1)).toBe(a1);
+      expect(await where(n2)).toBe(a1);
+    });
+
+    it('the holder hears of a border he would notice, once a day (13 November 2026)', async () => {
+      const { a1, a2 } = await ready();
+      const [{ u: holderUser }] = await h.sql<{ u: string }>(
+        `SELECT user_id AS u FROM publishers WHERE id = $1`,
+        [holderCard],
+      );
+      expect(holderUser).toBeTruthy();
+      // Earlier tests of this file moved held borders too.
+      await h.sql(
+        `DELETE FROM notification_outbox WHERE kind = 'territory_outline_changed'`,
+      );
+      const given = await h
+        .as('keeper')
+        .post(`/territories/${a2}/assign`, { publisherId: holderCard });
+      expect(given.status).toBe(201);
+      const told = async () =>
+        h.sql<{ title: string }>(
+          `SELECT title FROM notification_outbox WHERE kind = 'territory_outline_changed' AND user_id = $1`,
+          [holderUser],
+        );
+      const move = async (x: number) =>
+        h.as('keeper').put(`/territories/${a1}/outline`, {
+          geometry: rect(7, x),
+          updatedAt: await stamp(a1),
+          neighbours: [
+            { id: a2, geometry: rect(x, 7.02), updatedAt: await stamp(a2) },
+          ],
+        });
+      // A few metres: nobody is bothered.
+      const tiny = await move(7.01002);
+      expect(tiny.status).toBe(200);
+      expect(tiny.body.holdersTold).toEqual([]);
+      expect(await told()).toHaveLength(0);
+      // Five per cent of his ground: he hears of it.
+      const small = await move(7.0105);
+      expect(small.status).toBe(200);
+      expect(small.body.holdersTold).toEqual(['A02']);
+      const first = await told();
+      expect(first).toHaveLength(1);
+      expect(first[0].title).toContain('A02');
+      // Taken back the same day: still one message.
+      expect(
+        (await h.as('keeper').post(`/territories/${a1}/outline/undo`)).status,
+      ).toBe(200);
+      expect(await told()).toHaveLength(1);
+    });
+
     it('a new overlap is refused, also one no corner shows; another kind may lie over', async () => {
       const { a1, a2 } = await ready();
       // Slid over the neighbour, which stays as it was.
