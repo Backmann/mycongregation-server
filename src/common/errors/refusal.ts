@@ -361,6 +361,7 @@ export const REFUSAL_CODES = [
   'TERRITORY_SPLIT_NOT_YOURS',
   'TERRITORY_NO_STREETS',
   'TERRITORY_ALL_WALKED',
+  'TERRITORY_SPLIT_BUSINESS',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];

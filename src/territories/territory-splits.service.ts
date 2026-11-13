@@ -139,6 +139,10 @@ export class TerritorySplitsService {
     });
     const total = (await this.housesOf(s.t)).length;
     return {
+      number: s.t.number,
+      locality: s.t.locality,
+      geometry: s.t.geometry,
+      category: s.t.category,
       assignmentId: s.a.id,
       day: today,
       houses: total,
@@ -179,6 +183,15 @@ export class TerritorySplitsService {
     again: boolean,
   ) {
     const s = await this.seen(user, territoryId);
+    // A business territory is walked by its list, not by streets.
+    if (s.t.category === 'business') {
+      throw new ConflictException(
+        refusal(
+          'TERRITORY_SPLIT_BUSINESS',
+          'A business territory is walked by its list.',
+        ),
+      );
+    }
     const today = await this.today(user.congregationId);
     const had = await this.splits.findOne({
       where: { assignmentId: s.a.id, day: today },
