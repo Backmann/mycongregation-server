@@ -734,6 +734,74 @@ export class TerritoriesService {
     { sig: string; value: TerritoryGaps }
   >();
 
+  /**
+   * Houses of the register in each territory, and how many «не посещать»
+   * addresses each has (13 November 2026), for choosing what to give out:
+   * a pioneer may take a larger one, a walker without the app needs the
+   * addresses told. The houses are kept like the gaps' answer, until the
+   * register or an outline changes. Null houses: no register yet.
+   */
+  async sizes(user: AuthenticatedUser): Promise<{
+    houses: Record<string, number> | null;
+    noCalls: Record<string, number>;
+  }> {
+    await this.access.mustKeep(user);
+    const tenantId = user.congregationId;
+    const calls = await this.dataSource.query<{ t: string; n: string }[]>(
+      `SELECT territory_id AS t, count(*) AS n FROM territory_no_calls
+        WHERE congregation_id = $1 GROUP BY territory_id`,
+      [tenantId],
+    );
+    const noCalls = Object.fromEntries(calls.map((c) => [c.t, Number(c.n)]));
+    const settings = await this.settings.findOne({
+      where: { congregationId: tenantId },
+    });
+    if (!settings?.housesBuiltAt) return { houses: null, noCalls };
+    const rows = await this.territories.find({
+      where: { congregationId: tenantId, archivedAt: IsNull() },
+      select: { id: true, geometry: true },
+      order: { id: 'ASC' },
+    });
+    const sig = createHash('sha1')
+      .update(String(settings.housesBuiltAt.getTime()))
+      .update(JSON.stringify(rows.map((t) => [t.id, t.geometry])))
+      .digest('hex');
+    const kept = this.sizesKept.get(tenantId);
+    if (kept && kept.sig === sig) return { houses: kept.value, noCalls };
+    const boxes = rows.map((t) => boxOf(t.geometry));
+    const houses: Record<string, number> = Object.fromEntries(
+      rows.map((t) => [t.id, 0]),
+    );
+    if (rows.length > 0) {
+      const x0 = Math.min(...boxes.map((b) => b[0]));
+      const y0 = Math.min(...boxes.map((b) => b[1]));
+      const x1 = Math.max(...boxes.map((b) => b[2]));
+      const y1 = Math.max(...boxes.map((b) => b[3]));
+      const points = await this.dataSource.query<
+        { lon: number; lat: number }[]
+      >(
+        `SELECT lon, lat FROM map_houses
+          WHERE congregation_id = $1 AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
+        [tenantId, y0, y1, x0, x1],
+      );
+      for (const h of points) {
+        const p: [number, number] = [h.lon, h.lat];
+        rows.forEach((t, i) => {
+          const b = boxes[i];
+          if (p[0] < b[0] || p[0] > b[2] || p[1] < b[1] || p[1] > b[3]) return;
+          if (pointInside(p, t.geometry)) houses[t.id] += 1;
+        });
+      }
+    }
+    this.sizesKept.set(tenantId, { sig, value: houses });
+    return { houses, noCalls };
+  }
+
+  private readonly sizesKept = new Map<
+    string,
+    { sig: string; value: Record<string, number> }
+  >();
+
   private async countGaps(
     tenantId: string,
     builtAt: Date,

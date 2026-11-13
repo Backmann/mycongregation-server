@@ -533,8 +533,9 @@ export class TerritoriesController {
 
   /** «Выдача и приём»: people, what is out, who had what (13 November 2026). */
   @Get('desk')
-  desk(@CurrentUser() user: AuthenticatedUser) {
-    return this.given.desk(user);
+  async desk(@CurrentUser() user: AuthenticatedUser) {
+    const desk = await this.given.desk(user);
+    return { ...desk, ...(await this.service.sizes(user)) };
   }
 
   /** Into the queue of paper maps, or out of it once printed. */

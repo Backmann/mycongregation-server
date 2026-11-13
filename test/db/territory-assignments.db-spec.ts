@@ -500,6 +500,9 @@ describe('territory assignments (real database)', () => {
         paperWanted: false,
       }),
     ]);
+    // How many «не посещать» each has; houses only once a register exists.
+    expect(desk.body.noCalls).toEqual({ [territoryId]: 1 });
+    expect(desk.body.houses).toBeNull();
     expect(desk.body.history).toEqual([
       expect.objectContaining({
         publisherId: card.holder,
@@ -507,6 +510,22 @@ describe('territory assignments (real database)', () => {
         completedOn: today,
       }),
     ]);
+    // With a register: the houses of each territory (A01 square 7..7.01).
+    await h.sql(
+      `INSERT INTO map_houses (congregation_id, osm_id, lon, lat, area_m2) VALUES ($1, 1, 7.005, 51.005, 90), ($1, 2, 7.006, 51.005, 90), ($1, 3, 7.015, 51.005, 90), ($1, 4, 7.5, 51.5, 90)`,
+      [congregationId],
+    );
+    await h.sql(
+      `INSERT INTO territory_settings (congregation_id, houses_built_at) VALUES ($1, now())
+        ON CONFLICT (congregation_id) DO UPDATE SET houses_built_at = now()`,
+      [congregationId],
+    );
+    const sized = await h.as('keeper').get('/territories/desk');
+    const [a2] = await h.sql<{ id: string }>(
+      `SELECT id FROM territories WHERE number = 'A02'`,
+    );
+    expect(sized.body.houses).toEqual({ [territoryId]: 2, [a2.id]: 1 });
+    await h.sql(`DELETE FROM map_houses`);
     // Candidates say it too.
     const cand = await h
       .as('keeper')
