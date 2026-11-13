@@ -538,5 +538,26 @@ describe('territory divisions between groups (real database)', () => {
       expect(no.status).toBe(409);
       expect(no.body.code).toBe('TERRITORY_PART_STARTED');
     });
+
+    it("a street heavier than a pair's share is cut further, so it cannot hold a part up (14 November 2026)", async () => {
+      // Birkenweg: ten blocks of eight entrances — 80 of the 100 doors.
+      // By length alone (570 m) it would be two pieces of 40; a pair's share is 34.
+      await h.sql(
+        `UPDATE map_houses SET numbers = '1;3;5;7;9;11;13;15' WHERE osm_id BETWEEN 200 AND 209`,
+      );
+      const r = await h
+        .as('dkeeper')
+        .post(`/territories/${territoryId}/division/preview`, {
+          parts: 3,
+          mode: 'own',
+        });
+      expect(r.status).toBe(200);
+      const birken = (
+        r.body.parts as { streets: { name: string; doors: number }[] }[]
+      )
+        .flatMap((p) => p.streets)
+        .filter((x) => x.name === 'Birkenweg');
+      expect(birken.map((x) => x.doors).sort()).toEqual([24, 24, 32]);
+    });
   });
 });

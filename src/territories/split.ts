@@ -90,8 +90,14 @@ export interface PlanPart {
 
 export type SplitMode = 'own' | 'near';
 
-/** A house further than this from every named street is left out (a barn in a field). */
+/** A house further than this from every named street is left out (a barn in a field)… */
 export const FAR_M = 150;
+/**
+ * …unless it has a house number: a farm with an address on a road 300 m
+ * away is a home to call at (14 November 2026: 153 houses of one rural
+ * territory fell out at 150 m).
+ */
+export const FAR_NUMBERED_M = 500;
 /** A street longer than this, from its first house to its last, is walked in pieces. */
 export const PIECE_M = 400;
 /** …but a piece keeps at least this many doors. */
@@ -266,6 +272,14 @@ function axisOf(pts: Pt[]): { ux: number; uy: number; mx: number; my: number } {
 export function streetsWithHouses(
   streets: StreetLines[],
   houses: House[],
+  opts: {
+    /**
+     * No piece more than this many doors: a street heavier than a pair's
+     * share is cut further, so the parts can come out even (14 November
+     * 2026: in small territories one street of 69 doors held a part up).
+     */
+    maxDoors?: number;
+  } = {},
 ): { streets: PlanStreet[]; left: number } {
   const byName = new Map<string, Pt[][]>();
   const kindOf = new Map<string, string>();
@@ -282,11 +296,24 @@ export function streetsWithHouses(
   const near: { i: number; d: number }[][] = houses.map((h) =>
     names
       .map((name, i) => ({ i, d: lineDist(h.at, byName.get(name)!) }))
-      .filter((c) => c.d <= FAR_M)
+      .filter((c) => c.d <= (h.numbers?.length ? FAR_NUMBERED_M : FAR_M))
       .sort((a, b) => a.d - b.d),
   );
   const owner: number[] = near.map((c) => (c.length ? c[0].i : -1));
   fixCorners(houses, near, owner);
+  lonelyShedsAway(
+    houses,
+    near,
+    owner,
+    names.map((name) =>
+      byName
+        .get(name)!
+        .reduce(
+          (a, l) => a + l.slice(1).reduce((b, p, j) => b + dist(l[j], p), 0),
+          0,
+        ),
+    ),
+  );
 
   const mine: number[][] = names.map(() => []);
   let left = 0;
@@ -305,7 +332,7 @@ export function streetsWithHouses(
       houses,
       lines,
     )) {
-      out.push(...piecesOf(name, side, houses, byName));
+      out.push(...piecesOf(name, side, houses, byName, opts.maxDoors));
     }
   });
   return { streets: out, left };
@@ -348,6 +375,33 @@ function fixCorners(
       }
     }
   });
+}
+
+/** A named line shorter than this is a drive or a yard, not a street to walk. */
+export const DRIVE_M = 80;
+
+/**
+ * A short named line (a drive, a yard: «Post») that got a single house
+ * without a number: the house goes to its next nearest street. A real
+ * street with one house keeps it.
+ */
+function lonelyShedsAway(
+  houses: House[],
+  near: { i: number; d: number }[][],
+  owner: number[],
+  lengths: number[],
+) {
+  const count = new Map<number, number[]>();
+  owner.forEach((i, hi) => {
+    if (i >= 0) count.set(i, [...(count.get(i) ?? []), hi]);
+  });
+  for (const [street, own] of count) {
+    if (own.length !== 1) continue;
+    const hi = own[0];
+    if (houses[hi].numbers?.length || lengths[street] >= DRIVE_M) continue;
+    const next = near[hi].find((c) => c.i !== street);
+    if (next) owner[hi] = next.i;
+  }
 }
 
 interface SideOf {
@@ -451,6 +505,7 @@ function piecesOf(
   { own, side }: SideOf,
   houses: House[],
   byName: Map<string, Pt[][]>,
+  maxDoors?: number,
 ): PlanStreet[] {
   const pts = own.map((i) => houses[i].at);
   const k = scale(pts[0][1]);
@@ -464,10 +519,15 @@ function piecesOf(
     .sort((a, b) => a.t - b.t);
   const length = along[along.length - 1].t - along[0].t;
   const doors = own.reduce((a, i) => a + doorsOf(houses[i]), 0);
-  const n = Math.max(
-    1,
-    Math.min(Math.ceil(length / PIECE_M), Math.floor(doors / PIECE_MIN_DOORS)),
+  const byLength = Math.min(
+    Math.ceil(length / PIECE_M),
+    Math.floor(doors / PIECE_MIN_DOORS),
   );
+  // Heavier than a pair's share: in pieces however short, one house at least each.
+  const byShare = maxDoors
+    ? Math.min(Math.ceil(doors / maxDoors), own.length)
+    : 1;
+  const n = Math.max(1, byLength, byShare);
   // Cut where the doors balance, not the houses.
   const slices: (typeof along)[] = [];
   let acc = 0;
