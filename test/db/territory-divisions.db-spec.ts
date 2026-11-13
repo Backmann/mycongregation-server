@@ -155,6 +155,7 @@ describe('territory divisions between groups (real database)', () => {
     houses: number;
     walked: number;
     mayRedo: boolean;
+    mayComplete: boolean;
     split: null | { id: string; parts: Part[]; byMe: boolean };
   };
 
@@ -233,6 +234,12 @@ describe('territory divisions between groups (real database)', () => {
     // Now the member did not make it: he may not replace it.
     const member = await division('dmember');
     expect(member.mayRedo).toBe(false);
+    // Ending the territory is the holder's and the keepers', not the group's.
+    expect(
+      [seenByHolder, member, await division('dkeeper')].map(
+        (x) => x.mayComplete,
+      ),
+    ).toEqual([true, false, true]);
     const refused = await divide('dmember', 3, true);
     expect(refused.status).toBe(403);
     expect(refused.body.code).toBe('TERRITORY_SPLIT_NOT_YOURS');

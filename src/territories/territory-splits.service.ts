@@ -186,6 +186,9 @@ export class TerritorySplitsService {
       walked: walked.size,
       lastWalkedAt: lastOf(marks),
       mayRedo: !split || this.mayRedo(user, s, split),
+      // «Все улицы пройдены — отметить участок пройденным?»: the holder and
+      // the keepers may end it (assignments/:id/complete), nobody else.
+      mayComplete: s.keeps || s.holds,
       split: split
         ? {
             id: split.id,
