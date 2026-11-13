@@ -12,8 +12,11 @@ export interface ReshapeDetail {
   made?: string;
   /** The territory put out of use by a join. */
   archived?: string;
-  /** «Не посещать» addresses moved, and the territory each came from. */
-  noCalls?: { id: string; from: string }[];
+  /**
+   * «Не посещать» addresses moved, the territory each came from and (since
+   * 13 November 2026, a border drawn again) the one it went to.
+   */
+  noCalls?: { id: string; from: string; to?: string }[];
 }
 
 /**

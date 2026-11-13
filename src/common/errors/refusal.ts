@@ -349,6 +349,8 @@ export const REFUSAL_CODES = [
   'TERRITORY_NOT_FOR_MEETING',
   // «Не посещать» kept by hand (12 November 2026).
   'TERRITORY_NO_CALL_TWICE',
+  // Moved with a border drawn again (13 November 2026).
+  'TERRITORY_NO_CALL_MOVE',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];
