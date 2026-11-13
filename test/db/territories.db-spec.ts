@@ -89,6 +89,7 @@ describe('territories (real database)', () => {
     await h.sql(`DELETE FROM territories`);
     await h.sql(`DELETE FROM territory_boundaries`);
     await h.sql(`DELETE FROM map_houses`);
+    await h.sql(`DELETE FROM map_places`);
   });
 
   const importTwo = async () => {
@@ -383,6 +384,250 @@ describe('territories (real database)', () => {
     ]);
     const after = await h.as('keeper').get('/territories/gaps');
     expect(after.body).toMatchObject({ houses: 13, spotCount: 1 });
+  });
+
+  describe('the list of a business territory (13 November 2026)', () => {
+    const idOf = async (n: string) =>
+      (
+        await h.sql<{ id: string }>(
+          `SELECT id FROM territories WHERE number = $1 AND archived_at IS NULL`,
+          [n],
+        )
+      )[0].id;
+    const place = (id: number, kind: string, name: string, lon: number) =>
+      h.sql(
+        `INSERT INTO map_places (congregation_id, osm_id, kind, name, lon, lat) VALUES ($1, $2, $3, $4, $5, 51.005)`,
+        [congregationId, id, kind, name, lon],
+      );
+    /** A01 homes, A02 a business territory with places on the map. */
+    const ready = async () => {
+      await importTwo();
+      expect((await h.as('keeper').post('/territories/verify')).status).toBe(
+        200,
+      );
+      const a2 = await idOf('A02');
+      await h.sql(
+        `UPDATE territories SET category = 'business' WHERE id = $1`,
+        [a2],
+      );
+      await place(1, 'supermarket', 'Markt, «Eins»', 7.012);
+      await place(2, 'hairdresser', 'Salon', 7.016);
+      await place(3, 'school', 'Schule', 7.014); // a place, not a business
+      await place(4, 'bakery', 'Backstube', 7.018);
+      await place(5, 'cafe', 'Draußen', 7.005); // in A01, not A02
+      await h.sql(
+        `INSERT INTO territory_settings (congregation_id, houses_built_at) VALUES ($1, now() - interval '1 day')
+          ON CONFLICT (congregation_id) DO UPDATE SET houses_built_at = now() - interval '1 day'`,
+        [congregationId],
+      );
+      return { a1: await idOf('A01'), a2 };
+    };
+
+    it('the map suggests the businesses inside; the keeper takes them and adds his own', async () => {
+      const { a1, a2 } = await ready();
+      // Only a business territory has a list.
+      const homes = await h
+        .as('keeper')
+        .get(`/territories/${a1}/businesses/suggest`);
+      expect(homes.body.code).toBe('TERRITORY_NOT_BUSINESS');
+      // The committee sees, it does not keep.
+      expect(
+        (await h.as('secretary').get(`/territories/${a2}/businesses/suggest`))
+          .status,
+      ).toBe(403);
+      const s = await h
+        .as('keeper')
+        .get(`/territories/${a2}/businesses/suggest`);
+      expect(s.status).toBe(200);
+      expect(s.body.places.map((p: { name: string }) => p.name).sort()).toEqual(
+        ['Backstube', 'Markt, «Eins»', 'Salon'],
+      );
+      expect(
+        s.body.places.find((p: { name: string }) => p.name === 'Salon').group,
+      ).toBe('service');
+
+      // From the map by id: the map's own words, whatever was sent; a place
+      // that is not a business is not taken.
+      const add = await h.as('keeper').post(`/territories/${a2}/businesses`, {
+        items: [
+          { osmId: '1', name: 'Something else', kind: 'bank' },
+          { osmId: '3' },
+          { osmId: '4' },
+          { name: '  Kiosk am Eck ', kind: 'kiosk', lon: 7.013, lat: 51.002 },
+          { name: 'Werkstatt', kind: 'no such kind' },
+        ],
+      });
+      expect(add.status).toBe(201);
+      expect(add.body.added).toBe(4);
+      // Taken once only.
+      const twice = await h.as('keeper').post(`/territories/${a2}/businesses`, {
+        items: [{ osmId: '1' }],
+      });
+      expect(twice.body.added).toBe(0);
+      // A name is needed; a point must lie inside.
+      const noName = await h
+        .as('keeper')
+        .post(`/territories/${a2}/businesses`, { items: [{ name: ' ' }] });
+      expect(noName.status).toBe(400);
+      const outside = await h
+        .as('keeper')
+        .post(`/territories/${a2}/businesses`, {
+          items: [{ name: 'Far', lon: 7.5, lat: 51.5 }],
+        });
+      expect(outside.body.code).toBe('TERRITORY_BUSINESS_OUTSIDE');
+
+      const list = await h.as('keeper').get(`/territories/${a2}/businesses`);
+      expect(list.status).toBe(200);
+      const items = list.body.items as {
+        n: number;
+        name: string;
+        kind: string;
+        fromMap: boolean;
+        lon: number | null;
+      }[];
+      expect(items.map((i) => i.n)).toEqual([1, 2, 3, 4]);
+      const byName = new Map(items.map((i) => [i.name, i]));
+      expect(byName.get('Markt, «Eins»')).toMatchObject({
+        kind: 'supermarket',
+        fromMap: true,
+      });
+      expect(byName.get('Kiosk am Eck')).toMatchObject({ fromMap: false });
+      expect(byName.get('Werkstatt')).toMatchObject({
+        kind: 'other',
+        lon: null,
+      });
+      // Without a point: last.
+      expect(items[3].name).toBe('Werkstatt');
+      // Suggested no more once taken.
+      const after = await h
+        .as('keeper')
+        .get(`/territories/${a2}/businesses/suggest`);
+      expect(after.body.places.map((p: { name: string }) => p.name)).toEqual([
+        'Salon',
+      ]);
+
+      // Gone from the map since it was taken: the keeper is told.
+      await h.sql(`DELETE FROM map_places WHERE osm_id = 4`);
+      await h.sql(`UPDATE territory_settings SET houses_built_at = now()`);
+      const stale = await h.as('keeper').get(`/territories/${a2}/businesses`);
+      const gone = (stale.body.items as { name: string; gone: boolean }[])
+        .filter((i) => i.gone)
+        .map((i) => i.name);
+      expect(gone).toEqual(['Backstube']);
+
+      // Corrected and removed by hand, in the journal.
+      const kiosk = items.find((i) => i.name === 'Kiosk am Eck') as unknown as {
+        id: string;
+      };
+      const edit = await h
+        .as('keeper')
+        .patch(`/territories/businesses/${kiosk.id}`, { name: 'Kiosk Eck' });
+      expect(edit.status).toBe(200);
+      expect(
+        (await h.as('keeper').delete(`/territories/businesses/${kiosk.id}`))
+          .status,
+      ).toBe(200);
+      const facts = await h.sql<{ n: string }>(
+        `SELECT count(*) AS n FROM audit_logs WHERE entity_type = 'territory' AND entity_id = $1 AND created_at > now() - interval '1 minute'`,
+        [a2],
+      );
+      expect(Number(facts[0].n)).toBeGreaterThanOrEqual(3);
+    });
+
+    it('the holder marks while he has it; the marks go when it comes back', async () => {
+      const { a2 } = await ready();
+      await h.as('keeper').post(`/territories/${a2}/businesses`, {
+        items: [{ osmId: '1' }, { osmId: '2' }],
+      });
+      const list = async (who: string) =>
+        h.as(who).get(`/territories/${a2}/businesses`);
+      const [one, two] = (await list('keeper')).body.items as { id: string }[];
+      // Not given out: nothing to mark, and not his to see.
+      const early = await h
+        .as('keeper')
+        .put(`/territories/businesses/${one.id}/mark`, { state: 'visited' });
+      expect(early.body.code).toBe('TERRITORY_NOT_GIVEN');
+      expect((await list('plain')).status).toBe(403);
+
+      const given = await h
+        .as('keeper')
+        .post(`/territories/${a2}/assign`, { publisherId: holderCard });
+      expect(given.status).toBe(201);
+      const mine = await list('plain');
+      expect(mine.status).toBe(200);
+      // The holder does not get the keeper's «gone from the map».
+      expect(mine.body.items[0].gone).toBeUndefined();
+      expect(
+        (
+          await h
+            .as('plain')
+            .put(`/territories/businesses/${one.id}/mark`, { state: 'visited' })
+        ).status,
+      ).toBe(200);
+      await h
+        .as('plain')
+        .put(`/territories/businesses/${two.id}/mark`, { state: 'later' });
+      const marked = (await list('keeper')).body;
+      expect(marked.visited).toBe(1);
+      expect(
+        (marked.items as { visit: { state: string } | null }[]).map(
+          (i) => i.visit?.state ?? null,
+        ),
+      ).toEqual(expect.arrayContaining(['visited', 'later']));
+      // Taken off again.
+      await h
+        .as('plain')
+        .put(`/territories/businesses/${two.id}/mark`, { state: null });
+      expect((await list('plain')).body.items[1].visit).toBeNull();
+
+      // Worked and back: the marks are gone; the next holder starts clean.
+      await h
+        .as('keeper')
+        .post(`/territories/assignments/${given.body.id}/complete`, {});
+      const left = await h.sql<{ n: string }>(
+        `SELECT count(*) AS n FROM territory_business_visits`,
+      );
+      expect(Number(left[0].n)).toBe(0);
+      expect((await list('plain')).status).toBe(403);
+    });
+
+    it('the first business territory is numbered in the congregation language', async () => {
+      await ready();
+      await h.sql(`UPDATE territories SET category = 'residential'`);
+      const lang = await h.sql<{ l: string }>(
+        `SELECT language AS l FROM congregations WHERE id = $1`,
+        [congregationId],
+      );
+      try {
+        await h.sql(`UPDATE congregations SET language = 'de' WHERE id = $1`, [
+          congregationId,
+        ]);
+        const de = await h
+          .as('keeper')
+          .get('/territories/next-number?category=business');
+        expect(de.body.number).toBe('G-1');
+        await h.sql(`UPDATE congregations SET language = 'ru' WHERE id = $1`, [
+          congregationId,
+        ]);
+        const ru = await h
+          .as('keeper')
+          .get('/territories/next-number?category=business');
+        expect(ru.body.number).toBe('\u0414-1');
+        // After one exists: like it.
+        await h.sql(
+          `UPDATE territories SET category = 'business', number = 'G-7' WHERE number = 'A02'`,
+        );
+        const like = await h
+          .as('keeper')
+          .get('/territories/next-number?category=business');
+        expect(like.body.number).toBe('G-8');
+      } finally {
+        await h.sql(`UPDATE congregations SET language = $2 WHERE id = $1`, [
+          congregationId,
+          lang[0].l,
+        ]);
+      }
+    });
   });
 
   function from(): string {

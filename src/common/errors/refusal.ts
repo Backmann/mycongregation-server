@@ -351,6 +351,11 @@ export const REFUSAL_CODES = [
   'TERRITORY_NO_CALL_TWICE',
   // Moved with a border drawn again (13 November 2026).
   'TERRITORY_NO_CALL_MOVE',
+  // The list of a business territory (13 November 2026).
+  'TERRITORY_NOT_BUSINESS',
+  'TERRITORY_BUSINESSES_MANY',
+  'TERRITORY_BUSINESS_OUTSIDE',
+  'TERRITORY_NOT_GIVEN',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];

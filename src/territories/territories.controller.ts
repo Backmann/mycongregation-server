@@ -29,6 +29,12 @@ import { OutlineDto } from './dto/outline.dto';
 import type { TerritoryCategory } from '../entities/territory.entity';
 import { TerritoryOutlineService } from './territory-outline.service';
 import { TerritoryReshapeService } from './territory-reshape.service';
+import { TerritoryBusinessesService } from './territory-businesses.service';
+import {
+  AddBusinessesDto,
+  EditBusinessDto,
+  MarkBusinessDto,
+} from './dto/business.dto';
 import {
   CreateTerritoryDto,
   MergeCheckDto,
@@ -72,6 +78,7 @@ export class TerritoriesController {
     private readonly noCalls: TerritoryNoCallsService,
     private readonly outline: TerritoryOutlineService,
     private readonly reshape: TerritoryReshapeService,
+    private readonly businesses: TerritoryBusinessesService,
   ) {}
 
   /** The door: what the user may open, and the territories he has a part in. */
@@ -171,13 +178,22 @@ export class TerritoriesController {
   }
 
   /** Out of use (12 November 2026). */
-  /** The next free number like the given one («Hamm42» → «Hamm74»). */
+  /**
+   * The next free number like the given one («Hamm42» → «Hamm74»); for a
+   * business territory with no example, in the congregation's language's
+   * own pattern («Д-1», «G-1»).
+   */
   @Get('next-number')
   nextNumber(
     @CurrentUser() user: AuthenticatedUser,
     @Query('like') like?: string,
+    @Query('category') category?: string,
   ) {
-    return this.reshape.suggestNumber(user, like);
+    return this.reshape.suggestNumber(
+      user,
+      like,
+      category === 'business' ? 'business' : 'residential',
+    );
   }
 
   /** A new territory drawn by hand: what it would hold (12 November 2026). */
@@ -512,6 +528,60 @@ export class TerritoriesController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.service.restore(user, id);
+  }
+
+  // ----------------------------- the list of a business territory --------
+  // (13 November 2026)
+
+  @Get(':id/businesses')
+  businessList(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.businesses.list(user, id);
+  }
+
+  @Get(':id/businesses/suggest')
+  businessSuggest(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.businesses.suggest(user, id);
+  }
+
+  @Post(':id/businesses')
+  businessAdd(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AddBusinessesDto,
+  ) {
+    return this.businesses.add(user, id, dto);
+  }
+
+  @Patch('businesses/:id')
+  businessEdit(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: EditBusinessDto,
+  ) {
+    return this.businesses.edit(user, id, dto);
+  }
+
+  @Delete('businesses/:id')
+  businessRemove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.businesses.remove(user, id);
+  }
+
+  @Put('businesses/:id/mark')
+  businessMark(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: MarkBusinessDto,
+  ) {
+    return this.businesses.mark(user, id, dto.state ?? null);
   }
 
   // Last: a fixed path above must win over the id.

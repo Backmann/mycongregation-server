@@ -12,6 +12,7 @@ import {
   TerritoryMethod,
 } from '../entities/territory-assignment.entity';
 import { TerritoryNoCall } from '../entities/territory-no-call.entity';
+import { TerritoryBusinessVisit } from '../entities/territory-business-visit.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
@@ -90,7 +91,18 @@ export class TerritoryAssignmentsService {
     private readonly congregations: Repository<Congregation>,
     @InjectRepository(FieldServiceMeeting)
     private readonly meetings: Repository<FieldServiceMeeting>,
+    @InjectRepository(TerritoryBusinessVisit)
+    private readonly businessVisits: Repository<TerritoryBusinessVisit>,
   ) {}
+
+  /**
+   * A business territory's «visited» marks belong to one assignment and go
+   * when the territory comes back (13 November 2026, decision: marks are
+   * wiped on return; the record keeps only «worked»).
+   */
+  private async forgetMarks(assignmentId: string): Promise<void> {
+    await this.businessVisits.delete({ assignmentId });
+  }
 
   private async today(congregationId: string): Promise<string> {
     const c = await this.congregations.findOne({
@@ -506,6 +518,7 @@ export class TerritoryAssignmentsService {
     a.completedOn = on;
     a.method = (dto.method as TerritoryMethod) ?? 'door_to_door';
     const saved = await this.assignments.save(a);
+    await this.forgetMarks(saved.id);
     await this.log(user, saved, 'UPDATE', {
       completedOn: on,
       method: a.method,
@@ -526,6 +539,7 @@ export class TerritoryAssignmentsService {
     if (on < a.assignedOn) throw this.dates('returned before given out');
     a.returnedOn = on;
     const saved = await this.assignments.save(a);
+    await this.forgetMarks(saved.id);
     await this.log(user, saved, 'UPDATE', { returnedOn: on });
     await this.releaseMeetings(user, saved.territoryId);
     return saved;
@@ -646,6 +660,7 @@ export class TerritoryAssignmentsService {
     let saved: TerritoryAssignment;
     try {
       saved = await this.assignments.save(a);
+      if (a.completedOn || a.returnedOn) await this.forgetMarks(a.id);
     } catch (e) {
       if ((e as { code?: string }).code === PG_UNIQUE_VIOLATION) {
         throw new ConflictException(
