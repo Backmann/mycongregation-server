@@ -18,6 +18,10 @@ import { refusal } from '../common/errors/refusal';
 import { todayIn } from '../common/congregation-clock';
 import { TerritoryAccessService } from './territory-access.service';
 import { TerritoryAssignmentsService } from './territory-assignments.service';
+import { addDays } from './service-year';
+
+/** How long a link outlives the day the territory was due (13 November 2026). */
+export const LINK_GRACE_DAYS = 60;
 
 /** How long a view link opened from the app works. */
 const VIEW_SECONDS = 2 * 60 * 60;
@@ -40,6 +44,8 @@ export interface SharedTerritory {
   /** For the map file's address. */
   congregationId: string;
   mapReady: boolean;
+  /** How many «не посещать» addresses the territory has; never which. */
+  noCalls: number;
 }
 
 /**
@@ -51,7 +57,8 @@ export interface SharedTerritory {
  *    Signed, not stored, good for two hours;
  *  - a SHARE link, for a holder without the app or the partner he walks
  *    with. Only its hash is kept; a new one replaces the old; it works until
- *    the day the territory is due and stops the moment it comes back.
+ *    two months past the day the territory is due (a late holder still
+ *    walks it) and stops the moment it comes back.
  *
  * The page shows the outline and the street map — never the «не
  * беспокоить» addresses, never a name. Every link that does not work gets
@@ -192,7 +199,7 @@ export class TerritoryLinksService {
     return { path: `/t/v.${hexId}.${exp}.${this.sign(hexId, exp)}` };
   }
 
-  /** The holder's own, or a keeper's: a link until the day it is due. */
+  /** The holder's own, or a keeper's: a link while the territory is out. */
   private async mayShare(user: AuthenticatedUser, a: TerritoryAssignment) {
     const access = await this.access.of(user);
     if (access.keeps && access.verified) return;
@@ -268,7 +275,9 @@ export class TerritoryLinksService {
         select: { id: true, timezone: true },
       });
       const today = todayIn(new Date(), c?.timezone);
-      if (a.dueOn && today > a.dueOn) return null;
+      // A holder past his day still holds the territory and needs its map
+      // to finish (13 November 2026); two months on, the link stops.
+      if (a.dueOn && today > addDays(a.dueOn, LINK_GRACE_DAYS)) return null;
     }
     const t = await this.territories.findOne({
       where: {
@@ -283,6 +292,12 @@ export class TerritoryLinksService {
       where: { congregationId: a.congregationId },
     });
     if (!s?.verifiedAt) return null;
+    // The «не посещать» addresses never leave the app by a link that can
+    // be passed on; the page says how many there are, so the walker asks
+    // the territory servant (13 November 2026).
+    const noCalls = await this.noCalls.count({
+      where: { territoryId: t.id, congregationId: a.congregationId },
+    });
     return {
       number: t.number,
       locality: t.locality,
@@ -290,6 +305,7 @@ export class TerritoryLinksService {
       dueOn: a.dueOn,
       congregationId: a.congregationId,
       mapReady: !!s.mapBuiltAt,
+      noCalls,
     };
   }
 }

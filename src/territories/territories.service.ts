@@ -226,6 +226,7 @@ export class TerritoriesService {
               assignedOn: a.assignedOn,
               dueOn: a.dueOn,
               handOnTo: handOnOf(a),
+              paperWanted: !!a.paperWantedAt,
             }
           : null,
       };

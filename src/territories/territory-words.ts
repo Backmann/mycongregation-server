@@ -80,6 +80,40 @@ export function outlineChangedWords(
   }
 }
 
+/**
+ * The day itself (13 November 2026): worked through — mark it; more time —
+ * the holder may extend once, after that he asks the territory servant.
+ */
+export function dueTodayWords(
+  number: string,
+  extended: boolean,
+  lang: SupportedLanguage,
+): Words {
+  switch (lang) {
+    case 'en':
+      return {
+        title: `Territory ${number}: due today`,
+        body: extended
+          ? 'Worked through — mark it. Need more time — ask the territory servant.'
+          : 'Worked through — mark it. Need more time — extend it once in the app.',
+      };
+    case 'de':
+      return {
+        title: `Gebiet ${number}: heute fällig`,
+        body: extended
+          ? 'Bearbeitet — bitte markieren. Mehr Zeit nötig — beim Gebietsdiener melden.'
+          : 'Bearbeitet — bitte markieren. Mehr Zeit nötig — einmal in der App verlängern.',
+      };
+    default:
+      return {
+        title: `Участок ${number}: сегодня срок`,
+        body: extended
+          ? 'Пройден — отметьте. Нужно ещё время — скажите ответственному за участки.'
+          : 'Пройден — отметьте. Нужно ещё время — продлите один раз в приложении.',
+      };
+  }
+}
+
 /** Two weeks before the day. */
 export function dueSoonWords(
   number: string,

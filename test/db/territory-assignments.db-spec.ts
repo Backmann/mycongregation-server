@@ -440,6 +440,120 @@ describe('territory assignments (real database)', () => {
     );
   });
 
+  it('a share link: two months past the day still, then not; it says how many «не посещать», never which (13 November 2026)', async () => {
+    await verify();
+    const a = await giveToHolder();
+    const made = await h
+      .as('holder')
+      .post(`/territories/assignments/${a.id}/share-link`);
+    const token = String(made.body.path).replace('/t/', '');
+    const page = await h.as(null).get(`/territory-links/${token}`);
+    expect(page.body.noCalls).toBe(1);
+    expect(JSON.stringify(page.body)).not.toContain('Musterstraße');
+    const dueOn = async (d: string) =>
+      h.sql(`UPDATE territory_assignments SET due_on = $1 WHERE id = $2`, [
+        d,
+        a.id,
+      ]);
+    // A day late: he still holds it, and still needs its map.
+    await dueOn(addDays(today, -1));
+    expect((await h.as(null).get(`/territory-links/${token}`)).status).toBe(
+      200,
+    );
+    await dueOn(addDays(today, -59));
+    expect((await h.as(null).get(`/territory-links/${token}`)).status).toBe(
+      200,
+    );
+    // Long past: it stops.
+    await dueOn(addDays(today, -62));
+    expect((await h.as(null).get(`/territory-links/${token}`)).status).toBe(
+      404,
+    );
+  });
+
+  it('the desk: people and whether they have the app, what is out (also without a card), who had what; the paper queue (13 November 2026)', async () => {
+    await verify();
+    // The committee sees the section but does not give out.
+    expect((await h.as('secretary').get('/territories/desk')).status).toBe(403);
+    const first = await giveToHolder();
+    await h
+      .as('keeper')
+      .post(`/territories/assignments/${first.id}/complete`, {});
+    // A line brought over without a card, still out.
+    const [old] = await h.sql<{ id: string }>(
+      `INSERT INTO territory_assignments (congregation_id, territory_id, holder_name, assigned_on, due_on, imported)
+       VALUES ($1, $2, 'Old Holder', $3, $4, true) RETURNING id`,
+      [congregationId, territoryId, addDays(today, -30), addDays(today, 90)],
+    );
+    const desk = await h.as('keeper').get('/territories/desk');
+    expect(desk.status).toBe(200);
+    const holder = (
+      desk.body.people as { publisherId: string; hasApp: boolean }[]
+    ).find((p) => p.publisherId === card.holder);
+    expect(holder?.hasApp).toBe(true);
+    expect(desk.body.out).toEqual([
+      expect.objectContaining({
+        assignmentId: old.id,
+        number: 'A01',
+        publisherId: null,
+        holderName: 'Old Holder',
+        paperWanted: false,
+      }),
+    ]);
+    expect(desk.body.history).toEqual([
+      expect.objectContaining({
+        publisherId: card.holder,
+        territoryId,
+        completedOn: today,
+      }),
+    ]);
+    // Candidates say it too.
+    const cand = await h
+      .as('keeper')
+      .get(`/territories/${territoryId}/candidates`);
+    expect(
+      (cand.body.people as { publisherId: string; hasApp: boolean }[]).find(
+        (p) => p.publisherId === card.holder,
+      )?.hasApp,
+    ).toBe(true);
+
+    // Paper wanted: in the list and on the desk; printed: out again.
+    const want = await h
+      .as('keeper')
+      .put(`/territories/assignments/${old.id}/paper`, { wanted: true });
+    expect(want.status).toBe(200);
+    const list = await h.as('keeper').get('/territories');
+    expect(
+      (
+        list.body as {
+          number: string;
+          holder: { paperWanted: boolean } | null;
+        }[]
+      ).find((t) => t.number === 'A01')?.holder?.paperWanted,
+    ).toBe(true);
+    expect(
+      (await h.as('keeper').get('/territories/desk')).body.out[0].paperWanted,
+    ).toBe(true);
+    await h
+      .as('keeper')
+      .put(`/territories/assignments/${old.id}/paper`, { wanted: false });
+    expect(
+      (await h.as('keeper').get('/territories/desk')).body.out[0].paperWanted,
+    ).toBe(false);
+    // Not for a territory already back; not for the holder himself.
+    const back = await h
+      .as('keeper')
+      .put(`/territories/assignments/${first.id}/paper`, { wanted: true });
+    expect(back.body.code).toBe('TERRITORY_ENDED');
+    expect(
+      (
+        await h
+          .as('holder')
+          .put(`/territories/assignments/${old.id}/paper`, { wanted: true })
+      ).status,
+    ).toBe(403);
+  });
+
   it('a new share link replaces the old one', async () => {
     await verify();
     const a = await giveToHolder();
@@ -502,6 +616,33 @@ describe('territory assignments (real database)', () => {
     expect((await outbox('territory_due')).map((r) => r.user_id)).toEqual([
       holder,
     ]);
+  });
+
+  it('the day itself: told once more, once; the words say whether he may still extend (13 November 2026)', async () => {
+    await verify();
+    const a = await giveToHolder();
+    const holder = await userOf('holder');
+    await h.sql(`UPDATE territory_assignments SET due_on = $1 WHERE id = $2`, [
+      today,
+      a.id,
+    ]);
+    const reminders = h.app.get(TerritoryRemindersService);
+    await reminders.forCongregation(congregationId);
+    await reminders.forCongregation(congregationId);
+    const rows = await h.sql<{
+      user_id: string;
+      body: string;
+      dedupe_key: string;
+    }>(
+      `SELECT user_id, body, dedupe_key FROM notification_outbox WHERE kind = 'territory_due' ORDER BY dedupe_key`,
+    );
+    expect(rows.map((r) => r.user_id)).toEqual([holder, holder]);
+    const todayRow = rows.find((r) =>
+      r.dedupe_key.startsWith('territory-due-today:'),
+    );
+    expect(todayRow).toBeDefined();
+    // Not extended yet: he may extend once in the app.
+    expect(todayRow!.body).toMatch(/продлите|extend|verlängern/);
   });
 
   it('a day missed, or less than two weeks left when brought over: still told, once; not after the day', async () => {

@@ -146,3 +146,9 @@ export class PrintLinksDto {
   @IsBoolean()
   withNoCalls?: boolean;
 }
+
+/** A paper map wanted (true) or printed (false). */
+export class PaperDto {
+  @IsBoolean()
+  wanted!: boolean;
+}
