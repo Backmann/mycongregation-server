@@ -7,6 +7,7 @@ import {
   IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -36,8 +37,10 @@ export class ListJournalDto {
   @IsISO8601()
   to?: string;
 
+  /** One section, or several joined with commas. */
   @IsOptional()
   @IsString()
+  @MaxLength(400)
   entityType?: string;
 
   @IsOptional()

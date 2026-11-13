@@ -1,3 +1,4 @@
+import { In } from 'typeorm';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { AuditLog } from '../entities/audit-log.entity';
@@ -131,6 +132,20 @@ describe('JournalService', () => {
   it('caps an outsized limit rather than trusting it', async () => {
     await service.find('cong-1', { limit: 5000 });
     expect(auditRepo.find.mock.calls[0][0].take).toBe(201);
+  });
+
+  it('takes one section as it is, and several joined with commas (13 November 2026)', async () => {
+    await service.find('cong-1', { entityType: 'territory' });
+    expect(whereOf(auditRepo.find.mock.calls[0])[0].entityType).toBe(
+      'territory',
+    );
+    await service.find('cong-1', {
+      entityType: 'territory, territory_assignment,,territory_no_call',
+    });
+    const several = whereOf(auditRepo.find.mock.calls[1])[0].entityType;
+    expect(several).toEqual(
+      In(['territory', 'territory_assignment', 'territory_no_call']),
+    );
   });
 
   it('looks for a person on both sides — as actor and as subject', async () => {
