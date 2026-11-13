@@ -497,6 +497,54 @@ describe('dividing a territory between groups (13 November 2026)', () => {
       });
     });
 
+    it("cuts a street heavier than a pair's share, however short (14 November 2026)", () => {
+      // 30 houses within 100 m: never cut by length.
+      const row = Array.from({ length: 30 }, (_, i) =>
+        house(i, 7.0002 + i * 0.00004, 51.0001),
+      );
+      expect(streetsWithHouses([A], row).streets).toHaveLength(1);
+      const cut = streetsWithHouses([A], row, { maxDoors: 10 }).streets;
+      expect(cut.map((x) => x.doors)).toEqual([10, 10, 10]);
+    });
+
+    it('keeps a far house with a number (a farm), leaves a far one without (a barn)', () => {
+      // 330 m north of Ahornweg.
+      const r = streetsWithHouses(
+        [A],
+        [house('farm', 7.001, 51.003, ['40']), house('barn', 7.002, 51.003)],
+      );
+      expect(r.streets[0].homes).toEqual(['farm']);
+      expect(r.left).toBe(1);
+    });
+
+    it('sends a lone house without a number from a named drive to the next street', () => {
+      const drive = {
+        name: 'Post',
+        lines: [
+          [
+            [7.001, 51.0003],
+            [7.0012, 51.0003],
+          ],
+        ] as Pt[][],
+      };
+      const hs = [
+        house('h', 7.0011, 51.00034),
+        house('a', 7.002, 51.0001),
+        house('b', 7.0025, 51.0001),
+      ];
+      const r = streetsWithHouses([A, drive], hs);
+      expect(r.streets.map((x) => x.name)).toEqual(['Ahornweg']);
+      // With a number it is an address on that drive: it stays.
+      const kept = streetsWithHouses(
+        [A, drive],
+        [{ ...hs[0], numbers: ['1'] }, hs[1], hs[2]],
+      );
+      expect(kept.streets.map((x) => x.name).sort()).toEqual([
+        'Ahornweg',
+        'Post',
+      ]);
+    });
+
     it('says a side is even or odd only when its numbers agree', () => {
       const hs = ['2', '4', '6', '8', '10', '12', '14', '16', '18', '3'].map(
         (n, i) => house(i, 7, 51, [n]),

@@ -42,6 +42,8 @@ import {
 /** Fewer is no division; more than this and a part is a street or two. */
 export const MIN_PARTS = 2;
 export const MAX_PARTS = 8;
+/** …and a piece cut for evenness keeps at least this many doors. */
+const PIECE_FLOOR = 4;
 
 const PART_RE = /^p\.([0-9a-f]{32})\.([1-8])\.(\d{8})\.([0-9a-f]{32})$/;
 
@@ -370,7 +372,15 @@ export class TerritorySplitsService {
       );
     }
     const streets = await this.streetsNear(t);
-    const { streets: named, left } = streetsWithHouses(streets, houses);
+    // No piece heavier than a pair's share: one long street cannot hold a
+    // part up (14 November 2026, the check of every territory).
+    const doors = houses.reduce(
+      (a, h) => a + Math.max(1, h.numbers?.length ?? 0),
+      0,
+    );
+    const { streets: named, left } = streetsWithHouses(streets, houses, {
+      maxDoors: Math.max(PIECE_FLOOR, Math.ceil(doors / n)),
+    });
     if (named.length === 0) {
       throw new ConflictException(
         refusal('TERRITORY_NO_STREETS', 'The map has no streets here yet.'),
