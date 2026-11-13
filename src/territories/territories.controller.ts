@@ -32,7 +32,13 @@ import { TerritoryReshapeService } from './territory-reshape.service';
 import { TerritoryBusinessesService } from './territory-businesses.service';
 import { PaperDto } from './dto/assignment.dto';
 import { TerritorySplitsService } from './territory-splits.service';
-import { DivideDto, MarkStreetDto, MoveStreetDto } from './dto/split.dto';
+import {
+  DivideDto,
+  MarkStreetDto,
+  MoveStreetDto,
+  PreviewDivisionDto,
+  TakeStreetDto,
+} from './dto/split.dto';
 import { Throttle } from '@nestjs/throttler';
 import {
   AddBusinessesDto,
@@ -570,7 +576,42 @@ export class TerritoriesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: DivideDto,
   ) {
-    return this.splits.divide(user, id, dto.parts, !!dto.again);
+    return this.splits.divide(
+      user,
+      id,
+      { parts: dto.parts, mode: dto.mode, smaller: dto.smaller },
+      !!dto.again,
+    );
+  }
+
+  /** A division to look at before handing out: saved nowhere. */
+  @Post(':id/division/preview')
+  @HttpCode(200)
+  previewDivision(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PreviewDivisionDto,
+  ) {
+    return this.splits.preview(user, id, dto);
+  }
+
+  /** Today's division taken away: its links stop; the marks stay. */
+  @Delete('divisions/:id')
+  removeDivision(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.splits.remove(user, id);
+  }
+
+  /** A street of a pair that has not started, taken into another part. */
+  @Put('divisions/:id/take')
+  takeStreet(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: MoveStreetDto,
+  ) {
+    return this.splits.take(user, id, dto.key, dto.to);
   }
 
   @Put('divisions/:id/move')
@@ -707,6 +748,20 @@ export class TerritoryPartsController {
   async shared(@Param('token') token: string, @Res() res: Response) {
     this.headers(res);
     const out = await this.splits.shared(token);
+    if (!out) throw new NotFoundException();
+    res.status(200).json(out);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 30, ttl: 600000 } })
+  @Put(':token/take')
+  async take(
+    @Param('token') token: string,
+    @Body() dto: TakeStreetDto,
+    @Res() res: Response,
+  ) {
+    this.headers(res);
+    const out = await this.splits.takeShared(token, dto.key);
     if (!out) throw new NotFoundException();
     res.status(200).json(out);
   }

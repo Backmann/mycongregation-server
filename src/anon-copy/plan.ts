@@ -414,7 +414,7 @@ export const PLAN: Record<string, TablePlan> = {
     'congregation_id verified_at verified_by_user_id map_built_at houses_built_at updated_at',
   ),
   /** Buildings from OpenStreetMap: public map data, no people. */
-  map_houses: copy('congregation_id osm_id lon lat area_m2'),
+  map_houses: copy('congregation_id osm_id lon lat area_m2 numbers'),
   /** Named places from OpenStreetMap (13 November 2026): public map data. */
   map_places: copy('congregation_id osm_id kind name lon lat'),
   /** A business territory's list: shops and offices, never people. */
@@ -430,7 +430,7 @@ export const PLAN: Record<string, TablePlan> = {
   ),
   /** A territory divided between groups for a day: streets and houses. */
   territory_splits: copy(`id congregation_id territory_id assignment_id day
-    parts left_out made_by_user_id created_at`),
+    parts left_out made_by_user_id created_at mode start`),
   /** «Street walked» while a territory is out: houses and a time, no person. */
   territory_street_marks: copy(
     'id congregation_id assignment_id street_key homes marked_at',

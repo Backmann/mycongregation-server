@@ -169,9 +169,16 @@ describe('territory divisions between groups (real database)', () => {
   const division = async (who: string) =>
     (await h.as(who).get(`/territories/${territoryId}/division`))
       .body as Division;
-  const divide = (who: string, parts: number, again = false) =>
+  // «Own» unless asked: the first tests read the parts north to south.
+  const divide = (
+    who: string,
+    parts: number,
+    again = false,
+    mode: 'own' | 'near' = 'own',
+  ) =>
     h.as(who).post(`/territories/${territoryId}/division`, {
       parts,
+      mode,
       ...(again ? { again } : {}),
     });
   const names = (d: Division) =>
@@ -404,5 +411,132 @@ describe('territory divisions between groups (real database)', () => {
     expect((await h.as(null).get(`/territory-parts/${token}`)).status).toBe(
       404,
     );
+  });
+
+  describe('pairs on a territory (13 November 2026)', () => {
+    afterEach(async () => {
+      await h.sql(`UPDATE map_houses SET numbers = NULL`);
+      await h.sql(`DELETE FROM field_service_meetings`);
+    });
+
+    it('a preview is saved nowhere; the keepers may look at a free territory; a block of flats weighs its entrances', async () => {
+      // Birkenweg: five blocks with two entrances each.
+      await h.sql(
+        `UPDATE map_houses SET numbers = (osm_id - 200) * 2 || ';' || ((osm_id - 200) * 2 + 1)
+          WHERE osm_id BETWEEN 200 AND 204`,
+      );
+      const r = await h
+        .as('dkeeper')
+        .post(`/territories/${territoryId}/division/preview`, {
+          parts: 2,
+          mode: 'near',
+        });
+      expect(r.status).toBe(200);
+      const parts = r.body.parts as { doors: number; houses: number }[];
+      expect(parts.reduce((a, p) => a + p.doors, 0)).toBe(35);
+      expect(parts.reduce((a, p) => a + p.houses, 0)).toBe(30);
+      expect([r.body.houses, r.body.numbered]).toEqual([30, 5]);
+      expect(r.body.startFrom).toBe('middle');
+      expect(await h.sql(`SELECT id FROM territory_splits`)).toEqual([]);
+      // Someone who does not see the territory may not look.
+      expect(
+        (
+          await h
+            .as('dstranger')
+            .post(`/territories/${territoryId}/division/preview`, {
+              parts: 2,
+            })
+        ).status,
+      ).toBe(403);
+    });
+
+    it("starts from today's meeting place, found on our own map by street and number", async () => {
+      await give();
+      await h.sql(`UPDATE map_houses SET numbers = '7' WHERE osm_id = 103`);
+      const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Europe/Berlin',
+      }).format(new Date());
+      const d = new Date(`${today}T12:00:00Z`);
+      const dow = ((d.getUTCDay() + 6) % 7) + 1;
+      const monday = new Date(d.getTime() - (dow - 1) * 86400000)
+        .toISOString()
+        .slice(0, 10);
+      await h.sql(
+        `INSERT INTO field_service_meetings
+           (congregation_id, week_start_date, day_of_week, start_time, address, territory_id, published_at)
+         VALUES ($1, $2, $3, '10:00', 'Ahornweg 7', $4, now())`,
+        [congregationId, monday, dow, territoryId],
+      );
+      const r = await h
+        .as('dholder')
+        .post(`/territories/${territoryId}/division/preview`, {
+          parts: 3,
+          mode: 'near',
+        });
+      expect(r.status).toBe(200);
+      expect(r.body.startFrom).toBe('meeting');
+      // House 103 of Ahornweg: 7.0005 + 3 × 0.0009 east, just north of the street.
+      expect(r.body.start).toEqual([7.0032, 51.0022]);
+    });
+
+    it('a division taken away: its links stop, the marks stay; only for whoever may divide again', async () => {
+      await give();
+      const d = (await divide('dholder', 3)).body as Division;
+      const k = d.split!.parts[1].streets[0].key;
+      await h.as('dmember').put(`/territories/divisions/${d.split!.id}/mark`, {
+        key: k,
+        walked: true,
+      });
+      const link = await h
+        .as('dmember')
+        .post(`/territories/divisions/${d.split!.id}/parts/1/link`);
+      const token = (link.body.path as string).replace('/p/', '');
+      const refused = await h
+        .as('dmember')
+        .delete(`/territories/divisions/${d.split!.id}`);
+      expect(refused.status).toBe(403);
+      const removed = await h
+        .as('dholder')
+        .delete(`/territories/divisions/${d.split!.id}`);
+      expect(removed.status).toBe(200);
+      expect((removed.body as Division).split).toBeNull();
+      expect((removed.body as Division).walked).toBe(10);
+      expect(await h.sql(`SELECT id FROM territory_splits`)).toEqual([]);
+      expect((await h.as(null).get(`/territory-parts/${token}`)).status).toBe(
+        404,
+      );
+    });
+
+    it('a pair done early takes a street from a pair that has not started — never from one that has', async () => {
+      await give();
+      const d = (await divide('dholder', 3)).body as Division;
+      const id = d.split!.id;
+      const [p1, p2, p3] = d.split!.parts;
+      // Pair 3 has not started: pair 1 takes its street, by its link.
+      const link = await h
+        .as('dholder')
+        .post(`/territories/divisions/${id}/parts/1/link`);
+      const token = (link.body.path as string).replace('/p/', '');
+      const taken = await h
+        .as(null)
+        .put(`/territory-parts/${token}/take`, { key: p3.streets[0].key });
+      expect(taken.status).toBe(200);
+      expect(taken.body.part.streets.map((s: Street) => s.name).sort()).toEqual(
+        [p1.streets[0].name, p3.streets[0].name].sort(),
+      );
+      // Pair 2 has started: its street stays, in the app too.
+      await h.as('dmember').put(`/territories/divisions/${id}/mark`, {
+        key: p2.streets[0].key,
+        walked: true,
+      });
+      const no = await h
+        .as('dmember')
+        .put(`/territories/divisions/${id}/take`, {
+          key: p2.streets[0].key,
+          to: 1,
+        });
+      expect(no.status).toBe(409);
+      expect(no.body.code).toBe('TERRITORY_PART_STARTED');
+    });
   });
 });

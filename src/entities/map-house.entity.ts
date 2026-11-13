@@ -22,4 +22,8 @@ export class MapHouse {
 
   @Column({ type: 'integer' })
   areaM2!: number;
+
+  /** House numbers of the building, «12;12a;14» (13 November 2026); null: none known. */
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  numbers!: string | null;
 }

@@ -5,7 +5,7 @@ import {
   Index,
   PrimaryGeneratedColumn,
 } from 'typeorm';
-import type { PlanPart } from '../territories/split';
+import type { PlanPart, Pt, SplitMode } from '../territories/split';
 
 /**
  * A territory divided between groups for one day (13 November 2026): which
@@ -34,6 +34,14 @@ export class TerritorySplit {
 
   @Column({ type: 'jsonb' })
   parts!: PlanPart[];
+
+  /** «near»: pairs start together and stay neighbours; «own»: apart. */
+  @Column({ type: 'varchar', length: 8, default: 'own' })
+  mode!: SplitMode;
+
+  /** The common start, [lon, lat]: the meeting place, or the middle. */
+  @Column({ type: 'jsonb', nullable: true })
+  start!: Pt | null;
 
   /** Houses of the territory near no named street: in no part. */
   @Column({ type: 'integer', default: 0 })

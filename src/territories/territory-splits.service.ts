@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, IsNull, Not, Repository } from 'typeorm';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { Territory } from '../entities/territory.entity';
 import { TerritoryAssignment } from '../entities/territory-assignment.entity';
@@ -23,15 +23,20 @@ import { todayIn } from '../common/congregation-clock';
 import { TerritoryAccessService } from './territory-access.service';
 import { TerritoryAssignmentsService } from './territory-assignments.service';
 import { boxOf, pointInside } from './geometry';
+import { addDays } from './service-year';
+import { mondayOf } from '../common/week';
 import {
   FAR_M,
+  findAddress,
   partOf,
   partsOfAddress,
   splitStreets,
   streetsWithHouses,
   type House,
   type PlanPart,
+  type PlanStreet,
   type Pt,
+  type SplitMode,
 } from './split';
 
 /** Fewer is no division; more than this and a part is a street or two. */
@@ -51,8 +56,13 @@ export interface PartStreetView {
   to: string | null;
   piece: number;
   pieces: number;
+  side: PlanStreet['side'];
+  range: PlanStreet['range'];
   houses: number;
+  doors: number;
   lines: Pt[][];
+  /** Its houses, to draw as dots. Public map data. */
+  dots: Pt[];
   /** When it was marked walked; null: not yet. */
   walkedAt: string | null;
 }
@@ -60,8 +70,21 @@ export interface PartStreetView {
 export interface PartView {
   n: number;
   houses: number;
+  doors: number;
   start: Pt | null;
+  smaller: boolean;
+  /** In walking order. */
   streets: PartStreetView[];
+  /** Nothing walked yet: another pair may still take one of its streets. */
+  untouched: boolean;
+}
+
+/** How a division is asked for (13 November 2026, «Пары на участке»). */
+export interface DivideOptions {
+  parts: number;
+  mode?: SplitMode;
+  /** Parts (1-based) that asked to be smaller. */
+  smaller?: number[];
 }
 
 /** What a page without login may show: one part of one day, no more. */
@@ -71,7 +94,18 @@ export interface SharedPart {
   geometry: Territory['geometry'];
   day: string;
   parts: number;
+  mode: SplitMode;
+  /** The common start of «pairs near»: where everyone sets off. */
+  start: Pt | null;
   part: PartView;
+  others: {
+    n: number;
+    untouched: boolean;
+    streets: Pick<
+      PartStreetView,
+      'key' | 'name' | 'range' | 'side' | 'houses'
+    >[];
+  }[];
   /** How many «не посещать» addresses lie on this part's streets; never which. */
   noCalls: number;
   congregationId: string;
@@ -137,7 +171,8 @@ export class TerritorySplitsService {
       where: { territoryId: s.t.id, congregationId: user.congregationId },
       order: { notedOn: 'DESC' },
     });
-    const total = (await this.housesOf(s.t)).length;
+    const houses = await this.housesOf(s.t);
+    const total = houses.length;
     return {
       number: s.t.number,
       locality: s.t.locality,
@@ -152,15 +187,26 @@ export class TerritorySplitsService {
       split: split
         ? {
             id: split.id,
-            parts: split.parts.map((p) => {
+            mode: split.mode,
+            start: split.start,
+            parts: upgrade(split.parts).map((p) => {
               const view = partView(p, marks, walked);
               const mine = calls.filter((c) => {
-                const on = partsOfAddress(split.parts, c.address);
+                const on = partsOfAddress(upgrade(split.parts), c.address);
                 return on.length === 0 || on.includes(p.n);
               });
               return {
                 ...view,
-                noCalls: mine.map((c) => ({ id: c.id, address: c.address })),
+                // In the app only: the address, and where it is when known.
+                noCalls: mine.map((c) => ({
+                  id: c.id,
+                  address: c.address,
+                  at: findAddress(
+                    c.address,
+                    p.streets.map((x) => ({ name: x.name, lines: x.lines })),
+                    houses,
+                  ),
+                })),
               };
             }),
             leftOut: split.leftOut,
@@ -179,7 +225,7 @@ export class TerritorySplitsService {
   async divide(
     user: AuthenticatedUser,
     territoryId: string,
-    parts: number,
+    opts: DivideOptions,
     again: boolean,
   ) {
     const s = await this.seen(user, territoryId);
@@ -206,24 +252,8 @@ export class TerritorySplitsService {
         refusal('TERRITORY_SPLIT_NOT_YOURS', 'Someone else divided it.'),
       );
     }
-    const n = Math.max(MIN_PARTS, Math.min(MAX_PARTS, Math.floor(parts)));
     const marks = await this.marks.find({ where: { assignmentId: s.a.id } });
-    const walked = walkedHomes(marks);
-    const all = await this.housesOf(s.t);
-    const houses = all.filter((h) => !walked.has(h.id));
-    if (all.length > 0 && houses.length === 0) {
-      throw new ConflictException(
-        refusal('TERRITORY_ALL_WALKED', 'Every street is walked.'),
-      );
-    }
-    const streets = await this.streetsNear(s.t);
-    const { streets: named, left } = streetsWithHouses(streets, houses);
-    if (named.length === 0) {
-      throw new ConflictException(
-        refusal('TERRITORY_NO_STREETS', 'The map has no streets here yet.'),
-      );
-    }
-    const plan = splitStreets(named, n).filter((p) => p.streets.length > 0);
+    const plan = await this.plan(s.t, opts, walkedHomes(marks), today);
     const saved = await this.dataSource.transaction(async (m) => {
       if (had) await m.delete(TerritorySplit, { id: had.id });
       return m.save(
@@ -232,8 +262,10 @@ export class TerritorySplitsService {
           territoryId: s.t.id,
           assignmentId: s.a.id,
           day: today,
-          parts: plan.map((p, i) => ({ ...p, n: i + 1 })),
-          leftOut: left,
+          parts: plan.parts,
+          leftOut: plan.left,
+          mode: plan.mode,
+          start: plan.start,
           madeByUserId: user.id,
         }),
       );
@@ -246,11 +278,217 @@ export class TerritorySplitsService {
       actorUserId: user.id,
       detail: {
         split: had ? 'again' : 'made',
+        mode: saved.mode,
         parts: saved.parts.length,
-        houses: saved.parts.map((p) => p.houses),
+        doors: saved.parts.map((p) => p.doors),
       },
     });
     return this.ofToday(user, territoryId);
+  }
+
+  /**
+   * A division as it would be, saved nowhere (13 November 2026): to look
+   * before handing out, the evening before, or to check the territories.
+   * The keepers may look at any territory, given out or not.
+   */
+  async preview(
+    user: AuthenticatedUser,
+    territoryId: string,
+    opts: DivideOptions,
+  ) {
+    const access = await this.access.of(user);
+    let t: Territory;
+    let walked = new Set<string>();
+    if (access.seesAll && access.verified) {
+      const found = await this.territories.findOne({
+        where: {
+          id: territoryId,
+          congregationId: user.congregationId,
+          archivedAt: IsNull(),
+        },
+      });
+      if (!found) throw new NotFoundException('Territory not found');
+      t = found;
+      const open = await this.assignments.findOne({
+        where: {
+          territoryId: t.id,
+          completedOn: IsNull(),
+          returnedOn: IsNull(),
+        },
+        select: { id: true },
+      });
+      if (open)
+        walked = walkedHomes(
+          await this.marks.find({ where: { assignmentId: open.id } }),
+        );
+    } else {
+      const s = await this.seen(user, territoryId);
+      t = s.t;
+      walked = walkedHomes(
+        await this.marks.find({ where: { assignmentId: s.a.id } }),
+      );
+    }
+    if (t.category === 'business') {
+      throw new ConflictException(
+        refusal(
+          'TERRITORY_SPLIT_BUSINESS',
+          'A business territory is walked by its list.',
+        ),
+      );
+    }
+    const plan = await this.plan(
+      t,
+      opts,
+      walked,
+      await this.today(user.congregationId),
+    );
+    return {
+      mode: plan.mode,
+      start: plan.start,
+      startFrom: plan.startFrom,
+      leftOut: plan.left,
+      houses: plan.houses,
+      numbered: plan.numbered,
+      parts: plan.parts.map((p) => partView(p, [], new Set())),
+    };
+  }
+
+  /** The division itself, from the houses not walked yet. */
+  private async plan(
+    t: Territory,
+    opts: DivideOptions,
+    walked: Set<string>,
+    today: string,
+  ) {
+    const n = Math.max(MIN_PARTS, Math.min(MAX_PARTS, Math.floor(opts.parts)));
+    const mode: SplitMode = opts.mode === 'own' ? 'own' : 'near';
+    const all = await this.housesOf(t);
+    const houses = all.filter((h) => !walked.has(h.id));
+    if (all.length > 0 && houses.length === 0) {
+      throw new ConflictException(
+        refusal('TERRITORY_ALL_WALKED', 'Every street is walked.'),
+      );
+    }
+    const streets = await this.streetsNear(t);
+    const { streets: named, left } = streetsWithHouses(streets, houses);
+    if (named.length === 0) {
+      throw new ConflictException(
+        refusal('TERRITORY_NO_STREETS', 'The map has no streets here yet.'),
+      );
+    }
+    // The common start: today's meeting place there, found on our own map.
+    const address = await this.meetingAddress(t, today);
+    const found = address ? findAddress(address, streets, all) : null;
+    const smaller = (opts.smaller ?? []).filter((x) => x >= 1 && x <= n);
+    const parts = splitStreets(named, n, { mode, start: found, smaller })
+      .filter((p) => p.streets.length > 0)
+      .map((p, i) => ({ ...p, n: i + 1 }));
+    return {
+      parts,
+      left,
+      mode,
+      start: found ?? parts[0]?.start ?? null,
+      startFrom: found ? ('meeting' as const) : ('middle' as const),
+      houses: houses.length,
+      numbered: houses.filter((h) => h.numbers?.length).length,
+    };
+  }
+
+  /** The address of today's published meeting that goes to this territory. */
+  private async meetingAddress(
+    t: Territory,
+    today: string,
+  ): Promise<string | null> {
+    const rows = await this.meetings.find({
+      where: {
+        congregationId: t.congregationId,
+        territoryId: t.id,
+        weekStartDate: mondayOf(today),
+        cancelledAt: IsNull(),
+        publishedAt: Not(IsNull()),
+      },
+      select: { id: true, weekStartDate: true, dayOfWeek: true, address: true },
+    });
+    const m = rows.find(
+      (r) => addDays(r.weekStartDate, r.dayOfWeek - 1) === today,
+    );
+    return m?.address ?? null;
+  }
+
+  /**
+   * Today's division taken away (13 November 2026): divided by mistake, or
+   * the pairs did not come. Its links stop at once; the «walked» marks stay —
+   * every pair saw them and the holder needs them. For whoever may divide again.
+   */
+  async remove(user: AuthenticatedUser, splitId: string) {
+    const { split, s } = await this.splitSeen(user, splitId);
+    if (!this.mayRedo(user, s, split)) {
+      throw new ForbiddenException(
+        refusal('TERRITORY_SPLIT_NOT_YOURS', 'Someone else divided it.'),
+      );
+    }
+    await this.splits.delete({ id: split.id });
+    await this.audit.logFact({
+      tenantId: user.congregationId,
+      entityType: 'territory',
+      entityId: s.t.id,
+      action: 'UPDATE',
+      actorUserId: user.id,
+      detail: { split: 'removed' },
+    });
+    return this.ofToday(user, s.t.id);
+  }
+
+  /**
+   * A pair done early takes a street from another pair — only from a pair
+   * that has not started (nothing of its part ticked), so nobody loses a
+   * street half walked. Both pairs see the street move.
+   */
+  async take(
+    user: AuthenticatedUser,
+    splitId: string,
+    key: string,
+    to: number,
+  ) {
+    const { split, s } = await this.splitSeen(user, splitId);
+    await this.takeInto(split, key, to);
+    return this.ofToday(user, s.t.id);
+  }
+
+  private async takeInto(split: TerritorySplit, key: string, to: number) {
+    const parts = upgrade(split.parts);
+    const from = parts.find((p) => p.streets.some((x) => x.key === key));
+    const dest = parts.find((p) => p.n === to);
+    if (!from || !dest) throw new NotFoundException('Street not found');
+    if (from.n === dest.n) return;
+    const marks = await this.marks.find({
+      where: { assignmentId: split.assignmentId },
+    });
+    const walked = walkedHomes(marks);
+    const started = from.streets.some((x) =>
+      x.homes.some((h) => walked.has(h)),
+    );
+    if (started) {
+      throw new ConflictException(
+        refusal('TERRITORY_PART_STARTED', 'That pair has started its streets.'),
+      );
+    }
+    const street = from.streets.find((x) => x.key === key)!;
+    split.parts = parts.map((p) =>
+      p.n === from.n
+        ? keep(
+            p,
+            partOf(
+              p.n,
+              p.streets.filter((x) => x.key !== key),
+              split.start,
+            ),
+          )
+        : p.n === dest.n
+          ? keep(p, partOf(p.n, [...p.streets, street], split.start))
+          : p,
+    );
+    await this.splits.save(split);
   }
 
   /** One street (or piece) to another part: by hand, after dividing. */
@@ -266,19 +504,24 @@ export class TerritorySplitsService {
         refusal('TERRITORY_SPLIT_NOT_YOURS', 'Someone else divided it.'),
       );
     }
-    const from = split.parts.find((p) => p.streets.some((x) => x.key === key));
-    const dest = split.parts.find((p) => p.n === to);
+    const parts = upgrade(split.parts);
+    const from = parts.find((p) => p.streets.some((x) => x.key === key));
+    const dest = parts.find((p) => p.n === to);
     if (!from || !dest) throw new NotFoundException('Street not found');
     if (from.n !== dest.n) {
       const street = from.streets.find((x) => x.key === key)!;
-      split.parts = split.parts.map((p) =>
+      split.parts = parts.map((p) =>
         p.n === from.n
-          ? partOf(
-              p.n,
-              p.streets.filter((x) => x.key !== key),
+          ? keep(
+              p,
+              partOf(
+                p.n,
+                p.streets.filter((x) => x.key !== key),
+                split.start,
+              ),
             )
           : p.n === dest.n
-            ? partOf(p.n, [...p.streets, street])
+            ? keep(p, partOf(p.n, [...p.streets, street], split.start))
             : p,
       );
       await this.splits.save(split);
@@ -300,7 +543,7 @@ export class TerritorySplitsService {
   }
 
   private async setMark(split: TerritorySplit, key: string, walked: boolean) {
-    const street = split.parts
+    const street = upgrade(split.parts)
       .flatMap((p) => p.streets)
       .find((x) => x.key === key);
     if (!street) throw new NotFoundException('Street not found');
@@ -361,12 +604,13 @@ export class TerritorySplitsService {
     const marks = await this.marks.find({
       where: { assignmentId: split.assignmentId },
     });
-    const part = split.parts.find((p) => p.n === n)!;
+    const parts = upgrade(split.parts);
+    const part = parts.find((p) => p.n === n)!;
     const calls = await this.noCalls.find({
       where: { territoryId: t.id, congregationId: split.congregationId },
     });
     const noCalls = calls.filter((c) => {
-      const on = partsOfAddress(split.parts, c.address);
+      const on = partsOfAddress(parts, c.address);
       return on.length === 0 || on.includes(n);
     }).length;
     return {
@@ -375,18 +619,44 @@ export class TerritorySplitsService {
       geometry: t.geometry,
       day: split.day,
       parts: split.parts.length,
+      mode: split.mode,
+      start: split.start,
       part: partView(part, marks, walkedHomes(marks)),
+      // The other pairs' streets not started yet: a pair done early may take one.
+      others: parts
+        .filter((p) => p.n !== n)
+        .map((p) => ({
+          n: p.n,
+          untouched: !p.streets.some((x) =>
+            x.homes.some((h) => walkedHomes(marks).has(h)),
+          ),
+          streets: p.streets.map((x) => ({
+            key: x.key,
+            name: x.name,
+            range: x.range,
+            side: x.side,
+            houses: x.houses,
+          })),
+        })),
       noCalls,
       congregationId: split.congregationId,
       mapReady: !!settings.mapBuiltAt,
     };
   }
 
+  /** A street of another pair taken from a part's link, into that part. */
+  async takeShared(token: string, key: string) {
+    const found = await this.byToken(token);
+    if (!found) return null;
+    await this.takeInto(found.split, key, found.n);
+    return this.shared(token);
+  }
+
   /** «Walked» from a part's link: only the streets of that part. */
   async markShared(token: string, key: string, walked: boolean) {
     const found = await this.byToken(token);
     if (!found) return null;
-    const part = found.split.parts.find((p) => p.n === found.n)!;
+    const part = upgrade(found.split.parts).find((p) => p.n === found.n)!;
     if (!part.streets.some((x) => x.key === key)) return null;
     await this.setMark(found.split, key, walked);
     return this.shared(token);
@@ -528,14 +798,18 @@ export class TerritorySplitsService {
   private async housesOf(t: Territory): Promise<House[]> {
     const [x0, y0, x1, y1] = boxOf(t.geometry);
     const rows = await this.dataSource.query<
-      { osm_id: string; lon: number; lat: number }[]
+      { osm_id: string; lon: number; lat: number; numbers: string | null }[]
     >(
-      `SELECT osm_id, lon, lat FROM map_houses
+      `SELECT osm_id, lon, lat, numbers FROM map_houses
         WHERE congregation_id = $1 AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
       [t.congregationId, y0, y1, x0, x1],
     );
     return rows
-      .map((r) => ({ id: String(r.osm_id), at: [r.lon, r.lat] as Pt }))
+      .map((r) => ({
+        id: String(r.osm_id),
+        at: [r.lon, r.lat] as Pt,
+        numbers: r.numbers ? r.numbers.split(';').filter(Boolean) : [],
+      }))
       .filter((h) => pointInside(h.at, t.geometry));
   }
 
@@ -545,8 +819,10 @@ export class TerritorySplitsService {
     // FAR_M round the box, in degrees (generously: a degree east is shorter).
     const dy = FAR_M / 110_540;
     const dx = FAR_M / (111_320 * Math.cos((y0 * Math.PI) / 180));
-    return this.dataSource.query<{ name: string; lines: Pt[][] }[]>(
-      `SELECT name, lines FROM map_streets
+    return this.dataSource.query<
+      { name: string; kind: string; lines: Pt[][] }[]
+    >(
+      `SELECT name, kind, lines FROM map_streets
         WHERE congregation_id = $1
           AND east >= $2 AND west <= $3 AND north >= $4 AND south <= $5`,
       [t.congregationId, x0 - dx, x1 + dx, y0 - dy, y1 + dy],
@@ -572,6 +848,30 @@ function lastOf(marks: TerritoryStreetMark[]): string | null {
 }
 
 /**
+ * A division saved before 13 November 2026 evening holds parts of the first
+ * shape: no doors, sides, ranges or dots. Read with plain defaults.
+ */
+export function upgrade(parts: PlanPart[]): PlanPart[] {
+  return parts.map((p) => ({
+    ...p,
+    doors: p.doors ?? p.houses,
+    streets: p.streets.map((x) => ({
+      ...x,
+      side: x.side ?? null,
+      range: x.range ?? null,
+      doors: x.doors ?? x.houses,
+      dots: x.dots ?? [],
+      nums: x.nums ?? [],
+    })),
+  }));
+}
+
+/** A part recounted after a street moved, keeping what was asked of it. */
+function keep(was: PlanPart, now: PlanPart): PlanPart {
+  return was.smaller ? { ...now, smaller: true } : now;
+}
+
+/**
  * A part as shown: a street counts as walked when every house of it is in a
  * mark — so a mark from an earlier day's division still counts.
  */
@@ -580,28 +880,36 @@ function partView(
   marks: TerritoryStreetMark[],
   walked: Set<string>,
 ): PartView {
+  const streets = p.streets.map((x) => {
+    const done = x.homes.length > 0 && x.homes.every((h) => walked.has(h));
+    const at = done
+      ? marks
+          .filter((m) => x.homes.some((h) => m.homes.includes(h)))
+          .map((m) => m.markedAt.getTime())
+      : [];
+    return {
+      key: x.key,
+      name: x.name,
+      from: x.from,
+      to: x.to,
+      piece: x.piece,
+      pieces: x.pieces,
+      side: x.side ?? null,
+      range: x.range ?? null,
+      houses: x.houses,
+      doors: x.doors ?? x.houses,
+      lines: x.lines,
+      dots: x.dots ?? [],
+      walkedAt: at.length ? new Date(Math.max(...at)).toISOString() : null,
+    };
+  });
   return {
     n: p.n,
     houses: p.houses,
+    doors: p.doors ?? p.houses,
     start: p.start,
-    streets: p.streets.map((x) => {
-      const done = x.homes.length > 0 && x.homes.every((h) => walked.has(h));
-      const at = done
-        ? marks
-            .filter((m) => x.homes.some((h) => m.homes.includes(h)))
-            .map((m) => m.markedAt.getTime())
-        : [];
-      return {
-        key: x.key,
-        name: x.name,
-        from: x.from,
-        to: x.to,
-        piece: x.piece,
-        pieces: x.pieces,
-        houses: x.houses,
-        lines: x.lines,
-        walkedAt: at.length ? new Date(Math.max(...at)).toISOString() : null,
-      };
-    }),
+    smaller: !!p.smaller,
+    streets,
+    untouched: !p.streets.some((x) => x.homes.some((h) => walked.has(h))),
   };
 }
