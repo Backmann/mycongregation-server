@@ -13,6 +13,8 @@ import {
 } from '../entities/territory-assignment.entity';
 import { TerritoryNoCall } from '../entities/territory-no-call.entity';
 import { TerritoryBusinessVisit } from '../entities/territory-business-visit.entity';
+import { TerritorySplit } from '../entities/territory-split.entity';
+import { TerritoryStreetMark } from '../entities/territory-street-mark.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
@@ -93,15 +95,22 @@ export class TerritoryAssignmentsService {
     private readonly meetings: Repository<FieldServiceMeeting>,
     @InjectRepository(TerritoryBusinessVisit)
     private readonly businessVisits: Repository<TerritoryBusinessVisit>,
+    @InjectRepository(TerritorySplit)
+    private readonly splits: Repository<TerritorySplit>,
+    @InjectRepository(TerritoryStreetMark)
+    private readonly streetMarks: Repository<TerritoryStreetMark>,
   ) {}
 
   /**
    * A business territory's «visited» marks belong to one assignment and go
    * when the territory comes back (13 November 2026, decision: marks are
-   * wiped on return; the record keeps only «worked»).
+   * wiped on return; the record keeps only «worked»). So do a residential
+   * territory's divisions between groups and «street walked» marks.
    */
   private async forgetMarks(assignmentId: string): Promise<void> {
     await this.businessVisits.delete({ assignmentId });
+    await this.streetMarks.delete({ assignmentId });
+    await this.splits.delete({ assignmentId });
   }
 
   private async today(congregationId: string): Promise<string> {

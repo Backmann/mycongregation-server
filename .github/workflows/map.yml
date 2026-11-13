@@ -20,6 +20,7 @@ on:
         '.github/workflows/map.yml',
         'scripts/map-houses.mjs',
         'scripts/map-places.mjs',
+        'scripts/map-streets.mjs',
       ]
   workflow_dispatch:
 
@@ -95,6 +96,27 @@ jobs:
           # Six fields on every line, read as CSV (names hold commas).
           python3 -c "import csv,sys; r=list(csv.reader(open('places.csv'))); bad=[x for x in r if len(x)!=6]; print(len(bad),'malformed'); sys.exit(1 if bad else 0)"
           cut -d, -f3 places.csv | sort | uniq -c | sort -rn | head -12
+      - name: Streets from the trial file
+        run: |
+          set -euo pipefail
+          node scripts/map-streets.mjs --self-test
+          node scripts/map-streets.mjs trial.pmtiles 9.20,51.15,9.73,51.48 00000000-0000-4000-8000-000000000000 > streets.csv
+          n=$(wc -l < streets.csv)
+          echo "Streets in the trial area: $n ($(du -h streets.csv | cut -f1))"
+          # A city and its villages: thousands of named streets.
+          [ "$n" -gt 1000 ] || { echo "Too few streets: the reader is broken"; exit 1; }
+          # Nine fields on every line, the lines valid JSON with points in the box.
+          python3 - <<'PY'
+          import csv, json, sys
+          bad = 0
+          for r in csv.reader(open('streets.csv')):
+              if len(r) != 9: bad += 1; continue
+              lines = json.loads(r[8])
+              pts = [p for l in lines for p in l]
+              if not pts or any(len(l) < 2 for l in lines): bad += 1
+          print(bad, 'malformed'); sys.exit(1 if bad else 0)
+          PY
+          cut -d, -f4 streets.csv | sort | uniq -c | sort -rn | head -8
 
   map-build:
     if: github.event_name == 'workflow_dispatch'
@@ -196,6 +218,10 @@ jobs:
             # for the list of a business territory (13 November 2026).
             node scripts/map-places.mjs "map-$n.pmtiles" "$box" "$id" > "places-$n.csv" < /dev/null
             echo "Area $n: $(wc -l < "places-$n.csv") places"
+            # The named streets, for dividing a territory between groups
+            # (13 November 2026).
+            node scripts/map-streets.mjs "map-$n.pmtiles" "$box" "$id" > "streets-$n.csv" < /dev/null
+            echo "Area $n: $(wc -l < "streets-$n.csv") streets"
             {
               echo "BEGIN;"
               echo "DELETE FROM map_houses WHERE congregation_id = '$id';"
@@ -205,6 +231,10 @@ jobs:
               echo "DELETE FROM map_places WHERE congregation_id = '$id';"
               echo "COPY map_places (congregation_id, osm_id, kind, name, lon, lat) FROM STDIN WITH (FORMAT csv);"
               cat "places-$n.csv"
+              echo '\.'
+              echo "DELETE FROM map_streets WHERE congregation_id = '$id';"
+              echo "COPY map_streets (congregation_id, street_no, name, kind, west, south, east, north, lines) FROM STDIN WITH (FORMAT csv);"
+              cat "streets-$n.csv"
               echo '\.'
               echo "INSERT INTO territory_settings (congregation_id, houses_built_at) VALUES ('$id', now()) ON CONFLICT (congregation_id) DO UPDATE SET houses_built_at = now();"
               echo "COMMIT;"
@@ -217,4 +247,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts ~/.ssh/config areas.csv houses-*.csv places-*.csv
+        run: rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts ~/.ssh/config areas.csv houses-*.csv places-*.csv streets-*.csv

@@ -31,6 +31,9 @@ import { TerritoryOutlineService } from './territory-outline.service';
 import { TerritoryReshapeService } from './territory-reshape.service';
 import { TerritoryBusinessesService } from './territory-businesses.service';
 import { PaperDto } from './dto/assignment.dto';
+import { TerritorySplitsService } from './territory-splits.service';
+import { DivideDto, MarkStreetDto, MoveStreetDto } from './dto/split.dto';
+import { Throttle } from '@nestjs/throttler';
 import {
   AddBusinessesDto,
   EditBusinessDto,
@@ -80,6 +83,7 @@ export class TerritoriesController {
     private readonly outline: TerritoryOutlineService,
     private readonly reshape: TerritoryReshapeService,
     private readonly businesses: TerritoryBusinessesService,
+    private readonly splits: TerritorySplitsService,
   ) {}
 
   /** The door: what the user may open, and the territories he has a part in. */
@@ -548,6 +552,55 @@ export class TerritoriesController {
     return this.given.paper(user, id, dto.wanted);
   }
 
+  // ------------------------ a territory divided between groups ---------
+  // (13 November 2026). Not «split»: that is cutting a territory in two.
+
+  /** Today's division of the territory, its marks, who may do what. */
+  @Get(':id/division')
+  division(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.splits.ofToday(user, id);
+  }
+
+  @Post(':id/division')
+  divide(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: DivideDto,
+  ) {
+    return this.splits.divide(user, id, dto.parts, !!dto.again);
+  }
+
+  @Put('divisions/:id/move')
+  moveStreet(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: MoveStreetDto,
+  ) {
+    return this.splits.move(user, id, dto.key, dto.to);
+  }
+
+  @Put('divisions/:id/mark')
+  markStreet(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: MarkStreetDto,
+  ) {
+    return this.splits.mark(user, id, dto.key, dto.walked);
+  }
+
+  /** A link without login to one part, good today only. */
+  @Post('divisions/:id/parts/:n/link')
+  partLink(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('n') n: string,
+  ) {
+    return this.splits.partLink(user, id, Number(n));
+  }
+
   // ----------------------------- the list of a business territory --------
   // (13 November 2026)
 
@@ -628,6 +681,46 @@ export class TerritoryLinksController {
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
     const out = await this.links.shared(token);
+    if (!out) throw new NotFoundException();
+    res.status(200).json(out);
+  }
+}
+
+/**
+ * One part of a territory divided between groups, behind a link without
+ * login (13 November 2026): its streets, «walked» marks and how many
+ * «не посещать» addresses it has — never which. Good on the day of the
+ * division only; every link that does not work gets the same plain 404.
+ */
+@Controller('territory-parts')
+export class TerritoryPartsController {
+  constructor(private readonly splits: TerritorySplitsService) {}
+
+  private headers(res: Response) {
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  }
+
+  @Public()
+  @Get(':token')
+  async shared(@Param('token') token: string, @Res() res: Response) {
+    this.headers(res);
+    const out = await this.splits.shared(token);
+    if (!out) throw new NotFoundException();
+    res.status(200).json(out);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 60, ttl: 600000 } })
+  @Put(':token/mark')
+  async mark(
+    @Param('token') token: string,
+    @Body() dto: MarkStreetDto,
+    @Res() res: Response,
+  ) {
+    this.headers(res);
+    const out = await this.splits.markShared(token, dto.key, dto.walked);
     if (!out) throw new NotFoundException();
     res.status(200).json(out);
   }

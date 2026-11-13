@@ -22,7 +22,7 @@ import { PbfReader } from 'pbf';
 
 export const MIN_AREA_M2 = 35;
 
-class FileSource {
+export class FileSource {
   constructor(path) {
     this.path = path;
     this.handle = null;

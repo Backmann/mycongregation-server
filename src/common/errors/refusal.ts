@@ -356,6 +356,12 @@ export const REFUSAL_CODES = [
   'TERRITORY_BUSINESSES_MANY',
   'TERRITORY_BUSINESS_OUTSIDE',
   'TERRITORY_NOT_GIVEN',
+  // a territory divided between groups (13 November 2026)
+  'TERRITORY_SPLIT_EXISTS',
+  'TERRITORY_SPLIT_NOT_YOURS',
+  'TERRITORY_NO_STREETS',
+  'TERRITORY_ALL_WALKED',
+  'TERRITORY_SPLIT_BUSINESS',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];

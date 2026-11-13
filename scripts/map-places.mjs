@@ -21,11 +21,11 @@ import { PbfReader } from 'pbf';
 import { tileRange } from './map-houses.mjs';
 
 /** A name as one CSV field: quoted, quotes doubled, line breaks gone. */
-export function csvText(s) {
+export function csvText(s, max = 200) {
   const one = String(s)
     .replace(/[\r\n]+/g, ' ')
     .trim()
-    .slice(0, 200);
+    .slice(0, max);
   return `"${one.replace(/"/g, '""')}"`;
 }
 

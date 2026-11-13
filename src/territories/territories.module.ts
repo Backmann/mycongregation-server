@@ -15,6 +15,7 @@ import { AuditLogModule } from '../audit-log/audit-log.module';
 import {
   TerritoriesController,
   TerritoryLinksController,
+  TerritoryPartsController,
 } from './territories.controller';
 import { TerritoryLinksService } from './territory-links.service';
 import { TerritoryNoCallsService } from './territory-no-calls.service';
@@ -29,6 +30,9 @@ import { TerritoryReshapeService } from './territory-reshape.service';
 import { TerritoryBusiness } from '../entities/territory-business.entity';
 import { TerritoryBusinessVisit } from '../entities/territory-business-visit.entity';
 import { TerritoryBusinessesService } from './territory-businesses.service';
+import { TerritorySplit } from '../entities/territory-split.entity';
+import { TerritoryStreetMark } from '../entities/territory-street-mark.entity';
+import { TerritorySplitsService } from './territory-splits.service';
 
 @Module({
   imports: [
@@ -46,11 +50,17 @@ import { TerritoryBusinessesService } from './territory-businesses.service';
       FieldServiceMeeting,
       TerritoryBusiness,
       TerritoryBusinessVisit,
+      TerritorySplit,
+      TerritoryStreetMark,
     ]),
     AuditLogModule,
     NotificationsModule,
   ],
-  controllers: [TerritoriesController, TerritoryLinksController],
+  controllers: [
+    TerritoriesController,
+    TerritoryLinksController,
+    TerritoryPartsController,
+  ],
   providers: [
     TerritoriesService,
     TerritoryAccessService,
@@ -61,6 +71,7 @@ import { TerritoryBusinessesService } from './territory-businesses.service';
     TerritoryReshapeService,
     TerritoryRemindersService,
     TerritoryBusinessesService,
+    TerritorySplitsService,
   ],
   exports: [
     TerritoryAccessService,
