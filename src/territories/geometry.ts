@@ -277,3 +277,36 @@ export function overlapShare(
   };
   return Math.max(inside(a, b), inside(b, a));
 }
+
+/**
+ * How far a point lies from an outline's edge, in metres (13 November 2026):
+ * 0 when it is inside. Used to name the territory a gap sits against — the
+ * one whose border is closest, not the one whose middle is — so that «add to
+ * the neighbour» opens the territory that really borders the gap.
+ */
+export function metresToOutline(
+  point: [number, number],
+  g: TerritoryGeometry,
+): number {
+  if (pointInside(point, g)) return 0;
+  const kx = 111_320 * Math.cos((point[1] * Math.PI) / 180);
+  const ky = 110_540;
+  let best = Infinity;
+  for (const poly of polygonsOf(g)) {
+    for (const ring of poly) {
+      for (let i = 0; i + 1 < ring.length; i++) {
+        const ax = (ring[i][0] - point[0]) * kx;
+        const ay = (ring[i][1] - point[1]) * ky;
+        const bx = (ring[i + 1][0] - point[0]) * kx;
+        const by = (ring[i + 1][1] - point[1]) * ky;
+        const dx = bx - ax;
+        const dy = by - ay;
+        const len = dx * dx + dy * dy;
+        const t =
+          len === 0 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len));
+        best = Math.min(best, Math.hypot(ax + t * dx, ay + t * dy));
+      }
+    }
+  }
+  return best;
+}

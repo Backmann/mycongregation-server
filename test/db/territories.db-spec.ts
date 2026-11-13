@@ -24,6 +24,20 @@ describe('territories (real database)', () => {
     ],
   });
 
+  /** A rectangle from its south-west to its north-east corner. */
+  const area = (x0: number, y0: number, x1: number, y1: number) => ({
+    type: 'Polygon',
+    coordinates: [
+      [
+        [x0, y0],
+        [x1, y0],
+        [x1, y1],
+        [x0, y1],
+        [x0, y0],
+      ],
+    ],
+  });
+
   const give = async (userId: string, type: string) => {
     await h.sql(
       `INSERT INTO responsibilities (congregation_id, type, user_id) VALUES ($1, $2, $3)`,
@@ -305,8 +319,17 @@ describe('territories (real database)', () => {
       items: [
         { number: 'W', geometry: slid },
         { number: 'E', geometry: square(7.01, 51) },
+        // Long and thin, its border 165 m from the gap, its middle 1.1 km.
+        { number: 'Long', geometry: area(7.016, 51.0315, 7.018, 51.049) },
+        // A small square whose middle is nearer the gap than Long's middle,
+        // its border farther than Long's border.
+        { number: 'Mid', geometry: area(7.0137, 51.0195, 7.0177, 51.0235) },
+        { number: 'Shop', geometry: area(7.001, 51.04, 7.005, 51.044) },
       ],
     });
+    await h.sql(
+      `UPDATE territories SET category = 'business' WHERE number = 'Shop'`,
+    );
     const c = await h.as('keeper').get('/territories/checks');
     expect(c.body.overlapping).toEqual([['E', 'W']]);
 
@@ -320,7 +343,10 @@ describe('territories (real database)', () => {
         [congregationId, id++, lon, lat],
       );
     for (let i = 0; i < 5; i++) await add(7.005, 51.001 + i * 0.001); // in W
-    for (let i = 0; i < 12; i++) await add(7.012 + i * 0.0002, 51.03); // a gap
+    // A gap across two cells of the grid: one spot, not two halves.
+    for (let i = 0; i < 14; i++) await add(7.0125 + i * 0.0005, 51.03);
+    // An industrial estate: houses to the register, a business territory here.
+    for (let i = 0; i < 10; i++) await add(7.002 + i * 0.0002, 51.042);
     for (let i = 0; i < 3; i++) await add(7.02, 51.045 - i * 0.004); // scattered
     for (let i = 0; i < 4; i++) await add(7.045, 51.045 - i * 0.001); // outside the L
     await h.sql(
@@ -329,11 +355,25 @@ describe('territories (real database)', () => {
     );
     const g = await h.as('keeper').get('/territories/gaps');
     expect(g.status).toBe(200);
-    expect(g.body.houses).toBe(15);
-    expect(g.body.spots).toHaveLength(1);
-    expect(g.body.spots[0]).toMatchObject({ houses: 12 });
-    expect(['E', 'W']).toContain(g.body.spots[0].near);
+    expect(g.body).toMatchObject({ houses: 27, inBusiness: 10, spotCount: 2 });
+    expect(g.body.spots).toHaveLength(2);
+    expect(g.body.spots[0]).toMatchObject({
+      houses: 14,
+      inBusiness: 0,
+      near: 'Long',
+    });
+    expect(g.body.spots[0].nearMetres).toBeGreaterThan(100);
+    expect(g.body.spots[0].nearMetres).toBeLessThan(250);
+    expect(g.body.spots[1]).toMatchObject({ houses: 10, inBusiness: 10 });
     expect((await h.as('secretary').get('/territories/gaps')).status).toBe(403);
+
+    // Kept between calls, but never past a changed outline: Long reaches
+    // down over the gap, and the gap is gone at once.
+    await h.sql(`UPDATE territories SET geometry = $1 WHERE number = 'Long'`, [
+      JSON.stringify(area(7.011, 51.029, 7.02, 51.049)),
+    ]);
+    const after = await h.as('keeper').get('/territories/gaps');
+    expect(after.body).toMatchObject({ houses: 13, spotCount: 1 });
   });
 
   function from(): string {

@@ -150,7 +150,16 @@ export class JournalService {
     const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
 
     const where: FindOptionsWhere<AuditLog> = { congregationId: tenantId };
-    if (filters.entityType) where.entityType = filters.entityType;
+    // One section, or several written with commas (13 November 2026): the
+    // territory section keeps its facts under six names, and «Участки» in
+    // the journal means all of them.
+    const types = (filters.entityType ?? '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .slice(0, 12);
+    if (types.length === 1) where.entityType = types[0];
+    else if (types.length > 1) where.entityType = In(types);
     if (filters.actorUserId) where.actorUserId = filters.actorUserId;
     if (filters.action) where.action = filters.action;
 

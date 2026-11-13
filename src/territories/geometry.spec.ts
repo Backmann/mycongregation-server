@@ -6,6 +6,7 @@ import {
   shareOutside,
   areaShareOutside,
   overlapShare,
+  metresToOutline,
 } from './geometry';
 import { keptFrom, serviceYearOf } from './service-year';
 
@@ -187,6 +188,25 @@ describe('two outlines lying over each other (12 November 2026)', () => {
 
   it('one inside the other counts whole', () => {
     expect(overlapShare(rect(7, 7.02), rect(7.005, 7.01))).toBe(1);
+  });
+});
+
+describe('distance from a point to an outline (13 November 2026)', () => {
+  // A square of 0.01 degrees at latitude 51: about 700 m wide, 1105 m high.
+  const sq = square(7, 51);
+  it('is 0 inside', () => {
+    expect(metresToOutline([7.005, 51.005], sq)).toBe(0);
+  });
+  it('measures to the nearest edge, not to the middle', () => {
+    // 0.001 degrees east of the east edge: about 70 m.
+    const d = metresToOutline([7.011, 51.005], sq);
+    expect(d).toBeGreaterThan(65);
+    expect(d).toBeLessThan(75);
+  });
+  it('measures to a corner when the point is off it diagonally', () => {
+    const d = metresToOutline([7.011, 51.011], sq);
+    expect(d).toBeGreaterThan(125);
+    expect(d).toBeLessThan(135);
   });
 });
 

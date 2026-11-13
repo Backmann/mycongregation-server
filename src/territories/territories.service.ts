@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -31,6 +32,7 @@ import {
   areaShareOutside,
   GeometryError,
   pointInside,
+  metresToOutline,
 } from './geometry';
 import { sharedGround } from './reshape';
 import {
@@ -54,6 +56,31 @@ const PG_UNIQUE_VIOLATION = '23505';
 /** A place of houses outside every territory, shown from this many on. */
 const GAP_SPOT_MIN = 10;
 const GAP_SPOTS = 40;
+/** A gap's cell: about 300 m each way in this part of the world. */
+const GAP_CELL_X = 0.0045;
+const GAP_CELL_Y = 0.0028;
+/** Houses a cell needs to join its neighbours into one spot. */
+const GAP_CELL_DENSE = 3;
+
+export interface TerritoryGaps {
+  builtAt: Date | null;
+  hasBoundary: boolean;
+  /** Houses inside the boundary that no residential territory holds. */
+  houses: number;
+  /** Of those, inside a business territory. */
+  inBusiness: number;
+  /** Spots found, of which the largest GAP_SPOTS are listed. */
+  spotCount?: number;
+  spots: {
+    lon: number;
+    lat: number;
+    houses: number;
+    inBusiness: number;
+    near: string | null;
+    nearId: string | null;
+    nearMetres: number | null;
+  }[];
+}
 
 /**
  * The territory section (11 November 2026). This first stage holds the
@@ -645,7 +672,24 @@ export class TerritoriesService {
    * spot names the nearest territory. Farms between towns may be outside on
    * purpose — the screen says so; it only shows where they are.
    */
-  async gaps(user: AuthenticatedUser) {
+  /**
+   * Houses no residential territory holds (12–13 November 2026).
+   *
+   * The register's houses inside the boundary, less those inside a
+   * residential territory. Close ones are joined into spots: a cell of about
+   * 300 m with at least three such houses is dense, dense cells that touch
+   * (sides or corners) are one spot, and a spot of ten houses or more is
+   * listed — so one gap along a border is one spot, not five, and farms
+   * scattered across the fields stay only in the total. Each spot names the
+   * residential territory whose border is closest, and how many of its
+   * houses a business territory holds (an industrial estate looks like
+   * houses in the register, which knows outlines, not uses).
+   *
+   * It reads every house inside the boundary (about a second for a city),
+   * so the answer is kept until the register, the boundary or an outline
+   * changes.
+   */
+  async gaps(user: AuthenticatedUser): Promise<TerritoryGaps> {
     await this.access.mustKeep(user);
     const tenantId = user.congregationId;
     const settings = await this.settings.findOne({
@@ -657,32 +701,55 @@ export class TerritoriesService {
         builtAt: settings?.housesBuiltAt ?? null,
         hasBoundary: !!boundary,
         houses: 0,
+        inBusiness: 0,
         spots: [],
       };
     }
     const rows = await this.territories.find({
-      where: {
-        congregationId: tenantId,
-        archivedAt: IsNull(),
-        category: 'residential',
-      },
-      select: { id: true, number: true, geometry: true },
+      where: { congregationId: tenantId, archivedAt: IsNull() },
+      select: { id: true, number: true, geometry: true, category: true },
+      order: { id: 'ASC' },
     });
-    const boxes = rows.map((t) => boxOf(t.geometry));
-    const [bx0, by0, bx1, by1] = boxOf(boundary.geometry);
-    const houses = await this.dataSource.query<{ lon: number; lat: number }[]>(
-      `SELECT lon, lat FROM map_houses
-        WHERE congregation_id = $1 AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
-      [tenantId, by0, by1, bx0, bx1],
+    const sig = createHash('sha1')
+      .update(String(settings.housesBuiltAt.getTime()))
+      .update(JSON.stringify(boundary.geometry))
+      .update(JSON.stringify(rows.map((t) => [t.id, t.category, t.geometry])))
+      .digest('hex');
+    const kept = this.gapsKept.get(tenantId);
+    if (kept && kept.sig === sig) return kept.value;
+
+    const value = await this.countGaps(
+      tenantId,
+      settings.housesBuiltAt,
+      boundary.geometry,
+      rows,
     );
-    const CELL_X = 0.0045;
-    const CELL_Y = 0.0028;
-    const cells = new Map<string, { n: number; x: number; y: number }>();
-    let total = 0;
-    for (const h of houses) {
-      const p: [number, number] = [h.lon, h.lat];
-      if (!pointInside(p, boundary.geometry)) continue;
-      const held = rows.some(
+    this.gapsKept.set(tenantId, { sig, value });
+    return value;
+  }
+
+  private readonly gapsKept = new Map<
+    string,
+    { sig: string; value: TerritoryGaps }
+  >();
+
+  private async countGaps(
+    tenantId: string,
+    builtAt: Date,
+    border: TerritoryGeometry,
+    rows: Pick<Territory, 'id' | 'number' | 'geometry' | 'category'>[],
+  ): Promise<TerritoryGaps> {
+    const homes = rows.filter((t) => t.category === 'residential');
+    const shops = rows.filter((t) => t.category === 'business');
+    const boxesOf = (list: typeof rows) => list.map((t) => boxOf(t.geometry));
+    const homeBoxes = boxesOf(homes);
+    const shopBoxes = boxesOf(shops);
+    const within = (
+      p: [number, number],
+      list: typeof rows,
+      boxes: [number, number, number, number][],
+    ) =>
+      list.some(
         (t, i) =>
           p[0] >= boxes[i][0] &&
           p[0] <= boxes[i][2] &&
@@ -690,48 +757,104 @@ export class TerritoriesService {
           p[1] <= boxes[i][3] &&
           pointInside(p, t.geometry),
       );
-      if (held) continue;
+    const [bx0, by0, bx1, by1] = boxOf(border);
+    const houses = await this.dataSource.query<{ lon: number; lat: number }[]>(
+      `SELECT lon, lat FROM map_houses
+        WHERE congregation_id = $1 AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
+      [tenantId, by0, by1, bx0, bx1],
+    );
+    type Cell = {
+      cx: number;
+      cy: number;
+      n: number;
+      x: number;
+      y: number;
+      shop: number;
+    };
+    const cells = new Map<string, Cell>();
+    let total = 0;
+    let inBusiness = 0;
+    for (const h of houses) {
+      const p: [number, number] = [h.lon, h.lat];
+      if (!pointInside(p, border)) continue;
+      if (within(p, homes, homeBoxes)) continue;
       total += 1;
-      const key = `${Math.floor(p[0] / CELL_X)}:${Math.floor(p[1] / CELL_Y)}`;
-      const c = cells.get(key) ?? { n: 0, x: 0, y: 0 };
+      const shop = within(p, shops, shopBoxes);
+      if (shop) inBusiness += 1;
+      const cx = Math.floor(p[0] / GAP_CELL_X);
+      const cy = Math.floor(p[1] / GAP_CELL_Y);
+      const key = `${cx}:${cy}`;
+      const c = cells.get(key) ?? { cx, cy, n: 0, x: 0, y: 0, shop: 0 };
       c.n += 1;
       c.x += p[0];
       c.y += p[1];
+      if (shop) c.shop += 1;
       cells.set(key, c);
     }
-    const nearest = (x: number, y: number) => {
-      let best = '';
-      let bestD = Infinity;
-      rows.forEach((t, i) => {
-        const cx = (boxes[i][0] + boxes[i][2]) / 2;
-        const cy = (boxes[i][1] + boxes[i][3]) / 2;
-        const d = Math.hypot((cx - x) * 0.62, cy - y);
-        if (d < bestD) {
-          bestD = d;
-          best = t.number;
+    // Dense cells that touch are one spot.
+    const dense = new Map([...cells].filter(([, c]) => c.n >= GAP_CELL_DENSE));
+    const seen = new Set<string>();
+    const groups: Cell[][] = [];
+    for (const [key] of dense) {
+      if (seen.has(key)) continue;
+      const group: Cell[] = [];
+      const stack = [key];
+      seen.add(key);
+      while (stack.length) {
+        const c = dense.get(stack.pop()!)!;
+        group.push(c);
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            const k = `${c.cx + dx}:${c.cy + dy}`;
+            if (dense.has(k) && !seen.has(k)) {
+              seen.add(k);
+              stack.push(k);
+            }
+          }
         }
-      });
-      return best || null;
-    };
-    const spots = [...cells.values()]
-      .filter((c) => c.n >= GAP_SPOT_MIN)
-      .sort((a, b) => b.n - a.n)
-      .slice(0, GAP_SPOTS)
-      .map((c) => {
-        const lon = c.x / c.n;
-        const lat = c.y / c.n;
+      }
+      groups.push(group);
+    }
+    const spots = groups
+      .map((g) => {
+        const n = g.reduce((s, c) => s + c.n, 0);
         return {
-          lon: Math.round(lon * 1e6) / 1e6,
-          lat: Math.round(lat * 1e6) / 1e6,
-          houses: c.n,
-          near: nearest(lon, lat),
+          n,
+          x: g.reduce((s, c) => s + c.x, 0) / n,
+          y: g.reduce((s, c) => s + c.y, 0) / n,
+          shop: g.reduce((s, c) => s + c.shop, 0),
         };
-      });
+      })
+      .filter((g) => g.n >= GAP_SPOT_MIN)
+      .sort((a, b) => b.n - a.n);
+    const listed = spots.slice(0, GAP_SPOTS).map((g) => {
+      const p: [number, number] = [g.x, g.y];
+      let near: (typeof homes)[number] | null = null;
+      let metres = Infinity;
+      for (const t of homes) {
+        const d = metresToOutline(p, t.geometry);
+        if (d < metres) {
+          metres = d;
+          near = t;
+        }
+      }
+      return {
+        lon: Math.round(g.x * 1e6) / 1e6,
+        lat: Math.round(g.y * 1e6) / 1e6,
+        houses: g.n,
+        inBusiness: g.shop,
+        near: near?.number ?? null,
+        nearId: near?.id ?? null,
+        nearMetres: near ? Math.round(metres) : null,
+      };
+    });
     return {
-      builtAt: settings.housesBuiltAt,
+      builtAt,
       hasBoundary: true,
       houses: total,
-      spots,
+      inBusiness,
+      spotCount: spots.length,
+      spots: listed,
     };
   }
 
