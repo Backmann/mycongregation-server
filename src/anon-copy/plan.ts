@@ -424,6 +424,17 @@ export const PLAN: Record<string, TablePlan> = {
   territory_business_visits: copy(
     'id congregation_id business_id assignment_id state on_date',
   ),
+  /** Named streets from OpenStreetMap (13 November 2026): public map data. */
+  map_streets: copy(
+    'congregation_id street_no name kind west south east north lines',
+  ),
+  /** A territory divided between groups for a day: streets and houses. */
+  territory_splits: copy(`id congregation_id territory_id assignment_id day
+    parts left_out made_by_user_id created_at`),
+  /** «Street walked» while a territory is out: houses and a time, no person. */
+  territory_street_marks: copy(
+    'id congregation_id assignment_id street_key homes marked_at',
+  ),
   service_reports: table(
     copy(`id congregation_id publisher_id report_month served_this_month
       hours_reported bible_studies submitted_at submitted_by_id
