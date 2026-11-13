@@ -1,3 +1,4 @@
+import { todayIn } from '../../src/common/congregation-clock';
 import { Harness, startHarness } from './harness';
 
 /**
@@ -337,7 +338,9 @@ describe('people: departure, sign-in, pioneer spells (real database)', () => {
     });
 
     it('point 9: the decision frees the year on the review and the S-21, and is noted', async () => {
-      const today = new Date().toISOString().slice(0, 10);
+      // The congregation's own day (Europe/Berlin in the harness), not UTC:
+      // between 23:00 and 24:00 UTC the two differ (failed on main, 14 November 2026).
+      const today = todayIn(new Date(), 'Europe/Berlin');
       const sy =
         Number(today.slice(5, 7)) >= 9
           ? Number(today.slice(0, 4)) + 1
