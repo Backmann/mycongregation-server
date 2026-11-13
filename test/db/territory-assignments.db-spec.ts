@@ -1,3 +1,4 @@
+import { todayIn } from '../../src/common/congregation-clock';
 import { DataSource } from 'typeorm';
 import { Harness, startHarness } from './harness';
 import { AuditLog } from '../../src/entities/audit-log.entity';
@@ -21,7 +22,9 @@ describe('territory assignments (real database)', () => {
   const card: Record<string, string> = {};
   let groupOne = '';
   let territoryId = '';
-  const today = new Date().toISOString().slice(0, 10);
+  // The congregation's own day (Europe/Berlin in the harness), not UTC:
+  // between 23:00 and 24:00 UTC the two differ (failed on main, 14 November 2026).
+  const today = todayIn(new Date(), 'Europe/Berlin');
 
   const square = (x: number, y: number) => ({
     type: 'Polygon',
