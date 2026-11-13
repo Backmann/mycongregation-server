@@ -415,6 +415,15 @@ export const PLAN: Record<string, TablePlan> = {
   ),
   /** Buildings from OpenStreetMap: public map data, no people. */
   map_houses: copy('congregation_id osm_id lon lat area_m2'),
+  /** Named places from OpenStreetMap (13 November 2026): public map data. */
+  map_places: copy('congregation_id osm_id kind name lon lat'),
+  /** A business territory's list: shops and offices, never people. */
+  territory_businesses: copy(`id congregation_id territory_id osm_id name kind
+    lon lat created_by_user_id created_at updated_at`),
+  /** Marks while a territory is out: only a state and a day. */
+  territory_business_visits: copy(
+    'id congregation_id business_id assignment_id state on_date',
+  ),
   service_reports: table(
     copy(`id congregation_id publisher_id report_month served_this_month
       hours_reported bible_studies submitted_at submitted_by_id

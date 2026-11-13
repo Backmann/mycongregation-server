@@ -15,7 +15,12 @@ name: Territory map
 # This log is public: it prints sizes and counts, never a box or a place.
 on:
   pull_request:
-    paths: ['.github/workflows/map.yml', 'scripts/map-houses.mjs']
+    paths:
+      [
+        '.github/workflows/map.yml',
+        'scripts/map-houses.mjs',
+        'scripts/map-places.mjs',
+      ]
   workflow_dispatch:
 
 permissions:
@@ -79,6 +84,17 @@ jobs:
           [ "$n" -gt 1000 ] || { echo "Too few houses: the reader is broken"; exit 1; }
           awk -F, 'NF != 5 { bad++ } END { if (bad) { print bad " malformed lines"; exit 1 } }' houses.csv
           head -3 houses.csv | cut -d, -f2-
+      - name: Places from the trial file
+        run: |
+          set -euo pipefail
+          node scripts/map-places.mjs trial.pmtiles 9.20,51.15,9.73,51.48 00000000-0000-4000-8000-000000000000 > places.csv
+          n=$(wc -l < places.csv)
+          echo "Named places in the trial area: $n"
+          # A city has shops, cafés and doctors by the hundred.
+          [ "$n" -gt 200 ] || { echo "Too few places: the reader is broken"; exit 1; }
+          # Six fields on every line, read as CSV (names hold commas).
+          python3 -c "import csv,sys; r=list(csv.reader(open('places.csv'))); bad=[x for x in r if len(x)!=6]; print(len(bad),'malformed'); sys.exit(1 if bad else 0)"
+          cut -d, -f3 places.csv | sort | uniq -c | sort -rn | head -12
 
   map-build:
     if: github.event_name == 'workflow_dispatch'
@@ -176,11 +192,19 @@ jobs:
             # one in one transaction (12 November 2026).
             node scripts/map-houses.mjs "map-$n.pmtiles" "$box" "$id" > "houses-$n.csv" < /dev/null
             echo "Area $n: $(wc -l < "houses-$n.csv") houses"
+            # The named places (shops, food, services) from the same file,
+            # for the list of a business territory (13 November 2026).
+            node scripts/map-places.mjs "map-$n.pmtiles" "$box" "$id" > "places-$n.csv" < /dev/null
+            echo "Area $n: $(wc -l < "places-$n.csv") places"
             {
               echo "BEGIN;"
               echo "DELETE FROM map_houses WHERE congregation_id = '$id';"
               echo "COPY map_houses (congregation_id, osm_id, lon, lat, area_m2) FROM STDIN WITH (FORMAT csv);"
               cat "houses-$n.csv"
+              echo '\.'
+              echo "DELETE FROM map_places WHERE congregation_id = '$id';"
+              echo "COPY map_places (congregation_id, osm_id, kind, name, lon, lat) FROM STDIN WITH (FORMAT csv);"
+              cat "places-$n.csv"
               echo '\.'
               echo "INSERT INTO territory_settings (congregation_id, houses_built_at) VALUES ('$id', now()) ON CONFLICT (congregation_id) DO UPDATE SET houses_built_at = now();"
               echo "COMMIT;"
@@ -193,4 +217,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts ~/.ssh/config areas.csv houses-*.csv
+        run: rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts ~/.ssh/config areas.csv houses-*.csv places-*.csv

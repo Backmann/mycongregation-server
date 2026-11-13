@@ -260,3 +260,17 @@ export function sharedGround(
   const smaller = Math.min(areaM2(a), areaM2(b));
   return smaller > 0 ? area / smaller : 0;
 }
+
+/**
+ * The example a congregation's first business territory is numbered after,
+ * by its language (13 November 2026): «Д-0» gives «Д-1» in Russian (the
+ * owner's numbering), «G-0» gives «G-1» for a German congregation
+ * (Geschäftsgebiet), «B-0» elsewhere.
+ */
+export function businessPattern(language: string | null | undefined): string {
+  const lang = (language ?? '').toLowerCase().split(/[-_]/)[0];
+  // cyrillic-ok: the Russian congregations' own numbering
+  if (lang === 'ru' || lang === 'uk' || lang === 'be') return 'Д-0';
+  if (lang === 'de') return 'G-0';
+  return 'B-0';
+}

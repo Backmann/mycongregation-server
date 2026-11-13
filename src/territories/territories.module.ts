@@ -26,6 +26,10 @@ import { TerritoryAssignmentsService } from './territory-assignments.service';
 import { TerritoryOutlineService } from './territory-outline.service';
 import { TerritoryReshapeService } from './territory-reshape.service';
 
+import { TerritoryBusiness } from '../entities/territory-business.entity';
+import { TerritoryBusinessVisit } from '../entities/territory-business-visit.entity';
+import { TerritoryBusinessesService } from './territory-businesses.service';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -40,6 +44,8 @@ import { TerritoryReshapeService } from './territory-reshape.service';
       ServiceGroup,
       Congregation,
       FieldServiceMeeting,
+      TerritoryBusiness,
+      TerritoryBusinessVisit,
     ]),
     AuditLogModule,
     NotificationsModule,
@@ -54,6 +60,7 @@ import { TerritoryReshapeService } from './territory-reshape.service';
     TerritoryOutlineService,
     TerritoryReshapeService,
     TerritoryRemindersService,
+    TerritoryBusinessesService,
   ],
   exports: [
     TerritoryAccessService,

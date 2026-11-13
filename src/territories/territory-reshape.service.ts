@@ -36,6 +36,7 @@ import {
   areaM2,
   joinTwo,
   nextNumber,
+  businessPattern,
   ReshapeError,
   splitByLine,
 } from './reshape';
@@ -213,13 +214,31 @@ export class TerritoryReshapeService {
     return n;
   }
 
-  async suggestNumber(user: AuthenticatedUser, like: string | undefined) {
+  async suggestNumber(
+    user: AuthenticatedUser,
+    like: string | undefined,
+    category: TerritoryCategory = 'residential',
+  ) {
     await this.mustKeepOpen(user);
-    const taken = await this.numbersInUse(
-      this.dataSource.manager,
-      user.congregationId,
-    );
-    return { number: nextNumber(like?.trim() || 'Новый', taken) };
+    const m = this.dataSource.manager;
+    const taken = await this.numbersInUse(m, user.congregationId);
+    let example = like?.trim();
+    // No example: like the last business territory, else in the pattern of
+    // the congregation's language (13 November 2026: «Д-1» is Russian; a
+    // German congregation numbers «G-1»).
+    if (!example && category === 'business') {
+      const last = await m.findOne(Territory, {
+        where: { congregationId: user.congregationId, category: 'business' },
+        order: { createdAt: 'DESC' },
+        select: { id: true, number: true },
+      });
+      const c = await m.findOne(Congregation, {
+        where: { id: user.congregationId },
+        select: { id: true, language: true },
+      });
+      example = last?.number ?? businessPattern(c?.language);
+    }
+    return { number: nextNumber(example || 'Новый', taken) };
   }
 
   // ------------------------------------------------------------- cut -----

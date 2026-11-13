@@ -3,6 +3,7 @@ import {
   areaM2,
   joinTwo,
   nextNumber,
+  businessPattern,
   ReshapeError,
   splitByLine,
 } from './reshape';
@@ -138,5 +139,16 @@ describe('cutting and joining territories (12 November 2026)', () => {
     expect(nextNumber('Д-1', taken)).toBe('Д-2');
     expect(nextNumber('Dinker', ['Dinker'])).toBe('Dinker-2');
     expect(nextNumber('Dinker', ['Dinker', 'Dinker-2'])).toBe('Dinker-3');
+  });
+});
+
+describe('the first business territory is numbered in its language (13 November 2026)', () => {
+  it('Д-1 in Russian, G-1 in German, B-1 elsewhere', () => {
+    expect(nextNumber(businessPattern('ru'), [])).toBe('Д-1');
+    expect(nextNumber(businessPattern('de'), ['Hamm01'])).toBe('G-1');
+    expect(nextNumber(businessPattern('de-DE'), [])).toBe('G-1');
+    expect(nextNumber(businessPattern('en'), [])).toBe('B-1');
+    expect(nextNumber(businessPattern(null), [])).toBe('B-1');
+    expect(nextNumber(businessPattern('ru'), ['Д-1', 'Д-2'])).toBe('Д-3');
   });
 });
