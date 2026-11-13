@@ -83,7 +83,11 @@ jobs:
           echo "Houses in the trial area: $n"
           # A small town and its villages: far more than a thousand buildings.
           [ "$n" -gt 1000 ] || { echo "Too few houses: the reader is broken"; exit 1; }
-          awk -F, 'NF != 5 { bad++ } END { if (bad) { print bad " malformed lines"; exit 1 } }' houses.csv
+          awk -F, 'NF != 6 { bad++ } END { if (bad) { print bad " malformed lines"; exit 1 } }' houses.csv
+          # House numbers: most houses of a German town have one.
+          num=$(awk -F, '$6 != ""' houses.csv | wc -l)
+          echo "With a house number: $num of $n"
+          [ $((num * 100 / n)) -ge 30 ] || { echo "Too few house numbers: the reader is broken"; exit 1; }
           head -3 houses.csv | cut -d, -f2-
       - name: Places from the trial file
         run: |
@@ -225,7 +229,7 @@ jobs:
             {
               echo "BEGIN;"
               echo "DELETE FROM map_houses WHERE congregation_id = '$id';"
-              echo "COPY map_houses (congregation_id, osm_id, lon, lat, area_m2) FROM STDIN WITH (FORMAT csv);"
+              echo "COPY map_houses (congregation_id, osm_id, lon, lat, area_m2, numbers) FROM STDIN WITH (FORMAT csv);"
               cat "houses-$n.csv"
               echo '\.'
               echo "DELETE FROM map_places WHERE congregation_id = '$id';"

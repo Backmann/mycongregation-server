@@ -1,4 +1,7 @@
 import {
+  addressNumber,
+  findAddress,
+  parityOf,
   partsOfAddress,
   splitStreets,
   streetKey,
@@ -10,9 +13,15 @@ import {
 } from './split';
 
 // At 51° N: 0.0009° north ≈ 100 m, 0.0014° east ≈ 100 m.
-const house = (id: string | number, x: number, y: number): House => ({
+const house = (
+  id: string | number,
+  x: number,
+  y: number,
+  numbers?: string[],
+): House => ({
   id: String(id),
   at: [x, y],
+  ...(numbers ? { numbers } : {}),
 });
 const street = (name: string, houses: number, at: Pt): PlanStreet => ({
   key: name,
@@ -21,11 +30,18 @@ const street = (name: string, houses: number, at: Pt): PlanStreet => ({
   to: null,
   piece: 1,
   pieces: 1,
+  side: null,
+  range: null,
   houses,
+  doors: houses,
   homes: [],
+  dots: [],
+  nums: [],
   at,
   lines: [],
 });
+const keys = (parts: { streets: PlanStreet[] }[]) =>
+  parts.map((p) => p.streets.map((s) => s.key).sort());
 
 describe('dividing a territory between groups (13 November 2026)', () => {
   const A = {
@@ -184,9 +200,9 @@ describe('dividing a territory between groups (13 November 2026)', () => {
     );
 
     it('are even and keep neighbours together', () => {
-      const four = splitStreets(row, 4);
-      expect(four.map((p) => p.houses)).toEqual([20, 20, 20, 20]);
-      expect(four.map((p) => p.streets.map((s) => s.key))).toEqual([
+      const four = splitStreets(row, 4, { mode: 'own' });
+      expect(four.map((p) => p.doors)).toEqual([20, 20, 20, 20]);
+      expect(keys(four)).toEqual([
         ['S0', 'S1'],
         ['S2', 'S3'],
         ['S4', 'S5'],
@@ -199,9 +215,7 @@ describe('dividing a territory between groups (13 November 2026)', () => {
       const column = Array.from({ length: 4 }, (_, i) =>
         street(`N${i}`, 10, [7, 51 + i * 0.002]),
       );
-      expect(
-        splitStreets(column, 2).map((p) => p.streets.map((s) => s.key)),
-      ).toEqual([
+      expect(keys(splitStreets(column, 2, { mode: 'own' }))).toEqual([
         ['N2', 'N3'],
         ['N0', 'N1'],
       ]);
@@ -217,7 +231,7 @@ describe('dividing a territory between groups (13 November 2026)', () => {
         ],
         2,
       );
-      expect(two.map((p) => p.houses).sort()).toEqual([20, 20]);
+      expect(two.map((p) => p.doors).sort()).toEqual([20, 20]);
       expect(unevenness(two)).toBe(1);
     });
 
@@ -250,20 +264,272 @@ describe('dividing a territory between groups (13 November 2026)', () => {
           [9, 7.81569, 51.7123],
         ] as [number, number, number][]
       ).map(([h, x, y], i) => street(`T${i}`, h, [x, y]));
-      const three = splitStreets(town, 3);
+      const three = splitStreets(town, 3, { mode: 'own' });
       expect(unevenness(three)).toBeLessThan(1.3);
+      // Pairs near, from a start in the middle: as even.
+      const near = splitStreets(town, 3, {
+        mode: 'near',
+        start: [7.8195, 51.709],
+      });
+      expect(unevenness(near)).toBeLessThan(1.3);
       expect(three.reduce((a, p) => a + p.houses, 0)).toBe(
         town.reduce((a, s) => a + s.houses, 0),
       );
     });
 
     it('is everything in one when one part is asked for', () => {
-      expect(splitStreets(row, 1).map((p) => p.houses)).toEqual([80]);
+      expect(splitStreets(row, 1).map((p) => p.doors)).toEqual([80]);
     });
 
     it('lead the route to a street in the middle of the part', () => {
       const [p] = splitStreets(row.slice(0, 3), 1);
       expect(p.start).toEqual([7.002, 51]);
+    });
+
+    it('«near»: wedges round the start, every pair setting off next to it', () => {
+      // Four arms of a cross round the start, ten doors each.
+      const arms = [
+        street('North', 10, [7, 51.002]),
+        street('East', 10, [7.003, 51]),
+        street('South', 10, [7, 50.998]),
+        street('West', 10, [6.997, 51]),
+      ];
+      const start: Pt = [7, 51];
+      const own = splitStreets(arms, 2, { mode: 'near', start });
+      expect(own.map((p) => p.doors)).toEqual([20, 20]);
+      // Each part is two neighbouring arms, never two opposite ones.
+      for (const p of own) {
+        const names = p.streets
+          .map((s) => s.name)
+          .sort()
+          .join('+');
+        expect([
+          'East+North',
+          'East+South',
+          'South+West',
+          'North+West',
+        ]).toContain(names);
+      }
+    });
+
+    it('«near» from a start at the edge: every pair begins next to it', () => {
+      // A 6×3 grid of streets 100 m apart; the meeting place at the west edge.
+      const grid: PlanStreet[] = [];
+      for (let i = 0; i < 6; i++)
+        for (let j = 0; j < 3; j++)
+          grid.push(
+            street(`G${i}${j}`, 5, [7 + i * 0.0014, 51 + j * 0.0009] as Pt),
+          );
+      const start: Pt = [6.9993, 51.0009];
+      const nearest = (p: { streets: PlanStreet[] }) =>
+        Math.min(
+          ...p.streets.map((s) =>
+            Math.hypot(
+              (s.at[0] - start[0]) * 70_000,
+              (s.at[1] - start[1]) * 110_540,
+            ),
+          ),
+        );
+      const near = splitStreets(grid, 2, { mode: 'near', start });
+      expect(near.map((p) => p.doors)).toEqual([45, 45]);
+      expect(Math.max(...near.map(nearest))).toBeLessThan(150);
+      // Apart, one pair has to walk 250 m and more to its ground.
+      const own = splitStreets(grid, 2, { mode: 'own', start });
+      expect(Math.max(...own.map(nearest))).toBeGreaterThan(250);
+    });
+
+    it('give a «smaller» pair about two thirds of a share', () => {
+      const parts = splitStreets(
+        Array.from({ length: 16 }, (_, i) =>
+          street(`S${i}`, 5, [7 + i * 0.001, 51]),
+        ),
+        3,
+        { mode: 'own', smaller: [2] },
+      );
+      expect(parts.map((p) => p.doors)).toEqual([30, 20, 30]);
+      expect(parts[1].smaller).toBe(true);
+      expect(unevenness(parts)).toBe(1);
+    });
+
+    it('puts the streets of a part in walking order from where it starts', () => {
+      const line = [0, 1, 2, 3].map((i) => ({
+        ...street(`W${i}`, 5, [7 + i * 0.002, 51] as Pt),
+        dots: [[7 + i * 0.002, 51]] as Pt[],
+      }));
+      // Shuffled, starting from the east end.
+      const [p] = splitStreets([line[2], line[0], line[3], line[1]], 1, {
+        start: [7.01, 51],
+      });
+      expect(p.streets.map((s) => s.key)).toEqual(['W3', 'W2', 'W1', 'W0']);
+      expect(p.start).toEqual([7.006, 51]);
+    });
+  });
+
+  describe('house numbers, doors and sides (13 November 2026)', () => {
+    it('weighs a block of flats by its entrances', () => {
+      const r = streetsWithHouses(
+        [A],
+        [
+          house(1, 7.001, 51.0001, ['12', '12a', '14']),
+          house(2, 7.002, 51.0001, ['16']),
+          house(3, 7.0025, 51.0001),
+        ],
+      );
+      expect(r.streets.map((s) => [s.houses, s.doors])).toEqual([[3, 5]]);
+    });
+
+    it('names a piece by its numbers when most houses have one', () => {
+      const r = streetsWithHouses(
+        [A],
+        [
+          house(1, 7.001, 51.0001, ['3']),
+          house(2, 7.002, 51.0001, ['1']),
+          house(3, 7.0025, 51.0001, ['5a']),
+        ],
+      );
+      expect(r.streets[0].range).toEqual({ from: '1', to: '5a' });
+      const few = streetsWithHouses(
+        [A],
+        [
+          house(1, 7.001, 51.0001, ['3']),
+          house(2, 7.002, 51.0001),
+          house(3, 7.0025, 51.0001),
+        ],
+      );
+      expect(few.streets[0].range).toBeNull();
+    });
+
+    it('gives a corner house numbered on the side street to that street', () => {
+      // Ahornweg runs east; Kirchweg comes down from the north to it at 7.002.
+      const kirch = {
+        name: 'Kirchweg',
+        lines: [
+          [
+            [7.002, 51.0003],
+            [7.002, 51.002],
+          ],
+        ] as Pt[][],
+      };
+      const houses = [
+        // Ahornweg 20–28 along the street…
+        house('a1', 7.0005, 51.0001, ['20']),
+        house('a2', 7.001, 51.0001, ['22']),
+        house('a3', 7.0015, 51.0001, ['24']),
+        house('a4', 7.0026, 51.0001, ['26']),
+        house('a5', 7.003, 51.0001, ['28']),
+        // …Kirchweg 1–5 up the side street…
+        house('k1', 7.0022, 51.0005, ['3']),
+        house('k2', 7.0022, 51.001, ['5']),
+        // …and the corner house, nearer Ahornweg, but Kirchweg 1.
+        house('corner', 7.0021, 51.00013, ['1']),
+      ];
+      const r = streetsWithHouses([A, kirch], houses);
+      const of = (name: string) =>
+        r.streets.filter((s) => s.name === name).flatMap((s) => s.homes);
+      expect(of('Kirchweg').sort()).toEqual(['corner', 'k1', 'k2']);
+      expect(of('Ahornweg')).not.toContain('corner');
+    });
+
+    describe('a main road', () => {
+      const road = {
+        name: 'Hauptstraße',
+        kind: 'major_road',
+        lines: [
+          [
+            [7.0, 51.0],
+            [7.004, 51.0],
+          ],
+        ] as Pt[][],
+      };
+      // Odd numbers north of it, even south, 300 m long.
+      const sides = [
+        ...[1, 3, 5, 7, 9].map((n, i) =>
+          house(`n${n}`, 7.0002 + i * 0.0009, 51.0002, [String(n)]),
+        ),
+        ...[2, 4, 6, 8, 10].map((n, i) =>
+          house(`s${n}`, 7.0002 + i * 0.0009, 50.9998, [String(n)]),
+        ),
+      ];
+
+      it('is walked by sides, named even and odd', () => {
+        const r = streetsWithHouses([road], sides);
+        expect(
+          r.streets.map((s) => [s.key, s.side, s.range, s.houses]),
+        ).toEqual([
+          [
+            'Hauptstraße@n',
+            { parity: 'odd', toward: 'n' },
+            { from: '1', to: '9' },
+            5,
+          ],
+          [
+            'Hauptstraße@s',
+            { parity: 'even', toward: 's' },
+            { from: '2', to: '10' },
+            5,
+          ],
+        ]);
+      });
+
+      it('falls back to the compass when the numbers do not agree', () => {
+        const mixed = sides.map((h, i) =>
+          i === 0
+            ? { ...h, numbers: ['2'] }
+            : i === 1
+              ? { ...h, numbers: ['4'] }
+              : h,
+        );
+        const r = streetsWithHouses([road], mixed);
+        expect(r.streets[0].side).toEqual({ parity: null, toward: 'n' });
+      });
+
+      it('a quiet street is walked whole, both sides', () => {
+        const r = streetsWithHouses([{ ...road, kind: 'minor_road' }], sides);
+        expect(r.streets.map((s) => [s.key, s.side, s.houses])).toEqual([
+          ['Hauptstraße', null, 10],
+        ]);
+      });
+
+      it('a short main road too', () => {
+        const short = sides.filter((h) => h.at[0] < 7.0012);
+        const r = streetsWithHouses([road], short);
+        expect(r.streets.map((s) => s.side)).toEqual([null]);
+      });
+    });
+
+    it('says a side is even or odd only when its numbers agree', () => {
+      const hs = ['2', '4', '6', '8', '10', '12', '14', '16', '18', '3'].map(
+        (n, i) => house(i, 7, 51, [n]),
+      );
+      expect(
+        parityOf(
+          hs.map((_, i) => i),
+          hs,
+        ),
+      ).toBe('even');
+      const half = hs.map((h, i) => (i < 5 ? h : { ...h, numbers: ['5'] }));
+      expect(
+        parityOf(
+          half.map((_, i) => i),
+          half,
+        ),
+      ).toBeNull();
+    });
+
+    it('finds an address on the map: street and number', () => {
+      const houses = [
+        house(1, 7.001, 51.0001, ['12']),
+        house(2, 7.001, 51.0008, ['12']),
+      ];
+      expect(findAddress('Ahornweg 12', [A, B], houses)).toEqual([
+        7.001, 51.0001,
+      ]);
+      expect(findAddress('Birkenweg 12, Hamm', [A, B], houses)).toEqual([
+        7.001, 51.0008,
+      ]);
+      expect(findAddress('Ahornweg 14', [A, B], houses)).toBeNull();
+      expect(findAddress('am Supermarkt', [A, B], houses)).toBeNull();
+      expect(addressNumber('Dillweg 12 a')).toBe('12a');
     });
   });
 
@@ -294,6 +560,17 @@ describe('dividing a territory between groups (13 November 2026)', () => {
         { ...street('Lang', 10, [7.01, 51] as Pt), key: 'Lang#2' },
       ];
       expect(partsOfAddress(splitStreets(pieces, 2), 'Lang 3')).toEqual([1, 2]);
+      // With its number on a piece: that piece's part alone.
+      const numbered = [
+        { ...pieces[0], nums: ['1', '3', '5'] },
+        { ...pieces[1], nums: ['7', '9'] },
+      ];
+      const two = splitStreets(numbered, 2, { mode: 'own' });
+      const which = two.find((p) =>
+        p.streets.some((x) => x.nums.includes('9')),
+      )!.n;
+      expect(partsOfAddress(two, 'Lang 9')).toEqual([which]);
+      expect(partsOfAddress(two, 'Lang 11')).toEqual([1, 2]);
     });
   });
 });

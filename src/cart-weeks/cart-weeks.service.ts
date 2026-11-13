@@ -2041,10 +2041,13 @@ export class CartWeeksService {
     );
     const ids = over.map((d) => d.id);
     const [asgs, offs] = await Promise.all([
+      // Typed: an untyped [] turned the pair into never[] for the checker.
       ids.length
         ? this.assignmentsRepo.find({ where: { dayId: In(ids) } })
-        : [],
-      ids.length ? this.cancelRepo.find({ where: { dayId: In(ids) } }) : [],
+        : ([] as CartAssignment[]),
+      ids.length
+        ? this.cancelRepo.find({ where: { dayId: In(ids) } })
+        : ([] as CartCancellation[]),
     ]);
     const pubIds = [
       ...new Set(
