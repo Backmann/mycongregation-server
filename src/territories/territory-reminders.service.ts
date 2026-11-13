@@ -17,6 +17,7 @@ import { ServiceGroup } from '../entities/service-group.entity';
 import { addDays } from './service-year';
 import {
   dueSoonWords,
+  dueTodayWords,
   handOnWords,
   noCallReviewWords,
   takeBackWords,
@@ -147,6 +148,18 @@ export class TerritoryRemindersService {
       const p = people.get(a.publisherId!);
       if (!p?.userId || p.removedAt || p.deletedAt || !p.isActive) continue;
       const number = numbers.get(a.territoryId) ?? '';
+      // And once more on the day itself (13 November 2026): worked through,
+      // or more time asked for, before the day passes.
+      if (a.dueOn === today) {
+        await this.notifications.notify({
+          tenantId: congregationId,
+          userIds: [p.userId],
+          kind: 'territory_due',
+          key: `territory-due-today:${a.id}:${a.dueOn}`,
+          text: (lang) => dueTodayWords(number, a.extended, lang),
+          data: { type: 'territory', territoryId: a.territoryId },
+        });
+      }
       await this.notifications.notify({
         tenantId: congregationId,
         userIds: [p.userId],

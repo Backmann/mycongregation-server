@@ -30,6 +30,7 @@ import type { TerritoryCategory } from '../entities/territory.entity';
 import { TerritoryOutlineService } from './territory-outline.service';
 import { TerritoryReshapeService } from './territory-reshape.service';
 import { TerritoryBusinessesService } from './territory-businesses.service';
+import { PaperDto } from './dto/assignment.dto';
 import {
   AddBusinessesDto,
   EditBusinessDto,
@@ -528,6 +529,23 @@ export class TerritoriesController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.service.restore(user, id);
+  }
+
+  /** «Выдача и приём»: people, what is out, who had what (13 November 2026). */
+  @Get('desk')
+  async desk(@CurrentUser() user: AuthenticatedUser) {
+    const desk = await this.given.desk(user);
+    return { ...desk, ...(await this.service.sizes(user)) };
+  }
+
+  /** Into the queue of paper maps, or out of it once printed. */
+  @Put('assignments/:id/paper')
+  paper(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PaperDto,
+  ) {
+    return this.given.paper(user, id, dto.wanted);
   }
 
   // ----------------------------- the list of a business territory --------

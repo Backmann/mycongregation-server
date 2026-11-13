@@ -309,6 +309,7 @@ export class TerritoryAssignmentsService {
         displayName: true,
         pioneerType: true,
         serviceGroupId: true,
+        userId: true,
       },
       order: { lastName: 'ASC', firstName: 'ASC' },
     });
@@ -367,9 +368,142 @@ export class TerritoryAssignmentsService {
           overdue: mine.filter((a) => a.dueOn !== null && a.dueOn < today)
             .length,
           hadThisOn: last ?? null,
+          // Whether he sees it in the app, or needs a link or paper.
+          hasApp: !!p.userId,
         };
       }),
     };
+  }
+
+  /**
+   * «Выдача и приём» (13 November 2026; mockup): everything the territory
+   * servant's desk needs in one answer — the people one may give to (with
+   * whether they have the app), what is out now (also with holders brought
+   * over without a card), and who had which territory in the years kept,
+   * for «он уже был там» and the year's counts. The free territories come
+   * from the list itself.
+   */
+  async desk(user: AuthenticatedUser) {
+    await this.mustKeepOpen(user);
+    const tenantId = user.congregationId;
+    const today = await this.today(tenantId);
+    const alive = {
+      congregationId: tenantId,
+      isActive: true,
+      removedAt: IsNull(),
+    };
+    const people = await this.publishers.find({
+      where: [
+        { ...alive, status: Not(PublisherStatus.INACTIVE) },
+        { ...alive, status: IsNull() },
+      ],
+      select: {
+        id: true,
+        displayName: true,
+        pioneerType: true,
+        serviceGroupId: true,
+        userId: true,
+      },
+      order: { lastName: 'ASC', firstName: 'ASC' },
+    });
+    const groups = await this.groups.find({
+      where: { congregationId: tenantId },
+      select: { id: true, name: true, overseerPublisherId: true },
+      order: { name: 'ASC' },
+    });
+    const open = await this.assignments.find({
+      where: {
+        congregationId: tenantId,
+        completedOn: IsNull(),
+        returnedOn: IsNull(),
+      },
+      order: { dueOn: 'ASC' },
+    });
+    const kept = await this.assignments.find({
+      where: {
+        congregationId: tenantId,
+        assignedOn: MoreThanOrEqual(keptFrom(today)),
+        publisherId: Not(IsNull()),
+      },
+      select: {
+        id: true,
+        publisherId: true,
+        territoryId: true,
+        assignedOn: true,
+        completedOn: true,
+        returnedOn: true,
+      },
+    });
+    const terr = await this.territories.find({
+      where: {
+        congregationId: tenantId,
+        id: In([...new Set(open.map((a) => a.territoryId))]),
+      },
+      select: { id: true, number: true, locality: true, category: true },
+    });
+    const byId = new Map(terr.map((t) => [t.id, t]));
+    return {
+      today,
+      people: people.map((p) => ({
+        publisherId: p.id,
+        name: p.displayName,
+        pioneer: p.pioneerType !== 'none',
+        serviceGroupId: p.serviceGroupId,
+        hasApp: !!p.userId,
+      })),
+      groups: groups.map((g) => ({
+        id: g.id,
+        name: g.name,
+        overseerPublisherId: g.overseerPublisherId,
+      })),
+      out: open
+        .filter((a) => byId.has(a.territoryId))
+        .map((a) => {
+          const t = byId.get(a.territoryId)!;
+          return {
+            assignmentId: a.id,
+            territoryId: t.id,
+            number: t.number,
+            locality: t.locality,
+            category: t.category,
+            publisherId: a.publisherId,
+            holderName: a.holderName,
+            forGroupId: a.forGroupId,
+            forGroupName: a.forGroupName,
+            assignedOn: a.assignedOn,
+            dueOn: a.dueOn,
+            extended: a.extended,
+            paperWanted: !!a.paperWantedAt,
+          };
+        }),
+      history: kept.map((a) => ({
+        publisherId: a.publisherId!,
+        territoryId: a.territoryId,
+        assignedOn: a.assignedOn,
+        completedOn: a.completedOn,
+        returnedOn: a.returnedOn,
+      })),
+    };
+  }
+
+  /**
+   * A paper map wanted, or printed (13 November 2026): the queue the
+   * territory servant prints from on a computer.
+   */
+  async paper(user: AuthenticatedUser, id: string, wanted: boolean) {
+    await this.mustKeepOpen(user);
+    const a = await this.assignments.findOne({
+      where: { id, congregationId: user.congregationId },
+    });
+    if (!a) throw new NotFoundException('Assignment not found');
+    if (wanted && (a.completedOn || a.returnedOn)) {
+      throw new ConflictException(
+        refusal('TERRITORY_ENDED', 'The territory has already come back.'),
+      );
+    }
+    a.paperWantedAt = wanted ? new Date() : null;
+    await this.assignments.save(a);
+    return { id: a.id, paperWanted: wanted };
   }
 
   async assign(

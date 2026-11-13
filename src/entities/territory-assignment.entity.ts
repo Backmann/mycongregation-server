@@ -93,6 +93,10 @@ export class TerritoryAssignment {
   @Column({ type: 'timestamptz', nullable: true })
   linkCreatedAt!: Date | null;
 
+  /** Waiting for its paper map to be printed (13 November 2026). */
+  @Column({ type: 'timestamptz', nullable: true })
+  paperWantedAt!: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
