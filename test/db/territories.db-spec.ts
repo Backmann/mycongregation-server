@@ -555,6 +555,11 @@ describe('territories (real database)', () => {
       expect(given.status).toBe(201);
       const mine = await list('plain');
       expect(mine.status).toBe(200);
+      // His territories say which is a business one.
+      const own = await h.as('plain').get('/territories/mine');
+      expect(own.body).toEqual([
+        expect.objectContaining({ number: 'A02', category: 'business' }),
+      ]);
       // The holder does not get the keeper's «gone from the map».
       expect(mine.body.items[0].gone).toBeUndefined();
       expect(

@@ -244,6 +244,8 @@ export class TerritoryAssignmentsService {
           id: t.id,
           number: t.number,
           locality: t.locality,
+          // A business territory comes with its list (13 November 2026).
+          category: t.category,
           geometry: t.geometry,
           assignment: {
             id: a.id,
