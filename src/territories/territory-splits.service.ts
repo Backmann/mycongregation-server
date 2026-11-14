@@ -41,7 +41,7 @@ import {
   type Pt,
   type SplitMode,
 } from './split';
-import { routePart } from './way';
+import { graphOf, routePart } from './way';
 
 /** Fewer is no division; more than this and a part is a street or two. */
 export const MIN_PARTS = 2;
@@ -934,9 +934,12 @@ export class TerritorySplitsService {
       straight: number;
       today: number;
     }[] = [];
+    // One graph of the roads for all the parts: made once, searched only
+    // as far as each part needs.
+    const g = graphOf(roads);
     const out = parts.map((p) => {
       const from = mode === 'near' ? (start ?? p.start) : p.start;
-      const w = routePart(roads, p.streets, from);
+      const w = routePart(g, p.streets, from);
       stats.push({
         n: p.n,
         linkM: Math.round(w.linkM),
