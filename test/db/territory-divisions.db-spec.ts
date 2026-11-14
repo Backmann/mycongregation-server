@@ -525,6 +525,49 @@ describe('territory divisions between groups (real database)', () => {
       ]);
     });
 
+    it('a house goes to the street of its official address, not the nearest (14 November 2026)', async () => {
+      // Birkenweg's sixth house carries «7»; its official address is Ahornweg 7.
+      await h.sql(`UPDATE map_houses SET numbers = '7' WHERE osm_id = 205`);
+      const preview = async () =>
+        (
+          await h
+            .as('dkeeper')
+            .post(`/territories/${territoryId}/division/preview`, {
+              parts: 3,
+              mode: 'own',
+            })
+        ).body as { parts: { streets: { name: string; houses: number }[] }[] };
+      // Houses by street name, its pieces together.
+      const count = (b: Awaited<ReturnType<typeof preview>>) => {
+        const out: Record<string, number> = {};
+        for (const x of b.parts.flatMap((p) => p.streets))
+          out[x.name] = (out[x.name] ?? 0) + x.houses;
+        return out;
+      };
+      expect(count(await preview())).toEqual({
+        Ahornweg: 10,
+        Birkenweg: 10,
+        Kastanienallee: 10,
+      });
+      const [house] = await h.sql<{ lon: number; lat: number }>(
+        `SELECT lon, lat FROM map_houses WHERE osm_id = 205`,
+      );
+      await h.sql(
+        `INSERT INTO map_addresses (congregation_id, oid, lon, lat, number, street)
+         VALUES ($1, 'DENW01TEST000001', $2, $3, '7', 'Ahornweg')`,
+        [congregationId, house.lon + 0.00005, house.lat],
+      );
+      try {
+        expect(count(await preview())).toEqual({
+          Ahornweg: 11,
+          Birkenweg: 9,
+          Kastanienallee: 10,
+        });
+      } finally {
+        await h.sql(`DELETE FROM map_addresses`);
+      }
+    });
+
     it('a division taken away: its links stop, the marks stay; only for whoever may divide again', async () => {
       await give();
       const d = (await divide('dholder', 3)).body as Division;

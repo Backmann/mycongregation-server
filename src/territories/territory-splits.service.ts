@@ -26,6 +26,7 @@ import { boxOf, pointInside } from './geometry';
 import { addDays } from './service-year';
 import { mondayOf } from '../common/week';
 import {
+  ADDRESS_M,
   FAR_M,
   findAddress,
   partOf,
@@ -33,6 +34,7 @@ import {
   rangesOf,
   splitStreets,
   streetsWithHouses,
+  withStreets,
   type House,
   type PlanPart,
   type PlanStreet,
@@ -821,13 +823,31 @@ export class TerritorySplitsService {
         WHERE congregation_id = $1 AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
       [t.congregationId, y0, y1, x0, x1],
     );
-    return rows
+    const houses = rows
       .map((r) => ({
         id: String(r.osm_id),
         at: [r.lon, r.lat] as Pt,
         numbers: r.numbers ? r.numbers.split(';').filter(Boolean) : [],
       }))
       .filter((h) => pointInside(h.at, t.geometry));
+    // Each its street by the official address (14 November 2026), when the
+    // map build brought them; else the streets are guessed by distance.
+    const m = ADDRESS_M / 110_540;
+    const addresses = await this.dataSource.query<
+      { lon: number; lat: number; number: string; street: string }[]
+    >(
+      `SELECT lon, lat, number, street FROM map_addresses
+        WHERE congregation_id = $1 AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
+      [t.congregationId, y0 - m, y1 + m, x0 - 2 * m, x1 + 2 * m],
+    );
+    return withStreets(
+      houses,
+      addresses.map((a) => ({
+        at: [a.lon, a.lat] as Pt,
+        number: a.number,
+        street: a.street,
+      })),
+    );
   }
 
   /** The named streets that may serve the territory's houses. */

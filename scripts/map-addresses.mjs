@@ -10,7 +10,7 @@
  * street name in field 15, number in 16, its letter in 17, ETRS89 / UTM 32
  * east and north in 19 and 20. Prints one CSV line per address inside the
  * box:
- *   congregation_id,lon,lat,number,street
+ *   congregation_id,oid,lon,lat,number,street
  * The map file has a building's number but not its street; this is where
  * the street comes from, so a house goes to its own street, not merely the
  * nearest one.
@@ -62,10 +62,12 @@ export function addressOf(line) {
   const adz = f[16].trim();
   const east = Number(f[18]);
   const north = Number(f[19]);
+  const oid = f[1].trim();
   if (!street || !/^\d+$/.test(hnr) || hnr === '0') return null;
+  if (!/^[A-Za-z0-9]{1,16}$/.test(oid)) return null;
   if (!Number.isFinite(east) || !Number.isFinite(north)) return null;
   const [lon, lat] = utm32ToLonLat(east, north);
-  return { lon, lat, number: `${hnr}${adz.toLowerCase()}`, street };
+  return { oid, lon, lat, number: `${hnr}${adz.toLowerCase()}`, street };
 }
 
 const csv = (s) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
@@ -88,7 +90,11 @@ function selfTest() {
   const a = addressOf(
     'N;DENW01AL0000abcd;A;05;NRW;5;Münster;15;Kreis;012;Gemeinde;0001;Ort;01234;Musterstraße;12;A;32;356593.000;5645450.000;2026-07-01',
   );
-  const good = a && a.number === '12a' && a.street === 'Musterstraße';
+  const good =
+    a &&
+    a.oid === 'DENW01AL0000abcd' &&
+    a.number === '12a' &&
+    a.street === 'Musterstraße';
   console.error(
     `self-test: ${ok && good ? 'ok' : 'FAILED'} (${lon.toFixed(5)}, ${lat.toFixed(5)})`,
   );
@@ -140,9 +146,9 @@ async function compare(housesFile, streetsFile, addressesFile) {
   // About 200 m in degrees: a street further than that is not the nearest.
   const M = 0.003;
   const addresses = (await rows(addressesFile)).map((r) => ({
-    at: [Number(r[1]), Number(r[2])],
-    number: r[3],
-    street: r[4],
+    at: [Number(r[2]), Number(r[3])],
+    number: r[4],
+    street: r[5],
   }));
   const k = [111320 * Math.cos((51 * Math.PI) / 180), 110540];
   const d = (p, q) => Math.hypot((p[0] - q[0]) * k[0], (p[1] - q[1]) * k[1]);
@@ -248,7 +254,7 @@ async function main() {
     const a = addressOf(line);
     if (!a || a.lon < w || a.lon > e || a.lat < s || a.lat > n) continue;
     process.stdout.write(
-      `${congregationId},${a.lon.toFixed(7)},${a.lat.toFixed(7)},${csv(a.number)},${csv(a.street)}\n`,
+      `${congregationId},${a.oid},${a.lon.toFixed(7)},${a.lat.toFixed(7)},${csv(a.number)},${csv(a.street)}\n`,
     );
     out += 1;
   }
