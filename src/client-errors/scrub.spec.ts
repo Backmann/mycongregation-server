@@ -1,4 +1,4 @@
-import { fingerprintOf, routePattern, scrub } from './scrub';
+import { fingerprintOf, isForeign, routePattern, scrub } from './scrub';
 
 describe('a failure report carries nothing that names a person', () => {
   it('mail, ids, phone numbers and tokens become placeholders', () => {
@@ -38,5 +38,39 @@ describe('a failure report carries nothing that names a person', () => {
     };
     expect(fingerprintOf(a)).toBe(fingerprintOf(b));
     expect(fingerprintOf({ ...a, route: '/home' })).not.toBe(fingerprintOf(a));
+  });
+});
+
+describe('a failure of code the app never runs', () => {
+  it('a page console, an eval or an extension: foreign', () => {
+    // As the server keeps it: scrubbed, on one line.
+    expect(
+      isForeign('TypeError: ts is not iterable at <anonymous>:1:297'),
+    ).toBe(true);
+    expect(
+      isForeign(
+        'TypeError: x at fn (chrome-extension://abcdef/content.js:3:14)',
+      ),
+    ).toBe(true);
+    expect(isForeign('fn@moz-extension://a1b2/inject.js:1:9')).toBe(true);
+    expect(isForeign('@debugger eval code:1:5')).toBe(true);
+  });
+
+  it("the app's bundle anywhere in the stack: its own", () => {
+    expect(
+      isForeign(
+        'TypeError: x at Card (https://mycongregation.org/_expo/static/js/web/entry-4f3a9.js:2:1234) at <anonymous>:1:2',
+      ),
+    ).toBe(false);
+    expect(
+      isForeign('at anonymous (address at index.android.bundle:1:2345)'),
+    ).toBe(false);
+  });
+
+  it('no place named (a phone, a stack cut short, none): its own', () => {
+    expect(isForeign(null)).toBe(false);
+    expect(isForeign('TypeError: x at Array.map (<anonymous>) at native')).toBe(
+      false,
+    );
   });
 });
