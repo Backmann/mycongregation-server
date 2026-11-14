@@ -6,7 +6,7 @@ import { User } from '../entities/user.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ReportClientErrorDto } from './dto/report-client-error.dto';
-import { fingerprintOf, routePattern, scrub } from './scrub';
+import { fingerprintOf, isForeign, routePattern, scrub } from './scrub';
 
 /** How long a failure is kept. */
 export const KEEP_DAYS = 30;
@@ -90,7 +90,9 @@ export class ClientErrorsService {
       );
       if (!seenBefore) {
         await this.prune(now);
-        await this.tellAdmins(row.route, row.message, row.day);
+        // Code the app never runs (a console, an extension): kept, not told.
+        if (!isForeign(row.stack))
+          await this.tellAdmins(row.route, row.message, row.day);
       }
     } catch (err) {
       this.logger.warn(`client error not recorded: ${(err as Error).message}`);

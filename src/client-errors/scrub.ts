@@ -70,3 +70,26 @@ export function fingerprintOf(r: {
     .digest('hex')
     .slice(0, 64);
 }
+
+/** Places of code the app never runs from: a page's console, eval, an extension. */
+const FOREIGN =
+  /^(<anonymous>|(chrome|moz|safari|safari-web|ms-browser)-extension:\/\/|webkit-masked-url:)/;
+
+/**
+ * Whether a failure happened wholly outside the app's own code (14 November
+ * 2026): every place its stack names is a page's console, an eval or a
+ * browser extension — never the app's bundle. Such a failure stays in the
+ * journal but wakes nobody: the app cannot cause it and cannot fix it.
+ *
+ * Careful by design: a stack that names no place at all (a phone's native
+ * frames, a stack cut short) counts as the app's own.
+ */
+export function isForeign(stack: string | null): boolean {
+  if (!stack) return false;
+  // Firefox writes «@debugger eval code:1:5».
+  const s = stack.replace(/debugger eval code/g, '<anonymous>');
+  const places = [...s.matchAll(/(\S+?):\d+:\d+/g)].map((m) =>
+    m[1].replace(/^.*[(@]/, ''),
+  );
+  return places.length > 0 && places.every((p) => FOREIGN.test(p));
+}

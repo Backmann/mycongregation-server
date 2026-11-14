@@ -114,4 +114,37 @@ describe('failures met in the app (real database)', () => {
       await h.sql(`SELECT 1 FROM client_errors WHERE fingerprint = 'old'`),
     ).toEqual([]);
   });
+
+  it('a failure of code the app never runs (a console, an extension) is kept, not told', async () => {
+    const svc = h.app.get(ClientErrorsService);
+    // A day of its own: nothing else has been told on it.
+    const day = new Date(Date.now() - 5 * 86_400_000);
+    const count = async () =>
+      Number(
+        (
+          await h.sql<{ n: string }>(
+            `SELECT count(*) AS n FROM notification_outbox WHERE kind = 'client_error'`,
+          )
+        )[0].n,
+      );
+    const before = await count();
+    await svc.record(
+      {
+        ...report,
+        source: 'uncaught',
+        route: '/cart/desk',
+        message: 'TypeError: ts is not iterable',
+        stack: 'TypeError: ts is not iterable\n    at <anonymous>:1:297',
+      } as never,
+      day,
+    );
+    const kept = await h.sql<{ n: string }>(
+      `SELECT count(*) AS n FROM client_errors WHERE route = '/cart/desk'`,
+    );
+    expect(kept[0].n).toBe('1');
+    expect(await count()).toBe(before);
+    // The same day still tells of a failure of the app's own code.
+    await svc.record({ ...report, route: '/own' } as never, day);
+    expect(await count()).toBeGreaterThan(before);
+  });
 });
