@@ -3,6 +3,7 @@ import {
   findAddress,
   parityOf,
   partsOfAddress,
+  rangesOf,
   splitStreets,
   streetKey,
   streetsWithHouses,
@@ -32,6 +33,7 @@ const street = (name: string, houses: number, at: Pt): PlanStreet => ({
   pieces: 1,
   side: null,
   range: null,
+  ranges: { odd: null, even: null },
   houses,
   doors: houses,
   homes: [],
@@ -494,6 +496,158 @@ describe('dividing a territory between groups (13 November 2026)', () => {
         const short = sides.filter((h) => h.at[0] < 7.0012);
         const r = streetsWithHouses([road], short);
         expect(r.streets.map((s) => s.side)).toEqual([null]);
+      });
+    });
+
+    describe('numbers as the doors say them (14 November 2026, «вариант б»)', () => {
+      it('gives the odd and the even side each its own range', () => {
+        expect(rangesOf(['1', '2', '3', '4', '5a', '12'])).toEqual({
+          odd: { from: '1', to: '5a' },
+          even: { from: '2', to: '12' },
+        });
+      });
+
+      it('leaves a number far from its row out of the label', () => {
+        // Menzelstraße-like: 1–23 and a lone 44 of another street.
+        expect(
+          rangesOf(['1', '3', '5', '7', '9', '21', '23', '2', '4', '44']),
+        ).toEqual({
+          odd: { from: '1', to: '23' },
+          even: { from: '2', to: '4' },
+        });
+      });
+
+      it('names no side by one lone number beside a whole row', () => {
+        expect(rangesOf(['3', '80', '82', '84'])).toEqual({
+          odd: null,
+          even: { from: '80', to: '84' },
+        });
+        // A short street with one house a side keeps both.
+        expect(rangesOf(['1', '2'])).toEqual({
+          odd: { from: '1', to: '1' },
+          even: { from: '2', to: '2' },
+        });
+      });
+
+      it('carries the ranges on every piece', () => {
+        const r = streetsWithHouses(
+          [A],
+          [
+            house(1, 7.001, 51.0001, ['1']),
+            house(2, 7.0015, 50.9999, ['2']),
+            house(3, 7.002, 51.0001, ['3']),
+            house(4, 7.0025, 50.9999, ['4']),
+          ],
+        );
+        expect(r.streets[0].ranges).toEqual({
+          odd: { from: '1', to: '3' },
+          even: { from: '2', to: '4' },
+        });
+      });
+
+      const road = {
+        name: 'Hauptstraße',
+        kind: 'major_road',
+        lines: [
+          [
+            [7.0, 51.0],
+            [7.004, 51.0],
+          ],
+        ] as Pt[][],
+      };
+
+      it('a main road numbered alike on both «sides» is one side, walked whole', () => {
+        // The territory holds only its even side; the road bends, so some of
+        // it lies «across».
+        const hs = [
+          ...[80, 82, 84, 86, 88].map((n, i) =>
+            house(`a${n}`, 7.0002 + i * 0.0009, 50.9998, [String(n)]),
+          ),
+          ...[90, 92, 94, 96].map((n, i) =>
+            house(`b${n}`, 7.0002 + i * 0.0009, 51.0002, [String(n)]),
+          ),
+        ];
+        const r = streetsWithHouses([road], hs);
+        expect(r.streets.map((x) => [x.key, x.side, x.houses])).toEqual([
+          ['Hauptstraße', null, 9],
+        ]);
+      });
+
+      it("a house far out of its street's numbers goes to the side street it fits", () => {
+        // Hauptstraße 80–96 along the road; Nordweg 5–9 up a side street.
+        // Nordweg 2, 3, 4 stand nearer the main road's line; out of line
+        // together, they do not vouch for each other.
+        const nord = {
+          name: 'Nordweg',
+          lines: [
+            [
+              [7.0021, 51.0004],
+              [7.0021, 51.002],
+            ],
+          ] as Pt[][],
+        };
+        const hs = [
+          ...[80, 82, 84, 86, 88, 90, 92, 94, 96].map((n, i) =>
+            house(`h${n}`, 7.0002 + i * 0.00045, 50.9998, [String(n)]),
+          ),
+          house('n5', 7.0021, 51.0006, ['5']),
+          house('n7', 7.0023, 51.001, ['7']),
+          house('n9', 7.0023, 51.0013, ['9']),
+          house('n2', 7.0019, 51.00012, ['2']),
+          house('n3', 7.0023, 51.00012, ['3']),
+          house('n4', 7.0021, 51.00016, ['4']),
+        ];
+        const r = streetsWithHouses(
+          [{ ...road, kind: 'minor_road' }, nord],
+          hs,
+        );
+        const of = (name: string) =>
+          r.streets
+            .filter((x) => x.name === name)
+            .flatMap((x) => x.homes)
+            .sort();
+        expect(of('Nordweg')).toEqual(['n2', 'n3', 'n4', 'n5', 'n7', 'n9']);
+        // Without a fitting street near, an odd house stays where it is.
+        const alone = streetsWithHouses(
+          [{ ...road, kind: 'minor_road' }],
+          hs.filter((h) => !['n5', 'n7', 'n9'].includes(h.id)),
+        );
+        expect(alone.streets.flatMap((x) => x.homes)).toContain('n3');
+      });
+
+      it('on a main road, a house of the other kind than its side goes to the street it fits', () => {
+        // Odd north, even south. «16» stands on the north side, 50 m from
+        // Querweg, whose 14 and 18 are round it; across the road the even
+        // side has its own 14, so the number alone does not look out of line.
+        const quer = {
+          name: 'Querweg',
+          lines: [
+            [
+              [7.0021, 51.00055],
+              [7.0021, 51.002],
+            ],
+          ] as Pt[][],
+        };
+        const hs = [
+          ...[1, 3, 5, 7, 9].map((n, i) =>
+            house(`n${n}`, 7.0002 + i * 0.0009, 51.0002, [String(n)]),
+          ),
+          ...[2, 4, 6, 8, 10].map((n, i) =>
+            house(`s${n}`, 7.0002 + i * 0.0009, 50.9998, [String(n)]),
+          ),
+          house('s12', 7.0016, 50.9998, ['12']),
+          house('s14', 7.0021, 50.9998, ['14']),
+          house('q14', 7.002, 51.0006, ['14']),
+          house('q18', 7.0022, 51.0009, ['18']),
+          house('q16', 7.0019, 51.00012, ['16']),
+        ];
+        const r = streetsWithHouses([road, quer], hs);
+        const north = r.streets.find((x) => x.key === 'Hauptstraße@n')!;
+        expect(north.homes).not.toContain('q16');
+        expect(north.side).toEqual({ parity: 'odd', toward: 'n' });
+        expect(
+          r.streets.find((x) => x.name === 'Querweg')!.homes.sort(),
+        ).toEqual(['q14', 'q16', 'q18']);
       });
     });
 

@@ -9,13 +9,17 @@
  * work of a cottage.
  *
  *  1. Each house goes to the nearest named street — unless its number does
- *     not fit that street's numbers there and fits a street crossing nearby
- *     (a corner house numbered on the side street).
+ *     not fit that street's numbers there and fits a street nearby (a corner
+ *     house numbered on the side street; a house far out of the street's
+ *     row of numbers; on a main road, a house of the other kind than its
+ *     side — 14 November 2026).
  *  2. A main road with houses on both sides is walked side by side: each
  *     side its own «street», named «even»/«odd» when the numbers agree, or by
- *     the compass. A quiet street is walked whole, both sides by one pair.
- *  3. A long street (side) is walked in pieces, named by their numbers
- *     («1–35») or else by the streets that cross where it is cut.
+ *     the compass; both «sides» numbered alike are one side, walked whole.
+ *     A quiet street is walked whole, both sides by one pair.
+ *  3. A long street (side) is walked in pieces, named by their numbers —
+ *     odd and even each on its own, as on the doors («1–35 · 2–40») — or
+ *     else by the streets that cross where it is cut.
  *  4. The streets are cut into parts of about equal doors: «own» halves the
  *     territory again and again; «near» cuts it in wedges round one starting
  *     point, so the pairs start together and stay neighbours. Then evened
@@ -60,6 +64,12 @@ export interface PlanStreet {
   };
   /** Its house numbers from the lowest to the highest; null when too few are known. */
   range: null | { from: string; to: string };
+  /**
+   * Its numbers as the doors say them, each side of the street on its own:
+   * «1–35» odd and «2–40» even (14 November 2026). A number far from the
+   * others of its side (another street's, misplaced) is left out of it.
+   */
+  ranges: { odd: NumberRange | null; even: NumberRange | null };
   houses: number;
   /** Entrances: a house with three numbers is three. */
   doors: number;
@@ -73,6 +83,11 @@ export interface PlanStreet {
   at: Pt;
   /** Its line near its own houses, to draw. */
   lines: Pt[][];
+}
+
+export interface NumberRange {
+  from: string;
+  to: string;
 }
 
 export interface PlanPart {
@@ -117,6 +132,8 @@ export const MAIN_ROADS = new Set([
 export const PARITY_SHARE = 0.9;
 /** A «smaller» part gets this share of an even one. */
 export const SMALLER = 2 / 3;
+/** Numbers of one side further apart than this are not one row of houses. */
+export const RANGE_GAP = 20;
 /** A street that passes this close to where a long one is cut names the cut. */
 const CROSS_M = 60;
 /** A corner house may go to another street only when that street passes this close. */
@@ -301,6 +318,16 @@ export function streetsWithHouses(
   );
   const owner: number[] = near.map((c) => (c.length ? c[0].i : -1));
   fixCorners(houses, near, owner);
+  straysAway(houses, near, owner);
+  sideStraysAway(
+    houses,
+    near,
+    owner,
+    names
+      .map((name, i) => ({ i, name }))
+      .filter(({ name }) => MAIN_ROADS.has(kindOf.get(name) ?? ''))
+      .map(({ i, name }) => ({ i, lines: byName.get(name)! })),
+  );
   lonelyShedsAway(
     houses,
     near,
@@ -377,6 +404,76 @@ function fixCorners(
   });
 }
 
+/** A house far out of its street's numbers may go to a street this close… */
+export const STRAY_M = 120;
+/** …when that street's row has at least this many numbers to compare with. */
+const ROW_MIN = 3;
+
+/** The main row of numbers (lowest, highest) of a list, as in `rangesOf`. */
+function rowOf(values: number[]): [number, number] | null {
+  const v = [...values].sort((a, b) => a - b);
+  if (v.length === 0) return null;
+  let best: number[] = [];
+  let cur: number[] = [];
+  for (const x of v) {
+    if (cur.length && x - cur[cur.length - 1] > RANGE_GAP) {
+      if (cur.length > best.length) best = cur;
+      cur = [];
+    }
+    cur.push(x);
+  }
+  if (cur.length > best.length) best = cur;
+  return best.length >= ROW_MIN ? [best[0], best[best.length - 1]] : null;
+}
+
+/**
+ * A house whose number is far out of its street's row (14 November 2026:
+ * «2», «3», «4» among 80–190 of a main road — houses of a side street
+ * nearer to the main road's line) goes to a street within STRAY_M whose
+ * houses round it carry numbers that fit. Houses out of line together do
+ * not vouch for each other: the test is against the street's whole row.
+ */
+function straysAway(
+  houses: House[],
+  near: { i: number; d: number }[][],
+  owner: number[],
+) {
+  const rows = new Map<string, [number, number] | null>();
+  const rowFor = (street: number, parity: number) => {
+    const key = `${street}:${parity}`;
+    if (!rows.has(key)) {
+      const values: number[] = [];
+      owner.forEach((o, hi) => {
+        if (o !== street) return;
+        for (const n of houses[hi].numbers ?? []) {
+          const v = numberOf(n);
+          if (v !== null && v % 2 === parity) values.push(v);
+        }
+      });
+      rows.set(key, rowOf(values));
+    }
+    return rows.get(key)!;
+  };
+  const moves: [number, number][] = [];
+  houses.forEach((h, hi) => {
+    const v = h.numbers?.length ? numberOf(h.numbers[0]) : null;
+    if (v === null || owner[hi] < 0) return;
+    const row = rowFor(owner[hi], v % 2);
+    if (row && v >= row[0] - RANGE_GAP && v <= row[1] + RANGE_GAP) return;
+    // No row of its own side at all: out of line only when the other side
+    // has one (an odd «3» on a street of 80–190 even).
+    if (!row && !rowFor(owner[hi], 1 - (v % 2))) return;
+    for (const c of near[hi]) {
+      if (c.i === owner[hi] || c.d > STRAY_M) continue;
+      if (fitsNear(houses, owner, hi, c.i, v)) {
+        moves.push([hi, c.i]);
+        return;
+      }
+    }
+  });
+  for (const [hi, to] of moves) owner[hi] = to;
+}
+
 /** A named line shorter than this is a drive or a yard, not a street to walk. */
 export const DRIVE_M = 80;
 
@@ -422,35 +519,15 @@ function sidesOf(
   lines: Pt[][],
 ): SideOf[] {
   const whole = [{ own, side: null }];
-  if (!kind || !MAIN_ROADS.has(kind) || own.length < 2 * SIDES_MIN_HOUSES) {
-    return whole;
-  }
-  const pts = own.map((i) => houses[i].at);
-  const { ux, uy, mx, my } = axisOf(pts);
-  const k = scale(pts[0][1]);
-  const along = pts.map(
-    (p) => (p[0] - mx) * k[0] * ux + (p[1] - my) * k[1] * uy,
-  );
-  if (Math.max(...along) - Math.min(...along) < SIDES_MIN_M) return whole;
-  const left: number[] = [];
-  const right: number[] = [];
-  for (const i of own) {
-    const p = houses[i].at;
-    const seg = nearestSegment(p, lines);
-    if (!seg) return whole;
-    let dx = (seg[1][0] - seg[0][0]) * k[0];
-    let dy = (seg[1][1] - seg[0][1]) * k[1];
-    if (dx * ux + dy * uy < 0) {
-      dx = -dx;
-      dy = -dy;
-    }
-    const px = (p[0] - seg[0][0]) * k[0];
-    const py = (p[1] - seg[0][1]) * k[1];
-    (dx * py - dy * px > 0 ? left : right).push(i);
-  }
-  if (left.length < SIDES_MIN_HOUSES || right.length < SIDES_MIN_HOUSES) {
-    return whole;
-  }
+  if (!kind || !MAIN_ROADS.has(kind)) return whole;
+  const split = sideSplit(own, houses, lines);
+  if (!split) return whole;
+  const { left, right, ux, uy } = split;
+  // Both «sides» numbered alike are one side of the road: the territory
+  // holds only that side, and the road's bend put some of it «across»
+  // (14 November 2026: Warendorfer Straße came as «east 2–190a» and «west»).
+  const a = leanOf(left, houses);
+  if (a !== null && a === leanOf(right, houses)) return whole;
   // Left of a road running east is its north side.
   const toward = (s: 1 | -1): 'n' | 's' | 'e' | 'w' => {
     const nx = -uy * s;
@@ -470,6 +547,131 @@ function sidesOf(
       side: { parity: parityOf(right, houses), toward: toward(-1) },
     },
   ];
+}
+
+/**
+ * The houses of a road left and right of it (left of a road running east is
+ * its north side); null when the road is too short or a side too thin to be
+ * walked on its own.
+ */
+function sideSplit(
+  own: number[],
+  houses: House[],
+  lines: Pt[][],
+): { left: number[]; right: number[]; ux: number; uy: number } | null {
+  if (own.length < 2 * SIDES_MIN_HOUSES) return null;
+  const pts = own.map((i) => houses[i].at);
+  const { ux, uy, mx, my } = axisOf(pts);
+  const k = scale(pts[0][1]);
+  const along = pts.map(
+    (p) => (p[0] - mx) * k[0] * ux + (p[1] - my) * k[1] * uy,
+  );
+  if (Math.max(...along) - Math.min(...along) < SIDES_MIN_M) return null;
+  const left: number[] = [];
+  const right: number[] = [];
+  for (const i of own) {
+    const p = houses[i].at;
+    const seg = nearestSegment(p, lines);
+    if (!seg) return null;
+    let dx = (seg[1][0] - seg[0][0]) * k[0];
+    let dy = (seg[1][1] - seg[0][1]) * k[1];
+    if (dx * ux + dy * uy < 0) {
+      dx = -dx;
+      dy = -dy;
+    }
+    const px = (p[0] - seg[0][0]) * k[0];
+    const py = (p[1] - seg[0][1]) * k[1];
+    (dx * py - dy * px > 0 ? left : right).push(i);
+  }
+  if (left.length < SIDES_MIN_HOUSES || right.length < SIDES_MIN_HOUSES) {
+    return null;
+  }
+  return { left, right, ux, uy };
+}
+
+/**
+ * On a main road numbered odd on one side and even on the other, a house
+ * whose number is of the other kind than its side (14 November 2026: even
+ * «16», «18», «26», «28» on the odd side of Heessener Straße, «16» and «28»
+ * there twice) is a house of another street close to the road: it goes to
+ * a street within STRAY_M whose houses round it carry numbers that fit.
+ */
+function sideStraysAway(
+  houses: House[],
+  near: { i: number; d: number }[][],
+  owner: number[],
+  roads: { i: number; lines: Pt[][] }[],
+) {
+  for (const { i, lines } of roads) {
+    const own: number[] = [];
+    owner.forEach((o, hi) => {
+      if (o === i) own.push(hi);
+    });
+    const split = sideSplit(own, houses, lines);
+    if (!split) continue;
+    const a = leanOf(split.left, houses);
+    const b = leanOf(split.right, houses);
+    if (a === null || b === null || a === b) continue;
+    const moves: [number, number][] = [];
+    for (const [side, lean] of [
+      [split.left, a],
+      [split.right, b],
+    ] as const) {
+      for (const hi of side) {
+        const v = houses[hi].numbers?.length
+          ? numberOf(houses[hi].numbers![0])
+          : null;
+        if (v === null || (v % 2 === 0 ? 'even' : 'odd') === lean) continue;
+        const to = near[hi].find(
+          (c) =>
+            c.i !== i && c.d <= STRAY_M && fitsNear(houses, owner, hi, c.i, v),
+        );
+        if (to) moves.push([hi, to.i]);
+      }
+    }
+    for (const [hi, to] of moves) owner[hi] = to;
+  }
+}
+
+/** A house's number fits a street's numbers on the houses round it. */
+function fitsNear(
+  houses: House[],
+  owner: number[],
+  hi: number,
+  street: number,
+  v: number,
+): boolean {
+  return houses.some(
+    (o, oi) =>
+      oi !== hi &&
+      owner[oi] === street &&
+      dist(o.at, houses[hi].at) <= NEIGHBOUR_M &&
+      (o.numbers ?? []).some((n) => {
+        const w = numberOf(n);
+        return w !== null && Math.abs(w - v) <= FITS;
+      }),
+  );
+}
+
+/** Most numbers of a side even, or odd: at least SIDE_LEAN of them, and enough to say. */
+export const SIDE_LEAN = 0.75;
+
+function leanOf(own: number[], houses: House[]): 'even' | 'odd' | null {
+  let even = 0;
+  let odd = 0;
+  for (const i of own) {
+    for (const n of houses[i].numbers ?? []) {
+      const v = numberOf(n);
+      if (v === null) continue;
+      if (v % 2 === 0) even += 1;
+      else odd += 1;
+    }
+  }
+  const all = even + odd;
+  if (all < 2) return null;
+  if (even / all >= SIDE_LEAN) return 'even';
+  if (odd / all >= SIDE_LEAN) return 'odd';
+  return null;
 }
 
 /** «Even»/«odd» when at least PARITY_SHARE of a side's numbers agree. */
@@ -573,6 +775,10 @@ function piecesOf(
         nums.length && numbered * 2 >= homes.length
           ? { from: nums[0], to: nums[nums.length - 1] }
           : null,
+      ranges:
+        nums.length && numbered * 2 >= homes.length
+          ? rangesOf(nums)
+          : { odd: null, even: null },
       houses: homes.length,
       doors: homes.reduce((a, h) => a + doorsOf(h), 0),
       homes: homes.map((h) => h.id),
@@ -586,6 +792,47 @@ function piecesOf(
       ),
     };
   });
+}
+
+/**
+ * The odd and the even numbers of a street (piece) as rows: within a side
+ * the numbers run on with small gaps; the longest row is the side's, a
+ * number far from it (another street's house nearby) stays out of the label.
+ */
+export function rangesOf(nums: string[]): {
+  odd: NumberRange | null;
+  even: NumberRange | null;
+} {
+  const row = (want: 0 | 1): NumberRange | null => {
+    const own = nums
+      .filter((x) => {
+        const v = numberOf(x);
+        return v !== null && v % 2 === want;
+      })
+      .sort(byNumber);
+    if (own.length === 0) return null;
+    let best: string[] = [];
+    let cur: string[] = [];
+    for (const x of own) {
+      const prev = cur.length ? numberOf(cur[cur.length - 1])! : null;
+      if (prev !== null && numberOf(x)! - prev > RANGE_GAP) {
+        if (cur.length > best.length) best = cur;
+        cur = [];
+      }
+      cur.push(x);
+    }
+    if (cur.length > best.length) best = cur;
+    return { from: best[0], to: best[best.length - 1] };
+  };
+  const odd = row(1);
+  const even = row(0);
+  // One lone number beside a whole row of the other side is no side of its own.
+  const lone = (r: NumberRange | null) => !!r && r.from === r.to;
+  const many = (r: NumberRange | null) => !!r && r.from !== r.to;
+  return {
+    odd: lone(odd) && many(even) ? null : odd,
+    even: lone(even) && many(odd) ? null : even,
+  };
 }
 
 /** The other street nearest to a point, if one passes within CROSS_M. */

@@ -486,6 +486,45 @@ describe('territory divisions between groups (real database)', () => {
       expect(r.body.start).toEqual([7.0032, 51.0022]);
     });
 
+    it('numbers by side of the street: odd and even each a range; a division saved before has them from its numbers (14 November 2026)', async () => {
+      await give();
+      // Birkenweg: 1–9 odd and 2–10 even, one number a house.
+      await h.sql(
+        `UPDATE map_houses SET numbers = ((osm_id - 199))::text
+          WHERE osm_id BETWEEN 200 AND 209`,
+      );
+      type Ranges = {
+        odd: { from: string; to: string } | null;
+        even: { from: string; to: string } | null;
+      };
+      const birken = (d: Division) =>
+        d
+          .split!.parts.flatMap(
+            (p) => p.streets as unknown as { name: string; ranges: Ranges }[],
+          )
+          .filter((x) => x.name === 'Birkenweg')
+          .map((x) => x.ranges);
+      const d = (await divide('dholder', 2)).body as Division;
+      expect(birken(d)).toEqual([
+        { odd: { from: '1', to: '9' }, even: { from: '2', to: '10' } },
+      ]);
+      // A division saved before 14 November 2026: no `ranges` in its parts.
+      const [row] = await h.sql<{ id: string; parts: unknown }>(
+        `SELECT id, parts FROM territory_splits`,
+      );
+      const old = JSON.parse(JSON.stringify(row.parts)) as {
+        streets: Record<string, unknown>[];
+      }[];
+      for (const p of old) for (const x of p.streets) delete x.ranges;
+      await h.sql(`UPDATE territory_splits SET parts = $1 WHERE id = $2`, [
+        JSON.stringify(old),
+        row.id,
+      ]);
+      expect(birken(await division('dmember'))).toEqual([
+        { odd: { from: '1', to: '9' }, even: { from: '2', to: '10' } },
+      ]);
+    });
+
     it('a division taken away: its links stop, the marks stay; only for whoever may divide again', async () => {
       await give();
       const d = (await divide('dholder', 3)).body as Division;
