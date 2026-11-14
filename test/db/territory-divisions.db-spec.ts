@@ -354,6 +354,8 @@ describe('territory divisions between groups (real database)', () => {
       'Birkenweg',
     ]);
     expect(page.body.noCalls).toBe(2);
+    // The other pairs' streets come with their lines: drawn pale on the map.
+    expect(page.body.others[0].streets[0].lines[0].length).toBeGreaterThan(1);
     const text = JSON.stringify(page.body);
     expect(text).not.toContain('Birkenweg 4');
     expect(text).not.toContain('Musterstraße');

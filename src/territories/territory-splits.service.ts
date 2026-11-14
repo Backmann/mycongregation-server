@@ -107,7 +107,7 @@ export interface SharedPart {
     untouched: boolean;
     streets: Pick<
       PartStreetView,
-      'key' | 'name' | 'range' | 'ranges' | 'side' | 'houses'
+      'key' | 'name' | 'range' | 'ranges' | 'side' | 'houses' | 'lines'
     >[];
   }[];
   /** How many «не посещать» addresses lie on this part's streets; never which. */
@@ -656,6 +656,8 @@ export class TerritorySplitsService {
             ranges: rangesFor(x),
             side: x.side,
             houses: x.houses,
+            // Drawn pale on the pair's map, so a pair sees where the next begins.
+            lines: x.lines,
           })),
         })),
       noCalls,
