@@ -19,7 +19,8 @@
  *     A quiet street is walked whole, both sides by one pair.
  *  3. A long street (side) is walked in pieces, named by their numbers —
  *     odd and even each on its own, as on the doors («1–35 · 2–40») — or
- *     else by the streets that cross where it is cut.
+ *     else by the streets that cross where it is cut. Each side's numbers
+ *     run on from one piece to the next, never across.
  *  4. The streets are cut into parts of about equal doors: «own» halves the
  *     territory again and again; «near» cuts it in wedges round one starting
  *     point, so the pairs start together and stay neighbours. Then evened
@@ -820,6 +821,7 @@ function piecesOf(
     acc += d;
   }
   if (cur.length) slices.push(cur);
+  if (slices.length > 1) numbersInRows(slices, houses);
   const m = slices.length;
   const ownLines = byName.get(name) ?? [];
   const cuts: (string | null)[] = [];
@@ -905,6 +907,63 @@ export function rangesOf(nums: string[]): {
     even: lone(even) && many(odd) ? null : even,
   };
 }
+
+/**
+ * Pieces cut where the doors balance run across each other's numbers when
+ * the two sides of a street are not numbered in step (14 November 2026:
+ * «1–25 · 2–16» and «5–41 · 50–98» on one street). Each side's numbers are
+ * dealt out again in their own order, as many to each piece as it had of
+ * that side: the pieces keep their size and place, and a piece's numbers
+ * run on from the last one's («1–23 · 2–48», «25–41 · 50–98»). A side
+ * numbered against the street's direction is dealt from its other end.
+ * Numbers out of the side's row (another street's) and houses without one
+ * stay where they stood.
+ */
+function numbersInRows(
+  slices: { i: number; t: number }[][],
+  houses: House[],
+): void {
+  for (const parity of [1, 0]) {
+    const values: number[] = [];
+    for (const sl of slices)
+      for (const q of sl) {
+        const v = firstNumber(houses[q.i]);
+        if (v !== null && v % 2 === parity) values.push(v);
+      }
+    const row = rowOf(values);
+    if (!row) continue;
+    const inRow = (q: { i: number }) => {
+      const v = firstNumber(houses[q.i]);
+      return v !== null && v % 2 === parity && v >= row[0] && v <= row[1];
+    };
+    const counts = slices.map((sl) => sl.filter(inRow).length);
+    const items = slices.flatMap((sl) => sl.filter(inRow));
+    if (items.length < 2) continue;
+    // Which way the numbers run along the street: the lower half of them
+    // lies before or after the upper half.
+    const byNo = [...items].sort(
+      (a, b) =>
+        firstNumber(houses[a.i])! - firstNumber(houses[b.i])! ||
+        byNumber(houses[a.i].numbers![0], houses[b.i].numbers![0]),
+    );
+    const half = Math.floor(byNo.length / 2);
+    const mean = (xs: { t: number }[]) =>
+      xs.reduce((a, q) => a + q.t, 0) / Math.max(1, xs.length);
+    if (mean(byNo.slice(0, half)) > mean(byNo.slice(byNo.length - half))) {
+      byNo.reverse();
+    }
+    let next = 0;
+    slices.forEach((sl, j) => {
+      const keep = sl.filter((q) => !inRow(q));
+      const dealt = byNo.slice(next, next + counts[j]);
+      next += counts[j];
+      slices[j] = [...keep, ...dealt].sort((a, b) => a.t - b.t);
+    });
+  }
+}
+
+const firstNumber = (h: House): number | null =>
+  h.numbers?.length ? numberOf(h.numbers[0]) : null;
 
 /** The other street nearest to a point, if one passes within CROSS_M. */
 function crossingAt(

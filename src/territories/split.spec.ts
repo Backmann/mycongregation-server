@@ -784,6 +784,41 @@ describe('dividing a territory between groups (13 November 2026)', () => {
       });
     });
 
+    describe('pieces by numbers (14 November 2026, «вариант в»)', () => {
+      // Ahornweg, 20 houses: odd north, even south, in two pieces.
+      const row = (evens: number[]) => [
+        ...[1, 3, 5, 7, 9, 11, 13, 15, 17, 19].map((n, i) =>
+          house(`o${n}`, 7.0002 + i * 0.0002, 51.0001, [String(n)]),
+        ),
+        ...evens.map((n, i) =>
+          house(`e${n}`, 7.0002 + i * 0.0002, 50.9999, [String(n)]),
+        ),
+      ];
+      const labels = (hs: House[]) =>
+        streetsWithHouses([A], hs, { maxDoors: 10 }).streets.map(
+          (x) => x.ranges,
+        );
+
+      it("the numbers of one piece run on from the last one's", () => {
+        // «12» stands a little west of «10», right where the street is cut:
+        // cut by place, the pieces would read «2–12» and «10–20».
+        const hs = row([2, 4, 6, 8, 12, 10, 14, 16, 18, 20]);
+        expect(labels(hs)).toEqual([
+          { odd: { from: '1', to: '9' }, even: { from: '2', to: '10' } },
+          { odd: { from: '11', to: '19' }, even: { from: '12', to: '20' } },
+        ]);
+      });
+
+      it('a side numbered the other way is dealt from its other end', () => {
+        // Even numbers run east to west: the west piece has the high ones.
+        const hs = row([20, 18, 16, 12, 14, 10, 8, 6, 4, 2]);
+        expect(labels(hs)).toEqual([
+          { odd: { from: '1', to: '9' }, even: { from: '12', to: '20' } },
+          { odd: { from: '11', to: '19' }, even: { from: '2', to: '10' } },
+        ]);
+      });
+    });
+
     it("cuts a street heavier than a pair's share, however short (14 November 2026)", () => {
       // 30 houses within 100 m: never cut by length.
       const row = Array.from({ length: 30 }, (_, i) =>
