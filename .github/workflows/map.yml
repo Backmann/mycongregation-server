@@ -234,6 +234,19 @@ jobs:
           SQL
           echo "Congregations with territories: $(grep -c . areas.csv || true)"
 
+      # A build cut off on the way (a timeout) may leave its query running
+      # on the server and its rows locked: stop it first (14 November 2026).
+      - name: Stop a build left running
+        run: |
+          ssh myserver "docker exec -i mycongregation-postgres sh -c 'psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -qAt -v ON_ERROR_STOP=1'" << 'SQL'
+          SELECT 'Builds left running, stopped: ' || count(pg_terminate_backend(pid))
+            FROM pg_stat_activity
+           WHERE pid <> pg_backend_pid()
+             AND datname = current_database()
+             AND (application_name = 'map-build'
+                  OR (state <> 'idle' AND query ILIKE '%mark_homes(%'));
+          SQL
+
       - name: Latest Protomaps build
         id: build
         run: |
@@ -310,6 +323,9 @@ jobs:
             fi
             {
               echo "BEGIN;"
+              # One step stuck must fail, not hang: the whole area rolls back.
+              echo "SET LOCAL statement_timeout = '20min';"
+              echo "SELECT 'Area $n: loading ' || to_char(clock_timestamp(), 'HH24:MI:SS');"
               echo "DELETE FROM map_houses WHERE congregation_id = '$id';"
               echo "COPY map_houses (congregation_id, osm_id, lon, lat, area_m2, numbers) FROM STDIN WITH (FORMAT csv);"
               cat "houses-$n.csv"
@@ -338,10 +354,15 @@ jobs:
                 echo "UPDATE map_houses h SET official = o.official, floors = o.floors FROM official_in o WHERE h.congregation_id = '$id' AND h.osm_id = o.osm_id;"
                 echo "SELECT 'Area $n: known to the cadastre ' || count(*) FILTER (WHERE official IS NOT NULL) || ' of ' || count(*) FROM map_houses WHERE congregation_id = '$id';"
               fi
-              echo "SELECT 'Area $n: not homes ' || mark_homes('$id');"
+              # Fresh counts for the planner: the rows were all replaced just now.
+              echo "ANALYZE map_houses;"
+              echo "ANALYZE map_addresses;"
+              echo "SELECT 'Area $n: before the rule ' || (SELECT count(*) FROM map_houses WHERE congregation_id = '$id') || ' houses, ' || (SELECT count(*) FROM map_houses WHERE congregation_id = '$id' AND (numbers IS NULL OR numbers = '')) || ' without a number, ' || (SELECT count(*) FROM map_addresses WHERE congregation_id = '$id') || ' addresses';"
+              echo "SELECT 'Area $n: homes rule from ' || to_char(clock_timestamp(), 'HH24:MI:SS');"
+              echo "SELECT 'Area $n: not homes ' || mark_homes('$id') || ' at ' || to_char(clock_timestamp(), 'HH24:MI:SS');"
               echo "INSERT INTO territory_settings (congregation_id, houses_built_at) VALUES ('$id', now()) ON CONFLICT (congregation_id) DO UPDATE SET houses_built_at = now();"
               echo "COMMIT;"
-            } | ssh myserver "docker exec -i mycongregation-postgres sh -c 'psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -qAt -v ON_ERROR_STOP=1'"
+            } | ssh myserver "docker exec -i -e PGAPPNAME=map-build mycongregation-postgres sh -c 'psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -qAt -v ON_ERROR_STOP=1'"
             # Tell the app the file is there (it asks for it only then).
             ssh myserver "docker exec -i mycongregation-postgres sh -c 'psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -qAt -v ON_ERROR_STOP=1'" \
               <<< "INSERT INTO territory_settings (congregation_id, map_built_at) VALUES ('$id', now()) ON CONFLICT (congregation_id) DO UPDATE SET map_built_at = now();"
