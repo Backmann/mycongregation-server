@@ -1,5 +1,6 @@
 import {
   addressNumber,
+  divide,
   findAddress,
   parityOf,
   partsOfAddress,
@@ -816,6 +817,53 @@ describe('dividing a territory between groups (13 November 2026)', () => {
           { odd: { from: '1', to: '9' }, even: { from: '12', to: '20' } },
           { odd: { from: '11', to: '19' }, even: { from: '2', to: '10' } },
         ]);
+      });
+    });
+
+    describe('finer pieces when the parts come out uneven (14 November 2026, «вариант г»)', () => {
+      // Four short streets 100 m apart, 20, 21, 29 and 18 houses: as whole
+      // streets three pairs get 20 · 50 · 18 or the like.
+      const names = ['Ahornweg', 'Birkenweg', 'Dillweg', 'Eschenweg'];
+      const sizes = [20, 21, 29, 18];
+      const lines = names.map((name, k) => ({
+        name,
+        lines: [
+          [
+            [7.0, 51.0 + k * 0.0009],
+            [7.002, 51.0 + k * 0.0009],
+          ],
+        ] as Pt[][],
+      }));
+      const hs = sizes.flatMap((n, k) =>
+        Array.from({ length: n }, (_, i) =>
+          house(`${k}-${i}`, 7.0001 + (i * 0.0018) / n, 51.0001 + k * 0.0009),
+        ),
+      );
+      const evenness = (parts: { doors: number }[]) =>
+        Math.max(...parts.map((p) => p.doors)) /
+        Math.min(...parts.map((p) => p.doors));
+
+      it('cuts the streets finer and divides again', () => {
+        const whole = splitStreets(
+          streetsWithHouses(lines, hs, { maxDoors: 30 }).streets,
+          3,
+        );
+        expect(evenness(whole)).toBeGreaterThan(1.5);
+        const r = divide(lines, hs, 3);
+        expect(evenness(r.parts)).toBeLessThanOrEqual(1.3);
+        expect(r.parts.reduce((a, p) => a + p.doors, 0)).toBe(88);
+      });
+
+      it('keeps whole streets when they divide evenly anyway', () => {
+        const even = sizes.map(() => 20);
+        const eh = even.flatMap((n, k) =>
+          Array.from({ length: n }, (_, i) =>
+            house(`${k}-${i}`, 7.0001 + (i * 0.0018) / n, 51.0001 + k * 0.0009),
+          ),
+        );
+        const r = divide(lines, eh, 2);
+        expect(r.streets.every((x) => x.pieces === 1)).toBe(true);
+        expect(r.parts.map((p) => p.doors)).toEqual([40, 40]);
       });
     });
 

@@ -691,7 +691,7 @@ function sideStraysAway(
       for (const hi of side) {
         if (sure[hi]) continue;
         const v = houses[hi].numbers?.length
-          ? numberOf(houses[hi].numbers![0])
+          ? numberOf(houses[hi].numbers[0])
           : null;
         if (v === null || (v % 2 === 0 ? 'even' : 'odd') === lean) continue;
         const to = near[hi].find(
@@ -1200,6 +1200,58 @@ export function partOf(
 }
 
 /** How even the parts are: the largest over the smallest, by doors (1 is perfect). */
+/** Finer pieces are tried, in turn, at these shares of a pair's share… */
+export const FINER = [1, 0.6, 0.4, 0.25];
+/** …and taken only when the parts come out this much more even (a ratio). */
+export const FINER_GAIN = 0.15;
+/** Even enough: no finer pieces are tried. */
+export const EVEN_ENOUGH = 1.15;
+/** No piece lighter than this many doors, however fine. */
+export const PIECE_FLOOR = 4;
+
+/**
+ * The whole division (14 November 2026, «вариант г»): streets cut in pieces
+ * no heavier than a pair's share, then the parts. When they come out
+ * uneven — a small territory of a few streets — the streets are cut finer
+ * and divided again, and the finer division is taken only when it is
+ * clearly more even: fewer, longer pieces are easier to walk, so a little
+ * evenness is never bought with many small pieces.
+ */
+export function divide(
+  streets: StreetLines[],
+  houses: House[],
+  parts: number,
+  opts: SplitOptions = {},
+): { parts: PlanPart[]; left: number; streets: PlanStreet[] } {
+  const doors = houses.reduce((a, h) => a + doorsOf(h), 0);
+  const share = doors / Math.max(1, parts);
+  const smaller = opts.smaller ?? [];
+  let best: { parts: PlanPart[]; left: number; streets: PlanStreet[] } | null =
+    null;
+  let bestU = Infinity;
+  for (const f of FINER) {
+    const r = streetsWithHouses(streets, houses, {
+      maxDoors: Math.max(PIECE_FLOOR, Math.ceil(share * f)),
+    });
+    if (r.streets.length === 0) return { parts: [], left: r.left, streets: [] };
+    const ps = splitStreets(r.streets, parts, opts)
+      .filter((p) => p.streets.length > 0)
+      .map((p, i) => ({ ...p, n: i + 1 }));
+    const u =
+      ps.length < parts
+        ? Infinity
+        : unevenness(
+            ps.map((p) => ({ doors: p.doors, smaller: smaller.includes(p.n) })),
+          );
+    if (!best || u <= bestU - FINER_GAIN) {
+      best = { parts: ps, left: r.left, streets: r.streets };
+      bestU = u;
+    }
+    if (bestU <= EVEN_ENOUGH) break;
+  }
+  return best!;
+}
+
 export function unevenness(
   parts: { doors: number; smaller?: boolean }[],
 ): number {
