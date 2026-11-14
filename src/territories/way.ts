@@ -4,11 +4,18 @@ import { dist, type Pt } from './split';
  * The way through a part (14 November 2026, «путь по дорогам»): the roads
  * of the map as a graph, and through it the order of a part's streets and
  * the stretches of road from one street to the next, so a pair can follow
- * one line from the start to the last house.
+ * one line from the start to the last house — and knows how far it goes
+ * today (`TODAY_M`).
  *
  * The map's lines come cut at tile edges and simplified: a crossing need
  * not share a point. So the lines are cut in steps of STEP_M and points of
  * different lines closer than JOIN_M are joined.
+ *
+ * Measured on every territory first (14 November 2026): the roads between
+ * streets were nearly as long as the streets; the order by road cut them
+ * by a quarter, but plain «nearest next» was worse than today's order in
+ * one part of six — so both orders are improved and the shorter is kept:
+ * never worse than before.
  */
 
 /** Lines are cut in steps of this length… */
@@ -17,20 +24,37 @@ export const STEP_M = 20;
 export const JOIN_M = 12;
 /** A street end further than this from every road: walked to straight. */
 export const OFF_ROAD_M = 80;
+/** Off the roads, a straight line counts this much longer. */
+const STRAIGHT_FACTOR = 1.4;
+/** Roads further than this from a part's streets play no part in its way (a bridge may be some way off). */
+const AROUND_M = 1000;
+/** About one outing of a pair (14 November 2026: «около 1 км за выход»). */
+export const TODAY_M = 1000;
 
 export interface Graph {
   pts: Pt[];
   /** Neighbours of each point, with the metres to them. */
   next: { to: number; m: number }[][];
+  /** Points by a grid of CELL_M, to find the nearest fast. */
+  cells: Map<string, number[]>;
+  k: number;
 }
+
+const CELL_M = 50;
+const cellOf = (p: Pt, k: number): [number, number] => [
+  Math.floor((p[0] * k) / CELL_M),
+  Math.floor((p[1] * 110_540) / CELL_M),
+];
 
 /** The roads as a graph. */
 export function graphOf(lines: Pt[][]): Graph {
   const pts: Pt[] = [];
   const next: { to: number; m: number }[][] = [];
-  const add = (p: Pt) => {
+  const lineOf: number[] = [];
+  const add = (p: Pt, li: number) => {
     pts.push(p);
     next.push([]);
+    lineOf.push(li);
     return pts.length - 1;
   };
   const link = (a: number, b: number) => {
@@ -39,62 +63,66 @@ export function graphOf(lines: Pt[][]): Graph {
     next[a].push({ to: b, m });
     next[b].push({ to: a, m });
   };
-  const lineOf: number[] = [];
   lines.forEach((raw, li) => {
     let prev = -1;
     for (let j = 0; j < raw.length; j++) {
-      const a = raw[j - 1];
-      const b = raw[j];
       if (j === 0) {
-        prev = add(b);
-        lineOf[prev] = li;
+        prev = add(raw[0], li);
         continue;
       }
+      const a = raw[j - 1];
+      const b = raw[j];
       const steps = Math.max(1, Math.ceil(dist(a, b) / STEP_M));
       for (let q = 1; q <= steps; q++) {
-        const i = add([
-          a[0] + ((b[0] - a[0]) * q) / steps,
-          a[1] + ((b[1] - a[1]) * q) / steps,
-        ]);
-        lineOf[i] = li;
+        const i = add(
+          [
+            a[0] + ((b[0] - a[0]) * q) / steps,
+            a[1] + ((b[1] - a[1]) * q) / steps,
+          ],
+          li,
+        );
         link(prev, i);
         prev = i;
       }
     }
   });
-  // Crossings: points of different lines close together, found by a grid.
-  if (pts.length) {
-    const k = 111_320 * Math.cos((pts[0][1] * Math.PI) / 180);
-    const cell = (p: Pt) => [
-      Math.floor((p[0] * k) / JOIN_M),
-      Math.floor((p[1] * 110_540) / JOIN_M),
-    ];
-    const grid = new Map<string, number[]>();
-    pts.forEach((p, i) => {
-      const [x, y] = cell(p);
-      const key = `${x}:${y}`;
-      grid.set(key, [...(grid.get(key) ?? []), i]);
-    });
-    pts.forEach((p, i) => {
-      const [x, y] = cell(p);
-      for (let dx = -1; dx <= 1; dx++)
-        for (let dy = -1; dy <= 1; dy++)
-          for (const j of grid.get(`${x + dx}:${y + dy}`) ?? []) {
-            if (j <= i || lineOf[j] === lineOf[i]) continue;
-            if (dist(p, pts[j]) <= JOIN_M) link(i, j);
-          }
-    });
-  }
-  return { pts, next };
+  const k = 111_320 * Math.cos(((pts[0]?.[1] ?? 51) * Math.PI) / 180);
+  const cells = new Map<string, number[]>();
+  pts.forEach((p, i) => {
+    const [x, y] = cellOf(p, k);
+    const key = `${x}:${y}`;
+    const list = cells.get(key);
+    if (list) list.push(i);
+    else cells.set(key, [i]);
+  });
+  // Crossings: points of different lines close together.
+  pts.forEach((p, i) => {
+    const [x, y] = cellOf(p, k);
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dy = -1; dy <= 1; dy++)
+        for (const j of cells.get(`${x + dx}:${y + dy}`) ?? []) {
+          if (j <= i || lineOf[j] === lineOf[i]) continue;
+          if (dist(p, pts[j]) <= JOIN_M) link(i, j);
+        }
+  });
+  return { pts, next, cells, k };
 }
 
-/** The point of the graph nearest to p, and how far. */
-export function nearestPoint(g: Graph, p: Pt): { i: number; m: number } | null {
+/** The point of the graph nearest to p within `within` metres, or null. */
+export function nearestPoint(
+  g: Graph,
+  p: Pt,
+  within = OFF_ROAD_M,
+): { i: number; m: number } | null {
+  const [x, y] = cellOf(p, g.k);
+  const r = Math.ceil(within / CELL_M);
   let best: { i: number; m: number } | null = null;
-  g.pts.forEach((q, i) => {
-    const m = dist(p, q);
-    if (!best || m < best.m) best = { i, m };
-  });
+  for (let dx = -r; dx <= r; dx++)
+    for (let dy = -r; dy <= r; dy++)
+      for (const i of g.cells.get(`${x + dx}:${y + dy}`) ?? []) {
+        const m = dist(p, g.pts[i]);
+        if (m <= within && (!best || m < best.m)) best = { i, m };
+      }
   return best;
 }
 
@@ -103,7 +131,6 @@ function fromPoint(g: Graph, a: number): { m: Float64Array; back: Int32Array } {
   const m = new Float64Array(g.pts.length).fill(Infinity);
   const back = new Int32Array(g.pts.length).fill(-1);
   m[a] = 0;
-  // A small binary heap of [metres, point].
   const heap: [number, number][] = [[0, a]];
   const push = (x: [number, number]) => {
     heap.push(x);
@@ -155,7 +182,6 @@ export function endsOf(lines: Pt[][]): [Pt, Pt] | null {
   if (all.length === 0) return null;
   let best: [Pt, Pt] = [all[0], all[0]];
   let bm = -1;
-  // A street has few points: every pair is cheap.
   for (let i = 0; i < all.length; i++)
     for (let j = i + 1; j < all.length; j++) {
       const m = dist(all[i], all[j]);
@@ -167,6 +193,48 @@ export function endsOf(lines: Pt[][]): [Pt, Pt] | null {
   return best;
 }
 
+/** Metres along lines. */
+export function lengthOf(lines: Pt[][]): number {
+  let m = 0;
+  for (const l of lines)
+    for (let i = 1; i < l.length; i++) m += dist(l[i - 1], l[i]);
+  return m;
+}
+
+/** A line thinned: points closer than `m` metres to the straight between their neighbours go. */
+export function thin(line: Pt[], m = 3): Pt[] {
+  if (line.length <= 2) return line;
+  const k = 111_320 * Math.cos((line[0][1] * Math.PI) / 180);
+  const off = (p: Pt, a: Pt, b: Pt) => {
+    const ax = (p[0] - a[0]) * k;
+    const ay = (p[1] - a[1]) * 110_540;
+    const bx = (b[0] - a[0]) * k;
+    const by = (b[1] - a[1]) * 110_540;
+    const len = Math.hypot(bx, by);
+    return len ? Math.abs(ax * by - ay * bx) / len : Math.hypot(ax, ay);
+  };
+  const keep = new Array<boolean>(line.length).fill(false);
+  keep[0] = keep[line.length - 1] = true;
+  const stack: [number, number][] = [[0, line.length - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    let far = -1;
+    let fm = m;
+    for (let i = a + 1; i < b; i++) {
+      const d = off(line[i], line[a], line[b]);
+      if (d > fm) {
+        fm = d;
+        far = i;
+      }
+    }
+    if (far >= 0) {
+      keep[far] = true;
+      stack.push([a, far], [far, b]);
+    }
+  }
+  return line.filter((_, i) => keep[i]);
+}
+
 export interface WayStreet {
   key: string;
   lines: Pt[][];
@@ -175,118 +243,239 @@ export interface WayStreet {
 export interface Way<T> {
   /** The streets in the order to walk them. */
   streets: T[];
-  /** From the start to the first street, then from each to the next: along the roads. */
+  /** links[i]: the road to streets[i] — from the start, then from the street before. */
   links: Pt[][];
-  /** Metres of road between streets, and how many links had no road (straight). */
+  /** Metres of each street as drawn. */
+  walkM: number[];
+  /** The first `today` streets: about one outing (TODAY_M, at least one). */
+  today: number;
+  /** Metres of road between streets in this order, and in the order given. */
   linkM: number;
+  linkGiven: number;
+  /** Links with no road: a straight line. */
   straight: number;
 }
 
 /**
- * The order to walk a part's streets and the roads between them: from the
- * start, each time the street nearest along the roads, entered at its
- * nearer end and left at the other. A street end off every road is reached
- * in a straight line.
+ * The order to walk a part's streets and the roads between them. Two
+ * orders are tried — the one given (nearest by straight line) and nearest
+ * by road — each improved by turning stretches of it round (2-opt), each
+ * street entered at whichever end makes the whole shortest; the shorter is
+ * kept, so it is never longer than the order given.
  */
-export function wayThrough<T extends WayStreet>(
-  roads: Pt[][] | Graph,
+export function routePart<T extends WayStreet>(
+  roads: Pt[][],
   streets: T[],
   start: Pt | null,
+  todayM = TODAY_M,
 ): Way<T> {
-  const g = Array.isArray(roads) ? graphOf(roads) : roads;
-  const ends = new Map<string, [Pt, Pt]>();
-  for (const s of streets) {
-    const e = endsOf(s.lines);
-    if (e) ends.set(s.key, e);
-  }
-  const snapped = new Map<string, number>();
-  const snap = (p: Pt) => {
-    const key = `${p[0]},${p[1]}`;
-    const had = snapped.get(key);
-    if (had !== undefined) return had;
-    const n = nearestPoint(g, p);
-    const i = n && n.m <= OFF_ROAD_M ? n.i : -1;
-    snapped.set(key, i);
-    return i;
-  };
-  const left = streets.filter((s) => ends.has(s.key));
-  const out: T[] = [];
-  const links: Pt[][] = [];
-  let linkM = 0;
-  let straight = 0;
-  let here: Pt | null = start ?? (left[0] ? ends.get(left[0].key)![0] : null);
-  while (left.length && here) {
-    const from = snap(here);
-    const tree = from >= 0 ? fromPoint(g, from) : null;
-    // The road metres to a point, or the straight metres when off the roads.
-    const toward = (p: Pt) => {
-      const i = snap(p);
-      if (!tree || i < 0 || !Number.isFinite(tree.m[i]))
-        return { m: dist(here!, p) * 1.4, i: -1 };
-      return { m: tree.m[i], i };
+  const withEnds = streets
+    .map((s) => ({ s, e: endsOf(s.lines) }))
+    .filter((x): x is { s: T; e: [Pt, Pt] } => !!x.e);
+  const loose = streets.filter((s) => !endsOf(s.lines));
+  const n = withEnds.length;
+  if (n === 0)
+    return {
+      streets,
+      links: streets.map(() => []),
+      walkM: streets.map(() => 0),
+      today: Math.min(1, streets.length),
+      linkM: 0,
+      linkGiven: 0,
+      straight: 0,
     };
-    let best: { k: number; m: number; enter: Pt; leave: Pt; i: number } | null =
-      null;
-    left.forEach((s, k) => {
-      const [a, b] = ends.get(s.key)!;
-      for (const [enter, leave] of [
-        [a, b],
-        [b, a],
-      ] as [Pt, Pt][]) {
-        const w = toward(enter);
-        if (!best || w.m < best.m) best = { k, m: w.m, enter, leave, i: w.i };
+  // Only the roads round the part: a smaller graph, the same ways.
+  const pts = [
+    ...withEnds.flatMap((x) => x.s.lines.flat()),
+    ...(start ? [start] : []),
+  ];
+  const k = 111_320 * Math.cos((pts[0][1] * Math.PI) / 180);
+  const mx = AROUND_M / k;
+  const my = AROUND_M / 110_540;
+  const w = Math.min(...pts.map((p) => p[0])) - mx;
+  const e = Math.max(...pts.map((p) => p[0])) + mx;
+  const s0 = Math.min(...pts.map((p) => p[1])) - my;
+  const n0 = Math.max(...pts.map((p) => p[1])) + my;
+  // A road counts when its own box meets the part's: a long road with no
+  // point near may still pass by.
+  const g = graphOf(
+    roads.filter((l) => {
+      let lw = Infinity;
+      let le = -Infinity;
+      let ls = Infinity;
+      let ln = -Infinity;
+      for (const [x, y] of l) {
+        lw = Math.min(lw, x);
+        le = Math.max(le, x);
+        ls = Math.min(ls, y);
+        ln = Math.max(ln, y);
       }
+      return le >= w && lw <= e && ln >= s0 && ls <= n0;
+    }),
+  );
+
+  // The places that matter: 0 the start, then each street's two ends.
+  const places: Pt[] = [start ?? withEnds[0].e[0]];
+  for (const x of withEnds) places.push(x.e[0], x.e[1]);
+  const snap = places.map((p) => nearestPoint(g, p)?.i ?? -1);
+  const trees = new Map<number, { m: Float64Array; back: Int32Array }>();
+  const tree = (i: number) => {
+    let t = trees.get(i);
+    if (!t) {
+      t = fromPoint(g, i);
+      trees.set(i, t);
+    }
+    return t;
+  };
+  const P = places.length;
+  const D: number[][] = Array.from({ length: P }, () =>
+    new Array<number>(P).fill(0),
+  );
+  const road: boolean[][] = Array.from({ length: P }, () =>
+    new Array<boolean>(P).fill(false),
+  );
+  for (let a = 0; a < P; a++) {
+    const t = snap[a] >= 0 ? tree(snap[a]) : null;
+    for (let b = 0; b < P; b++) {
+      if (a === b) continue;
+      const m = t && snap[b] >= 0 ? t.m[snap[b]] : Infinity;
+      if (Number.isFinite(m)) {
+        D[a][b] = m;
+        road[a][b] = true;
+      } else D[a][b] = dist(places[a], places[b]) * STRAIGHT_FACTOR;
+    }
+  }
+  const endIx = (s: number, end: 0 | 1) => 1 + 2 * s + end;
+
+  // An order's length, each street entered at its better end (two states).
+  const plan = (order: number[]) => {
+    // best[e]: shortest to have walked order[0..i] and left at end e.
+    let best: [number, number] = [0, 0];
+    const choice: (0 | 1)[][] = [];
+    order.forEach((s, i) => {
+      const nb: [number, number] = [Infinity, Infinity];
+      const ch: (0 | 1)[] = [0, 0];
+      for (const leave of [0, 1] as const) {
+        const enter = (1 - leave) as 0 | 1;
+        const to = endIx(s, enter);
+        for (const was of [0, 1] as const) {
+          const from = i === 0 ? 0 : endIx(order[i - 1], was);
+          if (i === 0 && was === 1) continue;
+          const c = (i === 0 ? 0 : best[was]) + D[from][to];
+          if (c < nb[leave]) {
+            nb[leave] = c;
+            ch[leave] = was;
+          }
+        }
+      }
+      best = nb;
+      choice.push(ch);
     });
-    const chosen = best!;
-    const s = left.splice(chosen.k, 1)[0];
-    out.push(s);
-    // The link: the road from here to the street, point by point.
-    let line: Pt[];
-    if (tree && chosen.i >= 0) {
-      line = [];
-      for (let i = chosen.i; i >= 0; i = tree.back[i]) line.push(g.pts[i]);
+    const last: 0 | 1 = best[0] <= best[1] ? 0 : 1;
+    // Back through the choices: which end each street was left at.
+    const leaves: (0 | 1)[] = new Array(order.length);
+    let cur = last;
+    for (let i = order.length - 1; i >= 0; i--) {
+      leaves[i] = cur;
+      cur = choice[i][cur];
+    }
+    return { m: Math.min(best[0], best[1]), leaves };
+  };
+  const improve = (order: number[]) => {
+    let o = [...order];
+    let m = plan(o).m;
+    for (let round = 0; round < 8; round++) {
+      let better = false;
+      for (let i = 0; i < o.length - 1; i++)
+        for (let j = i + 1; j < o.length; j++) {
+          const t = [
+            ...o.slice(0, i),
+            ...o.slice(i, j + 1).reverse(),
+            ...o.slice(j + 1),
+          ];
+          const tm = plan(t).m;
+          if (tm < m - 0.5) {
+            o = t;
+            m = tm;
+            better = true;
+          }
+        }
+      if (!better) break;
+    }
+    return o;
+  };
+  const given = withEnds.map((_, i) => i);
+  // Nearest next by road.
+  const greedy: number[] = [];
+  {
+    const left = new Set(given);
+    let here = 0;
+    while (left.size) {
+      let bs = -1;
+      let bm = Infinity;
+      let bl: 0 | 1 = 1;
+      for (const s of left)
+        for (const enter of [0, 1] as const) {
+          const m = D[here][endIx(s, enter)];
+          if (m < bm) {
+            bm = m;
+            bs = s;
+            bl = (1 - enter) as 0 | 1;
+          }
+        }
+      greedy.push(bs);
+      left.delete(bs);
+      here = endIx(bs, bl);
+    }
+  }
+  const linkGiven = plan(given).m;
+  const candidates = [given, improve(given), improve(greedy)];
+  let order = given;
+  let om = linkGiven;
+  for (const c of candidates) {
+    const m = plan(c).m;
+    if (m < om - 0.5) {
+      order = c;
+      om = m;
+    }
+  }
+  const { leaves } = plan(order);
+
+  // The links themselves, along the roads.
+  const links: Pt[][] = [];
+  let straight = 0;
+  let from = 0;
+  order.forEach((s, i) => {
+    const enter = (1 - leaves[i]) as 0 | 1;
+    const to = endIx(s, enter);
+    if (road[from][to]) {
+      const t = tree(snap[from]);
+      const line: Pt[] = [];
+      for (let p = snap[to]; p >= 0; p = t.back[p]) line.push(g.pts[p]);
       line.reverse();
-      line = [here, ...line, chosen.enter];
+      links.push(thin([places[from], ...line, places[to]]));
     } else {
-      line = [here, chosen.enter];
+      links.push([places[from], places[to]]);
       straight += 1;
     }
-    let m = 0;
-    for (let i = 1; i < line.length; i++) m += dist(line[i - 1], line[i]);
-    linkM += m;
-    links.push(line);
-    here = chosen.leave;
+    from = endIx(s, leaves[i]);
+  });
+  const ordered = order.map((i) => withEnds[i].s);
+  const walkM = ordered.map((s) => lengthOf(s.lines));
+  let today = 0;
+  let acc = 0;
+  for (let i = 0; i < ordered.length; i++) {
+    acc += lengthOf([links[i]]) + walkM[i];
+    if (i > 0 && acc > todayM) break;
+    today = i + 1;
   }
-  // Streets without lines keep their place at the end.
-  for (const s of streets) if (!ends.has(s.key)) out.push(s);
-  return { streets: out, links, linkM, straight };
-}
-
-/** The metres of road between streets in a given order (to compare orders). */
-export function linkMetres(
-  roads: Pt[][] | Graph,
-  streets: WayStreet[],
-  start: Pt | null,
-): number {
-  const g = Array.isArray(roads) ? graphOf(roads) : roads;
-  let total = 0;
-  let here = start;
-  for (const s of streets) {
-    const e = endsOf(s.lines);
-    if (!e) continue;
-    if (here) {
-      const a = nearestPoint(g, here);
-      const tree = a && a.m <= OFF_ROAD_M ? fromPoint(g, a.i) : null;
-      const via = (p: Pt) => {
-        const n = nearestPoint(g, p);
-        return tree && n && n.m <= OFF_ROAD_M && Number.isFinite(tree.m[n.i])
-          ? tree.m[n.i]
-          : dist(here!, p) * 1.4;
-      };
-      const [m0, m1] = [via(e[0]), via(e[1])];
-      total += Math.min(m0, m1);
-      here = m0 <= m1 ? e[1] : e[0];
-    } else here = e[1];
-  }
-  return total;
+  return {
+    streets: [...ordered, ...loose],
+    links: [...links, ...loose.map(() => [])],
+    walkM: [...walkM, ...loose.map(() => 0)],
+    today,
+    linkM: om,
+    linkGiven,
+    straight,
+  };
 }

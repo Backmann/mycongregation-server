@@ -206,6 +206,14 @@ export interface PlanPart {
   start: Pt | null;
   /** «Smaller»: asked for about two thirds of an even share. */
   smaller?: boolean;
+  /**
+   * The way by road (14 November 2026): links[i] is the road to streets[i]
+   * — from the start, then from the street before. Absent from a division
+   * saved before, or when the way is not worked out.
+   */
+  links?: Pt[][];
+  /** The first `today` streets are about one outing (way.ts TODAY_M). */
+  today?: number;
 }
 
 export type SplitMode = 'own' | 'near';

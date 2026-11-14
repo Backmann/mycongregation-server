@@ -27,7 +27,6 @@ import { addDays } from './service-year';
 import { mondayOf } from '../common/week';
 import {
   ADDRESS_M,
-  dist,
   divide as divideStreets,
   FAR_M,
   findAddress,
@@ -42,7 +41,7 @@ import {
   type Pt,
   type SplitMode,
 } from './split';
-import { graphOf, linkMetres, wayThrough } from './way';
+import { routePart } from './way';
 
 /** Fewer is no division; more than this and a part is a street or two. */
 export const MIN_PARTS = 2;
@@ -71,6 +70,8 @@ export interface PartStreetView {
   dots: Pt[];
   /** When it was marked walked; null: not yet. */
   walkedAt: string | null;
+  /** The road to it from the street before (or the start); null: not worked out. */
+  link: Pt[] | null;
 }
 
 export interface PartView {
@@ -83,6 +84,8 @@ export interface PartView {
   streets: PartStreetView[];
   /** Nothing walked yet: another pair may still take one of its streets. */
   untouched: boolean;
+  /** The first `today` streets are about one outing; null: not worked out. */
+  today: number | null;
 }
 
 /** How a division is asked for (13 November 2026, «Пары на участке»). */
@@ -362,7 +365,7 @@ export class TerritorySplitsService {
       // The way through each part by road (14 November 2026): measured
       // before it is drawn — the roads between streets in today's order
       // and in the order the roads suggest, and links with no road.
-      way: await this.wayCheck(t, plan.parts, plan.start),
+      way: plan.way,
       // What the register holds here: the check before counting only homes.
       register: registerOf(
         await this.housesOf(t, true),
@@ -408,11 +411,19 @@ export class TerritorySplitsService {
         refusal('TERRITORY_NO_STREETS', 'The map has no streets here yet.'),
       );
     }
-    return {
+    const begin = found ?? parts[0]?.start ?? null;
+    const routed = this.route(
+      streets.flatMap((r) => r.lines),
       parts,
+      begin,
+      mode,
+    );
+    return {
+      parts: routed.parts,
+      way: routed.stats,
       left,
       mode,
-      start: found ?? parts[0]?.start ?? null,
+      start: begin,
       startFrom: found ? ('meeting' as const) : ('middle' as const),
       houses: houses.length,
       numbered: houses.filter((h) => h.numbers?.length).length,
@@ -513,7 +524,20 @@ export class TerritorySplitsService {
           ? keep(p, partOf(p.n, [...p.streets, street], split.start))
           : p,
     );
+    split.parts = await this.reroute(split, [from.n, dest.n]);
     await this.splits.save(split);
+  }
+
+  /** The way by road again for parts whose streets changed hands. */
+  private async reroute(split: TerritorySplit, ns: number[]) {
+    const t = await this.territories.findOne({
+      where: { id: split.territoryId },
+    });
+    if (!t) return split.parts;
+    const roads = await this.roadsNear(t);
+    const changed = split.parts.filter((p) => ns.includes(p.n));
+    const { parts } = this.route(roads, changed, split.start, split.mode);
+    return split.parts.map((p) => parts.find((x) => x.n === p.n) ?? p);
   }
 
   /** One street (or piece) to another part: by hand, after dividing. */
@@ -549,6 +573,7 @@ export class TerritorySplitsService {
             ? keep(p, partOf(p.n, [...p.streets, street], split.start))
             : p,
       );
+      split.parts = await this.reroute(split, [from.n, dest.n]);
       await this.splits.save(split);
     }
     return this.ofToday(user, s.t.id);
@@ -882,32 +907,54 @@ export class TerritorySplitsService {
     return rows.filter((r) => pointInside([r.lon, r.lat], t.geometry)).length;
   }
 
-  /** The named streets that may serve the territory's houses. */
-  /** The roads between a part's streets, today's order and the roads' own. */
-  private async wayCheck(t: Territory, parts: PlanPart[], start: Pt | null) {
-    const roads = graphOf((await this.streetsNear(t)).flatMap((r) => r.lines));
-    const len = (lines: Pt[][]) =>
-      lines.reduce((a, l) => {
-        let m = 0;
-        for (let i = 1; i < l.length; i++) m += dist(l[i - 1], l[i]);
-        return a + m;
-      }, 0);
-    return parts.map((p) => {
-      const from = start ?? p.start;
-      const w = wayThrough(roads, p.streets, from);
-      return {
+  /**
+   * Each part's way by road (14 November 2026): its streets in the order
+   * to walk them, the roads between them and today's share. «Pairs near»
+   * set off from the common start, «each its own» from its first house.
+   */
+  private route(
+    roads: Pt[][],
+    parts: PlanPart[],
+    start: Pt | null,
+    mode: SplitMode,
+  ): {
+    parts: PlanPart[];
+    stats: {
+      n: number;
+      linkM: number;
+      linkGiven: number;
+      straight: number;
+      today: number;
+    }[];
+  } {
+    const stats: {
+      n: number;
+      linkM: number;
+      linkGiven: number;
+      straight: number;
+      today: number;
+    }[] = [];
+    const out = parts.map((p) => {
+      const from = mode === 'near' ? (start ?? p.start) : p.start;
+      const w = routePart(roads, p.streets, from);
+      stats.push({
         n: p.n,
-        streetM: Math.round(p.streets.reduce((a, x) => a + len(x.lines), 0)),
-        linkNow: Math.round(linkMetres(roads, p.streets, from)),
-        linkWay: Math.round(w.linkM),
+        linkM: Math.round(w.linkM),
+        linkGiven: Math.round(w.linkGiven),
         straight: w.straight,
-        sameOrder:
-          w.streets.map((x) => x.key).join('|') ===
-          p.streets.map((x) => x.key).join('|'),
-      };
+        today: w.today,
+      });
+      return { ...p, streets: w.streets, links: w.links, today: w.today };
     });
+    return { parts: out, stats };
   }
 
+  /** The roads round a territory, as lines. */
+  private async roadsNear(t: Territory): Promise<Pt[][]> {
+    return (await this.streetsNear(t)).flatMap((r) => r.lines);
+  }
+
+  /** The named streets that may serve the territory's houses. */
   private async streetsNear(t: Territory) {
     const [x0, y0, x1, y1] = boxOf(t.geometry);
     // FAR_M round the box, in degrees (generously: a degree east is shorter).
@@ -987,7 +1034,7 @@ function partView(
   marks: TerritoryStreetMark[],
   walked: Set<string>,
 ): PartView {
-  const streets = p.streets.map((x) => {
+  const streets = p.streets.map((x, i) => {
     const done = x.homes.length > 0 && x.homes.every((h) => walked.has(h));
     const at = done
       ? marks
@@ -1009,6 +1056,7 @@ function partView(
       lines: x.lines,
       dots: x.dots ?? [],
       walkedAt: at.length ? new Date(Math.max(...at)).toISOString() : null,
+      link: p.links?.[i]?.length ? p.links[i] : null,
     };
   });
   return {
@@ -1019,5 +1067,6 @@ function partView(
     smaller: !!p.smaller,
     streets,
     untouched: !p.streets.some((x) => x.homes.some((h) => walked.has(h))),
+    today: typeof p.today === 'number' ? p.today : null,
   };
 }

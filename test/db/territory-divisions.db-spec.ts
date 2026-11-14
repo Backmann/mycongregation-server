@@ -263,6 +263,12 @@ describe('territory divisions between groups (real database)', () => {
     const parts = (moved.body as Division).split!.parts;
     expect(parts.map((p) => p.houses).reduce((a, b) => a + b)).toBe(30);
     expect(parts[1].streets.some((s) => s.key === key)).toBe(true);
+    // The way by road is worked out again for the part that took it.
+    expect(
+      (parts[1].streets as unknown as { link: unknown }[]).every((s) =>
+        Array.isArray(s.link),
+      ),
+    ).toBe(true);
   });
 
   it('«street walked» is seen by every part, and the next division leaves those houses out', async () => {
@@ -604,8 +610,17 @@ describe('territory divisions between groups (real database)', () => {
       // joins: every link is a straight line).
       expect(r.body.way).toHaveLength(2);
       expect(r.body.way[0]).toMatchObject({ n: 1 });
-      expect(r.body.way[0].streetM).toBeGreaterThan(0);
       expect(r.body.way[0].straight).toBeGreaterThan(0);
+      // Never longer than the order by straight line.
+      for (const w of r.body.way)
+        expect(w.linkM).toBeLessThanOrEqual(w.linkGiven);
+      // Each street with the road to it, and today's share of the part.
+      const p0 = r.body.parts[0] as {
+        today: number;
+        streets: { link: unknown }[];
+      };
+      expect(p0.today).toBeGreaterThanOrEqual(1);
+      expect(p0.streets.every((x) => Array.isArray(x.link))).toBe(true);
       // The register as the keepers check it before counting only homes.
       expect(r.body.register).toEqual({
         buildings: 30,
