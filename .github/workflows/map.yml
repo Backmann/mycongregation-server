@@ -163,7 +163,7 @@ jobs:
           curl -sS -o g.json "$AKT/index.json" || true
           jq -c '[.. | objects | select(has("name")) | {name, size}] | sort_by(.size|tonumber? // 0) | .[:8]' g.json | cut -c1-2500
           jq -r '[.. | objects | select(has("name"))] | length' g.json
-          F=$(jq -r '[.. | objects | select(has("name") and (.name|test("gpkg|zip";"i")))] | sort_by(.size|tonumber? // 0) | .[0].name' g.json)
+          F=$(jq -r '[.. | objects | select(has("name") and (.name|test("\\.zip$";"i")))] | sort_by(.size|tonumber? // 0) | .[0].name' g.json)
           echo "Smallest: $F"
           curl -fsS "$AKT/$F" -o small.bin && ls -l small.bin | awk '{print "bytes", $5}'
           file small.bin
