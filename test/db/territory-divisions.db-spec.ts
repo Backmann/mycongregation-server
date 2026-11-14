@@ -584,6 +584,8 @@ describe('territory divisions between groups (real database)', () => {
         numbered: 0,
         withStreet: 0,
         addressNear: 0,
+        addressFree: 0,
+        neighbours: { under60: 0, to150: 0, over150: 0 },
         bare: { under60: 0, to150: 30, over150: 0 },
         addresses: 0,
       });

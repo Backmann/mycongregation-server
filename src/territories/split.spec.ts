@@ -779,6 +779,8 @@ describe('dividing a territory between groups (13 November 2026)', () => {
             house('n', 7.001, 51.0001, ['12']),
             // No number on the map, but an address stands on it.
             { ...house('a', 7.002, 51.0001), area: 90 },
+            // 10 m behind house 12: only the address of the numbered neighbour.
+            { ...house('q', 7.00115, 51.0001), area: 30 },
             // Bare: a garage, a shed, a big barn.
             { ...house('g', 7.003, 51.0001), area: 40 },
             { ...house('s', 7.0035, 51.0001), area: 100 },
@@ -791,18 +793,23 @@ describe('dividing a territory between groups (13 November 2026)', () => {
             { at: [7.003, 51.00037], number: '16', street: 'Ahornweg' },
           ],
         );
-        expect(hs.map((h) => [h.id, !!h.addressNear])).toEqual([
-          ['n', false],
-          ['a', true],
-          ['g', false],
-          ['s', false],
-          ['b', false],
-        ]);
+        expect(hs.map((h) => [h.id, !!h.addressNear, !!h.addressFree])).toEqual(
+          [
+            ['n', false, false],
+            ['a', true, true],
+            ['q', true, false],
+            ['g', false, false],
+            ['s', false, false],
+            ['b', false, false],
+          ],
+        );
         expect(registerOf(hs, 3)).toEqual({
-          buildings: 5,
+          buildings: 6,
           numbered: 1,
           withStreet: 1,
-          addressNear: 1,
+          addressNear: 2,
+          addressFree: 1,
+          neighbours: { under60: 1, to150: 0, over150: 0 },
           bare: { under60: 1, to150: 1, over150: 1 },
           addresses: 3,
         });
