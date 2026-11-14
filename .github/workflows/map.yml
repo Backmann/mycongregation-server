@@ -169,9 +169,9 @@ jobs:
           file small.bin
           case "$F" in *.zip) unzip -o -q small.bin -d small && G=$(find small -iname '*.gpkg' | head -1);; *) G=small.bin;; esac
           sudo apt-get -qq install -y gdal-bin > /dev/null 2>&1 || true
-          ogrinfo -ro -so "$G" 2>&1 | head -30
-          for L in $(ogrinfo -ro -so "$G" 2>/dev/null | sed -n 's/^[0-9]*: \([^ ]*\).*/\1/p' | grep -iE 'geb|bau' ); do
-            echo "== $L"; ogrinfo -ro -so "$G" "$L" 2>&1 | sed -n '/Feature Count/p;/: String\|: Integer\|: Real/p' | head -40
+          for F2 in gebnutzbez funktion; do
+            echo "== $F2"
+            ogrinfo -ro -q "$G" -sql "SELECT $F2 AS v, COUNT(*) AS n FROM GebauedeBauwerk GROUP BY $F2 ORDER BY n DESC" 2>&1 | grep -E '^  (v|n) ' | paste - - | sed 's/  v (String) = //;s/\t  n (Integer64) = / | /' | head -70
           done
       - name: Probe - land-use zones in the trial map
         if: always()
