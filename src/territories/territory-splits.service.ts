@@ -33,6 +33,7 @@ import {
   partOf,
   partsOfAddress,
   rangesOf,
+  registerOf,
   withStreets,
   type House,
   type PlanPart,
@@ -356,6 +357,8 @@ export class TerritorySplitsService {
       houses: plan.houses,
       numbered: plan.numbered,
       parts: plan.parts.map((p) => partView(p, [], new Set())),
+      // What the register holds here: the check before counting only homes.
+      register: registerOf(await this.housesOf(t), await this.addressesIn(t)),
     };
   }
 
@@ -812,9 +815,15 @@ export class TerritorySplitsService {
   private async housesOf(t: Territory): Promise<House[]> {
     const [x0, y0, x1, y1] = boxOf(t.geometry);
     const rows = await this.dataSource.query<
-      { osm_id: string; lon: number; lat: number; numbers: string | null }[]
+      {
+        osm_id: string;
+        lon: number;
+        lat: number;
+        numbers: string | null;
+        area_m2: number;
+      }[]
     >(
-      `SELECT osm_id, lon, lat, numbers FROM map_houses
+      `SELECT osm_id, lon, lat, numbers, area_m2 FROM map_houses
         WHERE congregation_id = $1 AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
       [t.congregationId, y0, y1, x0, x1],
     );
@@ -823,6 +832,7 @@ export class TerritorySplitsService {
         id: String(r.osm_id),
         at: [r.lon, r.lat] as Pt,
         numbers: r.numbers ? r.numbers.split(';').filter(Boolean) : [],
+        area: Number(r.area_m2),
       }))
       .filter((h) => pointInside(h.at, t.geometry));
     // Each its street by the official address (14 November 2026), when the
@@ -843,6 +853,17 @@ export class TerritorySplitsService {
         street: a.street,
       })),
     );
+  }
+
+  /** How many official addresses stand inside the territory. */
+  private async addressesIn(t: Territory): Promise<number> {
+    const [x0, y0, x1, y1] = boxOf(t.geometry);
+    const rows = await this.dataSource.query<{ lon: number; lat: number }[]>(
+      `SELECT lon, lat FROM map_addresses
+        WHERE congregation_id = $1 AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
+      [t.congregationId, y0, y1, x0, x1],
+    );
+    return rows.filter((r) => pointInside([r.lon, r.lat], t.geometry)).length;
   }
 
   /** The named streets that may serve the territory's houses. */

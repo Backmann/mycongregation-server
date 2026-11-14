@@ -50,6 +50,10 @@ export interface House {
    * NW»): when known, the house goes to it, not to the nearest street.
    */
   street?: string | null;
+  /** Footprint in m² (the register keeps buildings of 35 m² and more). */
+  area?: number;
+  /** No number of its own, but an official address stands on it (within ADDRESS_NEAR_M). */
+  addressNear?: boolean;
 }
 
 /** An official address: street, number, point (`map_addresses`). */
@@ -61,6 +65,8 @@ export interface Address {
 
 /** An address belongs to a house of the map when this close and of its number. */
 export const ADDRESS_M = 40;
+/** A house without a number of its own has an address on it when one is this close. */
+export const ADDRESS_NEAR_M = 20;
 
 /**
  * Each house of the map its street by the official addresses: an address of
@@ -89,7 +95,10 @@ export function withStreets(houses: House[], addresses: Address[]): House[] {
   };
   return houses.map((h) => {
     const mine = new Set((h.numbers ?? []).map((n) => n.toLowerCase()));
-    if (mine.size === 0) return h;
+    if (mine.size === 0) {
+      const near = around(h.at).some((a) => dist(a.at, h.at) <= ADDRESS_NEAR_M);
+      return near ? { ...h, addressNear: true } : h;
+    }
     const votes = new Map<string, number>();
     for (const a of around(h.at)) {
       if (!mine.has(a.number.toLowerCase()) || dist(a.at, h.at) > ADDRESS_M)
@@ -1200,6 +1209,31 @@ export function partOf(
 }
 
 /** How even the parts are: the largest over the smallest, by doors (1 is perfect). */
+/**
+ * What the register holds for a territory (14 November 2026, the check
+ * before counting only homes): buildings with a number, with their own
+ * street by the official address, without a number but with an address on
+ * them, and without either — by size, for most of those are garages and
+ * barns, a few new houses the cadastre has not yet.
+ */
+export function registerOf(houses: House[], addresses: number) {
+  const bare = houses.filter((h) => !h.numbers?.length && !h.addressNear);
+  const by = (lo: number, hi: number) =>
+    bare.filter((h) => (h.area ?? 0) >= lo && (h.area ?? 0) < hi).length;
+  return {
+    buildings: houses.length,
+    numbered: houses.filter((h) => h.numbers?.length).length,
+    withStreet: houses.filter((h) => !!h.street).length,
+    addressNear: houses.filter((h) => h.addressNear).length,
+    bare: {
+      under60: by(0, 60),
+      to150: by(60, 150),
+      over150: by(150, Infinity),
+    },
+    addresses,
+  };
+}
+
 /** Finer pieces are tried, in turn, at these shares of a pair's share… */
 export const FINER = [1, 0.6, 0.4, 0.25];
 /** …and taken only when the parts come out this much more even (a ratio). */
