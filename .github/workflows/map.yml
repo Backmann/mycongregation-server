@@ -157,15 +157,21 @@ jobs:
       # the map's land-use zones. Prints names, sizes and counts only.
       - name: Probe - cadastre files and fields
         env:
-          AKT: https://www.opengeodata.nrw.de/produkte/geobasis/lk/akt
+          AKT: https://www.opengeodata.nrw.de/produkte/geobasis/lk/akt/gru_vereinfacht_gpkg
         run: |
           set -uo pipefail
-          curl -sS -o akt.json -w 'index: %{http_code}\n' "$AKT/index.json" || true
-          head -c 600 akt.json; echo
-          jq -r '.. | objects | select(has("name")) | .name' akt.json 2>/dev/null | head -80 || true
-          for d in $(jq -r '.. | objects | select(has("name")) | .name' akt.json 2>/dev/null | grep -i alkis | grep -i verein | head -5 || true); do
-            echo "== $d"
-            curl -fsS "$AKT/$d/index.json" -o sub.json && jq -c '[.. | objects | select(has("name")) | {name, size}] | .[:15]' sub.json | cut -c1-3000
+          curl -sS -o g.json "$AKT/index.json" || true
+          jq -c '[.. | objects | select(has("name")) | {name, size}] | sort_by(.size|tonumber? // 0) | .[:8]' g.json | cut -c1-2500
+          jq -r '[.. | objects | select(has("name"))] | length' g.json
+          F=$(jq -r '[.. | objects | select(has("name") and (.name|test("gpkg|zip";"i")))] | sort_by(.size|tonumber? // 0) | .[0].name' g.json)
+          echo "Smallest: $F"
+          curl -fsS "$AKT/$F" -o small.bin && ls -l small.bin | awk '{print "bytes", $5}'
+          file small.bin
+          case "$F" in *.zip) unzip -o -q small.bin -d small && G=$(find small -iname '*.gpkg' | head -1);; *) G=small.bin;; esac
+          sudo apt-get -qq install -y gdal-bin > /dev/null 2>&1 || true
+          ogrinfo -ro -so "$G" 2>&1 | head -30
+          for L in $(ogrinfo -ro -so "$G" 2>/dev/null | sed -n 's/^[0-9]*: \([^ ]*\).*/\1/p' | grep -iE 'geb|bau' ); do
+            echo "== $L"; ogrinfo -ro -so "$G" "$L" 2>&1 | sed -n '/Feature Count/p;/: String\|: Integer\|: Real/p' | head -40
           done
       - name: Probe - land-use zones in the trial map
         if: always()
@@ -186,7 +192,7 @@ jobs:
             for (const [name, l] of Object.entries(vt.layers)) { layers[name] = (layers[name] || 0) + l.length;
               for (let i = 0; i < l.length; i++) { const f = l.feature(i);
                 if (name === 'landuse') kinds[f.properties.kind] = (kinds[f.properties.kind] || 0) + 1;
-                if (name === 'buildings') for (const k of Object.keys(f.properties)) bkeys[k] = (bkeys[k] || 0) + 1; } }
+                if (name === 'buildings') { for (const k of Object.keys(f.properties)) bkeys[k] = (bkeys[k] || 0) + 1; if (f.properties.kind_detail) bkeys['detail:' + f.properties.kind_detail] = (bkeys['detail:' + f.properties.kind_detail] || 0) + 1; } } }
           }
           console.log('layers', JSON.stringify(layers)); console.log('landuse kinds', JSON.stringify(kinds)); console.log('building keys', JSON.stringify(bkeys));
           "
