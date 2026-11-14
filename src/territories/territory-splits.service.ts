@@ -30,6 +30,7 @@ import {
   findAddress,
   partOf,
   partsOfAddress,
+  rangesOf,
   splitStreets,
   streetsWithHouses,
   type House,
@@ -60,6 +61,8 @@ export interface PartStreetView {
   pieces: number;
   side: PlanStreet['side'];
   range: PlanStreet['range'];
+  /** Odd and even numbers each on their own: «1–35», «2–40». */
+  ranges: PlanStreet['ranges'];
   houses: number;
   doors: number;
   lines: Pt[][];
@@ -105,7 +108,7 @@ export interface SharedPart {
     untouched: boolean;
     streets: Pick<
       PartStreetView,
-      'key' | 'name' | 'range' | 'side' | 'houses'
+      'key' | 'name' | 'range' | 'ranges' | 'side' | 'houses'
     >[];
   }[];
   /** How many «не посещать» addresses lie on this part's streets; never which. */
@@ -647,6 +650,7 @@ export class TerritorySplitsService {
             key: x.key,
             name: x.name,
             range: x.range,
+            ranges: rangesFor(x),
             side: x.side,
             houses: x.houses,
           })),
@@ -851,6 +855,18 @@ export class TerritorySplitsService {
   }
 }
 
+/**
+ * The odd and even ranges of a street of a plan; a division saved before
+ * 14 November 2026 has none, and gets them from its numbers.
+ */
+function rangesFor(x: PlanStreet): PlanStreet['ranges'] {
+  if (x.ranges) return x.ranges;
+  const nums = x.nums ?? [];
+  return nums.length && nums.length * 2 >= x.houses
+    ? rangesOf(nums)
+    : { odd: null, even: null };
+}
+
 function walkedHomes(marks: TerritoryStreetMark[]): Set<string> {
   return new Set(marks.flatMap((m) => m.homes));
 }
@@ -872,6 +888,7 @@ export function upgrade(parts: PlanPart[]): PlanPart[] {
       ...x,
       side: x.side ?? null,
       range: x.range ?? null,
+      ranges: rangesFor(x),
       doors: x.doors ?? x.houses,
       dots: x.dots ?? [],
       nums: x.nums ?? [],
@@ -909,6 +926,7 @@ function partView(
       pieces: x.pieces,
       side: x.side ?? null,
       range: x.range ?? null,
+      ranges: rangesFor(x),
       houses: x.houses,
       doors: x.doors ?? x.houses,
       lines: x.lines,
