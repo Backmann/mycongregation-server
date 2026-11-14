@@ -54,6 +54,12 @@ export interface House {
   area?: number;
   /** No number of its own, but an official address stands on it (within ADDRESS_NEAR_M). */
   addressNear?: boolean;
+  /**
+   * Of those: one of the addresses near it belongs to no house of the map
+   * with that number — the house the map has no number for. Without it the
+   * addresses near are a neighbour's (a garage or a shed behind a house).
+   */
+  addressFree?: boolean;
 }
 
 /** An official address: street, number, point (`map_addresses`). */
@@ -93,11 +99,25 @@ export function withStreets(houses: House[], addresses: Address[]): House[] {
         out.push(...(grid.get(`${x + i}:${y + j}`) ?? []));
     return out;
   };
+  // The addresses a house of the map with that number stands at.
+  const claimed = new Set<Address>();
+  for (const h of houses) {
+    const mine = new Set((h.numbers ?? []).map((n) => n.toLowerCase()));
+    if (mine.size === 0) continue;
+    for (const a of around(h.at))
+      if (mine.has(a.number.toLowerCase()) && dist(a.at, h.at) <= ADDRESS_M)
+        claimed.add(a);
+  }
   return houses.map((h) => {
     const mine = new Set((h.numbers ?? []).map((n) => n.toLowerCase()));
     if (mine.size === 0) {
-      const near = around(h.at).some((a) => dist(a.at, h.at) <= ADDRESS_NEAR_M);
-      return near ? { ...h, addressNear: true } : h;
+      const near = around(h.at).filter(
+        (a) => dist(a.at, h.at) <= ADDRESS_NEAR_M,
+      );
+      if (near.length === 0) return h;
+      return near.some((a) => !claimed.has(a))
+        ? { ...h, addressNear: true, addressFree: true }
+        : { ...h, addressNear: true };
     }
     const votes = new Map<string, number>();
     for (const a of around(h.at)) {
@@ -1214,22 +1234,32 @@ export function partOf(
  * before counting only homes): buildings with a number, with their own
  * street by the official address, without a number but with an address on
  * them, and without either — by size, for most of those are garages and
- * barns, a few new houses the cadastre has not yet.
+ * barns, a few new houses the cadastre has not yet. Those with an address
+ * near are told apart (14 November 2026): an address no numbered house of
+ * the map stands at (`addressFree`, likely the home itself), or only the
+ * addresses of numbered neighbours (`neighbours`, likely a garage or shed).
  */
 export function registerOf(houses: House[], addresses: number) {
+  const sizes = (list: House[]) => {
+    const by = (lo: number, hi: number) =>
+      list.filter((h) => (h.area ?? 0) >= lo && (h.area ?? 0) < hi).length;
+    return {
+      under60: by(0, 60),
+      to150: by(60, 150),
+      over150: by(150, Infinity),
+    };
+  };
   const bare = houses.filter((h) => !h.numbers?.length && !h.addressNear);
-  const by = (lo: number, hi: number) =>
-    bare.filter((h) => (h.area ?? 0) >= lo && (h.area ?? 0) < hi).length;
+  // Near an address a numbered house already stands at: by size, as the bare.
+  const neighbours = houses.filter((h) => h.addressNear && !h.addressFree);
   return {
     buildings: houses.length,
     numbered: houses.filter((h) => h.numbers?.length).length,
     withStreet: houses.filter((h) => !!h.street).length,
     addressNear: houses.filter((h) => h.addressNear).length,
-    bare: {
-      under60: by(0, 60),
-      to150: by(60, 150),
-      over150: by(150, Infinity),
-    },
+    addressFree: houses.filter((h) => h.addressFree).length,
+    neighbours: sizes(neighbours),
+    bare: sizes(bare),
     addresses,
   };
 }
