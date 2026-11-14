@@ -160,12 +160,15 @@ jobs:
           AKT: https://www.opengeodata.nrw.de/produkte/geobasis/lk/akt
         run: |
           set -uo pipefail
-          curl -fsS "$AKT/index.json" -o akt.json && jq -r '.. | objects | select(has("name")) | .name' akt.json | grep -i alkis | head -40
-          for d in $(jq -r '.. | objects | select(has("name")) | .name' akt.json | grep -i alkis | grep -i verein | head -5); do
+          curl -sS -o akt.json -w 'index: %{http_code}\n' "$AKT/index.json" || true
+          head -c 600 akt.json; echo
+          jq -r '.. | objects | select(has("name")) | .name' akt.json 2>/dev/null | head -80 || true
+          for d in $(jq -r '.. | objects | select(has("name")) | .name' akt.json 2>/dev/null | grep -i alkis | grep -i verein | head -5 || true); do
             echo "== $d"
             curl -fsS "$AKT/$d/index.json" -o sub.json && jq -c '[.. | objects | select(has("name")) | {name, size}] | .[:15]' sub.json | cut -c1-3000
           done
       - name: Probe - land-use zones in the trial map
+        if: always()
         run: |
           set -uo pipefail
           node --input-type=module -e "
