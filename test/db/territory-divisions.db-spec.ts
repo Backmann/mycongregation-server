@@ -600,6 +600,12 @@ describe('territory divisions between groups (real database)', () => {
         });
       const parts = r.body.parts as { doors: number }[];
       expect(parts.map((p) => p.doors).sort()).toEqual([15, 15]);
+      // The way by road, measured for each part (three streets that no road
+      // joins: every link is a straight line).
+      expect(r.body.way).toHaveLength(2);
+      expect(r.body.way[0]).toMatchObject({ n: 1 });
+      expect(r.body.way[0].streetM).toBeGreaterThan(0);
+      expect(r.body.way[0].straight).toBeGreaterThan(0);
       // The register as the keepers check it before counting only homes.
       expect(r.body.register).toEqual({
         buildings: 30,

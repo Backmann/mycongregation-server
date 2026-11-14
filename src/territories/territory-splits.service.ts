@@ -27,6 +27,7 @@ import { addDays } from './service-year';
 import { mondayOf } from '../common/week';
 import {
   ADDRESS_M,
+  dist,
   divide as divideStreets,
   FAR_M,
   findAddress,
@@ -41,6 +42,7 @@ import {
   type Pt,
   type SplitMode,
 } from './split';
+import { graphOf, linkMetres, wayThrough } from './way';
 
 /** Fewer is no division; more than this and a part is a street or two. */
 export const MIN_PARTS = 2;
@@ -357,6 +359,10 @@ export class TerritorySplitsService {
       houses: plan.houses,
       numbered: plan.numbered,
       parts: plan.parts.map((p) => partView(p, [], new Set())),
+      // The way through each part by road (14 November 2026): measured
+      // before it is drawn — the roads between streets in today's order
+      // and in the order the roads suggest, and links with no road.
+      way: await this.wayCheck(t, plan.parts, plan.start),
       // What the register holds here: the check before counting only homes.
       register: registerOf(
         await this.housesOf(t, true),
@@ -877,6 +883,31 @@ export class TerritorySplitsService {
   }
 
   /** The named streets that may serve the territory's houses. */
+  /** The roads between a part's streets, today's order and the roads' own. */
+  private async wayCheck(t: Territory, parts: PlanPart[], start: Pt | null) {
+    const roads = graphOf((await this.streetsNear(t)).flatMap((r) => r.lines));
+    const len = (lines: Pt[][]) =>
+      lines.reduce((a, l) => {
+        let m = 0;
+        for (let i = 1; i < l.length; i++) m += dist(l[i - 1], l[i]);
+        return a + m;
+      }, 0);
+    return parts.map((p) => {
+      const from = start ?? p.start;
+      const w = wayThrough(roads, p.streets, from);
+      return {
+        n: p.n,
+        streetM: Math.round(p.streets.reduce((a, x) => a + len(x.lines), 0)),
+        linkNow: Math.round(linkMetres(roads, p.streets, from)),
+        linkWay: Math.round(w.linkM),
+        straight: w.straight,
+        sameOrder:
+          w.streets.map((x) => x.key).join('|') ===
+          p.streets.map((x) => x.key).join('|'),
+      };
+    });
+  }
+
   private async streetsNear(t: Territory) {
     const [x0, y0, x1, y1] = boxOf(t.geometry);
     // FAR_M round the box, in degrees (generously: a degree east is shorter).
