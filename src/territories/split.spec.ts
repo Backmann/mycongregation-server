@@ -676,8 +676,10 @@ describe('dividing a territory between groups (13 November 2026)', () => {
           ['a', 'Kirchweg'],
           ['b', 'Kirchweg'],
           ['far', null],
-          ['none', null],
+          // No number on the map, on an address no house has: that address's.
+          ['none', 'Kirchweg'],
         ]);
+        expect(hs[3].numbers).toEqual(['18']);
       });
 
       it('a block with entrances on two streets goes to the one most of them name', () => {
@@ -773,6 +775,25 @@ describe('dividing a territory between groups (13 November 2026)', () => {
         ]);
       });
 
+      it('a number takes its nearest address only: the same number round the corner is another home', () => {
+        const hs = withStreets(
+          [
+            house('n', 7.001, 51.0001, ['12']),
+            // 30 m off, no number on the map, on Birkenweg 12.
+            { ...house('c', 7.001, 51.00037), area: 110 },
+          ],
+          [
+            { at: [7.001, 51.00012], number: '12', street: 'Ahornweg' },
+            { at: [7.001, 51.00037], number: '12', street: 'Birkenweg' },
+          ],
+        );
+        expect(hs[1]).toMatchObject({
+          addressFree: true,
+          numbers: ['12'],
+          street: 'Birkenweg',
+        });
+      });
+
       it('the register: numbered, with a street, with an address on them, bare by size', () => {
         const hs = withStreets(
           [
@@ -806,7 +827,8 @@ describe('dividing a territory between groups (13 November 2026)', () => {
         expect(registerOf(hs, 3)).toEqual({
           buildings: 6,
           numbered: 1,
-          withStreet: 1,
+          // House «a» takes the street of its own address.
+          withStreet: 2,
           addressNear: 2,
           addressFree: 1,
           neighbours: { under60: 1, to150: 0, over150: 0 },

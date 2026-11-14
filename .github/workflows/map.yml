@@ -299,6 +299,9 @@ jobs:
                 cat "addresses-$n.csv"
                 echo '\.'
               fi
+              # Only homes count (14 November 2026): garages and sheds without
+              # an address of their own are marked (migration MapHomes).
+              echo "SELECT 'Area $n: not homes ' || mark_homes('$id');"
               echo "INSERT INTO territory_settings (congregation_id, houses_built_at) VALUES ('$id', now()) ON CONFLICT (congregation_id) DO UPDATE SET houses_built_at = now();"
               echo "COMMIT;"
             } | ssh myserver "docker exec -i mycongregation-postgres sh -c 'psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -qAt -v ON_ERROR_STOP=1'"

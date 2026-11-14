@@ -56,8 +56,9 @@ export interface House {
   addressNear?: boolean;
   /**
    * Of those: one of the addresses near it belongs to no house of the map
-   * with that number — the house the map has no number for. Without it the
-   * addresses near are a neighbour's (a garage or a shed behind a house).
+   * with that number — the house the map has no number for, which then
+   * takes that address's number and street. Without it the addresses near
+   * are a neighbour's (a garage or a shed behind a house).
    */
   addressFree?: boolean;
 }
@@ -99,14 +100,20 @@ export function withStreets(houses: House[], addresses: Address[]): House[] {
         out.push(...(grid.get(`${x + i}:${y + j}`) ?? []));
     return out;
   };
-  // The addresses a house of the map with that number stands at.
+  // The addresses a house of the map with that number stands at: each
+  // number of a house takes its nearest address within ADDRESS_M — not the
+  // same number of the next street round the corner (as `mark_homes`).
   const claimed = new Set<Address>();
   for (const h of houses) {
-    const mine = new Set((h.numbers ?? []).map((n) => n.toLowerCase()));
-    if (mine.size === 0) continue;
-    for (const a of around(h.at))
-      if (mine.has(a.number.toLowerCase()) && dist(a.at, h.at) <= ADDRESS_M)
-        claimed.add(a);
+    for (const n of new Set((h.numbers ?? []).map((x) => x.toLowerCase()))) {
+      let best: Address | null = null;
+      for (const a of around(h.at)) {
+        if (a.number.toLowerCase() !== n || dist(a.at, h.at) > ADDRESS_M)
+          continue;
+        if (!best || dist(a.at, h.at) < dist(best.at, h.at)) best = a;
+      }
+      if (best) claimed.add(best);
+    }
   }
   return houses.map((h) => {
     const mine = new Set((h.numbers ?? []).map((n) => n.toLowerCase()));
@@ -115,9 +122,20 @@ export function withStreets(houses: House[], addresses: Address[]): House[] {
         (a) => dist(a.at, h.at) <= ADDRESS_NEAR_M,
       );
       if (near.length === 0) return h;
-      return near.some((a) => !claimed.has(a))
-        ? { ...h, addressNear: true, addressFree: true }
-        : { ...h, addressNear: true };
+      const free = near.filter((a) => !claimed.has(a));
+      if (free.length === 0) return { ...h, addressNear: true };
+      // The home the map has no number for: its number and street are the
+      // address's own (14 November 2026).
+      const nearest = free.reduce((b, a) =>
+        dist(a.at, h.at) < dist(b.at, h.at) ? a : b,
+      );
+      return {
+        ...h,
+        numbers: [...new Set(free.map((a) => a.number))],
+        street: nearest.street,
+        addressNear: true,
+        addressFree: true,
+      };
     }
     const votes = new Map<string, number>();
     for (const a of around(h.at)) {
@@ -1254,7 +1272,8 @@ export function registerOf(houses: House[], addresses: number) {
   const neighbours = houses.filter((h) => h.addressNear && !h.addressFree);
   return {
     buildings: houses.length,
-    numbered: houses.filter((h) => h.numbers?.length).length,
+    // The map's own numbers: not those taken from an address just now.
+    numbered: houses.filter((h) => h.numbers?.length && !h.addressFree).length,
     withStreet: houses.filter((h) => !!h.street).length,
     addressNear: houses.filter((h) => h.addressNear).length,
     addressFree: houses.filter((h) => h.addressFree).length,

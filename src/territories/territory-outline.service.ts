@@ -519,7 +519,7 @@ export class TerritoryOutlineService {
     if (!settings?.housesBuiltAt) return { builtAt: null, houses: [] };
     const rows = await this.dataSource.query<{ lon: number; lat: number }[]>(
       `SELECT lon, lat FROM map_houses
-        WHERE congregation_id = $1 AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5
+        WHERE congregation_id = $1 AND home AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5
         LIMIT ${MAX_HOUSES}`,
       [user.congregationId, y0, y1, x0, x1],
     );

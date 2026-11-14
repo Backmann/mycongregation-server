@@ -528,6 +528,14 @@ describe('territory assignments (real database)', () => {
       `SELECT id FROM territories WHERE number = 'A02'`,
     );
     expect(sized.body.houses).toEqual({ [territoryId]: 2, [a2.id]: 1 });
+    // Only homes count (14 November 2026): a garage marked so is not a house.
+    await h.sql(`UPDATE map_houses SET home = false WHERE osm_id = 2`);
+    await h.sql(
+      `UPDATE territory_settings SET houses_built_at = now() + interval '1 second' WHERE congregation_id = $1`,
+      [congregationId],
+    );
+    const homesOnly = await h.as('keeper').get('/territories/desk');
+    expect(homesOnly.body.houses).toEqual({ [territoryId]: 1, [a2.id]: 1 });
     await h.sql(`DELETE FROM map_houses`);
     // Candidates say it too.
     const cand = await h
