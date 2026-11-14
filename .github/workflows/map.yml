@@ -151,6 +151,43 @@ jobs:
           node scripts/map-streets.mjs nrw.pmtiles "$NRW_BOX" 00000000-0000-4000-8000-000000000000 > nrw-streets.csv
           node scripts/map-addresses.mjs --compare nrw-houses.csv nrw-streets.csv addresses.csv
 
+
+      # PROBE (14 November 2026), to be removed: which signals say whether a
+      # building is a home — the official cadastre (ALKIS, simplified) and
+      # the map's land-use zones. Prints names, sizes and counts only.
+      - name: Probe - cadastre files and fields
+        env:
+          AKT: https://www.opengeodata.nrw.de/produkte/geobasis/lk/akt
+        run: |
+          set -uo pipefail
+          curl -fsS "$AKT/index.json" -o akt.json && jq -r '.. | objects | select(has("name")) | .name' akt.json | grep -i alkis | head -40
+          for d in $(jq -r '.. | objects | select(has("name")) | .name' akt.json | grep -i alkis | grep -i verein | head -5); do
+            echo "== $d"
+            curl -fsS "$AKT/$d/index.json" -o sub.json && jq -c '[.. | objects | select(has("name")) | {name, size}] | .[:15]' sub.json | cut -c1-3000
+          done
+      - name: Probe - land-use zones in the trial map
+        run: |
+          set -uo pipefail
+          node --input-type=module -e "
+          import { PMTiles } from 'pmtiles';
+          import { VectorTile } from '@mapbox/vector-tile';
+          import { PbfReader } from 'pbf';
+          import { FileSource } from './scripts/map-houses.mjs';
+          const p = new PMTiles(new FileSource('trial.pmtiles'));
+          const z = 15, lon = 9.47, lat = 51.31;
+          const n = 2 ** z, x0 = Math.floor((lon + 180) / 360 * n), y0 = Math.floor((1 - Math.log(Math.tan(lat*Math.PI/180) + 1/Math.cos(lat*Math.PI/180)) / Math.PI) / 2 * n);
+          const kinds = {}, layers = {}, bkeys = {};
+          for (let dx = -6; dx <= 6; dx++) for (let dy = -6; dy <= 6; dy++) {
+            const t = await p.getZxy(z, x0 + dx, y0 + dy); if (!t) continue;
+            const vt = new VectorTile(new PbfReader(new Uint8Array(t.data)));
+            for (const [name, l] of Object.entries(vt.layers)) { layers[name] = (layers[name] || 0) + l.length;
+              for (let i = 0; i < l.length; i++) { const f = l.feature(i);
+                if (name === 'landuse') kinds[f.properties.kind] = (kinds[f.properties.kind] || 0) + 1;
+                if (name === 'buildings') for (const k of Object.keys(f.properties)) bkeys[k] = (bkeys[k] || 0) + 1; } }
+          }
+          console.log('layers', JSON.stringify(layers)); console.log('landuse kinds', JSON.stringify(kinds)); console.log('building keys', JSON.stringify(bkeys));
+          "
+
   map-build:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
