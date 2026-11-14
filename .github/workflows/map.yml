@@ -143,6 +143,8 @@ jobs:
           echo "Text: $TXT ($(wc -l < "$TXT") lines)"
           awk 'NR<=2' "$TXT" | cut -c1-200
           node scripts/map-addresses.mjs "$TXT" "$NRW_BOX" 00000000-0000-4000-8000-000000000000 > addresses.csv
+          # Six fields on every line, read as CSV (street names may hold commas).
+          python3 -c "import csv,sys; r=list(csv.reader(open('addresses.csv'))); bad=[x for x in r if len(x)!=6]; print(len(r),'addresses,',len(bad),'malformed'); sys.exit(1 if bad or len(r) < 1000 else 0)"
           ~/go/bin/go-pmtiles extract "https://build.protomaps.com/${{ steps.build.outputs.key }}" nrw.pmtiles \
             --bbox="$NRW_BOX" --maxzoom=${MAX_ZOOM} > nrw-extract.log 2>&1 || { tail -5 nrw-extract.log; exit 1; }
           node scripts/map-houses.mjs nrw.pmtiles "$NRW_BOX" 00000000-0000-4000-8000-000000000000 > nrw-houses.csv
@@ -219,6 +221,25 @@ jobs:
           echo "key=$KEY" >> "$GITHUB_OUTPUT"
           echo "Build: $KEY"
 
+      # The official addresses of NRW (14 November 2026): street, number and
+      # point of every main building, Geobasis NRW, dl-de/zero-2.0. Read
+      # once for every congregation; when they cannot be had, the old ones
+      # stay and the division keeps guessing streets by distance.
+      - name: Official addresses (Gebäudereferenzen NW)
+        env:
+          GEBREF: https://www.opengeodata.nrw.de/produkte/geobasis/lk/akt/gebref_txt
+        run: |
+          set -uo pipefail
+          node scripts/map-addresses.mjs --self-test || exit 1
+          if curl -fsS "$GEBREF/index.json" -o gebref-index.json; then
+            FILE=$(jq -r '.. | objects | select(has("name")) | .name' gebref-index.json | grep -iE '\.zip$' | awk 'NR==1')
+            if [ -n "$FILE" ] && curl -fsS "$GEBREF/$FILE" -o gebref.zip && unzip -o -q gebref.zip -d gebref; then
+              TXT=$(find gebref -iname 'gebref*.txt' ! -iname '*anzahl*' | awk 'NR==1')
+              [ -n "$TXT" ] && mv "$TXT" gebref.txt && echo "Addresses: $(wc -l < gebref.txt) lines"
+            fi
+          fi
+          [ -f gebref.txt ] || echo "::warning::No official addresses this time; the old ones stay."
+
       - name: Cut and put in place
         run: |
           set -euo pipefail
@@ -253,6 +274,11 @@ jobs:
             # (13 November 2026).
             node scripts/map-streets.mjs "map-$n.pmtiles" "$box" "$id" > "streets-$n.csv" < /dev/null
             echo "Area $n: $(wc -l < "streets-$n.csv") streets"
+            # The official addresses in the same box (14 November 2026).
+            if [ -f gebref.txt ]; then
+              node scripts/map-addresses.mjs gebref.txt "$box" "$id" > "addresses-$n.csv" < /dev/null
+              echo "Area $n: $(wc -l < "addresses-$n.csv") addresses"
+            fi
             {
               echo "BEGIN;"
               echo "DELETE FROM map_houses WHERE congregation_id = '$id';"
@@ -267,6 +293,12 @@ jobs:
               echo "COPY map_streets (congregation_id, street_no, name, kind, west, south, east, north, lines) FROM STDIN WITH (FORMAT csv);"
               cat "streets-$n.csv"
               echo '\.'
+              if [ -f "addresses-$n.csv" ]; then
+                echo "DELETE FROM map_addresses WHERE congregation_id = '$id';"
+                echo "COPY map_addresses (congregation_id, oid, lon, lat, number, street) FROM STDIN WITH (FORMAT csv);"
+                cat "addresses-$n.csv"
+                echo '\.'
+              fi
               echo "INSERT INTO territory_settings (congregation_id, houses_built_at) VALUES ('$id', now()) ON CONFLICT (congregation_id) DO UPDATE SET houses_built_at = now();"
               echo "COMMIT;"
             } | ssh myserver "docker exec -i mycongregation-postgres sh -c 'psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -qAt -v ON_ERROR_STOP=1'"
@@ -278,4 +310,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts ~/.ssh/config areas.csv houses-*.csv places-*.csv streets-*.csv
+        run: rm -rf ~/.ssh/deploy_key ~/.ssh/known_hosts ~/.ssh/config areas.csv houses-*.csv places-*.csv streets-*.csv addresses-*.csv gebref.txt gebref.zip gebref

@@ -8,6 +8,7 @@ import {
   streetKey,
   streetsWithHouses,
   unevenness,
+  withStreets,
   type House,
   type PlanStreet,
   type Pt,
@@ -648,6 +649,138 @@ describe('dividing a territory between groups (13 November 2026)', () => {
         expect(
           r.streets.find((x) => x.name === 'Querweg')!.homes.sort(),
         ).toEqual(['q14', 'q16', 'q18']);
+      });
+    });
+
+    describe('official addresses (14 November 2026, Gebäudereferenzen NW)', () => {
+      it('give a house its street: an address of one of its numbers, close by', () => {
+        const hs = withStreets(
+          [
+            house('a', 7.001, 51.0001, ['12']),
+            house('b', 7.002, 51.0001, ['14A']),
+            house('far', 7.003, 51.0001, ['16']),
+            house('none', 7.0035, 51.0001),
+          ],
+          [
+            { at: [7.00102, 51.00012], number: '12', street: 'Kirchweg' },
+            { at: [7.00201, 51.0001], number: '14a', street: 'Kirchweg' },
+            // Of the right number, but 44 m off: another house's.
+            { at: [7.003, 51.0005], number: '16', street: 'Kirchweg' },
+            // Close, but another number.
+            { at: [7.0035, 51.0001], number: '18', street: 'Kirchweg' },
+          ],
+        );
+        expect(hs.map((h) => [h.id, h.street ?? null])).toEqual([
+          ['a', 'Kirchweg'],
+          ['b', 'Kirchweg'],
+          ['far', null],
+          ['none', null],
+        ]);
+      });
+
+      it('a block with entrances on two streets goes to the one most of them name', () => {
+        const [h] = withStreets(
+          [house('block', 7.001, 51.0001, ['1', '3', '20'])],
+          [
+            { at: [7.001, 51.0001], number: '1', street: 'Lindenweg' },
+            { at: [7.001, 51.0001], number: '3', street: 'Lindenweg' },
+            { at: [7.001, 51.0001], number: '20', street: 'Ahornweg' },
+          ],
+        );
+        expect(h.street).toBe('Lindenweg');
+      });
+
+      it('a house goes to the street of its address, though another is nearer, and stays', () => {
+        // Kirchweg comes down to Ahornweg at 7.002; the house stands 10 m
+        // from Ahornweg and 25 m from Kirchweg, numbered on Kirchweg — and
+        // no neighbour's number tells it (the guess alone would keep it on
+        // Ahornweg).
+        const kirch = {
+          name: 'Kirchweg',
+          lines: [
+            [
+              [7.0024, 51.0003],
+              [7.0024, 51.002],
+            ],
+          ] as Pt[][],
+        };
+        const hs = [
+          house('a1', 7.0005, 51.0001, ['20']),
+          house('a2', 7.001, 51.0001, ['22']),
+          { ...house('k', 7.0021, 51.00009, ['2']), street: 'Kirchweg' },
+          house('k3', 7.0026, 51.0008, ['3']),
+        ];
+        const r = streetsWithHouses([A, kirch], hs);
+        const of = (name: string) =>
+          r.streets
+            .filter((x) => x.name === name)
+            .flatMap((x) => x.homes)
+            .sort();
+        expect(of('Kirchweg')).toEqual(['k', 'k3']);
+        // Without its address it would be guessed onto Ahornweg.
+        const guessed = streetsWithHouses(
+          [A, kirch],
+          hs.map((h) => ({ ...h, street: null })),
+        );
+        expect(
+          guessed.streets.find((x) => x.name === 'Ahornweg')!.homes,
+        ).toContain('k');
+      });
+
+      it('the guesses by numbers never move a house that has its address', () => {
+        // «3» on Ahornweg among 20, 22, with Kirchweg 1 and 5 round it: the
+        // numbers would send it to Kirchweg; its address says Ahornweg.
+        const kirch = {
+          name: 'Kirchweg',
+          lines: [
+            [
+              [7.0021, 51.0003],
+              [7.0021, 51.002],
+            ],
+          ] as Pt[][],
+        };
+        const hs = [
+          house('a1', 7.0005, 51.0001, ['20']),
+          house('a2', 7.001, 51.0001, ['22']),
+          house('k1', 7.0023, 51.0005, ['1']),
+          house('k5', 7.0023, 51.0007, ['5']),
+          house('x', 7.0019, 51.00012, ['3']),
+        ];
+        const of = (r: ReturnType<typeof streetsWithHouses>, name: string) =>
+          r.streets.filter((x) => x.name === name).flatMap((x) => x.homes);
+        // Without the address the numbers move it…
+        expect(of(streetsWithHouses([A, kirch], hs), 'Kirchweg')).toContain(
+          'x',
+        );
+        // …with it, it stays on its own street.
+        const addressed = hs.map((h) =>
+          h.id === 'x' ? { ...h, street: 'Ahornweg' } : h,
+        );
+        expect(
+          of(streetsWithHouses([A, kirch], addressed), 'Ahornweg'),
+        ).toContain('x');
+      });
+
+      it('an address naming a street the map has not near: placed by distance', () => {
+        const r = streetsWithHouses(
+          [A],
+          [{ ...house('x', 7.001, 51.0001, ['5']), street: 'Fernweg' }],
+        );
+        expect(r.streets.map((x) => [x.name, x.homes])).toEqual([
+          ['Ahornweg', ['x']],
+        ]);
+      });
+
+      it('finds the meeting place by its official address first', () => {
+        const hs = [
+          { ...house(1, 7.001, 51.0007, ['12']), street: 'Ahornweg' },
+          house(2, 7.001, 51.0001, ['12']),
+        ];
+        // The house of the address stands 60 m off the street's line (a
+        // building back from the road): only its address finds it.
+        expect(findAddress('Ahornweg 12', [A, B], hs)).toEqual([
+          7.001, 51.0007,
+        ]);
       });
     });
 

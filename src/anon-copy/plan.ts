@@ -424,6 +424,8 @@ export const PLAN: Record<string, TablePlan> = {
   territory_business_visits: copy(
     'id congregation_id business_id assignment_id state on_date',
   ),
+  /** Official addresses of NRW (14 November 2026): public data, no people. */
+  map_addresses: copy('congregation_id oid lon lat number street'),
   /** Named streets from OpenStreetMap (13 November 2026): public map data. */
   map_streets: copy(
     'congregation_id street_no name kind west south east north lines',

@@ -44,6 +44,63 @@ export interface House {
   at: Pt;
   /** House numbers of the building, «12», «12a»; empty when the map has none. */
   numbers?: string[];
+  /**
+   * Its street by the official address (14 November 2026, «Gebäudereferenzen
+   * NW»): when known, the house goes to it, not to the nearest street.
+   */
+  street?: string | null;
+}
+
+/** An official address: street, number, point (`map_addresses`). */
+export interface Address {
+  at: Pt;
+  number: string;
+  street: string;
+}
+
+/** An address belongs to a house of the map when this close and of its number. */
+export const ADDRESS_M = 40;
+
+/**
+ * Each house of the map its street by the official addresses: an address of
+ * one of its numbers within ADDRESS_M (in a trial town 99% of the houses
+ * with a number found theirs). A block with entrances on two streets goes
+ * to the one most of its numbers name. Houses without a number, or whose
+ * address is not found, keep no street: they are placed by distance.
+ */
+export function withStreets(houses: House[], addresses: Address[]): House[] {
+  if (addresses.length === 0) return houses;
+  const k = scale(houses[0]?.at[1] ?? addresses[0].at[1]);
+  const cellOf = (p: Pt) =>
+    `${Math.floor((p[0] * k[0]) / ADDRESS_M)}:${Math.floor((p[1] * k[1]) / ADDRESS_M)}`;
+  const grid = new Map<string, Address[]>();
+  for (const a of addresses) {
+    const c = cellOf(a.at);
+    grid.set(c, [...(grid.get(c) ?? []), a]);
+  }
+  const around = (p: Pt) => {
+    const [x, y] = cellOf(p).split(':').map(Number);
+    const out: Address[] = [];
+    for (let i = -1; i <= 1; i++)
+      for (let j = -1; j <= 1; j++)
+        out.push(...(grid.get(`${x + i}:${y + j}`) ?? []));
+    return out;
+  };
+  return houses.map((h) => {
+    const mine = new Set((h.numbers ?? []).map((n) => n.toLowerCase()));
+    if (mine.size === 0) return h;
+    const votes = new Map<string, number>();
+    for (const a of around(h.at)) {
+      if (!mine.has(a.number.toLowerCase()) || dist(a.at, h.at) > ADDRESS_M)
+        continue;
+      votes.set(a.street, (votes.get(a.street) ?? 0) + 1);
+    }
+    if (votes.size === 0) return h;
+    const street = [...votes].sort(
+      (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+    )[0][0];
+    return { ...h, street };
+  });
 }
 
 export interface PlanStreet {
@@ -317,12 +374,22 @@ export function streetsWithHouses(
       .sort((a, b) => a.d - b.d),
   );
   const owner: number[] = near.map((c) => (c.length ? c[0].i : -1));
-  fixCorners(houses, near, owner);
-  straysAway(houses, near, owner);
+  // A house whose official address names a street the map has near it goes
+  // there and stays: nothing below moves it.
+  const sure = houses.map((h, hi) => {
+    if (!h.street) return false;
+    const own = near[hi].find((c) => names[c.i] === h.street);
+    if (!own) return false;
+    owner[hi] = own.i;
+    return true;
+  });
+  fixCorners(houses, near, owner, sure);
+  straysAway(houses, near, owner, sure);
   sideStraysAway(
     houses,
     near,
     owner,
+    sure,
     names
       .map((name, i) => ({ i, name }))
       .filter(({ name }) => MAIN_ROADS.has(kindOf.get(name) ?? ''))
@@ -374,6 +441,7 @@ function fixCorners(
   houses: House[],
   near: { i: number; d: number }[][],
   owner: number[],
+  sure: boolean[] = [],
 ) {
   const numbersNear = (hi: number, street: number): number[] => {
     const out: number[] = [];
@@ -391,7 +459,7 @@ function fixCorners(
     around.length ? Math.min(...around.map((a) => Math.abs(a - v))) : Infinity;
   houses.forEach((h, hi) => {
     const v = h.numbers?.length ? numberOf(h.numbers[0]) : null;
-    if (v === null || owner[hi] < 0) return;
+    if (v === null || owner[hi] < 0 || sure[hi]) return;
     const here = gap(v, numbersNear(hi, owner[hi]));
     if (here <= FITS) return;
     for (const c of near[hi]) {
@@ -437,6 +505,7 @@ function straysAway(
   houses: House[],
   near: { i: number; d: number }[][],
   owner: number[],
+  sure: boolean[] = [],
 ) {
   const rows = new Map<string, [number, number] | null>();
   const rowFor = (street: number, parity: number) => {
@@ -457,7 +526,7 @@ function straysAway(
   const moves: [number, number][] = [];
   houses.forEach((h, hi) => {
     const v = h.numbers?.length ? numberOf(h.numbers[0]) : null;
-    if (v === null || owner[hi] < 0) return;
+    if (v === null || owner[hi] < 0 || sure[hi]) return;
     const row = rowFor(owner[hi], v % 2);
     if (row && v >= row[0] - RANGE_GAP && v <= row[1] + RANGE_GAP) return;
     // No row of its own side at all: out of line only when the other side
@@ -600,6 +669,7 @@ function sideStraysAway(
   houses: House[],
   near: { i: number; d: number }[][],
   owner: number[],
+  sure: boolean[],
   roads: { i: number; lines: Pt[][] }[],
 ) {
   for (const { i, lines } of roads) {
@@ -618,6 +688,7 @@ function sideStraysAway(
       [split.right, b],
     ] as const) {
       for (const hi of side) {
+        if (sure[hi]) continue;
         const v = houses[hi].numbers?.length
           ? numberOf(houses[hi].numbers![0])
           : null;
@@ -1135,6 +1206,14 @@ export function findAddress(
   const want = streetKey(address);
   const no = addressNumber(address);
   if (!want || !no) return null;
+  // A house whose official address is this one (14 November 2026).
+  const official = houses.find(
+    (h) =>
+      !!h.street &&
+      streetKey(h.street) === want &&
+      (h.numbers ?? []).some((x) => x.toLowerCase() === no),
+  );
+  if (official) return official.at;
   const lines = streets
     .filter((s) => streetKey(s.name) === want)
     .flatMap((s) => s.lines);
