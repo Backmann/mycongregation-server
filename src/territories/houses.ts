@@ -77,7 +77,7 @@ export async function housesAround(
   const [x0, y0, x1, y1] = boxAround(shapes);
   const rows = await m.query<{ lon: number; lat: number }[]>(
     `SELECT lon, lat FROM map_houses
-      WHERE congregation_id = $1 AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
+      WHERE congregation_id = $1 AND home AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
     [tenantId, y0, y1, x0, x1],
   );
   return rows.map((r) => [r.lon, r.lat]);

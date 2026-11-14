@@ -358,7 +358,10 @@ export class TerritorySplitsService {
       numbered: plan.numbered,
       parts: plan.parts.map((p) => partView(p, [], new Set())),
       // What the register holds here: the check before counting only homes.
-      register: registerOf(await this.housesOf(t), await this.addressesIn(t)),
+      register: registerOf(
+        await this.housesOf(t, true),
+        await this.addressesIn(t),
+      ),
     };
   }
 
@@ -811,8 +814,12 @@ export class TerritorySplitsService {
     return s.keeps || s.holds || s.conducts || split.madeByUserId === user.id;
   }
 
-  /** The houses of the register inside the territory. */
-  private async housesOf(t: Territory): Promise<House[]> {
+  /**
+   * The homes of the register inside the territory — garages and sheds
+   * without an address of their own left out (14 November 2026,
+   * `mark_homes`); with `all`, every building (the register's own check).
+   */
+  private async housesOf(t: Territory, all = false): Promise<House[]> {
     const [x0, y0, x1, y1] = boxOf(t.geometry);
     const rows = await this.dataSource.query<
       {
@@ -824,8 +831,9 @@ export class TerritorySplitsService {
       }[]
     >(
       `SELECT osm_id, lon, lat, numbers, area_m2 FROM map_houses
-        WHERE congregation_id = $1 AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
-      [t.congregationId, y0, y1, x0, x1],
+        WHERE congregation_id = $1 AND (home OR $6)
+          AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
+      [t.congregationId, y0, y1, x0, x1, all],
     );
     const houses = rows
       .map((r) => ({

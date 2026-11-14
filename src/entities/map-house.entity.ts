@@ -26,4 +26,12 @@ export class MapHouse {
   /** House numbers of the building, «12;12a;14» (13 November 2026); null: none known. */
   @Column({ type: 'varchar', length: 200, nullable: true })
   numbers!: string | null;
+
+  /**
+   * A home, counted as doors (14 November 2026). False for a garage or shed
+   * without an address of its own — set by `mark_homes()` (migration
+   * MapHomes), the one place the rule lives.
+   */
+  @Column({ type: 'boolean', default: true })
+  home!: boolean;
 }

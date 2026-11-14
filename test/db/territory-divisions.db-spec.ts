@@ -569,6 +569,26 @@ describe('territory divisions between groups (real database)', () => {
       }
     });
 
+    it('only homes are divided; the register still sees every building (14 November 2026)', async () => {
+      await h.sql(`UPDATE map_houses SET home = false WHERE osm_id = 105`);
+      try {
+        const r = await h
+          .as('dkeeper')
+          .post(`/territories/${territoryId}/division/preview`, {
+            parts: 2,
+            mode: 'own',
+          });
+        const doors = (r.body.parts as { doors: number }[]).reduce(
+          (a, p) => a + p.doors,
+          0,
+        );
+        expect(doors).toBe(29);
+        expect(r.body.register.buildings).toBe(30);
+      } finally {
+        await h.sql(`UPDATE map_houses SET home = true`);
+      }
+    });
+
     it('three streets for two pairs: the middle one is cut, not 20 against 10 (14 November 2026)', async () => {
       const r = await h
         .as('dkeeper')

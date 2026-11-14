@@ -781,7 +781,7 @@ export class TerritoriesService {
         { lon: number; lat: number }[]
       >(
         `SELECT lon, lat FROM map_houses
-          WHERE congregation_id = $1 AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
+          WHERE congregation_id = $1 AND home AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
         [tenantId, y0, y1, x0, x1],
       );
       for (const h of points) {
@@ -829,7 +829,7 @@ export class TerritoriesService {
     const [bx0, by0, bx1, by1] = boxOf(border);
     const houses = await this.dataSource.query<{ lon: number; lat: number }[]>(
       `SELECT lon, lat FROM map_houses
-        WHERE congregation_id = $1 AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
+        WHERE congregation_id = $1 AND home AND lat BETWEEN $2 AND $3 AND lon BETWEEN $4 AND $5`,
       [tenantId, by0, by1, bx0, bx1],
     );
     type Cell = {
