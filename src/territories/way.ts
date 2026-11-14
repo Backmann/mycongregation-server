@@ -126,54 +126,134 @@ export function nearestPoint(
   return best;
 }
 
-/** Shortest distances from one point to all (Dijkstra), with the way back. */
-function fromPoint(g: Graph, a: number): { m: Float64Array; back: Int32Array } {
-  const m = new Float64Array(g.pts.length).fill(Infinity);
-  const back = new Int32Array(g.pts.length).fill(-1);
+/**
+ * Shortest distances from one point (Dijkstra), with the way back — to
+ * every point, or only until all `targets` are reached: the few places a
+ * part needs, not the whole map.
+ */
+function fromPoint(
+  g: { next: { to: number; m: number }[][] },
+  a: number,
+  targets?: Set<number>,
+): { m: Float64Array; back: Int32Array; backE: Int32Array } {
+  const n = g.next.length;
+  const m = new Float64Array(n).fill(Infinity);
+  const back = new Int32Array(n).fill(-1);
+  const backE = new Int32Array(n).fill(-1);
   m[a] = 0;
-  const heap: [number, number][] = [[0, a]];
-  const push = (x: [number, number]) => {
-    heap.push(x);
-    let i = heap.length - 1;
+  // A binary heap in typed arrays: no small arrays made per step.
+  let hk = new Float64Array(1024);
+  let hv = new Int32Array(1024);
+  let hn = 0;
+  const push = (k: number, v: number) => {
+    if (hn === hk.length) {
+      const k2 = new Float64Array(hn * 2);
+      k2.set(hk);
+      hk = k2;
+      const v2 = new Int32Array(hn * 2);
+      v2.set(hv);
+      hv = v2;
+    }
+    let i = hn++;
     while (i > 0) {
       const up = (i - 1) >> 1;
-      if (heap[up][0] <= heap[i][0]) break;
-      [heap[up], heap[i]] = [heap[i], heap[up]];
+      if (hk[up] <= k) break;
+      hk[i] = hk[up];
+      hv[i] = hv[up];
       i = up;
     }
+    hk[i] = k;
+    hv[i] = v;
   };
+  let topK = 0;
+  let topV = 0;
   const pop = () => {
-    const top = heap[0];
-    const last = heap.pop()!;
-    if (heap.length) {
-      heap[0] = last;
-      let i = 0;
-      for (;;) {
-        const l = 2 * i + 1;
-        const r = l + 1;
-        let s = i;
-        if (l < heap.length && heap[l][0] < heap[s][0]) s = l;
-        if (r < heap.length && heap[r][0] < heap[s][0]) s = r;
-        if (s === i) break;
-        [heap[s], heap[i]] = [heap[i], heap[s]];
-        i = s;
-      }
+    topK = hk[0];
+    topV = hv[0];
+    const k = hk[--hn];
+    const v = hv[hn];
+    let i = 0;
+    for (;;) {
+      const l = 2 * i + 1;
+      if (l >= hn) break;
+      const r = l + 1;
+      const c = r < hn && hk[r] < hk[l] ? r : l;
+      if (hk[c] >= k) break;
+      hk[i] = hk[c];
+      hv[i] = hv[c];
+      i = c;
     }
-    return top;
+    hk[i] = k;
+    hv[i] = v;
   };
-  while (heap.length) {
-    const [d, i] = pop();
+  push(0, a);
+  let left = targets ? targets.size : -1;
+  const done = targets ? new Uint8Array(n) : null;
+  while (hn > 0) {
+    pop();
+    const d = topK;
+    const i = topV;
     if (d > m[i]) continue;
-    for (const e of g.next[i]) {
+    if (targets && done && !done[i]) {
+      done[i] = 1;
+      if (targets.has(i) && --left <= 0) break;
+    }
+    const out = g.next[i];
+    for (let k = 0; k < out.length; k++) {
+      const e = out[k];
       const nd = d + e.m;
       if (nd < m[e.to]) {
         m[e.to] = nd;
         back[e.to] = i;
-        push([nd, e.to]);
+        backE[e.to] = k;
+        push(nd, e.to);
       }
     }
   }
-  return { m, back };
+  return { m, back, backE };
+}
+
+/**
+ * The graph with its plain stretches folded (14 November 2026): only
+ * crossings, dead ends and the `keep` points stay; each stretch between
+ * them is one edge that remembers the points it passes. The same ways,
+ * several times fewer points to search.
+ */
+function contract(
+  g: Graph,
+  keep: Set<number>,
+): {
+  next: { to: number; m: number; via: number[] }[][];
+  orig: number[];
+  idx: Int32Array;
+} {
+  const idx = new Int32Array(g.pts.length).fill(-1);
+  const orig: number[] = [];
+  for (let i = 0; i < g.pts.length; i++) {
+    if (keep.has(i) || g.next[i].length !== 2) {
+      idx[i] = orig.length;
+      orig.push(i);
+    }
+  }
+  const next = orig.map((u) =>
+    g.next[u].map((e0) => {
+      const via: number[] = [];
+      let prev = u;
+      let cur = e0.to;
+      let m = e0.m;
+      // A loop of plain points only: stop where it began.
+      while (idx[cur] < 0 && cur !== u) {
+        via.push(cur);
+        const [x, y] = g.next[cur];
+        const e = x.to === prev ? y : x;
+        prev = cur;
+        cur = e.to;
+        m += e.m;
+      }
+      return { to: idx[cur], m, via };
+    }),
+  );
+  return { next, orig, idx };
 }
 
 /** The two ends of a street as drawn: its points furthest apart. */
@@ -235,6 +315,40 @@ export function thin(line: Pt[], m = 3): Pt[] {
   return line.filter((_, i) => keep[i]);
 }
 
+/** The graph of the roads within AROUND_M of some points (and a start). */
+export function graphAround(
+  roads: Pt[][],
+  near: Pt[],
+  start: Pt | null,
+): Graph {
+  const pts = [...near, ...(start ? [start] : [])];
+  if (pts.length === 0) return graphOf([]);
+  const k = 111_320 * Math.cos((pts[0][1] * Math.PI) / 180);
+  const mx = AROUND_M / k;
+  const my = AROUND_M / 110_540;
+  const w = Math.min(...pts.map((p) => p[0])) - mx;
+  const e = Math.max(...pts.map((p) => p[0])) + mx;
+  const s0 = Math.min(...pts.map((p) => p[1])) - my;
+  const n0 = Math.max(...pts.map((p) => p[1])) + my;
+  // A road counts when its own box meets the part's: a long road with no
+  // point near may still pass by.
+  return graphOf(
+    roads.filter((l) => {
+      let lw = Infinity;
+      let le = -Infinity;
+      let ls = Infinity;
+      let ln = -Infinity;
+      for (const [x, y] of l) {
+        lw = Math.min(lw, x);
+        le = Math.max(le, x);
+        ls = Math.min(ls, y);
+        ln = Math.max(ln, y);
+      }
+      return le >= w && lw <= e && ln >= s0 && ls <= n0;
+    }),
+  );
+}
+
 export interface WayStreet {
   key: string;
   lines: Pt[][];
@@ -264,7 +378,7 @@ export interface Way<T> {
  * kept, so it is never longer than the order given.
  */
 export function routePart<T extends WayStreet>(
-  roads: Pt[][],
+  roads: Pt[][] | Graph,
   streets: T[],
   start: Pt | null,
   todayM = TODAY_M,
@@ -284,45 +398,31 @@ export function routePart<T extends WayStreet>(
       linkGiven: 0,
       straight: 0,
     };
-  // Only the roads round the part: a smaller graph, the same ways.
-  const pts = [
-    ...withEnds.flatMap((x) => x.s.lines.flat()),
-    ...(start ? [start] : []),
-  ];
-  const k = 111_320 * Math.cos((pts[0][1] * Math.PI) / 180);
-  const mx = AROUND_M / k;
-  const my = AROUND_M / 110_540;
-  const w = Math.min(...pts.map((p) => p[0])) - mx;
-  const e = Math.max(...pts.map((p) => p[0])) + mx;
-  const s0 = Math.min(...pts.map((p) => p[1])) - my;
-  const n0 = Math.max(...pts.map((p) => p[1])) + my;
-  // A road counts when its own box meets the part's: a long road with no
-  // point near may still pass by.
-  const g = graphOf(
-    roads.filter((l) => {
-      let lw = Infinity;
-      let le = -Infinity;
-      let ls = Infinity;
-      let ln = -Infinity;
-      for (const [x, y] of l) {
-        lw = Math.min(lw, x);
-        le = Math.max(le, x);
-        ls = Math.min(ls, y);
-        ln = Math.max(ln, y);
-      }
-      return le >= w && lw <= e && ln >= s0 && ls <= n0;
-    }),
-  );
+  // A graph made once for the whole territory is used as it is; given
+  // lines, only the roads round the part make the graph.
+  const g = Array.isArray(roads)
+    ? graphAround(
+        roads,
+        withEnds.flatMap((x) => x.s.lines.flat()),
+        start,
+      )
+    : roads;
 
   // The places that matter: 0 the start, then each street's two ends.
   const places: Pt[] = [start ?? withEnds[0].e[0]];
   for (const x of withEnds) places.push(x.e[0], x.e[1]);
   const snap = places.map((p) => nearestPoint(g, p)?.i ?? -1);
-  const trees = new Map<number, { m: Float64Array; back: Int32Array }>();
+  const c = contract(g, new Set(snap.filter((i) => i >= 0)));
+  const at = snap.map((i) => (i >= 0 ? c.idx[i] : -1));
+  const targets = new Set(at.filter((i) => i >= 0));
+  const trees = new Map<
+    number,
+    { m: Float64Array; back: Int32Array; backE: Int32Array }
+  >();
   const tree = (i: number) => {
     let t = trees.get(i);
     if (!t) {
-      t = fromPoint(g, i);
+      t = fromPoint(c, i, targets);
       trees.set(i, t);
     }
     return t;
@@ -335,10 +435,10 @@ export function routePart<T extends WayStreet>(
     new Array<boolean>(P).fill(false),
   );
   for (let a = 0; a < P; a++) {
-    const t = snap[a] >= 0 ? tree(snap[a]) : null;
+    const t = at[a] >= 0 ? tree(at[a]) : null;
     for (let b = 0; b < P; b++) {
       if (a === b) continue;
-      const m = t && snap[b] >= 0 ? t.m[snap[b]] : Infinity;
+      const m = t && at[b] >= 0 ? t.m[at[b]] : Infinity;
       if (Number.isFinite(m)) {
         D[a][b] = m;
         road[a][b] = true;
@@ -449,9 +549,14 @@ export function routePart<T extends WayStreet>(
     const enter = (1 - leaves[i]) as 0 | 1;
     const to = endIx(s, enter);
     if (road[from][to]) {
-      const t = tree(snap[from]);
+      const t = tree(at[from]);
       const line: Pt[] = [];
-      for (let p = snap[to]; p >= 0; p = t.back[p]) line.push(g.pts[p]);
+      for (let p = at[to]; p >= 0; p = t.back[p]) {
+        line.push(g.pts[c.orig[p]]);
+        if (t.back[p] < 0) break;
+        const via = c.next[t.back[p]][t.backE[p]].via;
+        for (let v = via.length - 1; v >= 0; v--) line.push(g.pts[via[v]]);
+      }
       line.reverse();
       links.push(thin([places[from], ...line, places[to]]));
     } else {
@@ -465,7 +570,10 @@ export function routePart<T extends WayStreet>(
   let today = 0;
   let acc = 0;
   for (let i = 0; i < ordered.length; i++) {
-    acc += lengthOf([links[i]]) + walkM[i];
+    // The way to the first street is not part of the outing: one goes
+    // there together, often by car (14 November 2026, seen on a territory
+    // whose first street lay 1 km from the meeting place).
+    acc += (i === 0 ? 0 : lengthOf([links[i]])) + walkM[i];
     if (i > 0 && acc > todayM) break;
     today = i + 1;
   }

@@ -111,6 +111,13 @@ describe('the way through a part', () => {
     expect(TODAY_M).toBe(1000);
   });
 
+  it('today: the way to the first street is not counted', () => {
+    // The first street 1.2 km from the meeting place; four short ones there.
+    const far = [stub(1200), stub(1300), stub(1400), stub(1500)];
+    const w = routePart(main, far, at(0, 0));
+    expect(w.today).toBe(4);
+  });
+
   it('fast enough for a big territory', () => {
     const grid: Pt[][] = [];
     for (let i = 0; i <= 30; i++) {
