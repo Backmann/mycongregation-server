@@ -54,6 +54,7 @@ import {
   SplitLineDto,
 } from './dto/reshape.dto';
 import { TerritoryAssignmentsService } from './territory-assignments.service';
+import { HomesSurveyService } from './homes-survey.service';
 import {
   AssignTerritoryDto,
   CampaignDto,
@@ -90,6 +91,7 @@ export class TerritoriesController {
     private readonly reshape: TerritoryReshapeService,
     private readonly businesses: TerritoryBusinessesService,
     private readonly splits: TerritorySplitsService,
+    private readonly homesSurveyService: HomesSurveyService,
   ) {}
 
   /** The door: what the user may open, and the territories he has a part in. */
@@ -230,6 +232,15 @@ export class TerritoriesController {
   @Get('gaps')
   gaps(@CurrentUser() user: AuthenticatedUser) {
     return this.service.gaps(user);
+  }
+
+  /**
+   * The homes survey (14 November 2026): what the cadastre says the
+   * buildings are against what is counted now. Changes nothing.
+   */
+  @Get('homes-survey')
+  homesSurvey(@CurrentUser() user: AuthenticatedUser) {
+    return this.homesSurveyService.survey(user);
   }
 
   /** The register of houses in a box, for the editor (12 November 2026). */

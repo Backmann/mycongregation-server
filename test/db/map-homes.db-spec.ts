@@ -122,4 +122,66 @@ describe('only homes count (real database)', () => {
     expect(r.status).toBe(200);
     expect(r.body.houses).toHaveLength(4);
   });
+
+  // The homes survey (14 November 2026): what the cadastre says against
+  // what is counted now — counts and samples, nothing changed.
+  it('the survey sets the cadastre against what is counted now', async () => {
+    const say = (id: number, official: string) =>
+      h.sql(`UPDATE map_houses SET official = $2 WHERE osm_id = $1`, [
+        id,
+        official,
+      ]);
+    await say(1, 'Wohngebäude');
+    await say(3, 'Wohngebäude'); // left out now, a home by the cadastre
+    await say(4, 'Gebäude für Land- und Forstwirtschaft'); // counted now, a barn
+    await say(5, 'Sonstiges');
+    const before = await homes();
+    const r = await h.as('hkeeper').get(`/territories/homes-survey`);
+    expect(r.status).toBe(200);
+    expect(r.body.houses).toBe(6);
+    expect(r.body.known).toBe(4);
+    const n = (use: string, homeNow: boolean) =>
+      r.body.table.find(
+        (x: { use: string; homeNow: boolean }) =>
+          x.use === use && x.homeNow === homeNow,
+      )?.outside ?? 0;
+    expect([n('home', true), n('home', false), n('not', true)]).toEqual([
+      1, 1, 1,
+    ]);
+    expect([
+      n('unsure', true),
+      n('unknown', true),
+      n('unknown', false),
+    ]).toEqual([1, 1, 1]);
+    const s = r.body.samples;
+    expect(s.homeNowNotByCadastre).toHaveLength(1);
+    expect(s.homeNowNotByCadastre[0].official).toBe(
+      'Gebäude für Land- und Forstwirtschaft',
+    );
+    expect(s.notNowHomeByCadastre).toHaveLength(1);
+    expect(s.unsure).toHaveLength(1);
+    expect(s.unknown).toHaveLength(2);
+    expect(r.body.words[0]).toEqual({
+      official: 'Wohngebäude',
+      use: 'home',
+      n: 2,
+    });
+    // Nothing changed.
+    expect(await homes()).toEqual(before);
+  });
+
+  it('the survey is for the keepers only', async () => {
+    await h.addUser({
+      login: 'hplain',
+      role: 'publisher',
+      publisherId: await h.addPublisher({
+        firstName: 'Простой',
+        lastName: 'Тест',
+        gender: 'brother',
+        baptismDate: '2001-01-01',
+      }),
+    });
+    const r = await h.as('hplain').get(`/territories/homes-survey`);
+    expect(r.status).toBe(403);
+  });
 });
