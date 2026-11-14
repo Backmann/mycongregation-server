@@ -34,4 +34,15 @@ export class MapHouse {
    */
   @Column({ type: 'boolean', default: true })
   home!: boolean;
+
+  /**
+   * What the cadastre (ALKIS NW) says the building is, «Wohngebäude» …;
+   * null when unknown (14 November 2026, migration MapOfficialUse).
+   */
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  official!: string | null;
+
+  /** Floors above ground, from the cadastre; null when unknown. */
+  @Column({ type: 'smallint', nullable: true })
+  floors!: number | null;
 }
