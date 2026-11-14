@@ -578,6 +578,15 @@ describe('territory divisions between groups (real database)', () => {
         });
       const parts = r.body.parts as { doors: number }[];
       expect(parts.map((p) => p.doors).sort()).toEqual([15, 15]);
+      // The register as the keepers check it before counting only homes.
+      expect(r.body.register).toEqual({
+        buildings: 30,
+        numbered: 0,
+        withStreet: 0,
+        addressNear: 0,
+        bare: { under60: 0, to150: 30, over150: 0 },
+        addresses: 0,
+      });
     });
 
     it('a division taken away: its links stop, the marks stay; only for whoever may divide again', async () => {

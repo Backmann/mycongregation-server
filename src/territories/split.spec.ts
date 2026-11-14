@@ -5,6 +5,7 @@ import {
   parityOf,
   partsOfAddress,
   rangesOf,
+  registerOf,
   splitStreets,
   streetKey,
   streetsWithHouses,
@@ -770,6 +771,41 @@ describe('dividing a territory between groups (13 November 2026)', () => {
         expect(r.streets.map((x) => [x.name, x.homes])).toEqual([
           ['Ahornweg', ['x']],
         ]);
+      });
+
+      it('the register: numbered, with a street, with an address on them, bare by size', () => {
+        const hs = withStreets(
+          [
+            house('n', 7.001, 51.0001, ['12']),
+            // No number on the map, but an address stands on it.
+            { ...house('a', 7.002, 51.0001), area: 90 },
+            // Bare: a garage, a shed, a big barn.
+            { ...house('g', 7.003, 51.0001), area: 40 },
+            { ...house('s', 7.0035, 51.0001), area: 100 },
+            { ...house('b', 7.004, 51.0001), area: 400 },
+          ],
+          [
+            { at: [7.001, 51.0001], number: '12', street: 'Ahornweg' },
+            { at: [7.00201, 51.0001], number: '14', street: 'Ahornweg' },
+            // 30 m off the garage: not on it.
+            { at: [7.003, 51.00037], number: '16', street: 'Ahornweg' },
+          ],
+        );
+        expect(hs.map((h) => [h.id, !!h.addressNear])).toEqual([
+          ['n', false],
+          ['a', true],
+          ['g', false],
+          ['s', false],
+          ['b', false],
+        ]);
+        expect(registerOf(hs, 3)).toEqual({
+          buildings: 5,
+          numbered: 1,
+          withStreet: 1,
+          addressNear: 1,
+          bare: { under60: 1, to150: 1, over150: 1 },
+          addresses: 3,
+        });
       });
 
       it('finds the meeting place by its official address first', () => {
