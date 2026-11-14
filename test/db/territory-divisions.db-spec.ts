@@ -504,7 +504,8 @@ describe('territory divisions between groups (real database)', () => {
           )
           .filter((x) => x.name === 'Birkenweg')
           .map((x) => x.ranges);
-      const d = (await divide('dholder', 2)).body as Division;
+      // Three pairs: one street each, Birkenweg whole.
+      const d = (await divide('dholder', 3)).body as Division;
       expect(birken(d)).toEqual([
         { odd: { from: '1', to: '9' }, even: { from: '2', to: '10' } },
       ]);
@@ -566,6 +567,17 @@ describe('territory divisions between groups (real database)', () => {
       } finally {
         await h.sql(`DELETE FROM map_addresses`);
       }
+    });
+
+    it('three streets for two pairs: the middle one is cut, not 20 against 10 (14 November 2026)', async () => {
+      const r = await h
+        .as('dkeeper')
+        .post(`/territories/${territoryId}/division/preview`, {
+          parts: 2,
+          mode: 'own',
+        });
+      const parts = r.body.parts as { doors: number }[];
+      expect(parts.map((p) => p.doors).sort()).toEqual([15, 15]);
     });
 
     it('a division taken away: its links stop, the marks stay; only for whoever may divide again', async () => {

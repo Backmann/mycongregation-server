@@ -27,13 +27,12 @@ import { addDays } from './service-year';
 import { mondayOf } from '../common/week';
 import {
   ADDRESS_M,
+  divide as divideStreets,
   FAR_M,
   findAddress,
   partOf,
   partsOfAddress,
   rangesOf,
-  splitStreets,
-  streetsWithHouses,
   withStreets,
   type House,
   type PlanPart,
@@ -45,9 +44,6 @@ import {
 /** Fewer is no division; more than this and a part is a street or two. */
 export const MIN_PARTS = 2;
 export const MAX_PARTS = 8;
-/** …and a piece cut for evenness keeps at least this many doors. */
-const PIECE_FLOOR = 4;
-
 const PART_RE = /^p\.([0-9a-f]{32})\.([1-8])\.(\d{8})\.([0-9a-f]{32})$/;
 
 const dashes = (hex: string) =>
@@ -380,27 +376,26 @@ export class TerritorySplitsService {
       );
     }
     const streets = await this.streetsNear(t);
-    // No piece heavier than a pair's share: one long street cannot hold a
-    // part up (14 November 2026, the check of every territory).
-    const doors = houses.reduce(
-      (a, h) => a + Math.max(1, h.numbers?.length ?? 0),
-      0,
-    );
-    const { streets: named, left } = streetsWithHouses(streets, houses, {
-      maxDoors: Math.max(PIECE_FLOOR, Math.ceil(doors / n)),
+    // The common start: today's meeting place there, found on our own map.
+    const address = await this.meetingAddress(t, today);
+    const found = address ? findAddress(address, streets, all) : null;
+    const smaller = (opts.smaller ?? []).filter((x) => x >= 1 && x <= n);
+    // No piece heavier than a pair's share, and finer when the parts come
+    // out uneven (14 November 2026, the check of every territory).
+    const {
+      parts,
+      left,
+      streets: named,
+    } = divideStreets(streets, houses, n, {
+      mode,
+      start: found,
+      smaller,
     });
     if (named.length === 0) {
       throw new ConflictException(
         refusal('TERRITORY_NO_STREETS', 'The map has no streets here yet.'),
       );
     }
-    // The common start: today's meeting place there, found on our own map.
-    const address = await this.meetingAddress(t, today);
-    const found = address ? findAddress(address, streets, all) : null;
-    const smaller = (opts.smaller ?? []).filter((x) => x >= 1 && x <= n);
-    const parts = splitStreets(named, n, { mode, start: found, smaller })
-      .filter((p) => p.streets.length > 0)
-      .map((p, i) => ({ ...p, n: i + 1 }));
     return {
       parts,
       left,
