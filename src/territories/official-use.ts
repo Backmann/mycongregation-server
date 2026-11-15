@@ -41,29 +41,51 @@ export interface RuleHouse {
 /**
  * Homes by the cadastre (proposed, 15 November 2026): «not a home» is not
  * one; a home or unsure is one — but a building the map draws in several
- * pieces is one home: the piece with a house number, else the biggest.
+ * pieces is not several homes. Every piece with a house number of its own
+ * is a home (a semi-detached house is often one building in the cadastre,
+ * two front doors on the map); pieces without a number are one with the
+ * rest — only when no piece has a number, the biggest of them is the home.
  * A house the cadastre does not know keeps the rule without it.
  */
 export function homesByCadastre(houses: RuleHouse[]): Map<string, boolean> {
-  const lead = new Map<string, RuleHouse>();
-  const better = (a: RuleHouse, b: RuleHouse) => {
-    const na = !!a.numbers?.trim();
-    const nb = !!b.numbers?.trim();
-    if (na !== nb) return na;
-    if (a.areaM2 !== b.areaM2) return a.areaM2 > b.areaM2;
-    return a.osmId < b.osmId;
-  };
+  const numbersOf = (h: RuleHouse) =>
+    (h.numbers ?? '')
+      .split(';')
+      .map((n) => n.trim().toLowerCase())
+      .filter(Boolean);
+  // Per cadastre building: its pieces, best first (numbered, bigger, id).
+  const groups = new Map<string, RuleHouse[]>();
   for (const h of houses) {
     if (!h.officialId || officialUse(h.official) === null) continue;
-    const l = lead.get(h.officialId);
-    if (!l || better(h, l)) lead.set(h.officialId, h);
+    const g = groups.get(h.officialId) ?? [];
+    g.push(h);
+    groups.set(h.officialId, g);
+  }
+  const home = new Set<RuleHouse>();
+  for (const g of groups.values()) {
+    g.sort(
+      (a, b) =>
+        numbersOf(b).length - numbersOf(a).length ||
+        b.areaM2 - a.areaM2 ||
+        (a.osmId < b.osmId ? -1 : 1),
+    );
+    const seen = new Set<string>();
+    for (const h of g) {
+      const ns = numbersOf(h);
+      // A number of its own, not yet counted in this building: a home.
+      if (ns.length && ns.some((n) => !seen.has(n))) {
+        home.add(h);
+        ns.forEach((n) => seen.add(n));
+      }
+    }
+    if (!g.some((h) => home.has(h))) home.add(g[0]);
   }
   const out = new Map<string, boolean>();
   for (const h of houses) {
     const use = officialUse(h.official);
     if (use === null) out.set(h.osmId, h.home);
     else if (use === 'not') out.set(h.osmId, false);
-    else out.set(h.osmId, !h.officialId || lead.get(h.officialId) === h);
+    else out.set(h.osmId, !h.officialId || home.has(h));
   }
   return out;
 }

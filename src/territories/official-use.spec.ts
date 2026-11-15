@@ -48,6 +48,23 @@ describe('homes by the cadastre (proposed rule)', () => {
     expect([r.get('1'), r.get('2')]).toEqual([true, false]);
   });
 
+  it('a semi-detached house, one building in the cadastre: two homes, each with its number', () => {
+    const r = homesByCadastre([
+      h('1', 'Wohngebäude', 'B', '7', 90),
+      h('2', 'Wohngebäude', 'B', '7a', 85),
+      h('3', 'Wohngebäude', 'B', null, 20),
+    ]);
+    expect([r.get('1'), r.get('2'), r.get('3')]).toEqual([true, true, false]);
+  });
+
+  it('two pieces with the same number: one home', () => {
+    const r = homesByCadastre([
+      h('1', 'Wohngebäude', 'B', '12', 90),
+      h('2', 'Wohngebäude', 'B', '12', 30),
+    ]);
+    expect([r.get('1'), r.get('2')]).toEqual([true, false]);
+  });
+
   it('no piece numbered: the biggest', () => {
     const r = homesByCadastre([
       h('1', 'Wohngebäude', 'B', null, 40),
