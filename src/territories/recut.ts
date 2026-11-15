@@ -10,10 +10,13 @@ import { joinTwo, ReshapeError, splitByLine } from './reshape';
 
 /**
  * The measure Lionel agreed to (15 November 2026): city walks up to 25 km,
- * parts of about 15; far out — over 11 minutes' drive from the nearest hall
- * — up to 30, parts of about 20 (the S-13 history: a territory takes 167
- * days at the median, so 40 km far out meant a year); under 5 km, a
- * candidate to join a neighbour.
+ * parts of about 15; far out up to 30, parts of about 20 (the S-13 history:
+ * a territory takes 167 days at the median, so 40 km far out meant a year);
+ * under 5 km, a candidate to join a neighbour. «Far» begins at 13 minutes
+ * by car from the nearest hall: on the server's road speeds our territories
+ * fall into two groups with nothing between 12.0 and 14.4 minutes — the
+ * same 22 far ones as the first count by hand, whose scale put the gap at
+ * 11 (the live run of 15 November 2026).
  */
 export const DEFAULT_MEASURE: RecutMeasure = {
   cityMaxKm: 25,
@@ -21,7 +24,7 @@ export const DEFAULT_MEASURE: RecutMeasure = {
   remoteMaxKm: 30,
   remoteTargetKm: 20,
   minKm: 5,
-  remoteMinutes: 11,
+  remoteMinutes: 13,
 };
 
 /** A measure that holds together; the reason when it does not. */
