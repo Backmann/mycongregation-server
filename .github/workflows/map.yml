@@ -108,6 +108,8 @@ jobs:
           set -euo pipefail
           node scripts/map-streets.mjs --self-test
           node scripts/map-streets.mjs trial.pmtiles 9.20,51.15,9.73,51.48 00000000-0000-4000-8000-000000000000 > streets.csv
+          node scripts/map-streets.mjs trial.pmtiles 9.20,51.15,9.73,51.48 00000000-0000-4000-8000-000000000000 --unnamed-roads > roads.csv
+          echo "Unnamed roads in the trial area: $(wc -l < roads.csv) ($(du -h roads.csv | cut -f1))"
           n=$(wc -l < streets.csv)
           echo "Streets in the trial area: $n ($(du -h streets.csv | cut -f1))"
           # A city and its villages: thousands of named streets.
@@ -309,6 +311,10 @@ jobs:
             # (13 November 2026).
             node scripts/map-streets.mjs "map-$n.pmtiles" "$box" "$id" > "streets-$n.csv" < /dev/null
             echo "Area $n: $(wc -l < "streets-$n.csv") streets"
+            # The roads with only a number between villages, to tell how far
+            # a territory is from the halls (15 November 2026).
+            node scripts/map-streets.mjs "map-$n.pmtiles" "$box" "$id" --unnamed-roads > "roads-$n.csv" < /dev/null
+            echo "Area $n: $(wc -l < "roads-$n.csv") unnamed roads"
             # The official addresses in the same box (14 November 2026).
             if [ -f gebref.txt ]; then
               node scripts/map-addresses.mjs gebref.txt "$box" "$id" > "addresses-$n.csv" < /dev/null
@@ -339,6 +345,10 @@ jobs:
               echo "DELETE FROM map_streets WHERE congregation_id = '$id';"
               echo "COPY map_streets (congregation_id, street_no, name, kind, west, south, east, north, lines) FROM STDIN WITH (FORMAT csv);"
               cat "streets-$n.csv"
+              echo '\.'
+              echo "DELETE FROM map_roads WHERE congregation_id = '$id';"
+              echo "COPY map_roads (congregation_id, road_no, kind, west, south, east, north, lines) FROM STDIN WITH (FORMAT csv);"
+              cat "roads-$n.csv"
               echo '\.'
               if [ -f "addresses-$n.csv" ]; then
                 echo "DELETE FROM map_addresses WHERE congregation_id = '$id';"
@@ -373,4 +383,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: rm -rf ~/.ssh/deploy_key ~/.ssh/known_hosts ~/.ssh/config areas.csv houses-*.csv places-*.csv streets-*.csv addresses-*.csv official-*.csv cadastre-*.geojsonl cadastre-cache gebref.txt gebref.zip gebref
+        run: rm -rf ~/.ssh/deploy_key ~/.ssh/known_hosts ~/.ssh/config areas.csv houses-*.csv places-*.csv streets-*.csv roads-*.csv addresses-*.csv official-*.csv cadastre-*.geojsonl cadastre-cache gebref.txt gebref.zip gebref

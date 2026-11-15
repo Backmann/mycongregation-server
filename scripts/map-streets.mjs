@@ -4,6 +4,7 @@
  * territory between groups: each house goes to its nearest street.
  *
  *   node scripts/map-streets.mjs <map.pmtiles> <west,south,east,north> <congregationId>
+ *   node scripts/map-streets.mjs <map.pmtiles> <box> <congregationId> --unnamed-roads
  *   node scripts/map-streets.mjs --self-test
  *
  * Reads every tile of the deepest zoom inside the box (the «roads» layer)
@@ -15,6 +16,14 @@
  * runways are not streets one walks. Run by .github/workflows/map.yml next to
  * the houses; the lines go into map_streets, replacing the old ones.
  *
+ * With --unnamed-roads (15 November 2026) it prints instead the drivable
+ * roads that have no name — the roads between villages often carry only a
+ * number (B 63, L 667) — one line per piece:
+ *   congregation_id,road_no,kind,west,south,east,north,lines
+ * for map_roads: with map_streets they are the roads one drives on, to tell
+ * how far a territory is from the halls (the draft of re-cutting). Never
+ * used to divide a territory: one does not call along a road with no name.
+ *
  * Public map data only: a street name and its line.
  */
 import { PMTiles } from 'pmtiles';
@@ -25,6 +34,13 @@ import { cleanKind, csvText } from './map-places.mjs';
 
 /** Road kinds that are not streets to call along. */
 export const NOT_STREETS = new Set(['rail', 'ferry', 'aeroway']);
+/** Road kinds one drives on. */
+export const DRIVEN = new Set(['highway', 'major_road', 'minor_road']);
+
+/** A piece for map_roads: drivable, and with no name to put it in map_streets. */
+export function isUnnamedRoad(name, kind) {
+  return !name && DRIVEN.has(kind);
+}
 /** Pieces of a name this close are one street (a crossing, a tile edge). */
 export const JOIN_M = 40;
 /** A line is thinned to within this many metres of itself. */
@@ -119,7 +135,8 @@ export function boxOf(lines) {
 const round = (line) => line.map(([x, y]) => [+x.toFixed(6), +y.toFixed(6)]);
 
 async function main() {
-  const [file, boxText, congregationId] = process.argv.slice(2);
+  const [file, boxText, congregationId, mode] = process.argv.slice(2);
+  const roads = mode === '--unnamed-roads';
   if (!file || !boxText || !/^[0-9a-f-]{36}$/.test(congregationId ?? '')) {
     console.error(
       'usage: map-streets.mjs <map.pmtiles> <w,s,e,n> <congregation uuid>',
@@ -138,6 +155,8 @@ async function main() {
   /** name → { kind, pieces } */
   const byName = new Map();
   const seen = new Set();
+  /** With --unnamed-roads: the pieces as they are. */
+  const unnamed = [];
   for (let x = x0; x <= x1; x++) {
     for (let y = y0; y <= y1; y++) {
       const resp = await tiles.getZxy(z, x, y);
@@ -151,7 +170,9 @@ async function main() {
         const name =
           typeof f.properties.name === 'string' ? f.properties.name.trim() : '';
         const kind = cleanKind(f.properties.kind) ?? 'other';
-        if (!name || NOT_STREETS.has(kind)) continue;
+        if (roads) {
+          if (!isUnnamedRoad(name, kind)) continue;
+        } else if (!name || NOT_STREETS.has(kind)) continue;
         const g = f.toGeoJSON(x, y, z).geometry;
         const lines =
           g.type === 'LineString'
@@ -167,15 +188,28 @@ async function main() {
           const key = JSON.stringify(t);
           if (seen.has(key)) continue;
           seen.add(key);
-          had.pieces.push(t);
+          if (roads) unnamed.push({ kind, line: t });
+          else had.pieces.push(t);
         }
-        byName.set(name, had);
+        if (!roads) byName.set(name, had);
       }
     }
   }
   await source.close();
   const out = [];
   let no = 0;
+  if (roads) {
+    for (const { kind, line } of unnamed) {
+      const [w, s, e, n] = boxOf([line]);
+      no += 1;
+      out.push(
+        `${congregationId},${no},${kind},${w.toFixed(6)},${s.toFixed(6)},${e.toFixed(6)},${n.toFixed(6)},${csvText(JSON.stringify([line]), Infinity)}`,
+      );
+    }
+    process.stdout.write(out.join('\n') + (out.length ? '\n' : ''));
+    console.error(`zoom ${z}: ${no} unnamed roads written`);
+    return;
+  }
   for (const [name, { kind, pieces }] of byName) {
     for (const lines of streetsOf(pieces)) {
       const [w, s, e, n] = boxOf(lines);
@@ -256,6 +290,16 @@ function selfTest() {
     JSON.stringify(boxOf([a, far])) ===
       JSON.stringify([7.0, 51.0, 7.0514, 51.0]),
   );
+  ok(
+    'a numbered road between villages is a road',
+    isUnnamedRoad('', 'major_road'),
+  );
+  ok(
+    'a named one is a street, not a road',
+    !isUnnamedRoad('Hauptstraße', 'major_road'),
+  );
+  ok('a path is not driven', !isUnnamedRoad('', 'path'));
+  ok('a railway is not driven', !isUnnamedRoad('', 'rail'));
   if (bad) process.exit(1);
   console.log('map-streets self-test: OK');
 }

@@ -77,6 +77,32 @@ describe('the draft of re-cutting: lines of a first proposal', () => {
     }
   });
 
+  it('a village and its farms: the village stays whole, the farms are shared out', () => {
+    // A village in the north-east corner (houses ≈25 m apart) and farms
+    // ≈140 m apart over the rest — as Hamm68 is; the village is about a
+    // third of the walk.
+    const village = grid(7.026, 51.006, 7.03, 51.01, 0.0003);
+    const farms = grid(
+      7,
+      51,
+      7.03,
+      51.01,
+      0.002,
+      ([x, y]) => x > 7.025 && y > 51.005,
+    );
+    const plan = cutPlan(T, [...village, ...farms], 2)!;
+    const parts = partsOfCut(T, plan.lines);
+    const where = new Set(village.map((h) => partOf(h, parts)));
+    // Every house of the village in one part…
+    expect(where.size).toBe(1);
+    // …and the other part not empty: farms make up its walk.
+    const other = farms.filter((h) => !where.has(partOf(h, parts)));
+    expect(other.length).toBeGreaterThan(0);
+    // The walk shared out within a tenth or so.
+    const [a, b] = plan.walkM;
+    expect(Math.abs(a - b) / Math.max(a, b)).toBeLessThan(0.25);
+  });
+
   it('an L-shaped territory is still cut into whole pieces', () => {
     const L = poly([
       [7, 51],

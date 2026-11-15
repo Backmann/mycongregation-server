@@ -982,9 +982,13 @@ export class TerritoryRecutService {
     );
     const roads = await m.query<
       { kind: string; lines: [number, number][][] }[]
-    >(`SELECT kind, lines FROM map_streets WHERE congregation_id = $1`, [
-      tenantId,
-    ]);
+    >(
+      // The named streets and the roads with only a number between villages.
+      `SELECT kind, lines FROM map_streets WHERE congregation_id = $1
+       UNION ALL
+       SELECT kind, lines FROM map_roads WHERE congregation_id = $1`,
+      [tenantId],
+    );
     const g = driveGraph(roads);
     const runs = places.map((p) => {
       if (!p || g.pts.length === 0) return null;
