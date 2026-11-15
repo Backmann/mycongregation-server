@@ -1,6 +1,7 @@
 import type { TerritoryGeometry } from '../entities/territory.entity';
 import { boxOf, pointInside } from './geometry';
-import { partOf } from './recut';
+import { middleOf, partOf } from './recut';
+import type { Graph } from './way';
 import { ReshapeError, splitByLine } from './reshape';
 
 /**
@@ -37,6 +38,12 @@ const DOOR_M = 15;
 const WAY_CAP_M = 250;
 /** Past the outline, the drawn line goes on this far (m). */
 const OVERHANG_M = 25;
+/** A line along the streets keeps within this of its straight line (m)… */
+const CORRIDOR_M = 220;
+/** …and may miss the share by a little more than a straight one. */
+const STREET_SLACK = 0.15;
+/** Straight candidates tried along the streets. */
+const STREET_TRIES = 14;
 
 /** A home and the metres of walk it stands for. */
 export interface Weighted {
@@ -130,6 +137,7 @@ export function bestLine(
   homes: Weighted[],
   a: number,
   b: number,
+  roads?: Graph,
 ): { line: Pt[]; pieces: [TerritoryGeometry, TerritoryGeometry] } | null {
   if (homes.length < 2) return null;
   const [x0, y0, x1, y1] = boxOf(g);
@@ -177,31 +185,232 @@ export function bestLine(
     }
   }
   cands.sort((p, q) => p.cost - q.cost);
+  const straight: {
+    cost: number;
+    line: Pt[];
+    ends: [Pt, Pt];
+    dir: Pt;
+    pieces: [TerritoryGeometry, TerritoryGeometry];
+  }[] = [];
+  const seen = new Set<string>();
   for (const c of cands) {
     const originM: Pt = [c.n[0] * c.off, c.n[1] * c.off];
     const origin: Pt = [x0 + originM[0] / kx, y0 + originM[1] / KY];
     const dir: Pt = [c.u[0] / kx, c.u[1] / KY];
     const ch = chord(g, origin, dir);
     if (!ch) continue;
-    const t0 = ch[0] - OVERHANG_M;
-    const t1 = ch[1] + OVERHANG_M;
-    const line: Pt[] = [
-      [origin[0] + dir[0] * t0, origin[1] + dir[1] * t0],
-      [origin[0] + dir[0] * t1, origin[1] + dir[1] * t1],
+    const at = (t: number): Pt => [
+      origin[0] + dir[0] * t,
+      origin[1] + dir[1] * t,
     ];
-    const mid: Pt = [
-      origin[0] + (dir[0] * (ch[0] + ch[1])) / 2,
-      origin[1] + (dir[1] * (ch[0] + ch[1])) / 2,
-    ];
-    if (!pointInside(mid, g)) continue;
+    const line: Pt[] = [at(ch[0] - OVERHANG_M), at(ch[1] + OVERHANG_M)];
+    if (!pointInside(at((ch[0] + ch[1]) / 2), g)) continue;
+    let pieces: [TerritoryGeometry, TerritoryGeometry];
     try {
-      return { line, pieces: splitByLine(g, line) };
+      pieces = splitByLine(g, line);
     } catch (e) {
       if (e instanceof ReshapeError) continue;
       throw e;
     }
+    if (!roads) return { line, pieces };
+    // Near twins (the next offset at the same direction) add nothing.
+    const key = `${Math.round(Math.atan2(c.u[1], c.u[0]) * 10)}:${Math.round(c.off / 100)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    straight.push({
+      cost: c.cost,
+      line,
+      ends: [at(ch[0]), at(ch[1])],
+      dir,
+      pieces,
+    });
+    if (straight.length >= STREET_TRIES) break;
   }
-  return null;
+  if (!roads || straight.length === 0) return null;
+  // Along the streets: of the best straight lines, each laid on the roads
+  // between where it enters and leaves; the one that keeps the share and
+  // crosses the fewest homes off the road wins. None: the best straight one.
+  let best: {
+    cost: number;
+    line: Pt[];
+    pieces: [TerritoryGeometry, TerritoryGeometry];
+  } | null = null;
+  for (const s of straight) {
+    const laid = alongRoads(g, s.ends, s.dir, roads, kx);
+    if (!laid) continue;
+    let pieces: [TerritoryGeometry, TerritoryGeometry];
+    try {
+      pieces = splitByLine(g, laid.line);
+    } catch (e) {
+      if (e instanceof ReshapeError) continue;
+      throw e;
+    }
+    if (!pointInside(middleOf(laid.line), g)) continue;
+    const w0 = homes
+      .filter((h) => pointInside(h.p, pieces[0]))
+      .reduce((n, h) => n + h.w, 0);
+    // Which piece is the a-share is not known here: the nearer of the two.
+    const miss =
+      Math.min(Math.abs(w0 - want), Math.abs(total - w0 - want)) / side;
+    if (miss > STREET_SLACK) continue;
+    const beside = homes.filter((h) =>
+      laid.offRoad.some(([p, q]) => metresToSegment(h.p, p, q, kx) < BESIDE_M),
+    ).length;
+    const cost = (miss / SHARE_SLACK) * SLACK_HOMES + beside;
+    if (!best || cost < best.cost) best = { cost, line: laid.line, pieces };
+  }
+  if (best) return { line: best.line, pieces: best.pieces };
+  return { line: straight[0].line, pieces: straight[0].pieces };
+}
+
+/** Metres from p to the segment a–b. */
+function metresToSegment(p: Pt, a: Pt, b: Pt, kx: number): number {
+  const ax = (a[0] - p[0]) * kx;
+  const ay = (a[1] - p[1]) * KY;
+  const bx = (b[0] - p[0]) * kx;
+  const by = (b[1] - p[1]) * KY;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len = dx * dx + dy * dy;
+  const t =
+    len === 0 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len));
+  return Math.hypot(ax + t * dx, ay + t * dy);
+}
+
+/**
+ * A straight cut laid on the roads: from where it enters the outline to the
+ * nearest road point inside, along the roads (within CORRIDOR_M of the
+ * straight line, inside the outline) to the road point nearest where it
+ * leaves, and out. The two short links off the road are returned too: the
+ * homes beside them are the ones the cut really splits from their street.
+ */
+export function alongRoads(
+  g: TerritoryGeometry,
+  ends: [Pt, Pt],
+  dir: Pt,
+  roads: Graph,
+  kx: number,
+): { line: Pt[]; offRoad: [Pt, Pt][] } | null {
+  const [e0, e1] = ends;
+  const inCorridor = new Set<number>();
+  const [bx0, by0, bx1, by1] = boxOf(g);
+  roads.pts.forEach((p, i) => {
+    if (p[0] < bx0 || p[0] > bx1 || p[1] < by0 || p[1] > by1) return;
+    if (metresToSegment(p, e0, e1, kx) > CORRIDOR_M) return;
+    if (pointInside(p, g)) inCorridor.add(i);
+  });
+  if (inCorridor.size < 2) return null;
+  const nearest = (q: Pt): number | null => {
+    let best: number | null = null;
+    let bestM = CORRIDOR_M;
+    for (const i of inCorridor) {
+      const p = roads.pts[i];
+      const m = Math.hypot((p[0] - q[0]) * kx, (p[1] - q[1]) * KY);
+      if (m < bestM) {
+        bestM = m;
+        best = i;
+      }
+    }
+    return best;
+  };
+  const from = nearest(e0);
+  const to = nearest(e1);
+  if (from === null || to === null || from === to) return null;
+  // Dijkstra inside the corridor, with a binary heap.
+  const dist = new Map<number, number>([[from, 0]]);
+  const back = new Map<number, number>();
+  const heap: [number, number][] = [[0, from]];
+  const push = (x: [number, number]) => {
+    heap.push(x);
+    let i = heap.length - 1;
+    while (i > 0) {
+      const up = (i - 1) >> 1;
+      if (heap[up][0] <= heap[i][0]) break;
+      [heap[up], heap[i]] = [heap[i], heap[up]];
+      i = up;
+    }
+  };
+  const pop = (): [number, number] => {
+    const top = heap[0];
+    const last = heap.pop()!;
+    if (heap.length) {
+      heap[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1;
+        const r = l + 1;
+        let m = i;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === i) break;
+        [heap[m], heap[i]] = [heap[i], heap[m]];
+        i = m;
+      }
+    }
+    return top;
+  };
+  while (heap.length) {
+    const [d, u] = pop();
+    if (d > (dist.get(u) ?? Infinity)) continue;
+    if (u === to) break;
+    for (const e of roads.next[u]) {
+      if (!inCorridor.has(e.to)) continue;
+      const nd = d + e.m;
+      if (nd < (dist.get(e.to) ?? Infinity)) {
+        dist.set(e.to, nd);
+        back.set(e.to, u);
+        push([nd, e.to]);
+      }
+    }
+  }
+  if (!dist.has(to)) return null;
+  const path: Pt[] = [];
+  for (let v: number | undefined = to; v !== undefined; v = back.get(v)) {
+    path.push(roads.pts[v]);
+    if (v === from) break;
+  }
+  path.reverse();
+  const len = Math.hypot(dir[0] * kx, dir[1] * KY) || 1;
+  const out = (p: Pt, sign: number): Pt => [
+    p[0] + (sign * dir[0] * OVERHANG_M) / len,
+    p[1] + (sign * dir[1] * OVERHANG_M) / len,
+  ];
+  const thinned = thinLine(path, kx);
+  return {
+    line: [out(e0, -1), e0, ...thinned, e1, out(e1, 1)],
+    offRoad: [
+      [e0, thinned[0]],
+      [thinned[thinned.length - 1], e1],
+    ],
+  };
+}
+
+/** Douglas–Peucker to within 4 m, and never more than 400 points. */
+function thinLine(line: Pt[], kx: number): Pt[] {
+  if (line.length <= 2) return line;
+  const keep = new Array<boolean>(line.length).fill(false);
+  keep[0] = keep[line.length - 1] = true;
+  const stack: [number, number][] = [[0, line.length - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    let far = -1;
+    let farM = 4;
+    for (let i = a + 1; i < b; i++) {
+      const m = metresToSegment(line[i], line[a], line[b], kx);
+      if (m > farM) {
+        farM = m;
+        far = i;
+      }
+    }
+    if (far >= 0) {
+      keep[far] = true;
+      stack.push([a, far], [far, b]);
+    }
+  }
+  const out = line.filter((_, i) => keep[i]);
+  if (out.length <= 400) return out;
+  const step = Math.ceil(out.length / 400);
+  return out.filter((_, i) => i % step === 0 || i === out.length - 1);
 }
 
 /**
@@ -214,6 +423,7 @@ export function cutPlan(
   g: TerritoryGeometry,
   homes: Pt[],
   k: number,
+  roads?: Graph,
 ): CutPlan | null {
   const lines: Pt[][] = [];
   const parts: { g: TerritoryGeometry; k: number }[] = [{ g, k }];
@@ -225,7 +435,7 @@ export function cutPlan(
     const p = parts[i];
     const inside = weighed.filter((h) => pointInside(h.p, p.g));
     const k1 = Math.floor(p.k / 2);
-    const cut = bestLine(p.g, inside, k1, p.k - k1);
+    const cut = bestLine(p.g, inside, k1, p.k - k1, roads);
     if (!cut) return null;
     // Which piece takes k1 parts: the one with less walk.
     const w0 = inside
