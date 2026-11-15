@@ -120,7 +120,7 @@ describe('the draft of re-cutting (real database)', () => {
     expect(view.body.measure).toMatchObject({
       cityMaxKm: 25,
       remoteMaxKm: 30,
-      remoteMinutes: 11,
+      remoteMinutes: 13,
     });
     expect(
       (

@@ -194,8 +194,8 @@ describe('the draft of re-cutting: what the measure says', () => {
   const m = DEFAULT_MEASURE;
 
   it('city or far: the keepers’ word first, else the minutes', () => {
-    expect(classOf(10.5, undefined, m)).toBe('city');
-    expect(classOf(11.9, undefined, m)).toBe('far');
+    expect(classOf(12.0, undefined, m)).toBe('city');
+    expect(classOf(14.4, undefined, m)).toBe('far');
     expect(classOf(null, undefined, m)).toBe('city');
     expect(classOf(15, 'city', m)).toBe('city');
   });
