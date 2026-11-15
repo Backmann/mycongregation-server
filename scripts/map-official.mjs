@@ -19,9 +19,11 @@
  * Otherwise: for each house of houses.csv (map-houses.mjs: congregation_id,
  *   osm_id, lon, lat, area_m2, numbers) the cadastre building whose outline
  *   holds the house's middle — else the nearest within NEAR_M — printed as
- *   osm_id,function,floors. A house the cadastre does not know is not
+ *   osm_id,function,floors,building. A house the cadastre does not know is not
  *   printed. buildings.geojsonl: one GeoJSON feature per line (ogr2ogr
- *   -f GeoJSONSeq, EPSG:4326) with the properties `funktion`, `anzahlgs`.
+ *   -f GeoJSONSeq, EPSG:4326) with the properties `funktion`, `anzahlgs`, `oid`
+ *   (the building's own id: several houses of the map may be pieces of one
+ *   building of the cadastre).
  *
  * Public data only: an outline and what it is used for.
  */
@@ -140,7 +142,16 @@ export function buildingOf(line) {
   const floors = Number.isInteger(f.properties?.anzahlgs)
     ? f.properties.anzahlgs
     : null;
-  return { rings, fn, floors };
+  // The cadastre's own id of the building («DENW…»), else the number of
+  // the line: the same within one build, which is all it is used for —
+  // the pieces the map draws of one building (14 November 2026).
+  const id =
+    typeof f.properties?.oid === 'string' && f.properties.oid.trim()
+      ? f.properties.oid.trim()
+      : typeof f.id === 'string' || typeof f.id === 'number'
+        ? String(f.id)
+        : null;
+  return { rings, fn, floors, id };
 }
 
 /** A CSV field: quoted when it must be. */
@@ -189,7 +200,9 @@ async function match(housesFile, buildingsFile) {
   const buildings = [];
   await lines(buildingsFile, (line) => {
     const b = buildingOf(line);
-    if (b) buildings.push(b);
+    if (!b) return;
+    b.id ??= `n${buildings.length + 1}`;
+    buildings.push(b);
   });
   const index = indexOf(buildings);
   let houses = 0;
@@ -203,7 +216,7 @@ async function match(housesFile, buildingsFile) {
     const b = buildingAt(index, p);
     if (!b) return;
     found += 1;
-    console.log(`${csv(f[1])},${csv(b.fn)},${csv(b.floors)}`);
+    console.log(`${csv(f[1])},${csv(b.fn)},${csv(b.floors)},${csv(b.id)}`);
   });
   console.error(
     `official: ${buildings.length} cadastre buildings, ${found} of ${houses} houses found`,
@@ -277,6 +290,25 @@ function selfTest() {
       'Carport',
     ],
     ['a comma quoted', csv('a, b'), '"a, b"'],
+    [
+      'the cadastre id read',
+      buildingOf(
+        JSON.stringify({
+          type: 'Feature',
+          properties: { funktion: 'Wohngebäude', oid: 'DENW36AL1000abc' },
+          geometry: { type: 'Polygon', coordinates: sq.rings },
+        }),
+      )?.id,
+      'DENW36AL1000abc',
+    ],
+    [
+      'two pieces of one building: the same building',
+      (() => {
+        const i2 = indexOf([{ ...sq, id: 'X1' }]);
+        return [buildingAt(i2, m(5, 5))?.id, buildingAt(i2, m(15, 15))?.id];
+      })(),
+      ['X1', 'X1'],
+    ],
     [
       'the district of an address',
       districtOf(

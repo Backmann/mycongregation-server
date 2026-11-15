@@ -5,7 +5,7 @@ import { Territory } from '../entities/territory.entity';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { TerritoryAccessService } from './territory-access.service';
 import { boxOf, pointInside } from './geometry';
-import { officialUse, type OfficialUse } from './official-use';
+import { homesByCadastre, officialUse, type OfficialUse } from './official-use';
 
 type Use = OfficialUse | 'unknown';
 
@@ -35,9 +35,28 @@ export interface HomesSurvey {
   }[];
   /** The cadastre's words and how many buildings each. */
   words: { official: string; use: OfficialUse; n: number }[];
+  /**
+   * The proposed rule (homesByCadastre) against today's, homes inside a
+   * territory: how many now and then, how many it adds and drops, and how
+   * many houses are only further pieces of one building.
+   */
+  rule: {
+    now: number;
+    then: number;
+    added: number;
+    dropped: number;
+    pieces: number;
+    /** Cadastre buildings drawn in several pieces, inside a territory. */
+    inPieces: number;
+  };
   /** A few of each kind of disagreement, to look at on the map. */
   samples: Record<
-    'homeNowNotByCadastre' | 'notNowHomeByCadastre' | 'unsure' | 'unknown',
+    | 'homeNowNotByCadastre'
+    | 'notNowHomeByCadastre'
+    | 'unsure'
+    | 'unknown'
+    | 'added'
+    | 'piece',
     SurveyHouse[]
   >;
 }
@@ -77,16 +96,18 @@ export class HomesSurveyService {
     };
     const houses = await this.dataSource.query<
       {
+        osm_id: string;
         lon: number;
         lat: number;
         official: string | null;
+        official_id: string | null;
         floors: number | null;
         numbers: string | null;
         area_m2: number;
         home: boolean;
       }[]
     >(
-      `SELECT lon, lat, official, floors, numbers, area_m2, home
+      `SELECT osm_id::text AS osm_id, lon, lat, official, official_id, floors, numbers, area_m2, home
          FROM map_houses WHERE congregation_id = $1
         ORDER BY md5(osm_id::text)`,
       [tenantId],
@@ -98,7 +119,28 @@ export class HomesSurveyService {
       notNowHomeByCadastre: [],
       unsure: [],
       unknown: [],
+      added: [],
+      piece: [],
     };
+    const then = homesByCadastre(
+      houses.map((h) => ({
+        osmId: h.osm_id,
+        official: h.official,
+        officialId: h.official_id,
+        numbers: h.numbers,
+        areaM2: h.area_m2,
+        home: h.home,
+      })),
+    );
+    const rule = {
+      now: 0,
+      then: 0,
+      added: 0,
+      dropped: 0,
+      pieces: 0,
+      inPieces: 0,
+    };
+    const piecesOf = new Map<string, number>();
     let known = 0;
     for (const h of houses) {
       const use: Use = officialUse(h.official) ?? 'unknown';
@@ -107,6 +149,19 @@ export class HomesSurveyService {
         words.set(h.official!, (words.get(h.official!) ?? 0) + 1);
       }
       const t = territoryOf([h.lon, h.lat]);
+      const byRule = then.get(h.osm_id) ?? h.home;
+      const piece =
+        !byRule && use !== 'not' && use !== 'unknown' && !!h.official_id;
+      if (t) {
+        if (h.home) rule.now += 1;
+        if (byRule) rule.then += 1;
+        if (byRule && !h.home) rule.added += 1;
+        if (!byRule && h.home) rule.dropped += 1;
+        if (piece) {
+          rule.pieces += 1;
+          piecesOf.set(h.official_id!, (piecesOf.get(h.official_id!) ?? 0) + 1);
+        }
+      }
       const key = `${use}:${h.home}`;
       const row = table.get(key) ?? {
         use,
@@ -117,6 +172,9 @@ export class HomesSurveyService {
       if (t) row.inTerritory += 1;
       else row.outside += 1;
       table.set(key, row);
+      const extra: (keyof HomesSurvey['samples'])[] = [];
+      if (t && byRule && !h.home) extra.push('added');
+      if (t && piece) extra.push('piece');
       const kind =
         use === 'not' && h.home
           ? 'homeNowNotByCadastre'
@@ -126,8 +184,9 @@ export class HomesSurveyService {
               ? use
               : null;
       // Random by the order above (md5 of the id): the same sample each time.
-      if (kind && samples[kind].length < SAMPLES) {
-        samples[kind].push({
+      for (const k of [kind, ...extra]) {
+        if (!k || samples[k].length >= SAMPLES) continue;
+        samples[k].push({
           lon: h.lon,
           lat: h.lat,
           official: h.official,
@@ -139,12 +198,14 @@ export class HomesSurveyService {
         });
       }
     }
+    rule.inPieces = piecesOf.size;
     return {
       houses: houses.length,
       known,
       table: [...table.values()].sort(
         (a, b) => b.inTerritory + b.outside - (a.inTerritory + a.outside),
       ),
+      rule,
       words: [...words]
         .map(([official, n]) => ({ official, use: officialUse(official)!, n }))
         .sort((a, b) => b.n - a.n),
