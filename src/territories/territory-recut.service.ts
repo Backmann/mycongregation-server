@@ -79,6 +79,8 @@ const LINE_CODES: Record<ReshapeError['code'], string> = {
   LINE_MANY_PIECES: 'TERRITORY_LINE_MANY',
   NOT_TOUCHING: 'TERRITORY_NOT_TOUCHING',
   SHAPE_WITH_HOLE: 'TERRITORY_JOIN_HOLE',
+  SPLIT_FAILED: 'TERRITORY_LINE_BAD',
+  JOIN_FAILED: 'TERRITORY_JOIN_FAILED',
 };
 
 /** What stands between a proposal and applying it. */
@@ -1169,18 +1171,25 @@ export class TerritoryRecutService {
         taken.push(n);
         numbers.push(n);
       }
-      await this.create(
-        user,
-        {
-          kind: 'cut',
-          territoryIds: [j.t.id],
-          lines: plan.lines.map((points) => ({ points })),
-          keep,
-          numbers,
-          queue: rank < 5 ? 2 : 3,
-        },
-        true,
-      );
+      try {
+        await this.create(
+          user,
+          {
+            kind: 'cut',
+            territoryIds: [j.t.id],
+            lines: plan.lines.map((points) => ({ points })),
+            keep,
+            numbers,
+            queue: rank < 5 ? 2 : 3,
+          },
+          true,
+        );
+      } catch (e) {
+        // The lines did not read back as the plan cut them: by hand.
+        if (!(e instanceof ConflictException)) throw e;
+        byHand.push(j.t.number);
+        continue;
+      }
       made.push(j.t.number);
     }
     // Joins of the small ones with their neighbours.

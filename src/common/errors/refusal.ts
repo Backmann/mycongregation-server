@@ -345,6 +345,8 @@ export const REFUSAL_CODES = [
   'TERRITORY_LINE_MANY',
   'TERRITORY_NOT_TOUCHING',
   'TERRITORY_JOIN_HOLE',
+  /** The clipping gave up on these outlines (15 November 2026). */
+  'TERRITORY_JOIN_FAILED',
   /** The draft of re-cutting (15 November 2026). */
   'TERRITORY_IN_PROPOSAL',
   'TERRITORY_RECUT_PARTS',

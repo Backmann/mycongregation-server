@@ -17,10 +17,32 @@ export class ReshapeError extends Error {
       | 'LINE_NOT_THROUGH'
       | 'LINE_MANY_PIECES'
       | 'NOT_TOUCHING'
-      | 'SHAPE_WITH_HOLE',
+      | 'SHAPE_WITH_HOLE'
+      | 'SPLIT_FAILED'
+      | 'JOIN_FAILED',
     message: string,
   ) {
     super(message);
+  }
+}
+
+/**
+ * The clipping library gives up on some outlines whose corners lie a hair
+ * apart (15 November 2026: «Unable to complete output ring», a 500 for the
+ * whole draft). It is a refusal of this one line or join, not a fault of
+ * the server: the line drawn a little differently goes through.
+ */
+function clipped<T>(what: 'SPLIT_FAILED' | 'JOIN_FAILED', work: () => T): T {
+  try {
+    return work();
+  } catch (e) {
+    if (e instanceof ReshapeError) throw e;
+    throw new ReshapeError(
+      what,
+      what === 'SPLIT_FAILED'
+        ? 'The outline could not be cut along this line; draw it a little differently.'
+        : 'The outlines could not be joined.',
+    );
   }
 }
 
@@ -123,8 +145,10 @@ export function splitByLine(
     path[0],
   ];
   const subject = polygonsOf(g);
-  const left = clean(intersection(subject, [side]));
-  const right = clean(difference(subject, [side]));
+  const [left, right] = clipped('SPLIT_FAILED', () => [
+    clean(intersection(subject, [side])),
+    clean(difference(subject, [side])),
+  ]);
   if (left.length === 0 || right.length === 0) {
     throw new ReshapeError(
       'LINE_NOT_THROUGH',
@@ -154,7 +178,9 @@ export function joinTwo(
   // metres of the other outline are put on it first, both ways.
   const pa = polygonsOf(a);
   const pb = snapOnto(polygonsOf(b), pa);
-  const joined = clean(union(snapOnto(pa, pb), pb));
+  const joined = clipped('JOIN_FAILED', () =>
+    clean(union(snapOnto(pa, pb), pb)),
+  );
   if (joined.length !== 1) {
     throw new ReshapeError('NOT_TOUCHING', 'The two territories do not touch.');
   }
