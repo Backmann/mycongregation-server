@@ -49,6 +49,13 @@ export class MapHouse {
   @Column({ name: 'official_id', type: 'varchar', length: 64, nullable: true })
   officialId!: string | null;
 
+  /**
+   * What the rule says (homes_rule); `home` is the keepers' mark when one
+   * stands on the building, else this (migration HomeMarks).
+   */
+  @Column({ name: 'home_by_rule', type: 'boolean', default: true })
+  homeByRule!: boolean;
+
   /** Floors above ground, from the cadastre; null when unknown. */
   @Column({ type: 'smallint', nullable: true })
   floors!: number | null;

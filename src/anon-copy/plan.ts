@@ -415,7 +415,15 @@ export const PLAN: Record<string, TablePlan> = {
   ),
   /** Buildings from OpenStreetMap: public map data, no people. */
   map_houses: copy(
-    'congregation_id osm_id lon lat area_m2 numbers home official floors official_id',
+    'congregation_id osm_id lon lat area_m2 numbers home official floors official_id home_by_rule',
+  ),
+  /**
+   * The keepers' word on a building, home or not (15 November 2026): about
+   * the building only; who marked it is left out.
+   */
+  map_home_marks: table(
+    copy('id congregation_id official_id lon lat home created_at updated_at'),
+    remove('created_by'),
   ),
   /** Named places from OpenStreetMap (13 November 2026): public map data. */
   map_places: copy('congregation_id osm_id kind name lon lat'),
