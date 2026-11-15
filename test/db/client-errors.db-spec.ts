@@ -1,5 +1,8 @@
 import { Harness, startHarness } from './harness';
-import { ClientErrorsService } from '../../src/client-errors/client-errors.service';
+import {
+  ClientErrorsService,
+  NETWORK_FLOOD,
+} from '../../src/client-errors/client-errors.service';
 
 /**
  * The journal of failures met in the app, on the real database (10 November
@@ -146,5 +149,102 @@ describe('failures met in the app (real database)', () => {
     // The same day still tells of a failure of the app's own code.
     await svc.record({ ...report, route: '/own' } as never, day);
     expect(await count()).toBeGreaterThan(before);
+  });
+
+  const told = async () =>
+    Number(
+      (
+        await h.sql<{ n: string }>(
+          `SELECT count(*) AS n FROM notification_outbox WHERE kind = 'client_error'`,
+        )
+      )[0].n,
+    );
+
+  it('a request that did not get through is kept as the network, told only when it floods', async () => {
+    const svc = h.app.get(ClientErrorsService);
+    // A day of its own: nothing else has been told on it.
+    const day = new Date(Date.now() - 7 * 86_400_000);
+    const net = {
+      platform: 'web',
+      source: 'uncaught',
+      route: '/login',
+      message: 'NetworkError: A network error occurred.',
+      event: 'rejection',
+      online: true,
+      place: 'https://example.org/_expo/static/js/web/entry-4f3a9.js:2:120',
+      sinceStartS: 3,
+    } as never;
+    const before = await told();
+    for (let i = 1; i < NETWORK_FLOOD; i++) await svc.record(net, day);
+    expect(await told()).toBe(before);
+    // The context is kept as told.
+    const [row] = await h.sql<{
+      event: string;
+      online: boolean;
+      place: string;
+      since_start_s: number;
+      count: number;
+    }>(
+      `SELECT event, online, place, since_start_s, count FROM client_errors WHERE route = '/login'`,
+    );
+    expect(row).toEqual({
+      event: 'rejection',
+      online: true,
+      place: 'https://example.org/_expo/static/js/web/entry-4f3a9.js:2:120',
+      since_start_s: 3,
+      count: NETWORK_FLOOD - 1,
+    });
+    // An older build's report (no context) does not wipe it.
+    await svc.record(
+      { ...(net as object), event: undefined, online: undefined } as never,
+      day,
+    );
+    expect(await told()).toBeGreaterThan(before);
+    const [after] = await h.sql<{ event: string; online: boolean }>(
+      `SELECT event, online FROM client_errors WHERE route = '/login'`,
+    );
+    expect(after).toEqual({ event: 'rejection', online: true });
+    // Told once only, however many more.
+    const once = await told();
+    await svc.record(net, day);
+    expect(await told()).toBe(once);
+    // The administrator sees it marked as the network's.
+    const res = await h.as('admin').get('/client-errors');
+    const login = res.body.find((r: { route: string }) => r.route === '/login');
+    expect(login.network).toBe(true);
+    expect(
+      res.body.find((r: { route: string }) => r.route === '/home').network,
+    ).toBe(false);
+  });
+
+  it('offline, any failure is the network; a new report field is checked', async () => {
+    const svc = h.app.get(ClientErrorsService);
+    const day = new Date(Date.now() - 9 * 86_400_000);
+    const before = await told();
+    await svc.record(
+      {
+        ...report,
+        route: '/offline',
+        message: 'TypeError: x is undefined',
+        online: false,
+      } as never,
+      day,
+    );
+    expect(await told()).toBe(before);
+    expect(
+      (await h.as(null).post('/client-errors', { ...report, event: 'click' }))
+        .status,
+    ).toBe(400);
+    expect(
+      (
+        await h.as(null).post('/client-errors', {
+          ...report,
+          route: '/ctx',
+          online: true,
+          event: 'error',
+          sinceStartS: 4,
+        })
+      ).status,
+    ).toBe(204);
   });
 });

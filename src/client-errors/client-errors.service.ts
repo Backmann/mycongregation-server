@@ -6,16 +6,37 @@ import { User } from '../entities/user.entity';
 import { UserRole } from '../common/enums/user-role.enum';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ReportClientErrorDto } from './dto/report-client-error.dto';
-import { fingerprintOf, isForeign, routePattern, scrub } from './scrub';
+import {
+  fingerprintOf,
+  isForeign,
+  isNetwork,
+  routePattern,
+  scrub,
+} from './scrub';
 
 /** How long a failure is kept. */
 export const KEEP_DAYS = 30;
+
+/**
+ * A failure of the network wakes nobody — unless it is met this many times
+ * on one day: then it is no longer a weak signal on one phone.
+ */
+export const NETWORK_FLOOD = 20;
 
 const NEW_KIND: Record<'ru' | 'en' | 'de', string> = {
   ru: 'Новый вид сбоя в приложении',
   en: 'A new kind of failure in the app',
   de: 'Eine neue Art von Fehler in der App',
 };
+
+const NETWORK_FLOOD_TITLE: Record<'ru' | 'en' | 'de', string> = {
+  ru: 'Много сбоев сети в приложении',
+  en: 'Many network failures in the app',
+  de: 'Viele Netzwerkfehler in der App',
+};
+
+/** One row of the journal as an administrator reads it. */
+export type ClientErrorView = ClientError & { network: boolean };
 
 /**
  * The journal of failures met in the app (10 November 2026).
@@ -62,19 +83,33 @@ export class ClientErrorsService {
         appCommit: dto.appCommit
           ? dto.appCommit.replace(/[^\w.-]/g, '').slice(0, 64)
           : null,
+        event: dto.event ?? null,
+        online: dto.online ?? null,
+        place: dto.place ? scrub(dto.place, 300) : null,
+        sinceStartS: dto.sinceStartS ?? null,
       };
+      const network = isNetwork(row.message, row.online);
       const fingerprint = fingerprintOf(row);
       const seenBefore = await this.errors.exist({ where: { fingerprint } });
       // One row per failure per day: a repeat counts, it does not add a row.
-      await this.errors.query(
+      // The context as the last report gave it; an older build's report
+      // (none) does not wipe what a newer one told.
+      const [{ count }] = await this.errors.query<{ count: number }[]>(
         `INSERT INTO "client_errors"
            ("day", "fingerprint", "platform", "app_commit", "route", "role",
-            "source", "message", "stack", "count", "first_at", "last_at")
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1, $10, $10)
+            "source", "message", "stack", "count", "first_at", "last_at",
+            "event", "online", "place", "since_start_s")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1, $10, $10,
+                 $11, $12, $13, $14)
          ON CONFLICT ("day", "fingerprint") DO UPDATE SET
            "count" = "client_errors"."count" + 1,
            "last_at" = EXCLUDED."last_at",
-           "app_commit" = EXCLUDED."app_commit"`,
+           "app_commit" = EXCLUDED."app_commit",
+           "event" = coalesce(EXCLUDED."event", "client_errors"."event"),
+           "online" = coalesce(EXCLUDED."online", "client_errors"."online"),
+           "place" = coalesce(EXCLUDED."place", "client_errors"."place"),
+           "since_start_s" = coalesce(EXCLUDED."since_start_s", "client_errors"."since_start_s")
+         RETURNING "count"`,
         [
           row.day,
           fingerprint,
@@ -86,14 +121,22 @@ export class ClientErrorsService {
           row.message,
           row.stack,
           now,
+          row.event,
+          row.online,
+          row.place,
+          row.sinceStartS,
         ],
       );
       if (!seenBefore) {
         await this.prune(now);
-        // Code the app never runs (a console, an extension): kept, not told.
-        if (!isForeign(row.stack))
+        // Code the app never runs (a console, an extension), or a request
+        // that did not get through: kept, not told.
+        if (!isForeign(row.stack) && !network)
           await this.tellAdmins(row.route, row.message, row.day);
       }
+      // The network's failure met again and again on one day: told once.
+      if (network && Number(count) === NETWORK_FLOOD)
+        await this.tellAdmins(row.route, row.message, row.day, true);
     } catch (err) {
       this.logger.warn(`client error not recorded: ${(err as Error).message}`);
     }
@@ -104,6 +147,7 @@ export class ClientErrorsService {
     route: string,
     message: string,
     day: string,
+    flood = false,
   ): Promise<void> {
     if (!this.notifications) return;
     const admins = await this.users.find({
@@ -122,9 +166,11 @@ export class ClientErrorsService {
         tenantId,
         userIds,
         kind: 'client_error',
-        key: `client-error-new:${day}`,
+        key: flood ? `client-error-network:${day}` : `client-error-new:${day}`,
         text: (lang) => ({
-          title: NEW_KIND[lang] ?? NEW_KIND.ru,
+          title: flood
+            ? (NETWORK_FLOOD_TITLE[lang] ?? NETWORK_FLOOD_TITLE.ru)
+            : (NEW_KIND[lang] ?? NEW_KIND.ru),
           body: `${route}: ${message}`.slice(0, 180),
         }),
         data: { type: 'client_error' },
@@ -133,8 +179,15 @@ export class ClientErrorsService {
   }
 
   /** The last thirty days, the latest first. */
-  async list(now = new Date()): Promise<ClientError[]> {
+  async list(now = new Date()): Promise<ClientErrorView[]> {
     await this.prune(now);
-    return this.errors.find({ order: { lastAt: 'DESC' }, take: 500 });
+    const rows = await this.errors.find({
+      order: { lastAt: 'DESC' },
+      take: 500,
+    });
+    return rows.map((r) => ({
+      ...r,
+      network: isNetwork(r.message, r.online),
+    }));
   }
 }

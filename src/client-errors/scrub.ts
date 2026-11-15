@@ -93,3 +93,24 @@ export function isForeign(stack: string | null): boolean {
   );
   return places.length > 0 && places.every((p) => FOREIGN.test(p));
 }
+
+/**
+ * The words browsers and phones use when a request did not get through
+ * (15 November 2026): Safari's «NetworkError: A network error occurred.»
+ * and «Load failed», Chrome's «Failed to fetch», Firefox's «NetworkError
+ * when attempting to fetch resource», a phone's «Network request failed»,
+ * and Apple's «The network connection was lost» / «…appears to be offline»;
+ * axios, which the app asks through, says «AxiosError: Network Error».
+ */
+const NETWORK =
+  /^(NetworkError\b|(TypeError|Error): (Load failed|Failed to fetch|NetworkError when attempting to fetch resource|Network request failed)\b|(AxiosError|Error): Network Error$)|\b(The network connection was lost|The Internet connection appears to be offline)\b/i;
+
+/**
+ * Whether a failure is the network's, not the app's: its words are a failed
+ * request's, or the device said it was offline. Such a failure stays in the
+ * journal, marked «сеть», but wakes nobody — a weak signal on one phone is
+ * not news. Only a flood of it on one day is (see ClientErrorsService).
+ */
+export function isNetwork(message: string, online: boolean | null): boolean {
+  return online === false || NETWORK.test(message.trim());
+}
