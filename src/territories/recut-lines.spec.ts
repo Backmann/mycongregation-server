@@ -8,6 +8,7 @@ import {
   DEFAULT_MEASURE,
 } from './recut';
 import { cutPlan } from './recut-lines';
+import { graphOf } from './way';
 import { driveGraph, minutesFrom, minutesInto, nearestOf } from './recut-drive';
 
 type Pt = [number, number];
@@ -101,6 +102,53 @@ describe('the draft of re-cutting: lines of a first proposal', () => {
     // The walk shared out within a tenth or so.
     const [a, b] = plan.walkM;
     expect(Math.abs(a - b) / Math.max(a, b)).toBeLessThan(0.25);
+  });
+
+  it('in a town the line goes along a street, not straight through the blocks', () => {
+    // Houses every ≈20 m; a street runs north–south with a jog in the middle.
+    const street: Pt[] = [
+      [7.0145, 50.999],
+      [7.0145, 51.005],
+      [7.0165, 51.005],
+      [7.0165, 51.011],
+    ];
+    const homes = grid(
+      7,
+      51,
+      7.03,
+      51.01,
+      0.0003,
+      ([x]) => Math.abs(x - 7.0145) < 0.0002 || Math.abs(x - 7.0165) < 0.0002,
+    );
+    const plan = cutPlan(T, homes, 2, graphOf([street]))!;
+    const line = plan.lines[0];
+    // Every corner of the line inside the territory lies on the street.
+    const kx = 111_320 * Math.cos((51 * Math.PI) / 180);
+    const onStreet = (p: Pt) =>
+      street.slice(1).some((b, i) => {
+        const a = street[i];
+        const t = Math.max(
+          0,
+          Math.min(
+            1,
+            ((p[0] - a[0]) * (b[0] - a[0]) * kx * kx +
+              (p[1] - a[1]) * (b[1] - a[1]) * 110_540 * 110_540) /
+              (((b[0] - a[0]) * kx) ** 2 + ((b[1] - a[1]) * 110_540) ** 2 || 1),
+          ),
+        );
+        return (
+          Math.hypot(
+            (a[0] + t * (b[0] - a[0]) - p[0]) * kx,
+            (a[1] + t * (b[1] - a[1]) - p[1]) * 110_540,
+          ) < 5
+        );
+      });
+    // Out, in at the edge, along the street…, out at the edge, out.
+    const along = line.slice(2, -2);
+    expect(along.length).toBeGreaterThanOrEqual(4);
+    expect(along.every(onStreet)).toBe(true);
+    // Read back the same by partsOfCut.
+    expect(partsOfCut(T, plan.lines)).toHaveLength(2);
   });
 
   it('an L-shaped territory is still cut into whole pieces', () => {

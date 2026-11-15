@@ -53,6 +53,7 @@ import {
 import { joinTwo, nextNumber, ReshapeError } from './reshape';
 import { driveGraph, minutesFrom, minutesInto, nearestOf } from './recut-drive';
 import { cutPlan } from './recut-lines';
+import { graphOf } from './way';
 import { TerritorySplitsService } from './territory-splits.service';
 import { addDays } from './service-year';
 import {
@@ -923,6 +924,24 @@ export class TerritoryRecutService {
 
   // --------------------------------------------------------- figures -----
 
+  /** The streets and the numbered roads in and round an outline. */
+  private async roadsAround(
+    m: EntityManager,
+    tenantId: string,
+    g: TerritoryGeometry,
+  ): Promise<[number, number][][]> {
+    const [x0, y0, x1, y1] = boxOf(g);
+    const rows = await m.query<{ lines: [number, number][][] }[]>(
+      `SELECT lines FROM map_streets
+        WHERE congregation_id = $1 AND east >= $2 AND west <= $3 AND north >= $4 AND south <= $5
+       UNION ALL
+       SELECT lines FROM map_roads
+        WHERE congregation_id = $1 AND east >= $2 AND west <= $3 AND north >= $4 AND south <= $5`,
+      [tenantId, x0, x1, y0, y1],
+    );
+    return rows.flatMap((r) => r.lines);
+  }
+
   /** A hall on our own map, by its official address; null when not found. */
   private async placeOf(
     m: EntityManager,
@@ -1133,7 +1152,12 @@ export class TerritoryRecutService {
       const homes = (
         (await housesAround(m, tenantId, [j.t.geometry])) ?? []
       ).filter((h) => pointInside(h, j.t.geometry));
-      const plan = cutPlan(j.t.geometry, homes, j.verdict.parts);
+      const plan = cutPlan(
+        j.t.geometry,
+        homes,
+        j.verdict.parts,
+        graphOf(await this.roadsAround(m, tenantId, j.t.geometry)),
+      );
       if (!plan) {
         byHand.push(j.t.number);
         continue;
