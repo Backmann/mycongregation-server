@@ -49,6 +49,11 @@ admin_sql() {
   ' "$@"
 }
 
+# SQL on one database (the seeded one), through the server's own driver.
+admin_sql_on() {
+  POSTGRES_ADMIN_DB="$1" admin_sql "${@:2}"
+}
+
 start() {
   MAIN="$(find dist -name main.js -type f | head -1)"
   [ -n "$MAIN" ] || { echo "No main.js under dist — build first."; exit 1; }
@@ -86,6 +91,20 @@ npx typeorm-ts-node-commonjs -d src/data-source.ts migration:run -t each > migra
 start
 SUMMARY="$(node scripts/seed-screens.mjs "http://localhost:${PORT}/api")"
 stop
+# The map's register has no API (it is built from the map file): invented
+# streets and houses in T03 (16 November 2026), so the editor of a cut's
+# lines counts homes and walks (the walks seeded before them are dropped).
+# One house stands beside the drawn line.
+admin_sql_on "$POSTGRES_DB" \
+  "INSERT INTO map_streets (congregation_id, street_no, name, kind, west, south, east, north, lines)
+     SELECT c.id, 900 + k, 'Улица ' || (k + 1), 'residential', 10.023, 51.0007 + k * 0.0013, 10.036, 51.0007 + k * 0.0013,
+            jsonb_build_array(jsonb_build_array(jsonb_build_array(10.023, 51.0007 + k * 0.0013), jsonb_build_array(10.036, 51.0007 + k * 0.0013)))
+       FROM congregations c, generate_series(0, 4) k" \
+  "INSERT INTO map_houses (congregation_id, osm_id, lon, lat, area_m2, home)
+     SELECT c.id, 900000 + g, 10.0245 + (g % 8) * 0.0013, 51.001 + (g / 8) * 0.0013, 120, true
+       FROM congregations c, generate_series(0, 39) g" \
+  "UPDATE territory_settings SET houses_built_at = now()" \
+  "UPDATE territory_recuts SET walks = '{}'::jsonb"
 admin_sql "DROP DATABASE IF EXISTS \"$SNAPSHOT\" WITH (FORCE)" \
           "CREATE DATABASE \"$SNAPSHOT\" TEMPLATE \"$POSTGRES_DB\""
 start

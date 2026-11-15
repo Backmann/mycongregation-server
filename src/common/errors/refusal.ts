@@ -352,6 +352,8 @@ export const REFUSAL_CODES = [
   'TERRITORY_RECUT_PARTS',
   'TERRITORY_RECUT_MEASURE',
   'TERRITORY_RECUT_NO_FIGURES',
+  /** Saved by someone else while the lines were moved (16 November 2026). */
+  'TERRITORY_RECUT_STALE',
   'TERRITORY_UNDO_GIVEN',
   'TERRITORY_NOT_FOR_MEETING',
   // «Не посещать» kept by hand (12 November 2026).

@@ -448,8 +448,8 @@ export const PLAN: Record<string, TablePlan> = {
     'id congregation_id measure classes metrics metrics_at walks created_at updated_at',
   ),
   territory_recut_proposals: copy(`id congregation_id recut_id kind
-    territory_ids base lines keep numbers keep_id queue state approved_at
-    reopened_at applied_at created_at updated_at`),
+    territory_ids base lines suggested_lines keep numbers keep_id queue state
+    approved_at lines_changed_at reopened_at applied_at created_at updated_at`),
   /** A remark is a person's own words: a numbered stand-in. */
   territory_recut_remarks: table(
     copy('id congregation_id proposal_id user_id ok created_at updated_at'),

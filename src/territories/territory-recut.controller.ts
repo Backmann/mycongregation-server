@@ -15,6 +15,7 @@ import {
 import {
   RecutClassDto,
   RecutMeasureDto,
+  RecutPreviewDto,
   RecutProposalDto,
   RecutRemarkDto,
 } from './dto/recut.dto';
@@ -78,6 +79,16 @@ export class TerritoryRecutController {
     @Body() dto: RecutProposalDto,
   ) {
     return this.recut.update(user, id, dto);
+  }
+
+  /** Lines tried in the editor: the parts they would make, nothing saved. */
+  @Post('proposals/:id/preview')
+  preview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RecutPreviewDto,
+  ) {
+    return this.recut.preview(user, id, dto);
   }
 
   @Delete('proposals/:id')
