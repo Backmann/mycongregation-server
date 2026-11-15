@@ -376,12 +376,26 @@ describe('the draft of re-cutting (real database)', () => {
     // A main road through all of them; one hall on it, one not on the map.
     await h.sql(
       `INSERT INTO map_streets (congregation_id, street_no, name, kind, west, south, east, north, lines)
-       VALUES ($1, 1, 'Hauptstraße', 'major_road', 6.995, 51.0045, 7.215, 51.0045, $2)`,
+       VALUES ($1, 1, 'Hauptstraße', 'major_road', 6.995, 51.0045, 7.1, 51.0045, $2)`,
       [
         congregationId,
         JSON.stringify([
           [
             [6.995, 51.0045],
+            [7.1, 51.0045],
+          ],
+        ]),
+      ],
+    );
+    // Further on the road has only a number: map_roads, not map_streets.
+    await h.sql(
+      `INSERT INTO map_roads (congregation_id, road_no, kind, west, south, east, north, lines)
+       VALUES ($1, 1, 'major_road', 7.1, 51.0045, 7.215, 51.0045, $2)`,
+      [
+        congregationId,
+        JSON.stringify([
+          [
+            [7.1, 51.0045],
             [7.215, 51.0045],
           ],
         ]),

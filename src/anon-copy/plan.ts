@@ -440,6 +440,8 @@ export const PLAN: Record<string, TablePlan> = {
   map_streets: copy(
     'congregation_id street_no name kind west south east north lines',
   ),
+  /** Roads with no name between villages: public map data. */
+  map_roads: copy('congregation_id road_no kind west south east north lines'),
   /** A territory divided between groups for a day: streets and houses. */
   /** The draft of re-cutting: borders and numbers, no person. */
   territory_recuts: copy(
