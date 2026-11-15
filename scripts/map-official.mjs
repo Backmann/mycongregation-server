@@ -3,7 +3,7 @@
  * What the cadastre says each building is (14 November 2026).
  *
  *   node scripts/map-official.mjs --districts <gebref.txt> <west,south,east,north>
- *   node scripts/map-official.mjs <houses.csv> <buildings.geojsonl>
+ *   node scripts/map-official.mjs <houses.csv> <buildings.geojsonl> [addresses.csv]
  *   node scripts/map-official.mjs --self-test
  *
  * The map file knows a building's outline, not what it is: a workshop with
@@ -196,7 +196,60 @@ async function districts(gebref, boxText) {
   for (const k of [...keys].sort()) console.log(k);
 }
 
-async function match(housesFile, buildingsFile) {
+/** Within this many metres of a house, an official address of its number is its own. */
+export const ADDRESS_M = 40;
+const ACELL = 0.0006; // degrees: about 40 × 65 m here
+
+/** Official addresses (map-addresses.mjs CSV) by grid cell. */
+export function addressIndex(rows) {
+  const cells = new Map();
+  for (const a of rows) {
+    const key = `${Math.floor(a.p[0] / ACELL)}:${Math.floor(a.p[1] / ACELL)}`;
+    let list = cells.get(key);
+    if (!list) cells.set(key, (list = []));
+    list.push(a);
+  }
+  return cells;
+}
+
+/**
+ * The cadastre building a house of the map is (15 November 2026). A house
+ * with a number: the building holding its own official address — the
+ * official point stands inside the main building, while the map may draw a
+ * house with its garage, or a farmhouse with its barn, as one outline whose
+ * middle lies in the garage or the barn. Otherwise (no number, no address
+ * of it close by): the building holding the house's middle.
+ * Returns { b, by: 'address' | 'middle' } or null.
+ */
+export function buildingOfHouse(index, addresses, p, numbers) {
+  const nums = (numbers ?? '')
+    .split(';')
+    .map((n) => n.trim().toLowerCase())
+    .filter(Boolean);
+  if (nums.length && addresses) {
+    const cx = Math.floor(p[0] / ACELL);
+    const cy = Math.floor(p[1] / ACELL);
+    let best = null;
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dy = -1; dy <= 1; dy++)
+        for (const a of addresses.get(`${cx + dx}:${cy + dy}`) ?? []) {
+          if (!nums.includes(a.num)) continue;
+          const m = Math.hypot(
+            (a.p[0] - p[0]) * kx(p[1]),
+            (a.p[1] - p[1]) * KY,
+          );
+          if (m <= ADDRESS_M && (!best || m < best.m)) best = { a, m };
+        }
+    if (best) {
+      const b = buildingAt(index, best.a.p);
+      if (b) return { b, by: 'address' };
+    }
+  }
+  const b = buildingAt(index, p);
+  return b ? { b, by: 'middle' } : null;
+}
+
+async function match(housesFile, buildingsFile, addressesFile) {
   const buildings = [];
   await lines(buildingsFile, (line) => {
     const b = buildingOf(line);
@@ -205,21 +258,47 @@ async function match(housesFile, buildingsFile) {
     buildings.push(b);
   });
   const index = indexOf(buildings);
+  let addresses = null;
+  if (addressesFile) {
+    const rows = [];
+    await lines(addressesFile, (line) => {
+      // congregation_id, oid, lon, lat, number, street
+      const f = line.split(',');
+      const p = [Number(f[2]), Number(f[3])];
+      const num = (f[4] ?? '').replace(/"/g, '').trim().toLowerCase();
+      if (Number.isFinite(p[0]) && Number.isFinite(p[1]) && num)
+        rows.push({ p, num });
+    });
+    addresses = addressIndex(rows);
+  }
   let houses = 0;
   let found = 0;
+  let byAddress = 0;
+  let moved = 0;
   await lines(housesFile, (line) => {
+    // congregation_id, osm_id, lon, lat, area_m2, numbers
     const f = line.split(',');
     if (f.length < 4) return;
     const p = [Number(f[2]), Number(f[3])];
     if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) return;
     houses += 1;
-    const b = buildingAt(index, p);
-    if (!b) return;
+    const hit = buildingOfHouse(
+      index,
+      addresses,
+      p,
+      (f[5] ?? '').replace(/"/g, ''),
+    );
+    if (!hit) return;
     found += 1;
+    if (hit.by === 'address') {
+      byAddress += 1;
+      if (buildingAt(index, p) !== hit.b) moved += 1;
+    }
+    const b = hit.b;
     console.log(`${csv(f[1])},${csv(b.fn)},${csv(b.floors)},${csv(b.id)}`);
   });
   console.error(
-    `official: ${buildings.length} cadastre buildings, ${found} of ${houses} houses found`,
+    `official: ${buildings.length} cadastre buildings, ${found} of ${houses} houses found; ${byAddress} by their own address, ${moved} of them another building than by the middle`,
   );
 }
 
@@ -290,6 +369,55 @@ function selfTest() {
       'Carport',
     ],
     ['a comma quoted', csv('a, b'), '"a, b"'],
+    ...(() => {
+      // A farm: the farmhouse 0–20 m, the barn 20–60 m; the map draws both
+      // as one outline whose middle (30, 10) lies in the barn. The official
+      // address of number 5 stands in the farmhouse.
+      const house = {
+        rings: [[m(0, 0), m(20, 0), m(20, 20), m(0, 20), m(0, 0)]],
+        fn: 'Wohngebäude',
+        floors: 2,
+        id: 'H',
+      };
+      const barn = {
+        rings: [[m(20, 0), m(60, 0), m(60, 20), m(20, 20), m(20, 0)]],
+        fn: 'Gebäude für Land- und Forstwirtschaft',
+        floors: 1,
+        id: 'B',
+      };
+      const i3 = indexOf([house, barn]);
+      const ad = addressIndex([
+        { p: m(8, 10), num: '5' },
+        { p: m(150, 10), num: '7' },
+      ]);
+      return [
+        [
+          'a farmhouse drawn with its barn: by its address, the farmhouse',
+          buildingOfHouse(i3, ad, m(30, 10), '5')?.b.id,
+          'H',
+        ],
+        [
+          '… and the word says how',
+          buildingOfHouse(i3, ad, m(30, 10), '5')?.by,
+          'address',
+        ],
+        [
+          'no number: by the middle',
+          buildingOfHouse(i3, ad, m(30, 10), null)?.b.id,
+          'B',
+        ],
+        [
+          'its number far away (another street): by the middle',
+          buildingOfHouse(i3, ad, m(30, 10), '7')?.b.id,
+          'B',
+        ],
+        [
+          'no addresses read: by the middle',
+          buildingOfHouse(i3, null, m(30, 10), '5')?.b.id,
+          'B',
+        ],
+      ];
+    })(),
     [
       'the cadastre id read',
       buildingOf(
@@ -336,12 +464,14 @@ async function main() {
   if (process.argv[2] === '--self-test') return selfTest();
   if (process.argv[2] === '--districts')
     return districts(process.argv[3], process.argv[4]);
-  const [houses, buildings] = process.argv.slice(2);
+  const [houses, buildings, addresses] = process.argv.slice(2);
   if (!houses || !buildings) {
-    console.error('usage: map-official.mjs <houses.csv> <buildings.geojsonl>');
+    console.error(
+      'usage: map-official.mjs <houses.csv> <buildings.geojsonl> [addresses.csv]',
+    );
     process.exit(2);
   }
-  return match(houses, buildings);
+  return match(houses, buildings, addresses);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

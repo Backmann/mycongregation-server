@@ -5,7 +5,7 @@ import { Territory } from '../entities/territory.entity';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { TerritoryAccessService } from './territory-access.service';
 import { boxOf, pointInside } from './geometry';
-import { homesByCadastre, officialUse, type OfficialUse } from './official-use';
+import { officialUse, type OfficialUse } from './official-use';
 
 type Use = OfficialUse | 'unknown';
 
@@ -36,7 +36,7 @@ export interface HomesSurvey {
   /** The cadastre's words and how many buildings each. */
   words: { official: string; use: OfficialUse; n: number }[];
   /**
-   * The proposed rule (homesByCadastre) against today's, homes inside a
+   * The rule (homes_rule in the database) against what is stored, homes inside a
    * territory: how many now and then, how many it adds and drops, and how
    * many houses are only further pieces of one building.
    */
@@ -122,16 +122,12 @@ export class HomesSurveyService {
       added: [],
       piece: [],
     };
-    const then = homesByCadastre(
-      houses.map((h) => ({
-        osmId: h.osm_id,
-        official: h.official,
-        officialId: h.official_id,
-        numbers: h.numbers,
-        areaM2: h.area_m2,
-        home: h.home,
-      })),
-    );
+    // The rule as the map build applies it (homes_rule, one authority):
+    // after a build «then» equals «now»; before, it shows what would move.
+    const ruled = await this.dataSource.query<
+      { osm_id: string; home: boolean }[]
+    >(`SELECT osm_id::text AS osm_id, home FROM homes_rule($1)`, [tenantId]);
+    const then = new Map(ruled.map((r) => [r.osm_id, r.home]));
     const rule = {
       now: 0,
       then: 0,
@@ -141,6 +137,11 @@ export class HomesSurveyService {
       inPieces: 0,
     };
     const piecesOf = new Map<string, number>();
+    // How many houses of the map share each cadastre building.
+    const shared = new Map<string, number>();
+    for (const h of houses)
+      if (h.official_id)
+        shared.set(h.official_id, (shared.get(h.official_id) ?? 0) + 1);
     let known = 0;
     for (const h of houses) {
       const use: Use = officialUse(h.official) ?? 'unknown';
@@ -150,8 +151,12 @@ export class HomesSurveyService {
       }
       const t = territoryOf([h.lon, h.lat]);
       const byRule = then.get(h.osm_id) ?? h.home;
+      // A further piece of a building drawn in several: what the rule
+      // leaves out for that reason alone.
       const piece =
-        !byRule && use !== 'not' && use !== 'unknown' && !!h.official_id;
+        !byRule &&
+        (use === 'home' || use === 'unsure') &&
+        (shared.get(h.official_id ?? '') ?? 0) > 1;
       if (t) {
         if (h.home) rule.now += 1;
         if (byRule) rule.then += 1;

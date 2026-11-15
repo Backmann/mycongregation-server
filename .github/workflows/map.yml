@@ -164,7 +164,7 @@ jobs:
           sudo apt-get -qq install -y gdal-bin > /dev/null
           TXT=$(find gebref -iname 'gebref*.txt' ! -iname '*anzahl*' | awk 'NR==1')
           scripts/map-cadastre.sh "$NRW_BOX" "$TXT" cadastre.geojsonl
-          node scripts/map-official.mjs nrw-houses.csv cadastre.geojsonl > official.csv
+          node scripts/map-official.mjs nrw-houses.csv cadastre.geojsonl addresses.csv > official.csv
           echo "Most common words:"
           python3 -c "import csv,collections; c=collections.Counter(r[1] for r in csv.reader(open('official.csv'))); [print(f'{n:7d}  {w}') for w,n in c.most_common(25)]"
           python3 -c "import csv,sys; r=list(csv.reader(open('official.csv'))); bad=[x for x in r if len(x)!=4 or not x[3]]; print(len(r),'houses with a word,',len(bad),'malformed'); sys.exit(1 if bad or len(r)<1000 else 0)"
@@ -318,7 +318,7 @@ jobs:
             # not yet used to count homes. Without the addresses (no
             # districts) or the cadastre, the houses stay without a word.
             if [ -f gebref.txt ] && scripts/map-cadastre.sh "$box" gebref.txt "cadastre-$n.geojsonl" < /dev/null; then
-              node scripts/map-official.mjs "houses-$n.csv" "cadastre-$n.geojsonl" > "official-$n.csv" < /dev/null \
+              node scripts/map-official.mjs "houses-$n.csv" "cadastre-$n.geojsonl" "addresses-$n.csv" > "official-$n.csv" < /dev/null \
                 || rm -f "official-$n.csv"
             else
               echo "::warning::Area $n: no cadastre this time."
