@@ -47,8 +47,10 @@ import {
   joinAll,
   measureProblem,
   movedShare,
+  paceOf,
   partsOfCut,
   REOPEN_SHARE,
+  type RecutPace,
 } from './recut';
 import { joinTwo, nextNumber, ReshapeError } from './reshape';
 import { driveGraph, minutesFrom, minutesInto, nearestOf } from './recut-drive';
@@ -95,6 +97,8 @@ export type RecutBlock =
 export interface RecutPartView {
   number: string;
   homes: number | null;
+  /** Its walk (km), worked out in the background; null until then. */
+  walkKm: number | null;
   geometry: TerritoryGeometry;
 }
 
@@ -153,6 +157,10 @@ export interface RecutView {
   metricsAt: string | null;
   /** The figures are being worked out now. */
   computing: boolean;
+  /** The walks of the parts are being worked out now. */
+  walking: boolean;
+  /** How fast a territory is worked through here, by the S-13; null: too few done. */
+  pace: RecutPace | null;
   halls: { name: string; found: boolean }[];
   territories: RecutTerritoryView[];
   /** Draws and changes proposals: the territory servant and his assistant. */
@@ -177,6 +185,8 @@ export class TerritoryRecutService {
   private readonly logger = new Logger(TerritoryRecutService.name);
   /** Congregations whose figures are being worked out now. */
   private readonly computing = new Set<string>();
+  /** Congregations whose parts' walks are being worked out now. */
+  private readonly walking = new Set<string>();
 
   constructor(
     private readonly access: TerritoryAccessService,
@@ -325,6 +335,7 @@ export class TerritoryRecutService {
       remarks.map((r) => r.userId),
     );
 
+    const walks = recut?.walks ?? {};
     const out: RecutProposalView[] = proposals.map((p) => {
       const ts = p.territoryIds.map((id) => byId.get(id));
       const blocks: RecutBlock[] = [];
@@ -353,7 +364,7 @@ export class TerritoryRecutService {
       }
       if (p.state === 'open' && !blocks.includes('gone')) {
         try {
-          parts = this.partsOf(p, ts as Territory[], homes);
+          parts = this.partsOf(p, ts as Territory[], homes, walks);
         } catch (e) {
           if (!(e instanceof ReshapeError || e instanceof GeometryError))
             throw e;
@@ -386,6 +397,12 @@ export class TerritoryRecutService {
           })),
       };
     });
+    // A part whose walk is not known yet: worked out in the background.
+    if (
+      recut &&
+      out.some((p) => p.parts.some((x) => !(borderPrint(x.geometry) in walks)))
+    )
+      this.startWalks(tenantId);
     const measure = recut?.measure ?? DEFAULT_MEASURE;
     const metrics = recut?.metrics ?? null;
     const inProposal = new Set(
@@ -424,6 +441,8 @@ export class TerritoryRecutService {
       measure,
       metricsAt: recut?.metricsAt?.toISOString() ?? null,
       computing: this.computing.has(tenantId),
+      walking: this.walking.has(tenantId),
+      pace: metrics ? await this.paceOf(m, tenantId, metrics) : null,
       halls: metrics?.halls ?? [],
       territories: territoriesView,
       canEdit: a.keeps,
@@ -440,26 +459,136 @@ export class TerritoryRecutService {
     >,
     ts: Territory[],
     homes: HousePoint[] | null,
+    walks: Record<string, number | null> = {},
   ): RecutPartView[] {
+    return this.shapesOf(p, ts).map((x) => ({
+      number: x.number,
+      homes: homes ? housesIn(x.geometry, homes) : null,
+      walkKm: walks[borderPrint(x.geometry)] ?? null,
+      geometry: x.geometry,
+    }));
+  }
+
+  /** The outlines a proposal makes of the territories as they are now. */
+  private shapesOf(
+    p: Pick<
+      TerritoryRecutProposal,
+      'kind' | 'lines' | 'keep' | 'numbers' | 'keepId'
+    >,
+    ts: Territory[],
+  ): { number: string; geometry: TerritoryGeometry }[] {
     if (p.kind === 'merge') {
       const g = joinAll(ts.map((t) => t.geometry));
       const kept = ts.find((t) => t.id === p.keepId) ?? ts[0];
-      return [
-        {
-          number: kept.number,
-          homes: homes ? housesIn(g, homes) : null,
-          geometry: g,
-        },
-      ];
+      return [{ number: kept.number, geometry: g }];
     }
     const t = ts[0];
     const gs = partsOfCut(t.geometry, p.lines ?? []);
     const others = [...(p.numbers ?? [])];
     return gs.map((g, i) => ({
       number: i === p.keep ? t.number : (others.shift() ?? '—'),
-      homes: homes ? housesIn(g, homes) : null,
       geometry: g,
     }));
+  }
+
+  /**
+   * The congregation's pace by its S-13: the territories worked through in
+   * the last two years, each by its walk now over the days it was out.
+   */
+  private async paceOf(
+    m: EntityManager,
+    tenantId: string,
+    metrics: { territories: Record<string, RecutMetric> },
+  ): Promise<RecutPace | null> {
+    const since = addDays(await this.today(m, tenantId), -730);
+    const done = await m.find(TerritoryAssignment, {
+      where: {
+        congregationId: tenantId,
+        completedOn: Not(IsNull()),
+      },
+      select: { territoryId: true, assignedOn: true, completedOn: true },
+    });
+    const days = (a: string, b: string) =>
+      Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000);
+    return paceOf(
+      done
+        .filter(
+          (d) => d.completedOn! >= since && metrics.territories[d.territoryId],
+        )
+        .map((d) => ({
+          walkKm: metrics.territories[d.territoryId].walkKm,
+          days: days(d.assignedOn, d.completedOn!),
+        })),
+    );
+  }
+
+  /** Starts working out the parts' walks, once at a time per congregation. */
+  private startWalks(tenantId: string): void {
+    if (this.walking.has(tenantId) || this.computing.has(tenantId)) return;
+    this.walking.add(tenantId);
+    void this.workOutWalks(tenantId)
+      .catch((e: unknown) =>
+        this.logger.warn(
+          `recut walks failed: ${(e as Error)?.message ?? String(e)}`,
+        ),
+      )
+      .finally(() => this.walking.delete(tenantId));
+  }
+
+  /**
+   * The walk of every part of the open proposals, as the territories are
+   * divided (walkOf: the streets with homes and the links between them).
+   * Kept by the part's border; keys no part has any more are dropped.
+   */
+  private async workOutWalks(tenantId: string, fresh = false): Promise<void> {
+    const m = this.dataSource.manager;
+    const recut = await this.recutOf(m, tenantId, false);
+    if (!recut) return;
+    const proposals = await m.find(TerritoryRecutProposal, {
+      where: { recutId: recut.id, state: 'open' },
+    });
+    const ids = [...new Set(proposals.flatMap((p) => p.territoryIds))];
+    const territories = ids.length
+      ? await m.find(Territory, {
+          where: {
+            id: In(ids),
+            congregationId: tenantId,
+            archivedAt: IsNull(),
+          },
+        })
+      : [];
+    const byId = new Map(territories.map((t) => [t.id, t]));
+    const was = fresh ? {} : (recut.walks ?? {});
+    const next: Record<string, number | null> = {};
+    for (const p of proposals) {
+      const ts = p.territoryIds.map((id) => byId.get(id));
+      if (ts.some((t) => !t)) continue;
+      let shapes: { geometry: TerritoryGeometry }[];
+      try {
+        shapes = this.shapesOf(p, ts as Territory[]);
+      } catch (e) {
+        if (e instanceof ReshapeError || e instanceof GeometryError) continue;
+        throw e;
+      }
+      for (const x of shapes) {
+        const key = borderPrint(x.geometry);
+        if (key in next) continue;
+        if (key in was) {
+          next[key] = was[key];
+          continue;
+        }
+        try {
+          const w = await this.splits.walkOf(tenantId, x.geometry);
+          next[key] = round1((w.streetM + w.linkM) / 1000);
+        } catch (e) {
+          this.logger.warn(
+            `recut walk of a part failed: ${(e as Error)?.message ?? String(e)}`,
+          );
+          next[key] = null;
+        }
+      }
+    }
+    await m.update(TerritoryRecut, { id: recut.id }, { walks: next });
   }
 
   /** The names of those who left remarks, as the congregation knows them. */
@@ -1046,6 +1175,8 @@ export class TerritoryRecutService {
         metricsAt: new Date(),
       },
     );
+    // The map may have changed since: every part's walk afresh.
+    await this.workOutWalks(tenantId, true);
     await this.audit.logFact({
       tenantId,
       entityType: 'territory',

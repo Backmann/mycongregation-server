@@ -66,6 +66,14 @@ export class TerritoryRecut {
   @Column({ type: 'timestamptz', nullable: true })
   metricsAt!: Date | null;
 
+  /**
+   * The walk (km) of each part of the open proposals, by the border of the
+   * part (borderPrint); null — it could not be worked out. Worked out in the
+   * background; a key no part has any more is dropped.
+   */
+  @Column({ type: 'jsonb', default: () => "'{}'::jsonb" })
+  walks!: Record<string, number | null>;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
