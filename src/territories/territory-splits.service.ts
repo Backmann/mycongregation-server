@@ -40,8 +40,9 @@ import {
   type PlanStreet,
   type Pt,
   type SplitMode,
+  streetsWithHouses,
 } from './split';
-import { graphOf, routePart } from './way';
+import { graphOf, lengthOf, routePart } from './way';
 
 /** Fewer is no division; more than this and a part is a street or two. */
 export const MIN_PARTS = 2;
@@ -371,6 +372,30 @@ export class TerritorySplitsService {
         await this.housesOf(t, true),
         await this.addressesIn(t),
       ),
+    };
+  }
+
+  /**
+   * The walk of an outline (15 November 2026, the draft of re-cutting): the
+   * streets along its homes plus the roads between them, as if one pair
+   * walked it all — the same houses, streets and roads as the division.
+   */
+  async walkOf(
+    congregationId: string,
+    geometry: Territory['geometry'],
+  ): Promise<{ homes: number; streetM: number; linkM: number }> {
+    const t = { congregationId, geometry } as Territory;
+    const houses = await this.housesOf(t);
+    if (houses.length === 0) return { homes: 0, streetM: 0, linkM: 0 };
+    const streets = await this.streetsNear(t);
+    const { streets: named } = streetsWithHouses(streets, houses);
+    if (named.length === 0)
+      return { homes: houses.length, streetM: 0, linkM: 0 };
+    const w = routePart(graphOf(streets.flatMap((r) => r.lines)), named, null);
+    return {
+      homes: houses.length,
+      streetM: Math.round(named.reduce((n, x) => n + lengthOf(x.lines), 0)),
+      linkM: Math.round(w.linkM),
     };
   }
 

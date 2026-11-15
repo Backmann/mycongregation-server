@@ -161,3 +161,80 @@ export function movedShare(
 
 /** Changed more than this share of homes: back to the committee. */
 export const REOPEN_SHARE = 0.1;
+
+/** City or far: the keepers' word first, else the minutes from the hall. */
+export function classOf(
+  minutes: number | null,
+  word: 'city' | 'far' | undefined,
+  m: RecutMeasure,
+): 'city' | 'far' {
+  if (word) return word;
+  return minutes !== null && minutes > m.remoteMinutes ? 'far' : 'city';
+}
+
+export type RecutVerdict =
+  | { action: 'cut'; parts: number; partKm: number }
+  | { action: 'merge' }
+  | { action: 'keep' };
+
+/**
+ * What the measure says of a territory: longer than its maximum — cut into
+ * parts of about the target; shorter than the minimum — a candidate to
+ * join; else as it is.
+ */
+export function verdictOf(
+  walkKm: number,
+  cls: 'city' | 'far',
+  m: RecutMeasure,
+): RecutVerdict {
+  const max = cls === 'far' ? m.remoteMaxKm : m.cityMaxKm;
+  const target = cls === 'far' ? m.remoteTargetKm : m.cityTargetKm;
+  if (walkKm > max) {
+    const parts = Math.min(MAX_PARTS, Math.ceil(walkKm / target));
+    return { action: 'cut', parts, partKm: walkKm / parts };
+  }
+  if (walkKm < m.minKm) return { action: 'merge' };
+  return { action: 'keep' };
+}
+
+/**
+ * Small territories joined with neighbours (the draft's joins): from the
+ * smallest up, each takes the smallest touching neighbour not yet taken,
+ * while together they stay within the target and are below a full
+ * territory's share of it. A small one with no such neighbour stays alone.
+ */
+export function joinGroups(
+  items: { id: string; walkKm: number; small: boolean; target: number }[],
+  touches: (a: string, b: string) => boolean,
+): string[][] {
+  const taken = new Set<string>();
+  const groups: string[][] = [];
+  const smalls = items
+    .filter((x) => x.small)
+    .sort((a, b) => a.walkKm - b.walkKm || a.id.localeCompare(b.id));
+  for (const s of smalls) {
+    if (taken.has(s.id)) continue;
+    const group = [s.id];
+    let sum = s.walkKm;
+    for (;;) {
+      if (sum >= s.target * 0.6) break;
+      const near = items
+        .filter(
+          (x) =>
+            !taken.has(x.id) &&
+            !group.includes(x.id) &&
+            sum + x.walkKm <= s.target &&
+            group.some((g) => touches(g, x.id)),
+        )
+        .sort((a, b) => a.walkKm - b.walkKm || a.id.localeCompare(b.id));
+      if (near.length === 0) break;
+      group.push(near[0].id);
+      sum += near[0].walkKm;
+    }
+    if (group.length > 1) {
+      for (const g of group) taken.add(g);
+      groups.push(group);
+    }
+  }
+  return groups;
+}

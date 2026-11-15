@@ -6,7 +6,10 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * the service committee and applied one by one as the territories come back.
  * Nothing in it touches a territory until it is applied.
  *
- * - `territory_recuts`: one draft per congregation, holding its measure.
+ * - `territory_recuts`: one draft per congregation, holding its measure,
+ *   the keepers' word «city» or «far» on a territory over the drive time,
+ *   and the figures last worked out for every territory (walk, homes,
+ *   minutes from the nearest hall) with when.
  * - `territory_recut_proposals`: a cut (lines across one territory, the
  *   numbers of the new parts) or a join (the territories, the number kept);
  *   `base` is each territory's border fingerprint when it was drawn, so a
@@ -25,6 +28,9 @@ export class TerritoryRecut1931300000000 implements MigrationInterface {
         "id" uuid NOT NULL DEFAULT gen_random_uuid(),
         "congregation_id" uuid NOT NULL,
         "measure" jsonb NOT NULL,
+        "classes" jsonb NOT NULL DEFAULT '{}'::jsonb,
+        "metrics" jsonb,
+        "metrics_at" timestamptz,
         "created_at" timestamptz NOT NULL DEFAULT now(),
         "updated_at" timestamptz NOT NULL DEFAULT now(),
         CONSTRAINT "PK_territory_recuts" PRIMARY KEY ("id"),

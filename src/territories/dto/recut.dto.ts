@@ -95,3 +95,10 @@ export class RecutRemarkDto {
   @MaxLength(500)
   text?: string;
 }
+
+/** The keepers' word on a territory: city or far; null — by the minutes. */
+export class RecutClassDto {
+  @IsOptional()
+  @IsIn(['city', 'far'])
+  cls!: 'city' | 'far' | null;
+}

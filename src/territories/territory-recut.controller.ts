@@ -13,6 +13,7 @@ import {
   type AuthenticatedUser,
 } from '../auth/decorators/current-user.decorator';
 import {
+  RecutClassDto,
   RecutMeasureDto,
   RecutProposalDto,
   RecutRemarkDto,
@@ -39,6 +40,27 @@ export class TerritoryRecutController {
     @Body() dto: RecutMeasureDto,
   ) {
     return this.recut.setMeasure(user, dto);
+  }
+
+  /** Works out every territory's walk, homes and minutes from the halls. */
+  @Post('figures')
+  figures(@CurrentUser() user: AuthenticatedUser) {
+    return this.recut.computeMetrics(user);
+  }
+
+  @Put('classes/:territoryId')
+  setClass(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('territoryId', ParseUUIDPipe) territoryId: string,
+    @Body() dto: RecutClassDto,
+  ) {
+    return this.recut.setClass(user, territoryId, dto.cls ?? null);
+  }
+
+  /** A first draft by the measure: cuts and joins, never applied. */
+  @Post('suggest')
+  suggest(@CurrentUser() user: AuthenticatedUser) {
+    return this.recut.suggest(user);
   }
 
   @Post('proposals')

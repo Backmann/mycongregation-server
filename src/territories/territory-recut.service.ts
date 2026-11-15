@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { DataSource, EntityManager, In, IsNull, Not } from 'typeorm';
@@ -15,6 +16,7 @@ import { mondayOf } from '../common/week';
 import { Congregation } from '../entities/congregation.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { Publisher } from '../entities/publisher.entity';
+import { Hall } from '../entities/hall.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { TerritoryAssignment } from '../entities/territory-assignment.entity';
 import {
@@ -22,6 +24,7 @@ import {
   TerritoryRecutProposal,
   TerritoryRecutRemark,
   type RecutMeasure,
+  type RecutMetric,
 } from '../entities/territory-recut.entity';
 import {
   Territory,
@@ -33,17 +36,24 @@ import type {
   RecutProposalDto,
   RecutRemarkDto,
 } from './dto/recut.dto';
-import { GeometryError } from './geometry';
+import { boxesMeet, boxOf, GeometryError, pointInside } from './geometry';
 import { housesAround, housesIn, type HousePoint } from './houses';
 import {
+  classOf,
   DEFAULT_MEASURE,
+  joinGroups,
+  verdictOf,
+  type RecutVerdict,
   joinAll,
   measureProblem,
   movedShare,
   partsOfCut,
   REOPEN_SHARE,
 } from './recut';
-import { ReshapeError } from './reshape';
+import { joinTwo, nextNumber, ReshapeError } from './reshape';
+import { driveGraph, minutesFrom, minutesInto, nearestOf } from './recut-drive';
+import { cutPlan } from './recut-lines';
+import { TerritorySplitsService } from './territory-splits.service';
 import { addDays } from './service-year';
 import {
   TERRITORY_COMMITTEE,
@@ -117,8 +127,31 @@ export interface RecutProposalView {
   }[];
 }
 
+/** One territory as the measure sees it. */
+export interface RecutTerritoryView {
+  id: string;
+  number: string;
+  homes: number | null;
+  walkKm: number | null;
+  driveMinutes: number | null;
+  /** The nearest hall's name. */
+  hall: string | null;
+  cls: 'city' | 'far';
+  /** The keepers' word over the minutes; null: by the minutes. */
+  word: 'city' | 'far' | null;
+  /** Null until the figures are worked out. */
+  verdict: RecutVerdict | null;
+  inProposal: boolean;
+}
+
 export interface RecutView {
   measure: RecutMeasure;
+  /** When the figures were worked out; null: never. */
+  metricsAt: string | null;
+  /** The figures are being worked out now. */
+  computing: boolean;
+  halls: { name: string; found: boolean }[];
+  territories: RecutTerritoryView[];
   /** Draws and changes proposals: the territory servant and his assistant. */
   canEdit: boolean;
   /** Records the service committee's decision. */
@@ -138,10 +171,15 @@ export interface RecutView {
  */
 @Injectable()
 export class TerritoryRecutService {
+  private readonly logger = new Logger(TerritoryRecutService.name);
+  /** Congregations whose figures are being worked out now. */
+  private readonly computing = new Set<string>();
+
   constructor(
     private readonly access: TerritoryAccessService,
     private readonly audit: AuditLogService,
     private readonly dataSource: DataSource,
+    private readonly splits: TerritorySplitsService,
   ) {}
 
   // ---------------------------------------------------------- access -----
@@ -345,8 +383,46 @@ export class TerritoryRecutService {
           })),
       };
     });
+    const measure = recut?.measure ?? DEFAULT_MEASURE;
+    const metrics = recut?.metrics ?? null;
+    const inProposal = new Set(
+      proposals
+        .filter((p) => p.state === 'open')
+        .flatMap((p) => p.territoryIds),
+    );
+    const all = await m.find(Territory, {
+      where: {
+        congregationId: tenantId,
+        archivedAt: IsNull(),
+        category: 'residential',
+      },
+      select: { id: true, number: true },
+      order: { number: 'ASC' },
+    });
+    const territoriesView: RecutTerritoryView[] = all.map((t) => {
+      const x = metrics?.territories[t.id];
+      const word = recut?.classes?.[t.id] ?? null;
+      const cls = classOf(x?.driveMinutes ?? null, word ?? undefined, measure);
+      return {
+        id: t.id,
+        number: t.number,
+        homes: x?.homes ?? null,
+        walkKm: x?.walkKm ?? null,
+        driveMinutes: x?.driveMinutes ?? null,
+        hall:
+          x && x.hall !== null ? (metrics?.halls[x.hall]?.name ?? null) : null,
+        cls,
+        word,
+        verdict: x ? verdictOf(x.walkKm, cls, measure) : null,
+        inProposal: inProposal.has(t.id),
+      };
+    });
     return {
-      measure: recut?.measure ?? DEFAULT_MEASURE,
+      measure,
+      metricsAt: recut?.metricsAt?.toISOString() ?? null,
+      computing: this.computing.has(tenantId),
+      halls: metrics?.halls ?? [],
+      territories: territoriesView,
       canEdit: a.keeps,
       canDecide: await this.decides(user),
       proposals: out,
@@ -639,7 +715,20 @@ export class TerritoryRecutService {
     };
   }
 
-  async create(user: AuthenticatedUser, dto: RecutProposalDto) {
+  async create(
+    user: AuthenticatedUser,
+    dto: RecutProposalDto,
+  ): Promise<RecutView>;
+  async create(
+    user: AuthenticatedUser,
+    dto: RecutProposalDto,
+    quiet: true,
+  ): Promise<null>;
+  async create(
+    user: AuthenticatedUser,
+    dto: RecutProposalDto,
+    quiet = false,
+  ): Promise<RecutView | null> {
     await this.mustEdit(user);
     const tenantId = user.congregationId;
     const made = await this.dataSource.transaction(async (m) => {
@@ -680,7 +769,7 @@ export class TerritoryRecutService {
         parts: made.p.kind === 'cut' ? (made.p.lines?.length ?? 0) + 1 : 1,
       },
     });
-    return this.view(user);
+    return quiet ? null : this.view(user);
   }
 
   async update(user: AuthenticatedUser, id: string, dto: RecutProposalDto) {
@@ -831,7 +920,321 @@ export class TerritoryRecutService {
     });
     return this.view(user);
   }
+
+  // --------------------------------------------------------- figures -----
+
+  /** A hall on our own map, by its official address; null when not found. */
+  private async placeOf(
+    m: EntityManager,
+    tenantId: string,
+    address: string,
+  ): Promise<[number, number] | null> {
+    const key = addressKey(address);
+    if (!key) return null;
+    const rows = await m.query<{ lon: number; lat: number; street: string }[]>(
+      `SELECT lon, lat, street FROM map_addresses
+        WHERE congregation_id = $1 AND lower(replace(number, ' ', '')) = $2`,
+      [tenantId, key.number],
+    );
+    const hit = rows.find((r) => streetKey(r.street) === key.street);
+    return hit ? [hit.lon, hit.lat] : null;
+  }
+
+  /**
+   * Works out every residential territory's figures for the measure: its
+   * homes, its walk, and the minutes by car from the nearest hall. Takes a
+   * while (a graph of all the roads, a walk per territory — longer than a
+   * request may wait): started here, done in the background; the view says
+   * `computing` until the new figures are in.
+   */
+  async computeMetrics(user: AuthenticatedUser) {
+    await this.mustEdit(user);
+    const tenantId = user.congregationId;
+    if (!this.computing.has(tenantId)) {
+      this.computing.add(tenantId);
+      void this.workOutFigures(user)
+        .catch((e: unknown) =>
+          this.logger.warn(
+            `recut figures failed: ${(e as Error)?.message ?? String(e)}`,
+          ),
+        )
+        .finally(() => this.computing.delete(tenantId));
+    }
+    return this.view(user);
+  }
+
+  private async workOutFigures(user: AuthenticatedUser): Promise<void> {
+    const tenantId = user.congregationId;
+    const m = this.dataSource.manager;
+    const territories = await m.find(Territory, {
+      where: {
+        congregationId: tenantId,
+        archivedAt: IsNull(),
+        category: 'residential',
+      },
+    });
+    const halls = await m.find(Hall, {
+      where: { congregationId: tenantId },
+      order: { name: 'ASC' },
+    });
+    const places = await Promise.all(
+      halls.map((h) => this.placeOf(m, tenantId, h.address)),
+    );
+    const roads = await m.query<
+      { kind: string; lines: [number, number][][] }[]
+    >(`SELECT kind, lines FROM map_streets WHERE congregation_id = $1`, [
+      tenantId,
+    ]);
+    const g = driveGraph(roads);
+    const runs = places.map((p) => {
+      if (!p || g.pts.length === 0) return null;
+      const i = nearestOf(g, p, 300);
+      return i === null ? null : minutesFrom(g, i);
+    });
+    const out: Record<string, RecutMetric> = {};
+    for (const t of territories) {
+      const w = await this.splits.walkOf(tenantId, t.geometry);
+      let best: { min: number; hall: number } | null = null;
+      for (let k = 0; k < runs.length; k++) {
+        const r = runs[k];
+        if (!r) continue;
+        const v = minutesInto(g, r, t.geometry);
+        if (v !== null && (!best || v < best.min)) best = { min: v, hall: k };
+      }
+      out[t.id] = {
+        number: t.number,
+        homes: w.homes,
+        walkKm: round1((w.streetM + w.linkM) / 1000),
+        driveMinutes: best ? round1(best.min) : null,
+        hall: best ? best.hall : null,
+      };
+    }
+    const recut = (await this.recutOf(m, tenantId, true))!;
+    await m.update(
+      TerritoryRecut,
+      { id: recut.id },
+      {
+        metrics: {
+          halls: halls.map((h, k) => ({ name: h.name, found: !!runs[k] })),
+          territories: out,
+        },
+        metricsAt: new Date(),
+      },
+    );
+    await this.audit.logFact({
+      tenantId,
+      entityType: 'territory',
+      entityId: tenantId,
+      action: 'UPDATE',
+      actorUserId: user.id,
+      detail: {
+        recut: 'figures',
+        territories: territories.length,
+        halls: runs.filter(Boolean).length,
+      },
+    });
+  }
+
+  /** The keepers' word: a territory is city or far, whatever the minutes. */
+  async setClass(
+    user: AuthenticatedUser,
+    territoryId: string,
+    cls: 'city' | 'far' | null,
+  ) {
+    await this.mustEdit(user);
+    const tenantId = user.congregationId;
+    const t = await this.dataSource.manager.findOne(Territory, {
+      where: {
+        id: territoryId,
+        congregationId: tenantId,
+        archivedAt: IsNull(),
+      },
+      select: { id: true, number: true },
+    });
+    if (!t) throw new NotFoundException('Territory not found');
+    await this.dataSource.transaction(async (m) => {
+      const recut = (await this.recutOf(m, tenantId, true))!;
+      const classes = { ...(recut.classes ?? {}) };
+      if (cls) classes[t.id] = cls;
+      else delete classes[t.id];
+      await m.update(TerritoryRecut, { id: recut.id }, { classes });
+    });
+    await this.audit.logFact({
+      tenantId,
+      entityType: 'territory',
+      entityId: t.id,
+      action: 'UPDATE',
+      actorUserId: user.id,
+      detail: { recut: 'class', number: t.number, cls: cls ?? 'minutes' },
+    });
+    return this.view(user);
+  }
+
+  /**
+   * A first draft by the measure: every territory too long is cut — lines
+   * of even homes through the emptiest stretch — and the small ones are
+   * joined with neighbours. Territories already in a proposal are left
+   * alone; what a straight line cannot cut is named for the keeper to draw.
+   * Joins are round 1, the five longest cuts round 2, the rest round 3.
+   */
+  async suggest(user: AuthenticatedUser) {
+    await this.mustEdit(user);
+    const tenantId = user.congregationId;
+    const m = this.dataSource.manager;
+    const recut = (await this.recutOf(m, tenantId, true))!;
+    if (!recut.metrics) {
+      throw new ConflictException(
+        refusal('TERRITORY_RECUT_NO_FIGURES', 'Work out the figures first.'),
+      );
+    }
+    const measure = recut.measure;
+    const open = await m.find(TerritoryRecutProposal, {
+      where: { recutId: recut.id, state: 'open' },
+      select: { id: true, territoryIds: true },
+    });
+    const busy = new Set(open.flatMap((p) => p.territoryIds));
+    const territories = (
+      await m.find(Territory, {
+        where: {
+          congregationId: tenantId,
+          archivedAt: IsNull(),
+          category: 'residential',
+        },
+      })
+    ).filter((t) => recut.metrics!.territories[t.id] && !busy.has(t.id));
+    const judged = territories.map((t) => {
+      const x = recut.metrics!.territories[t.id];
+      const cls = classOf(x.driveMinutes, recut.classes?.[t.id], measure);
+      return { t, x, cls, verdict: verdictOf(x.walkKm, cls, measure) };
+    });
+    const made: string[] = [];
+    const byHand: string[] = [];
+    // Cuts, the longest first.
+    const cuts = judged
+      .filter((j) => j.verdict.action === 'cut')
+      .sort((a, b) => b.x.walkKm - a.x.walkKm);
+    const taken = (
+      await m.find(Territory, {
+        where: { congregationId: tenantId, archivedAt: IsNull() },
+        select: { number: true },
+      })
+    ).map((t) => t.number);
+    for (const p of await m.find(TerritoryRecutProposal, {
+      where: { recutId: recut.id, state: 'open', kind: 'cut' },
+      select: { id: true, numbers: true },
+    }))
+      taken.push(...(p.numbers ?? []));
+    for (const [rank, j] of cuts.entries()) {
+      if (j.verdict.action !== 'cut') continue;
+      const homes = (
+        (await housesAround(m, tenantId, [j.t.geometry])) ?? []
+      ).filter((h) => pointInside(h, j.t.geometry));
+      const plan = cutPlan(j.t.geometry, homes, j.verdict.parts);
+      if (!plan) {
+        byHand.push(j.t.number);
+        continue;
+      }
+      const keep = plan.homes.indexOf(Math.max(...plan.homes));
+      const numbers: string[] = [];
+      for (let i = 1; i < plan.homes.length; i++) {
+        const n = nextNumber(j.t.number, taken);
+        taken.push(n);
+        numbers.push(n);
+      }
+      await this.create(
+        user,
+        {
+          kind: 'cut',
+          territoryIds: [j.t.id],
+          lines: plan.lines.map((points) => ({ points })),
+          keep,
+          numbers,
+          queue: rank < 5 ? 2 : 3,
+        },
+        true,
+      );
+      made.push(j.t.number);
+    }
+    // Joins of the small ones with their neighbours.
+    const free = judged.filter((j) => j.verdict.action !== 'cut');
+    const touch = new Map<string, boolean>();
+    const touches = (a: string, b: string): boolean => {
+      const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+      if (!touch.has(key)) {
+        const ta = free.find((j) => j.t.id === a)!.t;
+        const tb = free.find((j) => j.t.id === b)!.t;
+        let yes = false;
+        if (boxesMeet(boxOf(ta.geometry), boxOf(tb.geometry))) {
+          try {
+            joinTwo(ta.geometry, tb.geometry);
+            yes = true;
+          } catch {
+            yes = false;
+          }
+        }
+        touch.set(key, yes);
+      }
+      return touch.get(key)!;
+    };
+    const groups = joinGroups(
+      free.map((j) => ({
+        id: j.t.id,
+        walkKm: j.x.walkKm,
+        small: j.verdict.action === 'merge',
+        target: j.cls === 'far' ? measure.remoteTargetKm : measure.cityTargetKm,
+      })),
+      touches,
+    );
+    for (const ids of groups) {
+      const members = ids.map((id) => free.find((j) => j.t.id === id)!);
+      const keepId = [...members].sort((a, b) => b.x.walkKm - a.x.walkKm)[0].t
+        .id;
+      try {
+        await this.create(
+          user,
+          { kind: 'merge', territoryIds: ids, keepId, queue: 1 },
+          true,
+        );
+        made.push(members.map((x) => x.t.number).join('+'));
+      } catch (e) {
+        if (!(e instanceof ConflictException)) throw e;
+        byHand.push(members.map((x) => x.t.number).join('+'));
+      }
+    }
+    await this.audit.logFact({
+      tenantId,
+      entityType: 'territory',
+      entityId: tenantId,
+      action: 'CREATE',
+      actorUserId: user.id,
+      detail: { recut: 'suggested', made: made.length, byHand },
+    });
+    return { ...(await this.view(user)), suggested: { made, byHand } };
+  }
 }
+
+/** «Sedanstraße 6, 59065 Hamm» → the street and the number, compared loosely. */
+export function addressKey(
+  address: string,
+): { street: string; number: string } | null {
+  const head = address.split(',')[0].trim();
+  const m = /^(.*?)\s*(\d+\s*[a-zA-Z]?)\s*$/.exec(head);
+  if (!m || !m[1]) return null;
+  return {
+    street: streetKey(m[1]),
+    number: m[2].replace(/\s+/g, '').toLowerCase(),
+  };
+}
+
+export function streetKey(street: string): string {
+  return street
+    .toLowerCase()
+    .replace(/ß/g, 'ss')
+    .replace(/str(\.|asse|aße)?(?=\s|$|-)/g, 'str')
+    .replace(/[^a-z0-9äöü]/g, '');
+}
+
+const round1 = (x: number) => Math.round(x * 10) / 10;
 
 /** A line as the editor sends it: [lon, lat] numbers on the map. */
 function lineOf(raw: number[][]): [number, number][] {

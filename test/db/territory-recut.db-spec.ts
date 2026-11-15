@@ -347,6 +347,10 @@ describe('the draft of re-cutting (real database)', () => {
     const moved = await proposalOf('Big1');
     expect(moved.blocks).toEqual(['changed']);
     expect(moved.territories[0].changed).toBe(true);
+    await h.sql(`UPDATE territories SET geometry = $2 WHERE id = $1`, [
+      ids.Big1,
+      JSON.stringify(rect(7.0, 7.03)),
+    ]);
   });
 
   it('a proposal taken out goes with its remarks; the journal names no remark', async () => {
@@ -366,5 +370,132 @@ describe('the draft of re-cutting (real database)', () => {
     const text = JSON.stringify(journal.body);
     expect(text).toContain('"recut":"approved"');
     expect(text).not.toContain('главной улице');
+  });
+
+  it('the figures: walk and homes of each territory, minutes from the hall found on the map', async () => {
+    // A main road through all of them; one hall on it, one not on the map.
+    await h.sql(
+      `INSERT INTO map_streets (congregation_id, street_no, name, kind, west, south, east, north, lines)
+       VALUES ($1, 1, 'Hauptstraße', 'major_road', 6.995, 51.0045, 7.215, 51.0045, $2)`,
+      [
+        congregationId,
+        JSON.stringify([
+          [
+            [6.995, 51.0045],
+            [7.215, 51.0045],
+          ],
+        ]),
+      ],
+    );
+    await h.sql(
+      `INSERT INTO map_addresses (congregation_id, oid, lon, lat, number, street)
+       VALUES ($1, 'h1', 7.0, 51.0045, '1', 'Hauptstraße')`,
+      [congregationId],
+    );
+    await h.sql(
+      `INSERT INTO halls (congregation_id, name, address) VALUES
+         ($1, 'Зал А', 'Hauptstr. 1, 59000 Hamm'),
+         ($1, 'Зал Б', 'Unbekanntweg 3, 59000 Hamm')`,
+      [congregationId],
+    );
+    expect(
+      (await h.as('overseer').post('/territory-recut/figures')).status,
+    ).toBe(403);
+    const started = await h.as('keeper').post('/territory-recut/figures');
+    expect(started.status).toBe(201);
+    expect(started.body.computing).toBe(true);
+    // Done in the background: looked at until the figures are in.
+    let r = started;
+    for (let i = 0; i < 100 && (r.body.computing || !r.body.metricsAt); i++) {
+      await new Promise((ok) => setTimeout(ok, 100));
+      r = await h.as('keeper').get('/territory-recut');
+    }
+    expect(r.body.computing).toBe(false);
+    expect(r.body.metricsAt).not.toBeNull();
+    expect(r.body.halls).toEqual([
+      { name: 'Зал А', found: true },
+      { name: 'Зал Б', found: false },
+    ]);
+    const t = (n: string) =>
+      r.body.territories.find((x: { number: string }) => x.number === n);
+    expect(t('Big1').homes).toBe(30);
+    expect(t('Big1').walkKm).toBeGreaterThan(1.8);
+    expect(t('Big1').walkKm).toBeLessThan(2.6);
+    expect(t('S2').homes).toBe(10);
+    expect(t('Big1').hall).toBe('Зал А');
+    // ≈1 km along a main road from the hall: a minute or two; Far1 is 14 km out.
+    expect(t('Big1').driveMinutes).toBeLessThan(3);
+    expect(t('Big1').cls).toBe('city');
+    expect(t('Far1').driveMinutes).toBeGreaterThan(11);
+    expect(t('Far1').cls).toBe('far');
+  });
+
+  it('the keepers’ word over the minutes, and back', async () => {
+    const r = await h
+      .as('keeper')
+      .put(`/territory-recut/classes/${ids.Big1}`, { cls: 'far' });
+    expect(r.status).toBe(200);
+    const big = r.body.territories.find(
+      (x: { number: string }) => x.number === 'Big1',
+    );
+    expect([big.cls, big.word]).toEqual(['far', 'far']);
+    const back = await h
+      .as('keeper')
+      .put(`/territory-recut/classes/${ids.Big1}`, { cls: null });
+    expect(
+      back.body.territories.find((x: { number: string }) => x.number === 'Big1')
+        .word,
+    ).toBeNull();
+  });
+
+  it('a first draft by the measure: the long one cut in even parts, the small ones joined', async () => {
+    await h.sql(`DELETE FROM territory_recut_proposals`);
+    // Big1 is far by the keepers' word; far walks of up to 1.5 km.
+    await h
+      .as('keeper')
+      .put(`/territory-recut/classes/${ids.Big1}`, { cls: 'far' });
+    await h.as('keeper').put('/territory-recut/measure', {
+      cityMaxKm: 25,
+      cityTargetKm: 15,
+      remoteMaxKm: 1.5,
+      remoteTargetKm: 1,
+      minKm: 1,
+      remoteMinutes: 11,
+    });
+    const r = await h.as('keeper').post('/territory-recut/suggest');
+    expect(r.status).toBe(201);
+    const cut = r.body.proposals.find(
+      (p: { kind: string }) => p.kind === 'cut',
+    );
+    expect(cut.territories[0].number).toBe('Big1');
+    expect(cut.queue).toBe(2);
+    const homes = cut.parts.map((x: { homes: number }) => x.homes);
+    expect(homes).toHaveLength(3);
+    for (const n of homes) expect(Math.abs(n - 10)).toBeLessThanOrEqual(2);
+    expect(cut.parts.map((x: { number: string }) => x.number).sort()).toEqual([
+      'Big1',
+      'Big2',
+      'Big3',
+    ]);
+    const join = r.body.proposals.find(
+      (p: { kind: string }) => p.kind === 'merge',
+    );
+    expect(
+      join.territories.map((x: { number: string }) => x.number).sort(),
+    ).toEqual(['S1', 'S2', 'S3']);
+    expect(join.queue).toBe(1);
+    // Asked again: nothing twice.
+    const again = await h.as('keeper').post('/territory-recut/suggest');
+    expect(again.body.proposals).toHaveLength(2);
+    expect(again.body.suggested.made).toEqual([]);
+  });
+
+  it('no first draft before the figures', async () => {
+    await h.sql(
+      `UPDATE territory_recuts SET metrics = NULL, metrics_at = NULL`,
+    );
+    const r = await h.as('keeper').post('/territory-recut/suggest');
+    expect(r.status).toBe(409);
+    expect(r.body.code).toBe('TERRITORY_RECUT_NO_FIGURES');
   });
 });

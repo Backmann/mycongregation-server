@@ -13,6 +13,24 @@ import {
  * «far» begins. Walks in km of streets along the homes plus the ways
  * between them; «far» by minutes of driving from the nearest hall.
  */
+/** One territory's figures, as last worked out for the draft. */
+export interface RecutMetric {
+  number: string;
+  homes: number;
+  /** The walk: streets along its homes plus the roads between them, km. */
+  walkKm: number;
+  /** Minutes by car from the nearest hall to its middle; null: no road. */
+  driveMinutes: number | null;
+  /** Which hall is nearest: its index in `halls`. */
+  hall: number | null;
+}
+
+export interface RecutMetrics {
+  /** The halls as found on the map; null where the address was not found. */
+  halls: { name: string; found: boolean }[];
+  territories: Record<string, RecutMetric>;
+}
+
 export interface RecutMeasure {
   cityMaxKm: number;
   cityTargetKm: number;
@@ -37,6 +55,16 @@ export class TerritoryRecut {
 
   @Column({ type: 'jsonb' })
   measure!: RecutMeasure;
+
+  /** The keepers' word over the drive time: territory id → city or far. */
+  @Column({ type: 'jsonb', default: () => "'{}'::jsonb" })
+  classes!: Record<string, 'city' | 'far'>;
+
+  @Column({ type: 'jsonb', nullable: true })
+  metrics!: RecutMetrics | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  metricsAt!: Date | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
