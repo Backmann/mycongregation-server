@@ -59,6 +59,26 @@ export class ClientError {
   @Column({ type: 'varchar', length: 1500, nullable: true })
   stack!: string | null;
 
+  /**
+   * Which event caught it, as the last report gave it: «error» (a script's
+   * error), «rejection» (a promise nobody waited for), «handler» (the
+   * phone's global handler), «screen»; null from older builds.
+   */
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  event!: string | null;
+
+  /** Whether the device thought it was online; null: not told. */
+  @Column({ type: 'boolean', nullable: true })
+  online!: boolean | null;
+
+  /** The file and line the browser names for it, scrubbed; null: none. */
+  @Column({ type: 'varchar', length: 300, nullable: true })
+  place!: string | null;
+
+  /** Seconds from the app's start to the failure. */
+  @Column({ type: 'integer', nullable: true })
+  sinceStartS!: number | null;
+
   @Column({ type: 'integer', default: 1 })
   count!: number;
 

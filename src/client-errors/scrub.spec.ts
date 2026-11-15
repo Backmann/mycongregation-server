@@ -1,4 +1,10 @@
-import { fingerprintOf, isForeign, routePattern, scrub } from './scrub';
+import {
+  fingerprintOf,
+  isForeign,
+  isNetwork,
+  routePattern,
+  scrub,
+} from './scrub';
 
 describe('a failure report carries nothing that names a person', () => {
   it('mail, ids, phone numbers and tokens become placeholders', () => {
@@ -72,5 +78,38 @@ describe('a failure of code the app never runs', () => {
     expect(isForeign('TypeError: x at Array.map (<anonymous>) at native')).toBe(
       false,
     );
+  });
+});
+
+describe('a request that did not get through is the network, not the app', () => {
+  it('the words of every browser and phone', () => {
+    for (const m of [
+      'NetworkError: A network error occurred.',
+      'TypeError: Load failed',
+      'TypeError: Failed to fetch',
+      'TypeError: NetworkError when attempting to fetch resource.',
+      'TypeError: Network request failed',
+      'Error: Network request failed',
+      'AxiosError: Network Error',
+      'Error: The network connection was lost.',
+      'Error: The Internet connection appears to be offline.',
+    ])
+      expect([m, isNetwork(m, null)]).toEqual([m, true]);
+  });
+
+  it('the device offline: whatever the words', () => {
+    expect(isNetwork('TypeError: x is undefined', false)).toBe(true);
+  });
+
+  it("the app's own failures are not the network's", () => {
+    for (const m of [
+      "TypeError: Cannot read properties of undefined (reading 'id')",
+      'Error: Network Error in the schedule parser',
+      'RangeError: Invalid time value',
+      'ChunkLoadError: Loading chunk 3 failed.',
+      'AxiosError: Request failed with status code 500',
+    ])
+      expect([m, isNetwork(m, true)]).toEqual([m, false]);
+    expect(isNetwork('TypeError: x is undefined', null)).toBe(false);
   });
 });
