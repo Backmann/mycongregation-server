@@ -28,6 +28,10 @@ export function signInUser(user: User) {
     role: user.role,
     congregationId: user.congregationId,
     canViewPrivateData: user.canViewPrivateData,
+    // What whoever runs the platform may see (15 November 2026: told at
+    // sign-in too, not only from the next start on).
+    canManageBackups: user.isOwner === true,
+    canSeeCrashes: user.isOwner === true,
     // The language the account is kept in — the one its letters are written
     // in. A device that has never been told a language takes this one, so
     // nobody is asked «выберите язык» before they have seen a single screen.
@@ -49,5 +53,8 @@ export function meUser(session: AuthenticatedUser, account: User) {
     displayLabel: account.displayLabel ?? null,
     canViewPrivateData: account.canViewPrivateData,
     canManageBackups: isOwner === true,
+    // The failures met in the app, on every congregation's phones: the
+    // platform's business, not one congregation's (15 November 2026).
+    canSeeCrashes: isOwner === true,
   };
 }
