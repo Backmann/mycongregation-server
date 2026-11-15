@@ -1,3 +1,5 @@
+import { officialUse } from '../../src/territories/official-use';
+import { OFFICIAL_WORDS } from '../../src/territories/official-use.words';
 import { Harness, startHarness } from './harness';
 
 /**
@@ -170,9 +172,9 @@ describe('only homes count (real database)', () => {
     expect(await homes()).toEqual(before);
   });
 
-  // The proposed rule (15 November 2026), inside a territory: one building
-  // of the cadastre is one home, however many pieces the map draws.
-  it('the survey counts the proposed rule inside the territories', async () => {
+  // The rule by the cadastre (15 November 2026), inside a territory: it
+  // takes away (a barn; a further piece of one building), never adds.
+  it('the survey counts the rule inside the territories', async () => {
     const ring = [
       [X - 0.01, Y - 0.01],
       [X + 0.01, Y - 0.01],
@@ -194,7 +196,7 @@ describe('only homes count (real database)', () => {
       );
     await set(1, 'Wohngebäude', 'A'); // Ahornweg 12
     await set(2, 'Wohngebäude', 'A'); // drawn as a second piece of it
-    await set(3, 'Wohngebäude', 'C'); // left out now: added
+    await set(3, 'Wohngebäude', 'C'); // left out now: stays out (no address)
     await set(4, 'Gebäude für Land- und Forstwirtschaft', 'D'); // dropped
     await set(5, 'Sonstiges', 'E'); // unsure: stays
     const before = await homes();
@@ -202,15 +204,103 @@ describe('only homes count (real database)', () => {
     expect(r.status).toBe(200);
     expect(r.body.rule).toEqual({
       now: 3,
-      then: 3,
-      added: 1,
+      then: 2,
+      added: 0,
       dropped: 1,
       pieces: 1,
       inPieces: 1,
     });
     expect(r.body.samples.piece).toHaveLength(1);
-    expect(r.body.samples.added).toHaveLength(1);
+    expect(r.body.samples.added).toHaveLength(0);
     expect(await homes()).toEqual(before);
+  });
+
+  // homes_rule() in detail (15 November 2026), on its own houses.
+  describe('homes by the cadastre', () => {
+    let n = 100;
+    const at = async (
+      official: string | null,
+      officialId: string | null,
+      numbers: string | null,
+      area: number,
+      dx: number,
+    ) => {
+      n += 1;
+      await h.sql(
+        `INSERT INTO map_houses (congregation_id, osm_id, lon, lat, area_m2, numbers, official, official_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          congregationId,
+          n,
+          X + east(dx),
+          Y + north(-500),
+          area,
+          numbers,
+          official,
+          officialId,
+        ],
+      );
+      return n;
+    };
+    const rule = async () =>
+      Object.fromEntries(
+        (
+          await h.sql<{ osm_id: string; home: boolean }>(
+            `SELECT osm_id, home FROM homes_rule($1) WHERE osm_id > 100`,
+            [congregationId],
+          )
+        ).map((r) => [Number(r.osm_id), r.home]),
+      );
+
+    it('says, per house, what the map build will write', async () => {
+      // No addresses round here: the rule without the cadastre keeps all.
+      const semiA = await at('Wohngebäude', 'S', '7', 90, 0);
+      const semiB = await at('Wohngebäude', 'S', '7a', 85, 12);
+      const semiAnnex = await at('Wohngebäude', 'S', null, 20, 24);
+      const twinBig = await at('Wohngebäude', 'T', '12', 90, 60);
+      const twinSmall = await at('Wohngebäude', 'T', '12', 30, 72);
+      const loneBig = await at('Wohngebäude', 'L', null, 120, 120);
+      const loneSmall = await at('Wohngebäude', 'L', null, 40, 132);
+      const barn = await at(
+        'Gebäude für Land- und Forstwirtschaft',
+        'B',
+        '5',
+        600,
+        180,
+      );
+      const unsure = await at('Sonstiges', 'U', null, 60, 240);
+      const unknown = await at(null, null, null, 60, 300);
+      const r = await rule();
+      expect([r[semiA], r[semiB], r[semiAnnex]]).toEqual([true, true, false]);
+      expect([r[twinBig], r[twinSmall]]).toEqual([true, false]);
+      expect([r[loneBig], r[loneSmall]]).toEqual([true, false]);
+      expect([r[barn], r[unsure], r[unknown]]).toEqual([false, true, true]);
+      // mark_homes() writes exactly that.
+      await h.sql(`SELECT mark_homes($1)`, [congregationId]);
+      const stored = Object.fromEntries(
+        (
+          await h.sql<{ osm_id: string; home: boolean }>(
+            `SELECT osm_id, home FROM map_houses WHERE osm_id > 100`,
+          )
+        ).map((x) => [Number(x.osm_id), x.home]),
+      );
+      expect(stored).toEqual(r);
+    });
+
+    it("the database and the app read the cadastre's words alike", async () => {
+      for (const [word, want] of OFFICIAL_WORDS) {
+        const [x] = await h.sql<{ u: string | null }>(
+          `SELECT official_use($1) AS u`,
+          [word],
+        );
+        expect([word, x.u]).toEqual([word, want]);
+        expect(officialUse(word)).toBe(want);
+      }
+      const [none] = await h.sql<{ u: string | null }>(
+        `SELECT official_use(NULL) AS u`,
+      );
+      expect(none.u).toBeNull();
+    });
   });
 
   it('the survey is for the keepers only', async () => {
