@@ -1,0 +1,853 @@
+import { createHash } from 'node:crypto';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { DataSource, EntityManager, In, IsNull, Not } from 'typeorm';
+import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { AuditLogService } from '../audit-log/audit-log.service';
+import { todayIn } from '../common/congregation-clock';
+import { refusal } from '../common/errors/refusal';
+import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
+import { mondayOf } from '../common/week';
+import { Congregation } from '../entities/congregation.entity';
+import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
+import { Publisher } from '../entities/publisher.entity';
+import { Responsibility } from '../entities/responsibility.entity';
+import { TerritoryAssignment } from '../entities/territory-assignment.entity';
+import {
+  TerritoryRecut,
+  TerritoryRecutProposal,
+  TerritoryRecutRemark,
+  type RecutMeasure,
+} from '../entities/territory-recut.entity';
+import {
+  Territory,
+  type TerritoryGeometry,
+} from '../entities/territory.entity';
+import { User } from '../entities/user.entity';
+import type {
+  RecutMeasureDto,
+  RecutProposalDto,
+  RecutRemarkDto,
+} from './dto/recut.dto';
+import { GeometryError } from './geometry';
+import { housesAround, housesIn, type HousePoint } from './houses';
+import {
+  DEFAULT_MEASURE,
+  joinAll,
+  measureProblem,
+  movedShare,
+  partsOfCut,
+  REOPEN_SHARE,
+} from './recut';
+import { ReshapeError } from './reshape';
+import { addDays } from './service-year';
+import {
+  TERRITORY_COMMITTEE,
+  TerritoryAccessService,
+} from './territory-access.service';
+
+const norm = (n: string): string => n.trim().toLowerCase();
+
+/**
+ * A border's fingerprint. Not the row's updated_at: giving out and taking
+ * back touch the row too, and only a moved border makes a drawn proposal
+ * stale.
+ */
+export function borderPrint(g: TerritoryGeometry): string {
+  return createHash('sha1').update(JSON.stringify(g)).digest('hex');
+}
+
+const LINE_CODES: Record<ReshapeError['code'], string> = {
+  LINE_SHORT: 'TERRITORY_LINE_BAD',
+  LINE_CROSSES_ITSELF: 'TERRITORY_LINE_BAD',
+  LINE_NOT_THROUGH: 'TERRITORY_LINE_NOT_THROUGH',
+  LINE_MANY_PIECES: 'TERRITORY_LINE_MANY',
+  NOT_TOUCHING: 'TERRITORY_NOT_TOUCHING',
+  SHAPE_WITH_HOLE: 'TERRITORY_JOIN_HOLE',
+};
+
+/** What stands between a proposal and applying it. */
+export type RecutBlock =
+  | 'notApproved'
+  | 'held'
+  | 'meeting'
+  | 'changed'
+  | 'gone'
+  | 'shape';
+
+export interface RecutPartView {
+  number: string;
+  homes: number | null;
+  geometry: TerritoryGeometry;
+}
+
+export interface RecutProposalView {
+  id: string;
+  kind: 'cut' | 'merge';
+  queue: number;
+  state: 'open' | 'applied';
+  territories: {
+    id: string;
+    number: string;
+    held: boolean;
+    meetingOn: string | null;
+    changed: boolean;
+    geometry: TerritoryGeometry | null;
+  }[];
+  lines: [number, number][][] | null;
+  keep: number;
+  numbers: string[] | null;
+  keepId: string | null;
+  /** As the lines cut the territory now; empty when they no longer can. */
+  parts: RecutPartView[];
+  approvedAt: string | null;
+  reopenedAt: string | null;
+  appliedAt: string | null;
+  blocks: RecutBlock[];
+  remarks: {
+    mine: boolean;
+    by: string;
+    ok: boolean;
+    text: string | null;
+    at: string;
+  }[];
+}
+
+export interface RecutView {
+  measure: RecutMeasure;
+  /** Draws and changes proposals: the territory servant and his assistant. */
+  canEdit: boolean;
+  /** Records the service committee's decision. */
+  canDecide: boolean;
+  proposals: RecutProposalView[];
+}
+
+/**
+ * The draft of re-cutting the territories (15 November 2026): proposals to
+ * cut a large territory or join small neighbours, made by the territory
+ * servant, looked at by the service committee, decided by it, and applied
+ * one by one as the territories are free. Nothing here changes a territory:
+ * applying is the cut and join that exist (territory-reshape.service.ts).
+ *
+ * Remarks are about borders only; they are deleted with the proposal and
+ * once it is applied — the decision stays, the discussion does not.
+ */
+@Injectable()
+export class TerritoryRecutService {
+  constructor(
+    private readonly access: TerritoryAccessService,
+    private readonly audit: AuditLogService,
+    private readonly dataSource: DataSource,
+  ) {}
+
+  // ---------------------------------------------------------- access -----
+
+  private async mustSee(user: AuthenticatedUser) {
+    const a = await this.access.mustSeeAll(user);
+    if (!a.verified) {
+      throw new ConflictException(
+        refusal('TERRITORY_NOT_OPEN', 'The records are not confirmed yet.'),
+      );
+    }
+    return a;
+  }
+
+  private async mustEdit(user: AuthenticatedUser) {
+    const a = await this.access.mustKeep(user);
+    if (!a.verified) {
+      throw new ConflictException(
+        refusal('TERRITORY_NOT_OPEN', 'The records are not confirmed yet.'),
+      );
+    }
+    return a;
+  }
+
+  /** A member of the service committee: he records its decision. */
+  private async decides(user: AuthenticatedUser): Promise<boolean> {
+    const n = await this.dataSource.manager.count(Responsibility, {
+      where: {
+        congregationId: user.congregationId,
+        userId: user.id,
+        type: In(TERRITORY_COMMITTEE),
+      },
+    });
+    return n > 0;
+  }
+
+  // ----------------------------------------------------------- reads -----
+
+  private async recutOf(
+    m: EntityManager,
+    tenantId: string,
+    create: boolean,
+  ): Promise<TerritoryRecut | null> {
+    const found = await m.findOne(TerritoryRecut, {
+      where: { congregationId: tenantId },
+    });
+    if (found || !create) return found;
+    await m
+      .createQueryBuilder()
+      .insert()
+      .into(TerritoryRecut)
+      .values({ congregationId: tenantId, measure: DEFAULT_MEASURE })
+      .orIgnore()
+      .execute();
+    return m.findOneOrFail(TerritoryRecut, {
+      where: { congregationId: tenantId },
+    });
+  }
+
+  private async today(m: EntityManager, tenantId: string): Promise<string> {
+    const c = await m.findOne(Congregation, {
+      where: { id: tenantId },
+      select: { id: true, timezone: true },
+    });
+    return todayIn(new Date(), c?.timezone);
+  }
+
+  async view(user: AuthenticatedUser): Promise<RecutView> {
+    const a = await this.mustSee(user);
+    const m = this.dataSource.manager;
+    const tenantId = user.congregationId;
+    const recut = await this.recutOf(m, tenantId, false);
+    const proposals = recut
+      ? await m.find(TerritoryRecutProposal, {
+          where: { recutId: recut.id },
+          order: { queue: 'ASC', createdAt: 'ASC' },
+        })
+      : [];
+    const ids = [...new Set(proposals.flatMap((p) => p.territoryIds))];
+    const territories = ids.length
+      ? await m.find(Territory, {
+          where: { id: In(ids), congregationId: tenantId },
+        })
+      : [];
+    const byId = new Map(territories.map((t) => [t.id, t]));
+    const held = new Set(
+      (ids.length
+        ? await m.find(TerritoryAssignment, {
+            where: {
+              territoryId: In(ids),
+              congregationId: tenantId,
+              completedOn: IsNull(),
+              returnedOn: IsNull(),
+            },
+            select: { territoryId: true },
+          })
+        : []
+      ).map((x) => x.territoryId),
+    );
+    const today = await this.today(m, tenantId);
+    const meetingOn = new Map<string, string>();
+    if (ids.length) {
+      const meetings = await m.find(FieldServiceMeeting, {
+        where: {
+          congregationId: tenantId,
+          territoryId: In(ids),
+          cancelledAt: IsNull(),
+        },
+        select: {
+          id: true,
+          territoryId: true,
+          weekStartDate: true,
+          dayOfWeek: true,
+        },
+      });
+      for (const x of meetings) {
+        const day = addDays(x.weekStartDate, x.dayOfWeek - 1);
+        if (day < today || !x.territoryId) continue;
+        const was = meetingOn.get(x.territoryId);
+        if (!was || day < was) meetingOn.set(x.territoryId, day);
+      }
+    }
+    const live = territories.filter((t) => !t.archivedAt);
+    const homes = live.length
+      ? await housesAround(
+          m,
+          tenantId,
+          live.map((t) => t.geometry),
+        )
+      : null;
+    const remarks = proposals.length
+      ? await m.find(TerritoryRecutRemark, {
+          where: { proposalId: In(proposals.map((p) => p.id)) },
+          order: { createdAt: 'ASC' },
+        })
+      : [];
+    const names = await this.namesOf(
+      m,
+      tenantId,
+      remarks.map((r) => r.userId),
+    );
+
+    const out: RecutProposalView[] = proposals.map((p) => {
+      const ts = p.territoryIds.map((id) => byId.get(id));
+      const blocks: RecutBlock[] = [];
+      const tViews = p.territoryIds.map((id) => {
+        const t = byId.get(id);
+        const gone = !t || !!t.archivedAt;
+        return {
+          id,
+          number: t?.number ?? '—',
+          held: held.has(id),
+          meetingOn: meetingOn.get(id) ?? null,
+          changed:
+            !gone && p.base[id] !== undefined
+              ? p.base[id] !== borderPrint(t.geometry)
+              : false,
+          geometry: gone ? null : t.geometry,
+        };
+      });
+      let parts: RecutPartView[] = [];
+      if (p.state === 'open') {
+        if (!p.approvedAt) blocks.push('notApproved');
+        if (ts.some((t) => !t || t.archivedAt)) blocks.push('gone');
+        if (tViews.some((t) => t.held)) blocks.push('held');
+        if (tViews.some((t) => t.meetingOn)) blocks.push('meeting');
+        if (tViews.some((t) => t.changed)) blocks.push('changed');
+      }
+      if (p.state === 'open' && !blocks.includes('gone')) {
+        try {
+          parts = this.partsOf(p, ts as Territory[], homes);
+        } catch (e) {
+          if (!(e instanceof ReshapeError || e instanceof GeometryError))
+            throw e;
+          blocks.push('shape');
+        }
+      }
+      return {
+        id: p.id,
+        kind: p.kind,
+        queue: p.queue,
+        state: p.state,
+        territories: tViews,
+        lines: p.lines,
+        keep: p.keep,
+        numbers: p.numbers,
+        keepId: p.keepId,
+        parts,
+        approvedAt: p.approvedAt?.toISOString() ?? null,
+        reopenedAt: p.reopenedAt?.toISOString() ?? null,
+        appliedAt: p.appliedAt?.toISOString() ?? null,
+        blocks,
+        remarks: remarks
+          .filter((r) => r.proposalId === p.id)
+          .map((r) => ({
+            mine: r.userId === user.id,
+            by: names.get(r.userId) ?? '—',
+            ok: r.ok,
+            text: r.text,
+            at: r.updatedAt.toISOString(),
+          })),
+      };
+    });
+    return {
+      measure: recut?.measure ?? DEFAULT_MEASURE,
+      canEdit: a.keeps,
+      canDecide: await this.decides(user),
+      proposals: out,
+    };
+  }
+
+  /** The parts a proposal makes of the territories as they are now. */
+  private partsOf(
+    p: Pick<
+      TerritoryRecutProposal,
+      'kind' | 'lines' | 'keep' | 'numbers' | 'keepId'
+    >,
+    ts: Territory[],
+    homes: HousePoint[] | null,
+  ): RecutPartView[] {
+    if (p.kind === 'merge') {
+      const g = joinAll(ts.map((t) => t.geometry));
+      const kept = ts.find((t) => t.id === p.keepId) ?? ts[0];
+      return [
+        {
+          number: kept.number,
+          homes: homes ? housesIn(g, homes) : null,
+          geometry: g,
+        },
+      ];
+    }
+    const t = ts[0];
+    const gs = partsOfCut(t.geometry, p.lines ?? []);
+    const others = [...(p.numbers ?? [])];
+    return gs.map((g, i) => ({
+      number: i === p.keep ? t.number : (others.shift() ?? '—'),
+      homes: homes ? housesIn(g, homes) : null,
+      geometry: g,
+    }));
+  }
+
+  /** The names of those who left remarks, as the congregation knows them. */
+  private async namesOf(
+    m: EntityManager,
+    tenantId: string,
+    userIds: string[],
+  ): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const ids = [...new Set(userIds)];
+    if (!ids.length) return out;
+    const cards = await m.find(Publisher, {
+      where: { congregationId: tenantId, userId: In(ids) },
+      select: { id: true, userId: true, firstName: true, lastName: true },
+    });
+    for (const c of cards)
+      if (c.userId) out.set(c.userId, `${c.firstName} ${c.lastName}`.trim());
+    const rest = ids.filter((id) => !out.has(id));
+    if (rest.length) {
+      const users = await m.find(User, {
+        where: { congregationId: tenantId, id: In(rest) },
+        select: { id: true, loginName: true, displayLabel: true },
+      });
+      for (const u of users)
+        out.set(u.id, u.displayLabel ?? u.loginName ?? '—');
+    }
+    return out;
+  }
+
+  // ---------------------------------------------------------- writes -----
+
+  private shapeRefused(e: unknown): never {
+    if (e instanceof ReshapeError) {
+      throw new ConflictException(
+        refusal(LINE_CODES[e.code] as 'TERRITORY_LINE_BAD', e.message),
+      );
+    }
+    if (e instanceof GeometryError) {
+      throw new ConflictException(
+        refusal('TERRITORY_GEOMETRY', e.message, { number: '' }),
+      );
+    }
+    throw e;
+  }
+
+  async setMeasure(user: AuthenticatedUser, dto: RecutMeasureDto) {
+    await this.mustEdit(user);
+    const measure: RecutMeasure = {
+      cityMaxKm: dto.cityMaxKm,
+      cityTargetKm: dto.cityTargetKm,
+      remoteMaxKm: dto.remoteMaxKm,
+      remoteTargetKm: dto.remoteTargetKm,
+      minKm: dto.minKm,
+      remoteMinutes: dto.remoteMinutes,
+    };
+    const problem = measureProblem(measure);
+    if (problem) {
+      throw new ConflictException(refusal('TERRITORY_RECUT_MEASURE', problem));
+    }
+    const tenantId = user.congregationId;
+    let reopened = 0;
+    await this.dataSource.transaction(async (m) => {
+      const recut = (await this.recutOf(m, tenantId, true))!;
+      const same = JSON.stringify(recut.measure) === JSON.stringify(measure);
+      if (same) return;
+      await m.update(TerritoryRecut, { id: recut.id }, { measure });
+      // The proposals were judged by the old measure: back to the committee.
+      const r = await m.update(
+        TerritoryRecutProposal,
+        { recutId: recut.id, state: 'open', approvedAt: Not(IsNull()) },
+        { approvedAt: null, reopenedAt: new Date() },
+      );
+      reopened = r.affected ?? 0;
+    });
+    await this.audit.logFact({
+      tenantId,
+      entityType: 'territory',
+      entityId: tenantId,
+      action: 'UPDATE',
+      actorUserId: user.id,
+      detail: { recut: 'measure', ...measure, reopened },
+    });
+    return this.view(user);
+  }
+
+  /** The territories of a proposal, checked; refused when one is missing. */
+  private async territoriesOf(
+    m: EntityManager,
+    tenantId: string,
+    dto: RecutProposalDto,
+  ): Promise<Territory[]> {
+    const ids = [...new Set(dto.territoryIds)];
+    if (ids.length !== dto.territoryIds.length) {
+      throw new ConflictException(
+        refusal('TERRITORY_RECUT_PARTS', 'A territory named twice.'),
+      );
+    }
+    if (dto.kind === 'cut' ? ids.length !== 1 : ids.length < 2) {
+      throw new ConflictException(
+        refusal(
+          'TERRITORY_RECUT_PARTS',
+          dto.kind === 'cut'
+            ? 'A cut is of one territory.'
+            : 'A join is of two territories at least.',
+        ),
+      );
+    }
+    const ts = await m.find(Territory, {
+      where: { id: In(ids), congregationId: tenantId, archivedAt: IsNull() },
+    });
+    if (ts.length !== ids.length) {
+      throw new NotFoundException('Territory not found');
+    }
+    if (new Set(ts.map((t) => t.category)).size > 1) {
+      throw new ConflictException(
+        refusal('TERRITORY_NOT_NEIGHBOUR', 'Territories of different kinds.'),
+      );
+    }
+    return ids.map((id) => ts.find((t) => t.id === id)!);
+  }
+
+  /** Refused when a territory is in another open proposal of the draft. */
+  private async mustBeOnlyHere(
+    m: EntityManager,
+    recutId: string,
+    ts: Territory[],
+    except: string | null,
+  ): Promise<void> {
+    const open = await m.find(TerritoryRecutProposal, {
+      where: { recutId, state: 'open' },
+      select: { id: true, territoryIds: true },
+    });
+    for (const p of open) {
+      if (p.id === except) continue;
+      const t = ts.find((x) => p.territoryIds.includes(x.id));
+      if (t) {
+        throw new ConflictException(
+          refusal('TERRITORY_IN_PROPOSAL', `${t.number} is in a proposal.`, {
+            number: t.number,
+          }),
+        );
+      }
+    }
+  }
+
+  /** The numbers of a cut: free, and not the same twice. */
+  private async mustBeFreeNumbers(
+    m: EntityManager,
+    tenantId: string,
+    recutId: string,
+    numbers: string[],
+    except: string | null,
+  ): Promise<string[]> {
+    const clean = numbers.map((n) => n.trim());
+    const taken = new Set(
+      (
+        await m.find(Territory, {
+          where: { congregationId: tenantId, archivedAt: IsNull() },
+          select: { number: true },
+        })
+      ).map((t) => norm(t.number)),
+    );
+    const others = await m.find(TerritoryRecutProposal, {
+      where: { recutId, state: 'open', kind: 'cut' },
+      select: { id: true, numbers: true },
+    });
+    for (const p of others)
+      if (p.id !== except) for (const n of p.numbers ?? []) taken.add(norm(n));
+    const seen = new Set<string>();
+    for (const n of clean) {
+      if (!n || taken.has(norm(n)) || seen.has(norm(n))) {
+        throw new ConflictException(
+          refusal('TERRITORY_NUMBER_TWICE', 'This number is in use.', {
+            number: n,
+          }),
+        );
+      }
+      seen.add(norm(n));
+    }
+    return clean;
+  }
+
+  /** Checks a proposal against the territories as they are, and shapes it. */
+  private async shaped(
+    m: EntityManager,
+    tenantId: string,
+    recutId: string,
+    dto: RecutProposalDto,
+    except: string | null,
+  ) {
+    const ts = await this.territoriesOf(m, tenantId, dto);
+    await this.mustBeOnlyHere(m, recutId, ts, except);
+    const base = Object.fromEntries(
+      ts.map((t) => [t.id, borderPrint(t.geometry)]),
+    );
+    if (dto.kind === 'merge') {
+      if (!dto.keepId || !dto.territoryIds.includes(dto.keepId)) {
+        throw new ConflictException(
+          refusal('TERRITORY_RECUT_PARTS', 'The number kept is not joined.'),
+        );
+      }
+      try {
+        joinAll(ts.map((t) => t.geometry));
+      } catch (e) {
+        this.shapeRefused(e);
+      }
+      return {
+        ts,
+        fields: {
+          kind: 'merge' as const,
+          territoryIds: dto.territoryIds,
+          base,
+          lines: null,
+          keep: 0,
+          numbers: null,
+          keepId: dto.keepId,
+          queue: dto.queue ?? 1,
+        },
+      };
+    }
+    const lines = (dto.lines ?? []).map((l) => lineOf(l.points));
+    let parts: TerritoryGeometry[];
+    try {
+      parts = partsOfCut(ts[0].geometry, lines);
+    } catch (e) {
+      this.shapeRefused(e);
+    }
+    const keep = dto.keep ?? 0;
+    if (keep >= parts.length || (dto.numbers ?? []).length !== lines.length) {
+      throw new ConflictException(
+        refusal(
+          'TERRITORY_RECUT_PARTS',
+          'One new number for each part but the one kept.',
+        ),
+      );
+    }
+    const numbers = await this.mustBeFreeNumbers(
+      m,
+      tenantId,
+      recutId,
+      dto.numbers ?? [],
+      except,
+    );
+    return {
+      ts,
+      fields: {
+        kind: 'cut' as const,
+        territoryIds: dto.territoryIds,
+        base,
+        lines,
+        keep,
+        numbers,
+        keepId: null,
+        queue: dto.queue ?? 1,
+      },
+    };
+  }
+
+  async create(user: AuthenticatedUser, dto: RecutProposalDto) {
+    await this.mustEdit(user);
+    const tenantId = user.congregationId;
+    const made = await this.dataSource.transaction(async (m) => {
+      const recut = (await this.recutOf(m, tenantId, true))!;
+      // One proposal at a time per draft: two keepers drawing at once must
+      // not put a territory in two proposals.
+      await m.query(
+        `SELECT id FROM territory_recuts WHERE id = $1 FOR UPDATE`,
+        [recut.id],
+      );
+      const { ts, fields } = await this.shaped(
+        m,
+        tenantId,
+        recut.id,
+        dto,
+        null,
+      );
+      const p = await m.save(
+        m.create(TerritoryRecutProposal, {
+          congregationId: tenantId,
+          recutId: recut.id,
+          ...fields,
+          state: 'open',
+        }),
+      );
+      return { p, numbers: ts.map((t) => t.number) };
+    });
+    await this.audit.logFact({
+      tenantId,
+      entityType: 'territory',
+      entityId: tenantId,
+      action: 'CREATE',
+      actorUserId: user.id,
+      detail: {
+        recut: 'proposal',
+        kind: made.p.kind,
+        territories: made.numbers,
+        parts: made.p.kind === 'cut' ? (made.p.lines?.length ?? 0) + 1 : 1,
+      },
+    });
+    return this.view(user);
+  }
+
+  async update(user: AuthenticatedUser, id: string, dto: RecutProposalDto) {
+    await this.mustEdit(user);
+    const tenantId = user.congregationId;
+    const result = await this.dataSource.transaction(async (m) => {
+      const recut = (await this.recutOf(m, tenantId, true))!;
+      await m.query(
+        `SELECT id FROM territory_recuts WHERE id = $1 FOR UPDATE`,
+        [recut.id],
+      );
+      const p = await m.findOne(TerritoryRecutProposal, {
+        where: { id, recutId: recut.id, state: 'open' },
+      });
+      if (!p) throw new NotFoundException('Proposal not found');
+      const { ts, fields } = await this.shaped(m, tenantId, recut.id, dto, id);
+      let reopen = false;
+      if (p.approvedAt) {
+        if (
+          p.kind !== fields.kind ||
+          [...p.territoryIds].sort().join() !==
+            [...fields.territoryIds].sort().join()
+        ) {
+          reopen = true;
+        } else if (fields.kind === 'cut') {
+          const homes =
+            (await housesAround(m, tenantId, [ts[0].geometry])) ?? [];
+          let before: TerritoryGeometry[] = [];
+          try {
+            before = partsOfCut(ts[0].geometry, p.lines ?? []);
+          } catch {
+            before = [];
+          }
+          const after = partsOfCut(ts[0].geometry, fields.lines);
+          reopen = movedShare(before, after, homes) > REOPEN_SHARE;
+        }
+      }
+      await m.update(
+        TerritoryRecutProposal,
+        { id },
+        {
+          ...fields,
+          ...(reopen ? { approvedAt: null, reopenedAt: new Date() } : {}),
+        },
+      );
+      return { reopen, numbers: ts.map((t) => t.number), kind: fields.kind };
+    });
+    await this.audit.logFact({
+      tenantId,
+      entityType: 'territory',
+      entityId: tenantId,
+      action: 'UPDATE',
+      actorUserId: user.id,
+      detail: {
+        recut: 'proposal',
+        kind: result.kind,
+        territories: result.numbers,
+        reopened: result.reopen,
+      },
+    });
+    return this.view(user);
+  }
+
+  async remove(user: AuthenticatedUser, id: string) {
+    await this.mustEdit(user);
+    const tenantId = user.congregationId;
+    const p = await this.dataSource.manager.findOne(TerritoryRecutProposal, {
+      where: { id, congregationId: tenantId },
+    });
+    if (!p) throw new NotFoundException('Proposal not found');
+    // Its remarks go with it (ON DELETE CASCADE).
+    await this.dataSource.manager.delete(TerritoryRecutProposal, { id });
+    await this.audit.logFact({
+      tenantId,
+      entityType: 'territory',
+      entityId: tenantId,
+      action: 'DELETE',
+      actorUserId: user.id,
+      detail: { recut: 'proposal', kind: p.kind },
+    });
+    return this.view(user);
+  }
+
+  async remark(user: AuthenticatedUser, id: string, dto: RecutRemarkDto) {
+    await this.mustSee(user);
+    const tenantId = user.congregationId;
+    const m = this.dataSource.manager;
+    const p = await m.findOne(TerritoryRecutProposal, {
+      where: { id, congregationId: tenantId, state: 'open' },
+    });
+    if (!p) throw new NotFoundException('Proposal not found');
+    const text = dto.ok ? null : (dto.text ?? '').trim().slice(0, 500);
+    if (!dto.ok && !text) {
+      throw new ConflictException(
+        refusal('TERRITORY_RECUT_PARTS', 'A remark needs words.'),
+      );
+    }
+    await m.query(
+      `INSERT INTO territory_recut_remarks (congregation_id, proposal_id, user_id, ok, text)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (proposal_id, user_id) DO UPDATE
+         SET ok = EXCLUDED.ok, text = EXCLUDED.text, updated_at = now()`,
+      [tenantId, id, user.id, dto.ok, text],
+    );
+    return this.view(user);
+  }
+
+  async unremark(user: AuthenticatedUser, id: string) {
+    await this.mustSee(user);
+    await this.dataSource.manager.delete(TerritoryRecutRemark, {
+      proposalId: id,
+      userId: user.id,
+      congregationId: user.congregationId,
+    });
+    return this.view(user);
+  }
+
+  /**
+   * The service committee decided at its meeting: one of its members
+   * records it. Every open proposal not yet decided is decided now.
+   */
+  async approve(user: AuthenticatedUser) {
+    await this.mustSee(user);
+    if (!(await this.decides(user))) {
+      throw new ForbiddenException(
+        refusal('NEEDS_RESPONSIBILITY', 'Requires the service committee.', {
+          responsibilities: TERRITORY_COMMITTEE as ResponsibilityType[],
+        }),
+      );
+    }
+    const tenantId = user.congregationId;
+    const m = this.dataSource.manager;
+    const recut = await this.recutOf(m, tenantId, false);
+    const r = recut
+      ? await m.update(
+          TerritoryRecutProposal,
+          { recutId: recut.id, state: 'open', approvedAt: IsNull() },
+          { approvedAt: new Date(), reopenedAt: null },
+        )
+      : { affected: 0 };
+    await this.audit.logFact({
+      tenantId,
+      entityType: 'territory',
+      entityId: tenantId,
+      action: 'UPDATE',
+      actorUserId: user.id,
+      detail: { recut: 'approved', proposals: r.affected ?? 0 },
+    });
+    return this.view(user);
+  }
+}
+
+/** A line as the editor sends it: [lon, lat] numbers on the map. */
+function lineOf(raw: number[][]): [number, number][] {
+  const ok = raw.every(
+    (p) =>
+      Array.isArray(p) &&
+      p.length >= 2 &&
+      Number.isFinite(Number(p[0])) &&
+      Number.isFinite(Number(p[1])) &&
+      Math.abs(Number(p[0])) <= 180 &&
+      Math.abs(Number(p[1])) <= 90,
+  );
+  if (!ok) {
+    throw new ConflictException(
+      refusal('TERRITORY_LINE_BAD', 'The line is [lon, lat] points.'),
+    );
+  }
+  return raw.map((p) => [Number(p[0]), Number(p[1])]);
+}

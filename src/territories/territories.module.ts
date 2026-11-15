@@ -35,6 +35,13 @@ import { TerritoryStreetMark } from '../entities/territory-street-mark.entity';
 import { TerritorySplitsService } from './territory-splits.service';
 import { HomesSurveyService } from './homes-survey.service';
 import { HomeMarksService } from './home-marks.service';
+import { TerritoryRecutController } from './territory-recut.controller';
+import { TerritoryRecutService } from './territory-recut.service';
+import {
+  TerritoryRecut,
+  TerritoryRecutProposal,
+  TerritoryRecutRemark,
+} from '../entities/territory-recut.entity';
 
 @Module({
   imports: [
@@ -54,6 +61,9 @@ import { HomeMarksService } from './home-marks.service';
       TerritoryBusinessVisit,
       TerritorySplit,
       TerritoryStreetMark,
+      TerritoryRecut,
+      TerritoryRecutProposal,
+      TerritoryRecutRemark,
     ]),
     AuditLogModule,
     NotificationsModule,
@@ -62,6 +72,7 @@ import { HomeMarksService } from './home-marks.service';
     TerritoriesController,
     TerritoryLinksController,
     TerritoryPartsController,
+    TerritoryRecutController,
   ],
   providers: [
     TerritoriesService,
@@ -76,6 +87,7 @@ import { HomeMarksService } from './home-marks.service';
     TerritorySplitsService,
     HomesSurveyService,
     HomeMarksService,
+    TerritoryRecutService,
   ],
   exports: [
     TerritoryAccessService,

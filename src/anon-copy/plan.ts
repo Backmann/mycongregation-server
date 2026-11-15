@@ -441,6 +441,16 @@ export const PLAN: Record<string, TablePlan> = {
     'congregation_id street_no name kind west south east north lines',
   ),
   /** A territory divided between groups for a day: streets and houses. */
+  /** The draft of re-cutting: borders and numbers, no person. */
+  territory_recuts: copy('id congregation_id measure created_at updated_at'),
+  territory_recut_proposals: copy(`id congregation_id recut_id kind
+    territory_ids base lines keep numbers keep_id queue state approved_at
+    reopened_at applied_at created_at updated_at`),
+  /** A remark is a person's own words: a numbered stand-in. */
+  territory_recut_remarks: table(
+    copy('id congregation_id proposal_id user_id ok created_at updated_at'),
+    { text: 'label:Замечание' },
+  ),
   territory_splits: copy(`id congregation_id territory_id assignment_id day
     parts left_out made_by_user_id created_at mode start`),
   /** «Street walked» while a territory is out: houses and a time, no person. */

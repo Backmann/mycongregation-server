@@ -345,6 +345,10 @@ export const REFUSAL_CODES = [
   'TERRITORY_LINE_MANY',
   'TERRITORY_NOT_TOUCHING',
   'TERRITORY_JOIN_HOLE',
+  /** The draft of re-cutting (15 November 2026). */
+  'TERRITORY_IN_PROPOSAL',
+  'TERRITORY_RECUT_PARTS',
+  'TERRITORY_RECUT_MEASURE',
   'TERRITORY_UNDO_GIVEN',
   'TERRITORY_NOT_FOR_MEETING',
   // «Не посещать» kept by hand (12 November 2026).
