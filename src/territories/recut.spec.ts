@@ -4,7 +4,6 @@ import {
   joinAll,
   measureProblem,
   movedShare,
-  paceOf,
   partOf,
   partsOfCut,
 } from './recut';
@@ -131,33 +130,5 @@ describe('the measure', () => {
     ).not.toBeNull();
     expect(measureProblem({ ...DEFAULT_MEASURE, minKm: -1 })).not.toBeNull();
     expect(measureProblem({ ...DEFAULT_MEASURE, minKm: 20 })).not.toBeNull();
-  });
-});
-
-describe('the pace by the S-13', () => {
-  const month = (walkKm: number, days: number) => ({ walkKm, days });
-
-  it('the middle of the territories done, in km a month', () => {
-    // Eight of 6 km in two months (3 km a month), one of 6 km in a year.
-    const done = [...Array(8).fill(month(6, 61)), month(6, 365)];
-    expect(paceOf(done)).toEqual({ kmPerMonth: 3, samples: 9 });
-  });
-
-  it('a day counts as two weeks; with no walk it is left out', () => {
-    // Eight of 6 km given back the next day: 6 km in two weeks, not in a day.
-    const done = [...Array(8).fill(month(6, 1)), month(0, 30)];
-    expect(paceOf(done)).toEqual({ kmPerMonth: 13, samples: 8 });
-  });
-
-  it('an even count: between the two in the middle', () => {
-    const done = [
-      ...Array(4).fill(month(4, 61)),
-      ...Array(4).fill(month(8, 61)),
-    ];
-    expect(paceOf(done)).toEqual({ kmPerMonth: 3, samples: 8 });
-  });
-
-  it('too few done: no pace', () => {
-    expect(paceOf(Array(7).fill(month(6, 61)))).toBeNull();
   });
 });
