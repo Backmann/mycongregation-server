@@ -39,11 +39,16 @@ const WAY_CAP_M = 250;
 /** Past the outline, the drawn line goes on this far (m). */
 const OVERHANG_M = 25;
 /** A line along the streets keeps within this of its straight line (m)… */
-const CORRIDOR_M = 220;
-/** …and may miss the share by a little more than a straight one. */
-const STREET_SLACK = 0.15;
+const CORRIDOR_M = 300;
+/**
+ * …and may miss the share by more than a straight one: a street with a
+ * quarter off the share (75 «homes» of cost) beats a straight line beside
+ * a hundred homes (16 November 2026, Rhynern: a diagonal through the blocks
+ * had won because no street kept within 15%).
+ */
+const STREET_SLACK = 0.25;
 /** Straight candidates tried along the streets. */
-const STREET_TRIES = 14;
+const STREET_TRIES = 30;
 
 /** A home and the metres of walk it stands for. */
 export interface Weighted {
@@ -259,8 +264,12 @@ export function bestLine(
     const cost = (miss / SHARE_SLACK) * SLACK_HOMES + beside;
     if (!best || cost < best.cost) best = { cost, line: laid.line, pieces };
   }
-  if (best) return { line: best.line, pieces: best.pieces };
-  return { line: straight[0].line, pieces: straight[0].pieces };
+  // A straight line competes at the same price: the share missed and every
+  // home beside it.
+  const first = straight[0];
+  if (best && best.cost <= first.cost)
+    return { line: best.line, pieces: best.pieces };
+  return { line: first.line, pieces: first.pieces };
 }
 
 /** Metres from p to the segment a–b. */

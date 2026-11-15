@@ -151,6 +151,27 @@ describe('the draft of re-cutting: lines of a first proposal', () => {
     expect(partsOfCut(T, plan.lines)).toHaveLength(2);
   });
 
+  it('a street a little off the even share beats a straight line through the blocks', () => {
+    // The only street runs at 42% of the width: along it the walk is a
+    // sixth off even; any straight line at the middle cuts rows of houses.
+    const street: Pt[] = [
+      [7.0125, 50.999],
+      [7.0125, 51.011],
+    ];
+    const homes = grid(
+      7,
+      51,
+      7.03,
+      51.01,
+      0.0003,
+      ([x]) => Math.abs(x - 7.0125) < 0.0002,
+    );
+    const plan = cutPlan(T, homes, 2, graphOf([street]))!;
+    const along = plan.lines[0].slice(2, -2);
+    expect(along.length).toBeGreaterThanOrEqual(2);
+    for (const [x] of along) expect(Math.abs(x - 7.0125)).toBeLessThan(0.0001);
+  });
+
   it('an L-shaped territory is still cut into whole pieces', () => {
     const L = poly([
       [7, 51],
