@@ -55,6 +55,8 @@ import {
 } from './dto/reshape.dto';
 import { TerritoryAssignmentsService } from './territory-assignments.service';
 import { HomesSurveyService } from './homes-survey.service';
+import { HomeMarksService } from './home-marks.service';
+import { HomeMarkDto } from './dto/home-mark.dto';
 import {
   AssignTerritoryDto,
   CampaignDto,
@@ -92,6 +94,7 @@ export class TerritoriesController {
     private readonly businesses: TerritoryBusinessesService,
     private readonly splits: TerritorySplitsService,
     private readonly homesSurveyService: HomesSurveyService,
+    private readonly homeMarks: HomeMarksService,
   ) {}
 
   /** The door: what the user may open, and the territories he has a part in. */
@@ -655,6 +658,26 @@ export class TerritoriesController {
 
   // ----------------------------- the list of a business territory --------
   // (13 November 2026)
+
+  // ----------------------------- homes of a territory, keepers' marks ---
+  // (15 November 2026)
+
+  @Get(':id/homes')
+  homes(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.homeMarks.homesOf(user, id);
+  }
+
+  @Put(':id/homes/mark')
+  markHome(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: HomeMarkDto,
+  ) {
+    return this.homeMarks.mark(user, id, dto);
+  }
 
   @Get(':id/businesses')
   businessList(

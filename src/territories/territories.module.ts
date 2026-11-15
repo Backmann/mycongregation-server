@@ -34,6 +34,7 @@ import { TerritorySplit } from '../entities/territory-split.entity';
 import { TerritoryStreetMark } from '../entities/territory-street-mark.entity';
 import { TerritorySplitsService } from './territory-splits.service';
 import { HomesSurveyService } from './homes-survey.service';
+import { HomeMarksService } from './home-marks.service';
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { HomesSurveyService } from './homes-survey.service';
     TerritoryBusinessesService,
     TerritorySplitsService,
     HomesSurveyService,
+    HomeMarksService,
   ],
   exports: [
     TerritoryAccessService,
