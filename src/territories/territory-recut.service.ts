@@ -583,7 +583,7 @@ export class TerritoryRecutService {
           next[key] = was[key];
           continue;
         }
-        if (this.tried.has(`${tenantId}:${key}`)) {
+        if (!fresh && this.tried.has(`${tenantId}:${key}`)) {
           next[key] = this.tried.get(`${tenantId}:${key}`)!;
           continue;
         }
@@ -1042,7 +1042,8 @@ export class TerritoryRecutService {
     } catch {
       before = [];
     }
-    const moved = homes ? movedShare(before, parts, homes) : 0;
+    // As the save will judge it: without a register, only another number of parts counts.
+    const moved = movedShare(before, parts, homes ?? []);
     const known = recut.walks ?? {};
     const started = Date.now();
     let walked = 0;
@@ -1297,6 +1298,9 @@ export class TerritoryRecutService {
 
   private async workOutFigures(user: AuthenticatedUser): Promise<void> {
     const tenantId = user.congregationId;
+    // The map may have changed: walks tried in the editor are walked again.
+    for (const key of [...this.tried.keys()])
+      if (key.startsWith(`${tenantId}:`)) this.tried.delete(key);
     const m = this.dataSource.manager;
     const territories = await m.find(Territory, {
       where: {
