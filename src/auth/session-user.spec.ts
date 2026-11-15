@@ -52,11 +52,13 @@ describe('who the app is told it is', () => {
   it('gives the capability and never the owner flag or the password', () => {
     const owner = meUser({ ...session, isOwner: true }, account);
     expect(owner.canManageBackups).toBe(true);
+    expect(owner.canSeeCrashes).toBe(true);
     for (const answer of [owner, signInUser(account)]) {
       expect(answer).not.toHaveProperty('isOwner');
       expect(answer).not.toHaveProperty('passwordHash');
     }
     expect(meUser(session, account).canManageBackups).toBe(false);
+    expect(meUser(session, account).canSeeCrashes).toBe(false);
   });
 
   it('has no name to tell when none was set', () => {

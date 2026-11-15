@@ -75,7 +75,7 @@ export const NOTIFICATION_TYPES = [
   'pioneer_meeting',
   // Today's meeting still without its attendance figure, at 20:00.
   'attendance_due',
-  // A new kind of failure met in the app — for the administrator.
+  // A new kind of failure met in the app — for whoever runs the platform.
   'client_error',
   // The two people of a part agreeing when to prepare it.
   'pair_prep',

@@ -25,6 +25,15 @@ describe('failures met in the app (real database)', () => {
   beforeAll(async () => {
     h = await startHarness();
     await h.addUser({ login: 'cepub1', role: 'publisher' });
+    // Whoever runs the platform: the first administrator. A second one runs
+    // only the congregation (15 November 2026).
+    await h.sql(
+      `UPDATE users SET is_owner = true WHERE login_name = 'dbtest-admin'`,
+    );
+    await h.addUser({ login: 'ceadmin2', role: 'publisher' });
+    await h.sql(
+      `UPDATE users SET role = 'admin' WHERE login_name = 'ceadmin2'`,
+    );
   });
   afterAll(async () => {
     await h?.close();
@@ -50,14 +59,16 @@ describe('failures met in the app (real database)', () => {
     ]);
   });
 
-  it('the administrators hear of a new kind once a day', async () => {
+  it('whoever runs the platform hears of a new kind once a day; other administrators do not', async () => {
     const sent = await h.sql<{ n: string }>(
       `SELECT count(*) AS n FROM notification_outbox WHERE kind = 'client_error'`,
     );
-    const admins = await h.sql<{ n: string }>(
-      `SELECT count(*) AS n FROM users WHERE role = 'admin' AND is_active`,
+    expect(Number(sent[0].n)).toBe(1);
+    const to = await h.sql<{ owner: boolean }>(
+      `SELECT u.is_owner AS owner FROM notification_outbox o JOIN users u ON u.id = o.user_id
+        WHERE o.kind = 'client_error'`,
     );
-    expect(Number(sent[0].n)).toBe(Number(admins[0].n));
+    expect(to).toEqual([{ owner: true }]);
 
     await h.as(null).post('/client-errors', { ...report, route: '/home' });
     const after = await h.sql<{ n: string }>(
@@ -83,8 +94,12 @@ describe('failures met in the app (real database)', () => {
     expect(after[0].n).toBe(before[0].n);
   });
 
-  it('read by an administrator only', async () => {
+  it('read by whoever runs the platform only', async () => {
     expect((await h.as('cepub1').get('/client-errors')).status).toBe(403);
+    expect((await h.as('ceadmin2').get('/client-errors')).status).toBe(403);
+    const me = await h.as('ceadmin2').get('/auth/me');
+    expect(me.body.canSeeCrashes).toBe(false);
+    expect((await h.as('admin').get('/auth/me')).body.canSeeCrashes).toBe(true);
     expect((await h.as(null).get('/client-errors')).status).toBe(401);
     const res = await h.as('admin').get('/client-errors');
     expect(res.status).toBe(200);
@@ -246,5 +261,23 @@ describe('failures met in the app (real database)', () => {
         })
       ).status,
     ).toBe(204);
+  });
+
+  it('nobody marked as running the platform: the failure is kept, nobody is told', async () => {
+    const svc = h.app.get(ClientErrorsService);
+    await h.sql(`UPDATE users SET is_owner = false`);
+    try {
+      const day = new Date(Date.now() - 11 * 86_400_000);
+      const before = await told();
+      await svc.record({ ...report, route: '/nobody' } as never, day);
+      expect(await told()).toBe(before);
+      expect(
+        await h.sql(`SELECT 1 FROM client_errors WHERE route = '/nobody'`),
+      ).toHaveLength(1);
+    } finally {
+      await h.sql(
+        `UPDATE users SET is_owner = true WHERE login_name = 'dbtest-admin'`,
+      );
+    }
   });
 });

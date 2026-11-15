@@ -3,7 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
 import { ClientError } from '../entities/client-error.entity';
 import { User } from '../entities/user.entity';
-import { UserRole } from '../common/enums/user-role.enum';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ReportClientErrorDto } from './dto/report-client-error.dto';
 import {
@@ -142,7 +141,11 @@ export class ClientErrorsService {
     }
   }
 
-  /** The administrators of every congregation hear of a new kind, once a day. */
+  /**
+   * Whoever runs the platform hears of a new kind, once a day (15 November
+   * 2026: no longer every congregation's administrator). Nobody marked: the
+   * failure is still kept, and the server's log says that nobody was told.
+   */
   private async tellAdmins(
     route: string,
     message: string,
@@ -150,12 +153,16 @@ export class ClientErrorsService {
     flood = false,
   ): Promise<void> {
     if (!this.notifications) return;
-    const admins = await this.users.find({
-      where: { role: UserRole.ADMIN, isActive: true },
+    const owners = await this.users.find({
+      where: { isOwner: true, isActive: true },
       select: { id: true, congregationId: true },
     });
+    if (owners.length === 0) {
+      this.logger.warn('a new kind of failure, and nobody to tell it to');
+      return;
+    }
     const byTenant = new Map<string, string[]>();
-    for (const a of admins) {
+    for (const a of owners) {
       byTenant.set(a.congregationId, [
         ...(byTenant.get(a.congregationId) ?? []),
         a.id,
