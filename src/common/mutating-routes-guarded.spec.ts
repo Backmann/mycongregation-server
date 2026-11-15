@@ -45,6 +45,8 @@ const CHECKED_IN_SERVICE: Record<string, string> = {
   tasks: 'service: elders, addressees',
   territories:
     'service: TerritoryAccessService — keepers import and confirm; the committee only sees, once confirmed',
+  'territory-recut':
+    'service: TerritoryAccessService — keepers draw the draft; the committee remarks and records its decision',
   'visiting-speakers': 'service: talk coordinators',
   'web-push-subscriptions': 'the caller\u2019s own browser',
 };
