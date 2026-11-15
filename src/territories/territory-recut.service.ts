@@ -47,10 +47,8 @@ import {
   joinAll,
   measureProblem,
   movedShare,
-  paceOf,
   partsOfCut,
   REOPEN_SHARE,
-  type RecutPace,
 } from './recut';
 import { joinTwo, nextNumber, ReshapeError } from './reshape';
 import { driveGraph, minutesFrom, minutesInto, nearestOf } from './recut-drive';
@@ -159,8 +157,6 @@ export interface RecutView {
   computing: boolean;
   /** The walks of the parts are being worked out now. */
   walking: boolean;
-  /** How fast a territory is worked through here, by the S-13; null: too few done. */
-  pace: RecutPace | null;
   halls: { name: string; found: boolean }[];
   territories: RecutTerritoryView[];
   /** Draws and changes proposals: the territory servant and his assistant. */
@@ -442,7 +438,6 @@ export class TerritoryRecutService {
       metricsAt: recut?.metricsAt?.toISOString() ?? null,
       computing: this.computing.has(tenantId),
       walking: this.walking.has(tenantId),
-      pace: metrics ? await this.paceOf(m, tenantId, metrics) : null,
       halls: metrics?.halls ?? [],
       territories: territoriesView,
       canEdit: a.keeps,
@@ -489,37 +484,6 @@ export class TerritoryRecutService {
       number: i === p.keep ? t.number : (others.shift() ?? '—'),
       geometry: g,
     }));
-  }
-
-  /**
-   * The congregation's pace by its S-13: the territories worked through in
-   * the last two years, each by its walk now over the days it was out.
-   */
-  private async paceOf(
-    m: EntityManager,
-    tenantId: string,
-    metrics: { territories: Record<string, RecutMetric> },
-  ): Promise<RecutPace | null> {
-    const since = addDays(await this.today(m, tenantId), -730);
-    const done = await m.find(TerritoryAssignment, {
-      where: {
-        congregationId: tenantId,
-        completedOn: Not(IsNull()),
-      },
-      select: { territoryId: true, assignedOn: true, completedOn: true },
-    });
-    const days = (a: string, b: string) =>
-      Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000);
-    return paceOf(
-      done
-        .filter(
-          (d) => d.completedOn! >= since && metrics.territories[d.territoryId],
-        )
-        .map((d) => ({
-          walkKm: metrics.territories[d.territoryId].walkKm,
-          days: days(d.assignedOn, d.completedOn!),
-        })),
-    );
   }
 
   /** Starts working out the parts' walks, once at a time per congregation. */

@@ -241,39 +241,3 @@ export function joinGroups(
   }
   return groups;
 }
-
-/** How fast the congregation works a territory through, by its S-13. */
-export interface RecutPace {
-  /** Walk worked per month (km), the middle of the territories done. */
-  kmPerMonth: number;
-  /** How many territories done it rests on. */
-  samples: number;
-}
-
-/** Fewer done than this, and a pace would be a guess: none is given. */
-export const PACE_SAMPLES = 8;
-
-/**
- * The pace from the territories worked through (15 November 2026): for each
- * one done, its walk over the months it was out; the middle of them, so a
- * territory kept a year by mistake or done in a day does not pull it. Less
- * than two weeks counts as two weeks.
- */
-export function paceOf(
-  done: { walkKm: number; days: number }[],
-): RecutPace | null {
-  const rates = done
-    .filter((d) => d.walkKm > 0 && d.days >= 0)
-    .map((d) => d.walkKm / (Math.max(d.days, 14) / 30.44))
-    .sort((a, b) => a - b);
-  if (rates.length < PACE_SAMPLES) return null;
-  const mid = rates.length / 2;
-  const median =
-    rates.length % 2
-      ? rates[Math.floor(mid)]
-      : (rates[mid - 1] + rates[mid]) / 2;
-  return {
-    kmPerMonth: Math.round(median * 10) / 10,
-    samples: rates.length,
-  };
-}

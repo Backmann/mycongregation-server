@@ -574,34 +574,6 @@ describe('the draft of re-cutting (real database)', () => {
     expect(Object.keys(after.walks)).not.toEqual(Object.keys(row.walks));
   });
 
-  it('the pace by the S-13: the middle of the territories done in two years; too few — none', async () => {
-    // One done already (29 days): too few.
-    expect((await recut()).body.pace).toBeNull();
-    const big = (await recut()).body.territories.find(
-      (x: { number: string }) => x.number === 'Big1',
-    ).walkKm;
-    // Seven more of 61 days, one of a year, one three years ago.
-    for (let i = 0; i < 7; i++)
-      await h.sql(
-        `INSERT INTO territory_assignments (congregation_id, territory_id, holder_name, assigned_on, completed_on)
-         VALUES ($1, $2, 'Тест', current_date - ${100 + i * 70}, current_date - ${39 + i * 70})`,
-        [congregationId, ids.Big1],
-      );
-    await h.sql(
-      `INSERT INTO territory_assignments (congregation_id, territory_id, holder_name, assigned_on, completed_on)
-       VALUES ($1, $2, 'Тест', current_date - 400, current_date - 35),
-              ($1, $2, 'Тест', current_date - 1200, current_date - 1100)`,
-      [congregationId, ids.Big1],
-    );
-    const pace = (await recut()).body.pace;
-    // Nine of the last two years; the middle one is a 61-day one.
-    expect(pace.samples).toBe(9);
-    expect(Math.abs(pace.kmPerMonth - (big / 61) * 30.44)).toBeLessThan(0.06);
-    await h.sql(
-      `DELETE FROM territory_assignments WHERE completed_on < current_date - 30`,
-    );
-  });
-
   it('a cut its own lines are refused for goes to the hand, the rest of the draft still made', async () => {
     await h.sql(`DELETE FROM territory_recut_proposals`);
     const service = h.app.get(TerritoryRecutService);
