@@ -275,6 +275,7 @@ async function match(housesFile, buildingsFile, addressesFile) {
   let found = 0;
   let byAddress = 0;
   let moved = 0;
+  const changes = new Map();
   await lines(housesFile, (line) => {
     // congregation_id, osm_id, lon, lat, area_m2, numbers
     const f = line.split(',');
@@ -292,7 +293,12 @@ async function match(housesFile, buildingsFile, addressesFile) {
     found += 1;
     if (hit.by === 'address') {
       byAddress += 1;
-      if (buildingAt(index, p) !== hit.b) moved += 1;
+      const mid = buildingAt(index, p);
+      if (mid !== hit.b) {
+        moved += 1;
+        const k = `${mid?.fn ?? '(none)'} -> ${hit.b.fn}`;
+        changes.set(k, (changes.get(k) ?? 0) + 1);
+      }
     }
     const b = hit.b;
     console.log(`${csv(f[1])},${csv(b.fn)},${csv(b.floors)},${csv(b.id)}`);
@@ -300,6 +306,8 @@ async function match(housesFile, buildingsFile, addressesFile) {
   console.error(
     `official: ${buildings.length} cadastre buildings, ${found} of ${houses} houses found; ${byAddress} by their own address, ${moved} of them another building than by the middle`,
   );
+  for (const [k, n] of [...changes].sort((x, y) => y[1] - x[1]).slice(0, 12))
+    console.error(`  ${String(n).padStart(6)}  ${k}`);
 }
 
 function selfTest() {
