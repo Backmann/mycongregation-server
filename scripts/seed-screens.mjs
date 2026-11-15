@@ -51,6 +51,8 @@ if (!['localhost', '127.0.0.1', '::1', '[::1]'].includes(host)) {
 }
 
 let token = null;
+/** The proposal of the draft of re-cutting, for its screen. */
+let recutId = null;
 async function call(
   method,
   path,
@@ -711,6 +713,28 @@ async function main() {
     await post(`/territories/${id('T01')}/assign`, {
       publisherId: P('Анна'),
     });
+    // The draft of re-cutting (15 November 2026): T03 cut in two along a
+    // line, with a remark about the border, so its screens are photographed.
+    const draft = await post('/territory-recut/proposals', {
+      kind: 'cut',
+      territoryIds: [id('T03')],
+      lines: [
+        {
+          points: [
+            [10.0295, 50.99],
+            [10.0295, 51.015],
+          ],
+        },
+      ],
+      keep: 0,
+      numbers: ['T07'],
+      queue: 2,
+    });
+    recutId = draft.proposals[0].id;
+    await put(`/territory-recut/proposals/${recutId}/remark`, {
+      ok: false,
+      text: 'Линию лучше вести по Примерной улице',
+    });
   }
 
   // 7. Two kinds of failure in the journal, so its screen is not empty.
@@ -737,6 +761,7 @@ async function main() {
       current: iso(CURRENT),
       weeks: WEEKS.map(iso),
       logins: LOGINS,
+      recut: recutId,
     }),
   );
 }

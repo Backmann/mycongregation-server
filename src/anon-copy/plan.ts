@@ -445,7 +445,7 @@ export const PLAN: Record<string, TablePlan> = {
   /** A territory divided between groups for a day: streets and houses. */
   /** The draft of re-cutting: borders and numbers, no person. */
   territory_recuts: copy(
-    'id congregation_id measure classes metrics metrics_at created_at updated_at',
+    'id congregation_id measure classes metrics metrics_at walks created_at updated_at',
   ),
   territory_recut_proposals: copy(`id congregation_id recut_id kind
     territory_ids base lines keep numbers keep_id queue state approved_at

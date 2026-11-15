@@ -1,3 +1,5 @@
+import { ConflictException } from '@nestjs/common';
+import { TerritoryRecutService } from '../../src/territories/territory-recut.service';
 import { Harness, startHarness } from './harness';
 
 /**
@@ -502,6 +504,127 @@ describe('the draft of re-cutting (real database)', () => {
     const again = await h.as('keeper').post('/territory-recut/suggest');
     expect(again.body.proposals).toHaveLength(2);
     expect(again.body.suggested.made).toEqual([]);
+  });
+
+  it('the walk of each part: worked out in the background, about the whole between them', async () => {
+    // Looked at until no part waits for its walk.
+    let r = await recut();
+    for (
+      let i = 0;
+      i < 100 &&
+      (r.body.walking ||
+        r.body.proposals.some((p: { parts: { walkKm: number | null }[] }) =>
+          p.parts.some((x) => x.walkKm === null),
+        ));
+      i++
+    ) {
+      await new Promise((ok) => setTimeout(ok, 100));
+      r = await recut();
+    }
+    const whole = r.body.territories.find(
+      (x: { number: string }) => x.number === 'Big1',
+    ).walkKm;
+    const cut = r.body.proposals.find(
+      (p: { kind: string }) => p.kind === 'cut',
+    );
+    const walks: number[] = cut.parts.map((x: { walkKm: number }) => x.walkKm);
+    for (const w of walks) expect(w).toBeGreaterThan(0);
+    // Each a third or so; together about the whole (no link between them).
+    const sum = walks.reduce((n, w) => n + w, 0);
+    expect(sum).toBeGreaterThan(whole * 0.8);
+    expect(sum).toBeLessThan(whole * 1.1);
+    const join = r.body.proposals.find(
+      (p: { kind: string }) => p.kind === 'merge',
+    );
+    expect(join.parts[0].walkKm).toBeGreaterThan(0);
+    // Kept by the border: only the parts there are now.
+    const [row] = await h.sql<{ walks: Record<string, number> }>(
+      `SELECT walks FROM territory_recuts`,
+    );
+    expect(Object.keys(row.walks)).toHaveLength(walks.length + 1);
+    // A line moved: the new parts' walks, the old ones dropped.
+    const moved = await h
+      .as('keeper')
+      .put(`/territory-recut/proposals/${cut.id}`, {
+        kind: 'cut',
+        territoryIds: [ids.Big1],
+        lines: [vertical(7.011), vertical(7.021)],
+        keep: 0,
+        numbers: cut.numbers,
+        queue: cut.queue,
+      });
+    expect(moved.status).toBe(200);
+    r = await recut();
+    for (
+      let i = 0;
+      i < 100 &&
+      (r.body.walking ||
+        r.body.proposals.some((p: { parts: { walkKm: number | null }[] }) =>
+          p.parts.some((x) => x.walkKm === null),
+        ));
+      i++
+    ) {
+      await new Promise((ok) => setTimeout(ok, 100));
+      r = await recut();
+    }
+    const [after] = await h.sql<{ walks: Record<string, number> }>(
+      `SELECT walks FROM territory_recuts`,
+    );
+    expect(Object.keys(after.walks)).toHaveLength(walks.length + 1);
+    expect(Object.keys(after.walks)).not.toEqual(Object.keys(row.walks));
+  });
+
+  it('the pace by the S-13: the middle of the territories done in two years; too few — none', async () => {
+    // One done already (29 days): too few.
+    expect((await recut()).body.pace).toBeNull();
+    const big = (await recut()).body.territories.find(
+      (x: { number: string }) => x.number === 'Big1',
+    ).walkKm;
+    // Seven more of 61 days, one of a year, one three years ago.
+    for (let i = 0; i < 7; i++)
+      await h.sql(
+        `INSERT INTO territory_assignments (congregation_id, territory_id, holder_name, assigned_on, completed_on)
+         VALUES ($1, $2, 'Тест', current_date - ${100 + i * 70}, current_date - ${39 + i * 70})`,
+        [congregationId, ids.Big1],
+      );
+    await h.sql(
+      `INSERT INTO territory_assignments (congregation_id, territory_id, holder_name, assigned_on, completed_on)
+       VALUES ($1, $2, 'Тест', current_date - 400, current_date - 35),
+              ($1, $2, 'Тест', current_date - 1200, current_date - 1100)`,
+      [congregationId, ids.Big1],
+    );
+    const pace = (await recut()).body.pace;
+    // Nine of the last two years; the middle one is a 61-day one.
+    expect(pace.samples).toBe(9);
+    expect(Math.abs(pace.kmPerMonth - (big / 61) * 30.44)).toBeLessThan(0.06);
+    await h.sql(
+      `DELETE FROM territory_assignments WHERE completed_on < current_date - 30`,
+    );
+  });
+
+  it('a cut its own lines are refused for goes to the hand, the rest of the draft still made', async () => {
+    await h.sql(`DELETE FROM territory_recut_proposals`);
+    const service = h.app.get(TerritoryRecutService);
+    const real = service.create.bind(service);
+    const spy = jest
+      .spyOn(service, 'create')
+      .mockImplementation(async (user, dto, ...rest) => {
+        if (dto.kind === 'cut') {
+          throw new ConflictException({ code: 'TERRITORY_LINE_BAD' });
+        }
+        return real(user, dto, ...rest);
+      });
+    try {
+      const r = await h.as('keeper').post('/territory-recut/suggest');
+      expect(r.status).toBe(201);
+      expect(r.body.suggested.byHand).toEqual(['Big1']);
+      expect(r.body.suggested.made).toHaveLength(1);
+      expect(r.body.proposals.map((p: { kind: string }) => p.kind)).toEqual([
+        'merge',
+      ]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('no first draft before the figures', async () => {
