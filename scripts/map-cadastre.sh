@@ -27,7 +27,7 @@ for key in $(node "$(dirname "$0")/map-official.mjs" --districts "$GEBREF" "$BOX
   fi
   ogr2ogr -f GeoJSONSeq /vsistdout/ "cadastre-cache/$key.gpkg" GebauedeBauwerk \
     -t_srs EPSG:4326 -spat "$W" "$S" "$E" "$N" -spat_srs EPSG:4326 \
-    -select funktion,anzahlgs -lco RS=NO >> "$OUT"
+    -select funktion,anzahlgs,oid -lco RS=NO >> "$OUT"
   n=$((n + 1))
 done
 echo "Cadastre: $n district file(s), $(wc -l < "$OUT") buildings in the box"

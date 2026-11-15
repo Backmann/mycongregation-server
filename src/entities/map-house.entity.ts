@@ -42,6 +42,13 @@ export class MapHouse {
   @Column({ type: 'varchar', length: 120, nullable: true })
   official!: string | null;
 
+  /**
+   * The cadastre's building this house is (a piece of); null when unknown.
+   * Several houses of the map may share one (migration MapOfficialId).
+   */
+  @Column({ name: 'official_id', type: 'varchar', length: 64, nullable: true })
+  officialId!: string | null;
+
   /** Floors above ground, from the cadastre; null when unknown. */
   @Column({ type: 'smallint', nullable: true })
   floors!: number | null;

@@ -415,7 +415,7 @@ export const PLAN: Record<string, TablePlan> = {
   ),
   /** Buildings from OpenStreetMap: public map data, no people. */
   map_houses: copy(
-    'congregation_id osm_id lon lat area_m2 numbers home official floors',
+    'congregation_id osm_id lon lat area_m2 numbers home official floors official_id',
   ),
   /** Named places from OpenStreetMap (13 November 2026): public map data. */
   map_places: copy('congregation_id osm_id kind name lon lat'),

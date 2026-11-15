@@ -170,6 +170,49 @@ describe('only homes count (real database)', () => {
     expect(await homes()).toEqual(before);
   });
 
+  // The proposed rule (15 November 2026), inside a territory: one building
+  // of the cadastre is one home, however many pieces the map draws.
+  it('the survey counts the proposed rule inside the territories', async () => {
+    const ring = [
+      [X - 0.01, Y - 0.01],
+      [X + 0.01, Y - 0.01],
+      [X + 0.01, Y + 0.01],
+      [X - 0.01, Y + 0.01],
+      [X - 0.01, Y - 0.01],
+    ];
+    await h.sql(
+      `INSERT INTO territories (congregation_id, number, category, geometry) VALUES ($1, 'T1', 'residential', $2)`,
+      [
+        congregationId,
+        JSON.stringify({ type: 'Polygon', coordinates: [ring] }),
+      ],
+    );
+    const set = (id: number, official: string, officialId: string) =>
+      h.sql(
+        `UPDATE map_houses SET official = $2, official_id = $3 WHERE osm_id = $1`,
+        [id, official, officialId],
+      );
+    await set(1, 'Wohngebäude', 'A'); // Ahornweg 12
+    await set(2, 'Wohngebäude', 'A'); // drawn as a second piece of it
+    await set(3, 'Wohngebäude', 'C'); // left out now: added
+    await set(4, 'Gebäude für Land- und Forstwirtschaft', 'D'); // dropped
+    await set(5, 'Sonstiges', 'E'); // unsure: stays
+    const before = await homes();
+    const r = await h.as('hkeeper').get(`/territories/homes-survey`);
+    expect(r.status).toBe(200);
+    expect(r.body.rule).toEqual({
+      now: 3,
+      then: 3,
+      added: 1,
+      dropped: 1,
+      pieces: 1,
+      inPieces: 1,
+    });
+    expect(r.body.samples.piece).toHaveLength(1);
+    expect(r.body.samples.added).toHaveLength(1);
+    expect(await homes()).toEqual(before);
+  });
+
   it('the survey is for the keepers only', async () => {
     await h.addUser({
       login: 'hplain',
