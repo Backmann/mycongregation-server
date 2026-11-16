@@ -675,7 +675,8 @@ export class TerritoryRecutService {
       const r = await m.update(
         TerritoryRecutProposal,
         { recutId: recut.id, state: 'open', approvedAt: Not(IsNull()) },
-        { approvedAt: null, reopenedAt: new Date() },
+        // Nothing stays held back for a proposal that is no longer decided.
+        { approvedAt: null, reopenedAt: new Date(), holdIds: [] },
       );
       reopened = r.affected ?? 0;
     });
@@ -975,7 +976,10 @@ export class TerritoryRecutService {
           ...fields,
           // The database's clock, as the remarks' own updated_at.
           ...(much ? { linesChangedAt: () => 'now()' } : {}),
-          ...(reopen ? { approvedAt: null, reopenedAt: new Date() } : {}),
+          // Back to the committee: nothing is held back for it meanwhile.
+          ...(reopen
+            ? { approvedAt: null, reopenedAt: new Date(), holdIds: [] }
+            : {}),
         },
       );
       return { reopen, numbers: ts.map((t) => t.number), kind: fields.kind };

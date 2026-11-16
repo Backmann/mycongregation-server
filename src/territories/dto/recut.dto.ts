@@ -121,3 +121,39 @@ export class RecutPreviewDto {
   @Type(() => RecutLineDto)
   lines!: RecutLineDto[];
 }
+
+/** Where one «не посещать» address goes when a cut is applied. */
+export class RecutNoCallPlaceDto {
+  @IsUUID()
+  id!: string;
+
+  @IsInt()
+  @Min(0)
+  @Max(7)
+  part!: number;
+}
+
+/** Applying a decided proposal (16 November 2026, step 5). */
+export class RecutApplyDto {
+  /** The proposal as the screen last read it: applied only as seen. */
+  @IsString()
+  @MaxLength(40)
+  updatedAt!: string;
+
+  /** The addresses the register did not place, by the keeper's choice. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => RecutNoCallPlaceDto)
+  noCalls?: RecutNoCallPlaceDto[];
+}
+
+/** Held back for a join, or let go. */
+export class RecutHoldDto {
+  @IsUUID()
+  territoryId!: string;
+
+  @IsBoolean()
+  hold!: boolean;
+}

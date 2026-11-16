@@ -48,6 +48,7 @@ import type {
   ExtendAssignmentDto,
   ReturnAssignmentDto,
 } from './dto/assignment.dto';
+import { mustNotBeHeldBack } from './recut-apply';
 
 const PG_UNIQUE_VIOLATION = '23505';
 
@@ -569,24 +570,45 @@ export class TerritoryAssignmentsService {
     if (dueOn <= assignedOn) throw this.dates('due before given out');
     let saved: TerritoryAssignment;
     try {
-      saved = await this.assignments.save(
-        this.assignments.create({
-          congregationId: tenantId,
-          territoryId: t.id,
-          publisherId: p.id,
-          holderName: holderNameOf(p),
-          forGroupId: group?.id ?? null,
-          forGroupName: group?.name ?? null,
-          assignedOn,
-          dueOn,
-          completedOn: null,
-          returnedOn: null,
-          method: null,
-          extended: false,
-          imported: false,
-          createdByUserId: user.id,
-        }),
-      );
+      saved = await this.assignments.manager.transaction(async (m) => {
+        // Read again, shared-locked, in the same transaction as the insert:
+        // a join applied meanwhile (territory-recut-apply) holds the row and
+        // archives it — then it is not given out (16 November 2026).
+        const [still] = await m.query<{ id: string }[]>(
+          `SELECT id FROM territories
+            WHERE id = $1 AND congregation_id = $2 AND archived_at IS NULL
+            FOR SHARE`,
+          [t.id, tenantId],
+        );
+        if (!still) throw new NotFoundException('Territory not found');
+        // Held back for a join of the re-cutting draft: let go only together
+        // with giving it out.
+        await mustNotBeHeldBack(
+          m,
+          tenantId,
+          t.id,
+          t.number,
+          dto.releaseHold === true,
+        );
+        return m.save(
+          m.create(TerritoryAssignment, {
+            congregationId: tenantId,
+            territoryId: t.id,
+            publisherId: p.id,
+            holderName: holderNameOf(p),
+            forGroupId: group?.id ?? null,
+            forGroupName: group?.name ?? null,
+            assignedOn,
+            dueOn,
+            completedOn: null,
+            returnedOn: null,
+            method: null,
+            extended: false,
+            imported: false,
+            createdByUserId: user.id,
+          }),
+        );
+      });
     } catch (e) {
       if ((e as { code?: string }).code === PG_UNIQUE_VIOLATION) {
         throw new ConflictException(
