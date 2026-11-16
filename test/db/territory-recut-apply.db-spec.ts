@@ -388,4 +388,37 @@ describe('applying the re-cutting draft (real database)', () => {
     );
     expect(j2call.number).toBe('J2');
   });
+
+  it('a new measure sends the join back to the committee: nothing stays held back', async () => {
+    expect(
+      (
+        await h.as('keeper').put(`/territory-recut/proposals/${joinId}/hold`, {
+          territoryId: ids.J1,
+          hold: true,
+        })
+      ).status,
+    ).toBe(200);
+    const view = (await h.as('keeper').get('/territory-recut')).body as {
+      measure: Record<string, number>;
+    };
+    const r = await h.as('keeper').put('/territory-recut/measure', {
+      ...view.measure,
+      cityMaxKm: view.measure.cityMaxKm + 1,
+    });
+    expect(r.status).toBe(200);
+    const [p] = await h.sql<{ hold_ids: string[]; approved: boolean }>(
+      `SELECT hold_ids, approved_at IS NOT NULL AS approved FROM territory_recut_proposals WHERE id = $1`,
+      [joinId],
+    );
+    expect(p).toEqual({ hold_ids: [], approved: false });
+    // Not decided: nothing can be held back for it.
+    const again = await h
+      .as('keeper')
+      .put(`/territory-recut/proposals/${joinId}/hold`, {
+        territoryId: ids.J1,
+        hold: true,
+      });
+    expect(again.status).toBe(409);
+    expect((await give('J1')).status).toBe(201);
+  });
 });

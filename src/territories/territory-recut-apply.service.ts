@@ -588,7 +588,8 @@ export class TerritoryRecutApplyService {
         ids.push(t.id);
         continue;
       }
-      const made = await m.save(
+      const made = await this.saveNew(
+        m,
         m.create(Territory, {
           congregationId: tenantId,
           number: others.shift()!.trim(),
@@ -623,6 +624,22 @@ export class TerritoryRecutApplyService {
       noCalls: moved,
       madeShapes,
     };
+  }
+
+  /** A new part: a number taken meanwhile is said, not a raw failure. */
+  private async saveNew(m: EntityManager, t: Territory): Promise<Territory> {
+    try {
+      return await m.save(t);
+    } catch (e) {
+      if ((e as { code?: string }).code === '23505') {
+        throw new ConflictException(
+          refusal('TERRITORY_NUMBER_TWICE', 'This number is in use.', {
+            number: t.number,
+          }),
+        );
+      }
+      throw e;
+    }
   }
 
   private async applyJoin(
@@ -711,6 +728,11 @@ export class TerritoryRecutApplyService {
         );
       }
       const all = [d.kept, ...d.made, ...d.archived];
+      // Held while undone: nothing is given out or redrawn in between.
+      await m.query(
+        `SELECT id FROM territories WHERE id = ANY($1::uuid[]) FOR UPDATE`,
+        [all],
+      );
       for (const tid of all) {
         const last = await m.findOne(TerritoryShape, {
           where: { territoryId: tid, congregationId: tenantId },
@@ -771,6 +793,8 @@ export class TerritoryRecutApplyService {
           ).map((t) => norm(t.number)),
         );
         for (const t of back) {
+          // Brought back by other means meanwhile: nothing to do.
+          if (!t.archivedAt) continue;
           if (taken.has(norm(t.number))) {
             throw new ConflictException(
               refusal('TERRITORY_NUMBER_TWICE', 'Its number is in use.', {
@@ -834,6 +858,7 @@ export class TerritoryRecutApplyService {
       if (
         p.state !== 'open' ||
         p.kind !== 'merge' ||
+        (dto.hold && !p.approvedAt) ||
         !p.territoryIds.includes(dto.territoryId)
       ) {
         throw new ConflictException(

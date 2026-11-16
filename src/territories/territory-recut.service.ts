@@ -675,7 +675,8 @@ export class TerritoryRecutService {
       const r = await m.update(
         TerritoryRecutProposal,
         { recutId: recut.id, state: 'open', approvedAt: Not(IsNull()) },
-        { approvedAt: null, reopenedAt: new Date() },
+        // Nothing stays held back for a proposal that is no longer decided.
+        { approvedAt: null, reopenedAt: new Date(), holdIds: [] },
       );
       reopened = r.affected ?? 0;
     });
