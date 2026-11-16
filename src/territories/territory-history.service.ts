@@ -5,6 +5,9 @@ import { AuditLog } from '../entities/audit-log.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Territory } from '../entities/territory.entity';
 import { TerritoryAssignment } from '../entities/territory-assignment.entity';
+import { Congregation } from '../entities/congregation.entity';
+import { todayIn } from '../common/congregation-clock';
+import { ANONYMOUS_HOLDER, namesKeptFrom } from './territory-retention';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { TerritoryAccessService } from './territory-access.service';
 import {
@@ -59,6 +62,8 @@ export class TerritoryHistoryService {
     private readonly territories: Repository<Territory>,
     @InjectRepository(TerritoryAssignment)
     private readonly assignments: Repository<TerritoryAssignment>,
+    @InjectRepository(Congregation)
+    private readonly congregations: Repository<Congregation>,
   ) {}
 
   async history(
@@ -115,12 +120,15 @@ export class TerritoryHistoryService {
     const page = picked.slice(0, limit);
     // A next page exists if this one overflowed, or the reading stopped at
     // its ceiling with more rows behind it.
+    // A full page goes on from its last line; a page cut short by the
+    // reading ceiling goes on from where the reading stopped, so the next
+    // request does not read the same rows again (review of 17 November 2026).
     const nextCursor =
-      picked.length > limit || (more && read >= MAX_READ)
-        ? (page[page.length - 1]?.row.createdAt.toISOString() ??
-          cursor?.toISOString() ??
-          null)
-        : null;
+      picked.length > limit
+        ? page[page.length - 1].row.createdAt.toISOString()
+        : more && read >= MAX_READ
+          ? (cursor?.toISOString() ?? null)
+          : null;
 
     // Older entries carry less: the holder and the number come from the
     // line and the territory while they exist.
@@ -141,6 +149,8 @@ export class TerritoryHistoryService {
               territoryId: true,
               holderName: true,
               forGroupName: true,
+              completedOn: true,
+              returnedOn: true,
             },
           })
         : []
@@ -174,8 +184,42 @@ export class TerritoryHistoryService {
       ).map((p) => [p.userId as string, holderNameOf(p)]),
     );
 
+    // The journal keeps a year, the S-13's names fewer days for old lines: a
+    // line whose name the S-13 has let go shows «—» here too (review of 17
+    // November 2026).
+    const c = await this.congregations.findOne({
+      where: { id: tenantId },
+      select: { id: true, timezone: true },
+    });
+    const namesFrom = namesKeptFrom(todayIn(new Date(), c?.timezone));
+    const nameGone = (
+      row: AuditLog,
+      d: Detail | null,
+      line:
+        | {
+            holderName: string;
+            completedOn: string | null;
+            returnedOn: string | null;
+          }
+        | undefined,
+    ) => {
+      if (row.entityType !== 'territory_assignment') return false;
+      if (line?.holderName === ANONYMOUS_HOLDER) return true;
+      const after = (d?.after ?? null) as Detail | null;
+      const end =
+        line?.completedOn ??
+        line?.returnedOn ??
+        str(d?.completedOn) ??
+        str(d?.returnedOn) ??
+        str(after?.completedOn) ??
+        str(after?.returnedOn);
+      return !!end && end < namesFrom;
+    };
+
     return {
-      items: page.map(({ row, kind, d }) => {
+      items: page.map(({ row, kind, d: raw }) => {
+        const gone = nameGone(row, raw, lines.get(row.entityId));
+        const d = gone ? withoutNames(raw) : raw;
         const line = lines.get(row.entityId);
         const tid = territoryOf(row, d, lines);
         const from =
@@ -193,10 +237,14 @@ export class TerritoryHistoryService {
             str(d?.kept) ??
             (tid ? (numbers.get(tid) ?? null) : null),
           holder:
-            row.entityType === 'territory_assignment'
-              ? (str(d?.holder) ?? line?.holderName ?? null)
-              : null,
-          fromHolder: str(d?.fromHolder) ?? from?.holderName ?? null,
+            row.entityType !== 'territory_assignment'
+              ? null
+              : gone
+                ? ANONYMOUS_HOLDER
+                : (str(d?.holder) ?? line?.holderName ?? null),
+          fromHolder: gone
+            ? null
+            : (str(d?.fromHolder) ?? from?.holderName ?? null),
           forGroup:
             str(d?.forGroup) ??
             (row.entityType === 'territory_assignment'
@@ -212,6 +260,23 @@ export class TerritoryHistoryService {
 }
 
 type Detail = Record<string, unknown>;
+
+/** A line's facts with every name taken out. */
+function withoutNames(d: Detail | null): Detail | null {
+  if (!d) return d;
+  const strip = (x: unknown) =>
+    x && typeof x === 'object' && !Array.isArray(x)
+      ? { ...(x as Detail), holder: ANONYMOUS_HOLDER }
+      : x;
+  const { fromHolder: _f, ...rest } = d;
+  void _f;
+  return {
+    ...rest,
+    ...('holder' in d ? { holder: ANONYMOUS_HOLDER } : {}),
+    ...('before' in d ? { before: strip(d.before) } : {}),
+    ...('after' in d ? { after: strip(d.after) } : {}),
+  };
+}
 
 function parse(json: string | null): Detail | null {
   if (!json) return null;

@@ -1192,6 +1192,49 @@ export class TerritoriesService {
       );
     }
     const territoryIds = numbers.map((n) => byNumber.get(n)!.id);
+    // Two lines of a territory never lie over each other (17 November 2026,
+    // also a constraint in the database): among the lines brought over, and
+    // against the lines made in the app, which an import keeps. Said with the
+    // territory's number rather than as a failure of the database.
+    const stay = await this.assignments.find({
+      where: {
+        congregationId: tenantId,
+        territoryId: In(territoryIds),
+        imported: false,
+      },
+      select: {
+        id: true,
+        territoryId: true,
+        assignedOn: true,
+        completedOn: true,
+        returnedOn: true,
+      },
+    });
+    const FAR = '9999-12-31';
+    const numberOfId = new Map(
+      numbers.map((n) => [byNumber.get(n)!.id, byNumber.get(n)!.number]),
+    );
+    const all = [...stay, ...keep];
+    for (let x = 0; x < keep.length; x++) {
+      const a = keep[x];
+      const aEnd = a.completedOn ?? a.returnedOn ?? FAR;
+      const hit = all.find(
+        (b) =>
+          b !== a &&
+          b.territoryId === a.territoryId &&
+          b.assignedOn < aEnd &&
+          (b.completedOn ?? b.returnedOn ?? FAR) > a.assignedOn,
+      );
+      if (hit) {
+        const number = numberOfId.get(a.territoryId) ?? '?';
+        throw new BadRequestException(
+          refusal('TERRITORY_OVERLAP', `${number}: lines lie over each other`, {
+            number,
+            assignedOn: a.assignedOn,
+          }),
+        );
+      }
+    }
     await this.dataSource.transaction(async (m) => {
       await m.delete(TerritoryAssignment, {
         congregationId: tenantId,

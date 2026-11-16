@@ -16,7 +16,7 @@ import { serviceYearOf, serviceYearStart } from './service-year';
  * A territory still in someone's hands is never touched, however old.
  *
  * Switched on 17 November 2026, by Lionel's decision, the first of the rules
- * to act (RetentionService.applyTerritory, nightly): on that day both
+ * to act (RetentionService.applyCounted, nightly): on that day both
  * counted 0 on the live data — the first names go on 1 September 2027, and
  * the territory servant sees a month ahead how many.
  */

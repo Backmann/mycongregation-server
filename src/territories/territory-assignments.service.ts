@@ -216,9 +216,16 @@ export class TerritoryAssignmentsService {
       forGroupId?: string | null;
     },
     open: boolean,
+    /**
+     * The line as it stands: its own group is kept as written even when the
+     * group has since been deleted (review of 17 November 2026).
+     */
+    line?: Pick<TerritoryAssignment, 'forGroupId' | 'forGroupName'>,
   ): Promise<Holder> {
-    let group: ServiceGroup | null = null;
-    if (want.forGroupId) {
+    let group: { id: string; name: string } | null = null;
+    if (want.forGroupId && line && want.forGroupId === line.forGroupId) {
+      group = { id: line.forGroupId, name: line.forGroupName ?? '' };
+    } else if (want.forGroupId) {
       group = await this.groups.findOne({
         where: { id: want.forGroupId, congregationId: tenantId },
       });
@@ -702,12 +709,24 @@ export class TerritoryAssignmentsService {
         refusal('TERRITORY_PAST_YEAR', 'Only the current service year.'),
       );
     }
-    const last = await this.assignments.findOne({
-      where: { territoryId: t.id, congregationId: tenantId },
-      order: { assignedOn: 'DESC' },
+    // Not over any line already there — not only the newest one: a
+    // territory handed on twice in a day has two lines of that day (review
+    // of 17 November 2026).
+    const held = await this.assignments.findOne({
+      where: {
+        territoryId: t.id,
+        congregationId: tenantId,
+        completedOn: IsNull(),
+        returnedOn: IsNull(),
+      },
+      select: { id: true },
     });
-    const lastEnd = last?.completedOn ?? last?.returnedOn ?? null;
-    if (lastEnd && assignedOn < lastEnd) {
+    if (held) {
+      throw new ConflictException(
+        refusal('TERRITORY_HELD', 'The territory is already given out.'),
+      );
+    }
+    if (await this.liesOver(tenantId, t.id, assignedOn, null)) {
       throw this.dates('given out before it came back');
     }
     const dueOn = dto.dueOn ?? addDays(assignedOn, TERM_DAYS);
@@ -754,12 +773,7 @@ export class TerritoryAssignmentsService {
         );
       });
     } catch (e) {
-      if ((e as { code?: string }).code === PG_UNIQUE_VIOLATION) {
-        throw new ConflictException(
-          refusal('TERRITORY_HELD', 'The territory is already given out.'),
-        );
-      }
-      throw e;
+      this.refused(e);
     }
     await this.log(user, saved, 'CREATE', {
       number: t.number,
@@ -964,7 +978,11 @@ export class TerritoryAssignmentsService {
     const open = !end;
     // Who held it: a card, a name by hand, the group.
     let holder: Holder | null = null;
-    if (dto.publisherId !== undefined || dto.holderName !== undefined) {
+    // The same card again is no change of holder: only the group may move,
+    // and the name stays as the S-13 wrote it (review of 17 November 2026).
+    const newCard =
+      dto.publisherId !== undefined && dto.publisherId !== a.publisherId;
+    if (newCard || dto.holderName !== undefined) {
       const toCard = dto.publisherId !== undefined;
       holder = await this.holderOf(
         tenantId,
@@ -975,12 +993,16 @@ export class TerritoryAssignmentsService {
             dto.forGroupId !== undefined ? dto.forGroupId : a.forGroupId,
         },
         open && dto.publisherId !== oldPublisherId,
+        a,
       );
       a.publisherId = holder.publisherId;
       a.holderName = holder.holderName;
       a.forGroupId = holder.forGroupId;
       a.forGroupName = holder.forGroupName;
-    } else if (dto.forGroupId !== undefined) {
+    } else if (
+      dto.forGroupId !== undefined &&
+      dto.forGroupId !== a.forGroupId
+    ) {
       // Only whose territory it was: his own or his group's.
       const group = dto.forGroupId
         ? await this.groups.findOne({
@@ -992,6 +1014,13 @@ export class TerritoryAssignmentsService {
       }
       a.forGroupId = group?.id ?? null;
       a.forGroupName = group?.name ?? null;
+    }
+    // A territory in hand with a new holder: the old holder's link without
+    // login and his paper map in the queue are his, not the new one's.
+    if (open && a.publisherId !== oldPublisherId) {
+      a.linkHash = null;
+      a.linkCreatedAt = null;
+      a.paperWantedAt = null;
     }
     if (open && a.publisherId === null) {
       // A territory in someone's hands is his to mark worked; a name by hand
@@ -1141,7 +1170,9 @@ export class TerritoryAssignmentsService {
                 : null,
             extended: false,
             transferred: false,
-            imported: true,
+            // Not «imported»: a new import of the S-13 replaces the lines it
+            // brought, and must keep what the keeper entered by hand.
+            imported: false,
             createdByUserId: user.id,
           }),
         );
@@ -1165,7 +1196,34 @@ export class TerritoryAssignmentsService {
       where: { id: a.territoryId, congregationId: user.congregationId },
       select: { id: true, number: true },
     });
-    await this.assignments.delete({ id: a.id });
+    // A line made by handing on, removed as a mistake: the walk marks it
+    // took over go back to the line it came from (review of 17 November
+    // 2026) — the line itself is reopened by correcting it.
+    const from = await this.assignments.findOne({
+      where: {
+        congregationId: a.congregationId,
+        territoryId: a.territoryId,
+        transferred: true,
+        returnedOn: a.assignedOn,
+      },
+      order: { createdAt: 'DESC' },
+    });
+    await this.assignments.manager.transaction(async (m) => {
+      if (from && from.createdAt < a.createdAt) {
+        for (const table of [
+          TerritoryStreetMark,
+          TerritoryBusinessVisit,
+          TerritorySplit,
+        ]) {
+          await m.update(
+            table,
+            { assignmentId: a.id },
+            { assignmentId: from.id },
+          );
+        }
+      }
+      await m.delete(TerritoryAssignment, { id: a.id });
+    });
     await this.log(user, a, 'DELETE', {
       number: t?.number,
       ...TerritoryAssignmentsService.facts(a),
@@ -1465,12 +1523,7 @@ export class TerritoryAssignmentsService {
       : null;
     const holderName = card ? holderNameOf(card) : '—';
     for (const t of terr) {
-      const last = await this.assignments.findOne({
-        where: { territoryId: t.id, congregationId: tenantId },
-        order: { assignedOn: 'DESC' },
-      });
-      const lastEnd = last?.completedOn ?? last?.returnedOn ?? null;
-      if (lastEnd && on < lastEnd) {
+      if (await this.liesOver(tenantId, t.id, on, on)) {
         throw new BadRequestException(
           refusal('TERRITORY_DATES', `${t.number}: before it came back`, {
             number: t.number,
@@ -1554,6 +1607,7 @@ export class TerritoryAssignmentsService {
       tenantId,
       { publisherId: toId, forGroupId: a.forGroupId },
       true,
+      a,
     );
     const today = await this.today(tenantId);
     const on = dto.on ?? today;

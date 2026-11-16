@@ -138,6 +138,7 @@ describe('territory history (real database)', () => {
 
   const past = (body: object) =>
     h.as('keeper').post(`/territories/${territoryId}/past`, body);
+  const past_ = past;
 
   it('the database refuses two lines that lie over each other; touching days are fine', async () => {
     const insert = (from: string, to: string | null) =>
@@ -455,6 +456,176 @@ describe('territory history (real database)', () => {
     expect(
       (all.body.items as Item[]).filter((i) => i.kind === 'territory'),
     ).toHaveLength(1);
+  });
+
+  it('review 17.11: an import with overlapping lines is refused in words, not a 500', async () => {
+    await h.sql(`DELETE FROM territory_settings`);
+    const r = await h.as('keeper').post('/territories/import/assignments', {
+      items: [
+        {
+          number: 'B01',
+          holderName: 'Первый П.',
+          assignedOn: addDays(today, -60),
+          completedOn: addDays(today, -30),
+        },
+        {
+          number: 'B01',
+          holderName: 'Второй П.',
+          assignedOn: addDays(today, -40),
+          completedOn: addDays(today, -20),
+        },
+      ],
+    });
+    expect(r.status).toBe(400);
+    expect(r.body.code).toBe('TERRITORY_OVERLAP');
+  });
+
+  it('review 17.11: a deleted group, a removed card, a share link, a same-day chain, marks back on removal', async () => {
+    // A line held for a group that is then deleted can still be handed on.
+    const given = await h
+      .as('keeper')
+      .post(`/territories/${territoryId}/assign`, {
+        publisherId: card.holder,
+        forGroupId: groupOne,
+        assignedOn: addDays(today, -20),
+      });
+    expect(given.status).toBe(201);
+    // A link without login, then the holder corrected: the link is his, it goes.
+    expect(
+      (
+        await h
+          .as('keeper')
+          .post(`/territories/assignments/${given.body.id}/share-link`)
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await h
+          .as('keeper')
+          .patch(`/territories/assignments/${given.body.id}`, {
+            publisherId: card.plain,
+          })
+      ).status,
+    ).toBe(200);
+    const [linked] = await h.sql<{ link_hash: string | null }>(
+      `SELECT link_hash FROM territory_assignments WHERE id = $1`,
+      [given.body.id],
+    );
+    expect(linked.link_hash).toBeNull();
+    await h.sql(`UPDATE service_groups SET deleted_at = now() WHERE id = $1`, [
+      groupOne,
+    ]);
+    await h.sql(
+      `INSERT INTO territory_street_marks (congregation_id, assignment_id, street_key, homes, marked_at)
+       VALUES ($1, $2, 'musterstrasse', '[]'::jsonb, now())`,
+      [congregationId, given.body.id],
+    );
+    const on = addDays(today, -10);
+    const moved = await h
+      .as('keeper')
+      .post(`/territories/assignments/${given.body.id}/transfer`, {
+        toPublisherId: card.next,
+        on,
+      });
+    expect(moved.status).toBe(201);
+    expect(await line(moved.body.id)).toMatchObject({
+      for_group_name: 'Группа 1',
+    });
+    // Handed on again the same day, then back the next day.
+    const again = await h
+      .as('keeper')
+      .post(`/territories/assignments/${moved.body.id}/transfer`, {
+        toPublisherId: card.holder,
+        on,
+      });
+    expect(again.status).toBe(201);
+    expect(
+      (
+        await h
+          .as('keeper')
+          .post(`/territories/assignments/${again.body.id}/return`, {
+            returnedOn: addDays(today, -5),
+          })
+      ).status,
+    ).toBe(200);
+    // Given out on a day inside the chain: refused in words.
+    const into = await h
+      .as('keeper')
+      .post(`/territories/${territoryId}/assign`, {
+        publisherId: card.plain,
+        assignedOn: addDays(today, -7),
+      });
+    expect(into.status).toBe(400);
+    expect(into.body.code).toBe('TERRITORY_DATES');
+    await h.sql(`UPDATE service_groups SET deleted_at = NULL WHERE id = $1`, [
+      groupOne,
+    ]);
+
+    // The second hand-on was a mistake: removing it gives the marks back.
+    // (The return wiped the marks of `again`; put one there to follow.)
+    await h.sql(
+      `INSERT INTO territory_street_marks (congregation_id, assignment_id, street_key, homes, marked_at)
+       VALUES ($1, $2, 'other', '[]'::jsonb, now())`,
+      [congregationId, again.body.id],
+    );
+    expect(
+      (await h.as('keeper').delete(`/territories/assignments/${again.body.id}`))
+        .status,
+    ).toBe(200);
+    const marks = await h.sql<{ assignment_id: string }>(
+      `SELECT assignment_id FROM territory_street_marks WHERE street_key = 'other'`,
+    );
+    expect(marks.map((m) => m.assignment_id)).toEqual([moved.body.id]);
+
+    // Only the group changed on a line whose card was removed since: allowed,
+    // and the name stays as written.
+    const past = await past_({
+      publisherId: card.noApp,
+      assignedOn: addDays(lastYear, 10),
+      end: 'completed',
+      endedOn: addDays(lastYear, 30),
+    });
+    await h.sql(`UPDATE publishers SET removed_at = now() WHERE id = $1`, [
+      card.noApp,
+    ]);
+    const regroup = await h
+      .as('keeper')
+      .patch(`/territories/assignments/${past.body.id}`, {
+        publisherId: card.noApp,
+        forGroupId: groupOne,
+      });
+    expect(regroup.status).toBe(200);
+    expect(await line(past.body.id)).toMatchObject({
+      holder_name: 'Тест Безприложения',
+      for_group_name: 'Группа 1',
+    });
+    await h.sql(`UPDATE publishers SET removed_at = NULL WHERE id = $1`, [
+      card.noApp,
+    ]);
+  });
+
+  it('review 17.11: names the S-13 has let go show as «—» in the journal too', async () => {
+    const audit = h.app.get(AuditLogService);
+    const oldEnd = addDays(lastYear, -20);
+    await audit.logFact({
+      tenantId: congregationId,
+      entityType: 'territory_assignment',
+      entityId: congregationId,
+      action: 'DELETE',
+      actorUserId: null,
+      detail: {
+        territoryId,
+        number: 'B01',
+        holder: 'Давний Д.',
+        assignedOn: addDays(oldEnd, -30),
+        completedOn: oldEnd,
+      },
+    });
+    const r = await h
+      .as('keeper')
+      .get(`/territories/history?territoryId=${territoryId}`);
+    expect(r.body.items[0]).toMatchObject({ kind: 'removed', holder: '—' });
+    expect(JSON.stringify(r.body.items[0])).not.toContain('Давний');
   });
 
   it('the S-13 lets go of names after the previous service year and of lines after five; last worked stays', async () => {

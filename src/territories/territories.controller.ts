@@ -151,7 +151,6 @@ export class TerritoriesController {
     );
   }
 
-  /** A month of the territories, for the service committee. */
   /**
    * What happened to the territories (17 November 2026): one territory's
    * journal with `territoryId`, «Что происходит» without.
@@ -164,6 +163,7 @@ export class TerritoriesController {
     return this.history.history(user, q);
   }
 
+  /** A month of the territories, for the service committee. */
   @Get('summary')
   summary(@CurrentUser() user: AuthenticatedUser, @Query() q: SummaryQueryDto) {
     return this.service.summary(user, q.month);
