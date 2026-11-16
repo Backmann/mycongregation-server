@@ -33,6 +33,7 @@ import {
 import { User } from '../entities/user.entity';
 import type {
   RecutMeasureDto,
+  RecutPreviewDto,
   RecutProposalDto,
   RecutRemarkDto,
 } from './dto/recut.dto';
@@ -62,6 +63,9 @@ import {
 } from './territory-access.service';
 
 const norm = (n: string): string => n.trim().toLowerCase();
+
+/** Walks tried in the editor kept in memory, the newest so many. */
+const TRIED_MAX = 500;
 
 /**
  * A border's fingerprint. Not the row's updated_at: giving out and taking
@@ -114,6 +118,10 @@ export interface RecutProposalView {
     geometry: TerritoryGeometry | null;
   }[];
   lines: [number, number][][] | null;
+  /** A cut: the lines first proposed; null for a cut drawn by hand. */
+  suggestedLines: [number, number][][] | null;
+  /** A cut whose lines are no longer those first proposed. */
+  movedByHand: boolean;
   keep: number;
   numbers: string[] | null;
   keepId: string | null;
@@ -122,6 +130,10 @@ export interface RecutProposalView {
   approvedAt: string | null;
   reopenedAt: string | null;
   appliedAt: string | null;
+  /** The parts last changed by more than a tenth of the homes. */
+  linesChangedAt: string | null;
+  /** The editor sends it back: a save over a newer one is refused. */
+  updatedAt: string;
   blocks: RecutBlock[];
   remarks: {
     mine: boolean;
@@ -129,7 +141,24 @@ export interface RecutProposalView {
     ok: boolean;
     text: string | null;
     at: string;
+    /** Given before the parts last changed much: about other lines. */
+    stale: boolean;
   }[];
+}
+
+/** Lines tried in the editor and not saved: what they would make. */
+export interface RecutPreview {
+  parts: RecutPartView[];
+  /** The numbers of the parts but the kept one, for a save. */
+  numbers: string[];
+  /** Which part keeps the number (the saved one while it still exists). */
+  keep: number;
+  /** The share of homes put in another part than the saved lines put them. */
+  moved: number;
+  /** More than a tenth: the «no remarks» given before wait for a new look. */
+  changesMuch: boolean;
+  /** …and a decided proposal goes back to the service committee. */
+  reopens: boolean;
 }
 
 /** One territory as the measure sees it. */
@@ -183,6 +212,10 @@ export class TerritoryRecutService {
   private readonly computing = new Set<string>();
   /** Congregations whose parts' walks are being worked out now. */
   private readonly walking = new Set<string>();
+  /**
+   * Walks of parts tried in the editor, by congregation and border. A save then finds its walks here.
+   */
+  private readonly tried = new Map<string, number | null>();
 
   constructor(
     private readonly access: TerritoryAccessService,
@@ -374,6 +407,10 @@ export class TerritoryRecutService {
         state: p.state,
         territories: tViews,
         lines: p.lines,
+        suggestedLines: p.suggestedLines,
+        movedByHand:
+          !!p.suggestedLines &&
+          JSON.stringify(p.suggestedLines) !== JSON.stringify(p.lines),
         keep: p.keep,
         numbers: p.numbers,
         keepId: p.keepId,
@@ -381,6 +418,8 @@ export class TerritoryRecutService {
         approvedAt: p.approvedAt?.toISOString() ?? null,
         reopenedAt: p.reopenedAt?.toISOString() ?? null,
         appliedAt: p.appliedAt?.toISOString() ?? null,
+        linesChangedAt: p.linesChangedAt?.toISOString() ?? null,
+        updatedAt: p.updatedAt.toISOString(),
         blocks,
         remarks: remarks
           .filter((r) => r.proposalId === p.id)
@@ -390,6 +429,7 @@ export class TerritoryRecutService {
             ok: r.ok,
             text: r.text,
             at: r.updatedAt.toISOString(),
+            stale: !!p.linesChangedAt && r.updatedAt < p.linesChangedAt,
           })),
       };
     });
@@ -524,6 +564,8 @@ export class TerritoryRecutService {
     const byId = new Map(territories.map((t) => [t.id, t]));
     const was = fresh ? {} : (recut.walks ?? {});
     const next: Record<string, number | null> = {};
+    const started = Date.now();
+    let walked = 0;
     for (const p of proposals) {
       const ts = p.territoryIds.map((id) => byId.get(id));
       if (ts.some((t) => !t)) continue;
@@ -541,6 +583,11 @@ export class TerritoryRecutService {
           next[key] = was[key];
           continue;
         }
+        if (!fresh && this.tried.has(`${tenantId}:${key}`)) {
+          next[key] = this.tried.get(`${tenantId}:${key}`)!;
+          continue;
+        }
+        walked += 1;
         try {
           const w = await this.splits.walkOf(tenantId, x.geometry);
           next[key] = round1((w.streetM + w.linkM) / 1000);
@@ -553,6 +600,11 @@ export class TerritoryRecutService {
       }
     }
     await m.update(TerritoryRecut, { id: recut.id }, { walks: next });
+    if (walked > 0) {
+      this.logger.log(
+        `recut walks: ${walked} part(s) in ${Date.now() - started} ms`,
+      );
+    }
   }
 
   /** The names of those who left remarks, as the congregation knows them. */
@@ -847,6 +899,8 @@ export class TerritoryRecutService {
           congregationId: tenantId,
           recutId: recut.id,
           ...fields,
+          // Made by the draft itself (suggest): the lines to go back to.
+          suggestedLines: quiet ? fields.lines : null,
           state: 'open',
         }),
       );
@@ -881,33 +935,46 @@ export class TerritoryRecutService {
         where: { id, recutId: recut.id, state: 'open' },
       });
       if (!p) throw new NotFoundException('Proposal not found');
-      const { ts, fields } = await this.shaped(m, tenantId, recut.id, dto, id);
-      let reopen = false;
-      if (p.approvedAt) {
-        if (
-          p.kind !== fields.kind ||
-          [...p.territoryIds].sort().join() !==
-            [...fields.territoryIds].sort().join()
-        ) {
-          reopen = true;
-        } else if (fields.kind === 'cut') {
-          const homes =
-            (await housesAround(m, tenantId, [ts[0].geometry])) ?? [];
-          let before: TerritoryGeometry[] = [];
-          try {
-            before = partsOfCut(ts[0].geometry, p.lines ?? []);
-          } catch {
-            before = [];
-          }
-          const after = partsOfCut(ts[0].geometry, fields.lines);
-          reopen = movedShare(before, after, homes) > REOPEN_SHARE;
-        }
+      if (
+        dto.baseUpdatedAt !== undefined &&
+        new Date(dto.baseUpdatedAt).getTime() !== p.updatedAt.getTime()
+      ) {
+        throw new ConflictException(
+          refusal(
+            'TERRITORY_RECUT_STALE',
+            'The proposal was saved by someone else meanwhile.',
+          ),
+        );
       }
+      const { ts, fields } = await this.shaped(m, tenantId, recut.id, dto, id);
+      // Much changed: «no remarks» given before was about other lines, and
+      // a decided proposal goes back to the service committee.
+      let much = false;
+      if (
+        p.kind !== fields.kind ||
+        [...p.territoryIds].sort().join() !==
+          [...fields.territoryIds].sort().join()
+      ) {
+        much = true;
+      } else if (fields.kind === 'cut') {
+        const homes = (await housesAround(m, tenantId, [ts[0].geometry])) ?? [];
+        let before: TerritoryGeometry[] = [];
+        try {
+          before = partsOfCut(ts[0].geometry, p.lines ?? []);
+        } catch {
+          before = [];
+        }
+        const after = partsOfCut(ts[0].geometry, fields.lines);
+        much = movedShare(before, after, homes) > REOPEN_SHARE;
+      }
+      const reopen = much && !!p.approvedAt;
       await m.update(
         TerritoryRecutProposal,
         { id },
         {
           ...fields,
+          // The database's clock, as the remarks' own updated_at.
+          ...(much ? { linesChangedAt: () => 'now()' } : {}),
           ...(reopen ? { approvedAt: null, reopenedAt: new Date() } : {}),
         },
       );
@@ -927,6 +994,158 @@ export class TerritoryRecutService {
       },
     });
     return this.view(user);
+  }
+
+  /**
+   * Lines tried in the editor (16 November 2026, step 3b): the parts they
+   * would make, their homes and walks, how many homes change part against
+   * the saved lines. Nothing is saved. The walks are kept a while by the
+   * parts' borders, so a save and the background pass need not walk again.
+   */
+  async preview(
+    user: AuthenticatedUser,
+    id: string,
+    dto: RecutPreviewDto,
+  ): Promise<RecutPreview> {
+    await this.mustEdit(user);
+    const tenantId = user.congregationId;
+    const m = this.dataSource.manager;
+    const recut = await this.recutOf(m, tenantId, false);
+    const p = recut
+      ? await m.findOne(TerritoryRecutProposal, {
+          where: { id, recutId: recut.id, state: 'open' },
+        })
+      : null;
+    if (!recut || !p) throw new NotFoundException('Proposal not found');
+    if (p.kind !== 'cut') {
+      throw new ConflictException(
+        refusal('TERRITORY_RECUT_PARTS', 'Only a cut has lines.'),
+      );
+    }
+    const t = await m.findOne(Territory, {
+      where: { id: p.territoryIds[0], congregationId: tenantId },
+    });
+    if (!t || t.archivedAt) {
+      throw new NotFoundException('Territory not found');
+    }
+    const lines = dto.lines.map((l) => lineOf(l.points));
+    let parts: TerritoryGeometry[] = [];
+    try {
+      parts = partsOfCut(t.geometry, lines);
+    } catch (e) {
+      this.shapeRefused(e);
+    }
+    const homes = (await housesAround(m, tenantId, [t.geometry])) ?? null;
+    let before: TerritoryGeometry[] = [];
+    try {
+      before = partsOfCut(t.geometry, p.lines ?? []);
+    } catch {
+      before = [];
+    }
+    // As the save will judge it: without a register, only another number of parts counts.
+    const moved = movedShare(before, parts, homes ?? []);
+    const known = recut.walks ?? {};
+    const started = Date.now();
+    let walked = 0;
+    const views: RecutPartView[] = [];
+    for (const g of parts) {
+      const key = borderPrint(g);
+      let walkKm: number | null;
+      const mine = `${tenantId}:${key}`;
+      if (key in known) walkKm = known[key];
+      else if (this.tried.has(mine)) walkKm = this.tried.get(mine)!;
+      else {
+        walked += 1;
+        try {
+          const w = await this.splits.walkOf(tenantId, g);
+          walkKm = round1((w.streetM + w.linkM) / 1000);
+        } catch (e) {
+          this.logger.warn(
+            `recut preview walk failed: ${(e as Error)?.message ?? String(e)}`,
+          );
+          walkKm = null;
+        }
+        this.remember(mine, walkKm);
+      }
+      views.push({
+        number: '',
+        homes: homes ? housesIn(g, homes) : null,
+        walkKm,
+        geometry: g,
+      });
+    }
+    if (walked > 0) {
+      // How long a walk takes on the real map: what «Выровнять» may cost.
+      this.logger.log(
+        `recut preview: ${walked} walk(s) of ${parts.length} part(s) in ${Date.now() - started} ms`,
+      );
+    }
+    const keep = Math.min(p.keep, parts.length - 1);
+    const numbers = await this.numbersFor(
+      m,
+      tenantId,
+      recut.id,
+      p,
+      t.number,
+      lines.length,
+    );
+    const others = [...numbers];
+    views.forEach((v, i) => {
+      v.number = i === keep ? t.number : (others.shift() ?? '—');
+    });
+    return {
+      parts: views,
+      numbers,
+      keep,
+      moved: Math.round(moved * 1000) / 1000,
+      changesMuch: moved > REOPEN_SHARE,
+      reopens: !!p.approvedAt && moved > REOPEN_SHARE,
+    };
+  }
+
+  /**
+   * The numbers of a cut's parts but the kept one, for so many lines: the
+   * saved ones in their order, then free ones after the territory's own.
+   */
+  private async numbersFor(
+    m: EntityManager,
+    tenantId: string,
+    recutId: string,
+    p: TerritoryRecutProposal,
+    number: string,
+    count: number,
+  ): Promise<string[]> {
+    const out = (p.numbers ?? []).slice(0, count);
+    if (out.length === count) return out;
+    const taken = (
+      await m.find(Territory, {
+        where: { congregationId: tenantId, archivedAt: IsNull() },
+        select: { number: true },
+      })
+    ).map((x) => x.number);
+    for (const o of await m.find(TerritoryRecutProposal, {
+      where: { recutId, state: 'open', kind: 'cut' },
+      select: { id: true, numbers: true },
+    }))
+      taken.push(...(o.numbers ?? []));
+    taken.push(...out);
+    while (out.length < count) {
+      const n = nextNumber(number, taken);
+      taken.push(n);
+      out.push(n);
+    }
+    return out;
+  }
+
+  /** A walk tried in the editor, kept by the part's border (the newest 500). */
+  private remember(key: string, km: number | null): void {
+    this.tried.delete(key);
+    this.tried.set(key, km);
+    while (this.tried.size > TRIED_MAX) {
+      const oldest = this.tried.keys().next().value;
+      if (oldest === undefined) break;
+      this.tried.delete(oldest);
+    }
   }
 
   async remove(user: AuthenticatedUser, id: string) {
@@ -1079,6 +1298,9 @@ export class TerritoryRecutService {
 
   private async workOutFigures(user: AuthenticatedUser): Promise<void> {
     const tenantId = user.congregationId;
+    // The map may have changed: walks tried in the editor are walked again.
+    for (const key of [...this.tried.keys()])
+      if (key.startsWith(`${tenantId}:`)) this.tried.delete(key);
     const m = this.dataSource.manager;
     const territories = await m.find(Territory, {
       where: {

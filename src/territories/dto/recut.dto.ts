@@ -82,6 +82,15 @@ export class RecutProposalDto {
   @Min(1)
   @Max(3)
   queue?: number;
+
+  /**
+   * The proposal as the editor last read it (its updatedAt): a save over
+   * someone else's newer one is refused instead of silently replacing it.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  baseUpdatedAt?: string;
 }
 
 /** «No remarks», or a remark about the border. */
@@ -101,4 +110,14 @@ export class RecutClassDto {
   @IsOptional()
   @IsIn(['city', 'far'])
   cls!: 'city' | 'far' | null;
+}
+
+/** Lines tried in the editor, not saved: the parts they would make. */
+export class RecutPreviewDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(7)
+  @ValidateNested({ each: true })
+  @Type(() => RecutLineDto)
+  lines!: RecutLineDto[];
 }

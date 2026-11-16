@@ -163,6 +163,9 @@ describe('the draft of re-cutting (real database)', () => {
       ['Big3', 10],
     ]);
     expect(p.blocks).toEqual(['notApproved']);
+    // Drawn by hand: no first lines to go back to.
+    expect(p.suggestedLines).toBeNull();
+    expect(p.movedByHand).toBe(false);
     expect(
       await h.sql(
         `SELECT geometry, updated_at FROM territories WHERE id = $1`,
@@ -485,6 +488,9 @@ describe('the draft of re-cutting (real database)', () => {
     );
     expect(cut.territories[0].number).toBe('Big1');
     expect(cut.queue).toBe(2);
+    // The lines the draft proposed are kept to go back to.
+    expect(cut.suggestedLines).toEqual(cut.lines);
+    expect(cut.movedByHand).toBe(false);
     const homes = cut.parts.map((x: { homes: number }) => x.homes);
     expect(homes).toHaveLength(3);
     for (const n of homes) expect(Math.abs(n - 10)).toBeLessThanOrEqual(2);

@@ -114,6 +114,13 @@ export class TerritoryRecutProposal {
   @Column({ type: 'jsonb', nullable: true })
   lines!: [number, number][][] | null;
 
+  /**
+   * A cut: the lines it was first proposed with — to go back to, and to
+   * show a line moved by hand. Null for a cut drawn by hand.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  suggestedLines!: [number, number][][] | null;
+
   /** A cut: which part keeps the number and the S-13 history. */
   @Column({ type: 'smallint', default: 0 })
   keep!: number;
@@ -136,6 +143,13 @@ export class TerritoryRecutProposal {
   /** The service committee's decision; null while it is discussed. */
   @Column({ type: 'timestamptz', nullable: true })
   approvedAt!: Date | null;
+
+  /**
+   * When the parts last changed by more than a tenth of the homes (or in
+   * number): «no remarks» given before it was about other lines.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  linesChangedAt!: Date | null;
 
   /** Changed much after a decision: back to the committee. */
   @Column({ type: 'timestamptz', nullable: true })
