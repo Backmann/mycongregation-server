@@ -8,7 +8,7 @@
 # image already ran on, so only Node moves.
 
 # ---- Stage 1: Build ----
-FROM node:24.22.2-alpine3.23 AS builder
+FROM node:24.22.3-alpine3.23 AS builder
 
 WORKDIR /app
 
@@ -28,7 +28,7 @@ COPY . .
 RUN npm run build
 
 # ---- Stage 2: Production runtime ----
-FROM node:24.22.2-alpine3.23 AS production
+FROM node:24.22.3-alpine3.23 AS production
 
 WORKDIR /app
 
