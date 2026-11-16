@@ -14,7 +14,11 @@ import { serviceYearOf, serviceYearStart } from './service-year';
  *    moves onto the territory before an old line goes).
  *
  * A territory still in someone's hands is never touched, however old.
- * For now these only COUNT (RetentionService.preview), like every rule.
+ *
+ * Switched on 17 November 2026, by Lionel's decision, the first of the rules
+ * to act (RetentionService.applyTerritory, nightly): on that day both
+ * counted 0 on the live data — the first names go on 1 September 2027, and
+ * the territory servant sees a month ahead how many.
  */
 
 /** What a line shows once its name is gone. */
@@ -60,4 +64,63 @@ export async function countLinesBefore(
     [congregationId, before],
   );
   return row.n as number;
+}
+
+/**
+ * Names past their time become «—» and lose their card and who entered
+ * them; the line stays — dates, method, the group's name.
+ */
+export async function anonymiseNamesBefore(
+  ds: DataSource,
+  congregationId: string,
+  before: string,
+): Promise<number> {
+  const res = (await ds.query(
+    `UPDATE territory_assignments
+        SET holder_name = $3, publisher_id = NULL, created_by_user_id = NULL
+      WHERE congregation_id = $1
+        AND COALESCE(completed_on, returned_on) < $2
+        AND (holder_name <> $3 OR publisher_id IS NOT NULL
+             OR created_by_user_id IS NOT NULL)`,
+    [congregationId, before, ANONYMOUS_HOLDER],
+  )) as [unknown, number];
+  return res[1] ?? 0;
+}
+
+/**
+ * Lines past their time go — after the last day each territory was worked
+ * moves onto the territory itself, so «last worked» never goes back. For a
+ * joined territory only what was worked since the join counts
+ * (`worked_from`), as everywhere else.
+ */
+export async function deleteLinesBefore(
+  ds: DataSource,
+  congregationId: string,
+  before: string,
+): Promise<number> {
+  return ds.transaction(async (m) => {
+    await m.query(
+      `UPDATE territories t
+          SET last_completed_on = x.last
+         FROM (SELECT a.territory_id, max(a.completed_on) AS last
+                 FROM territory_assignments a
+                 JOIN territories tt ON tt.id = a.territory_id
+                WHERE a.congregation_id = $1
+                  AND COALESCE(a.completed_on, a.returned_on) < $2
+                  AND a.completed_on IS NOT NULL
+                  AND (tt.worked_from IS NULL OR a.completed_on >= tt.worked_from)
+                GROUP BY a.territory_id) x
+        WHERE t.id = x.territory_id
+          AND t.congregation_id = $1
+          AND (t.last_completed_on IS NULL OR t.last_completed_on < x.last)`,
+      [congregationId, before],
+    );
+    const res = (await m.query(
+      `DELETE FROM territory_assignments
+        WHERE congregation_id = $1
+          AND COALESCE(completed_on, returned_on) < $2`,
+      [congregationId, before],
+    )) as [unknown, number];
+    return res[1] ?? 0;
+  });
 }

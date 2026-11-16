@@ -568,9 +568,11 @@ export class TerritoriesService {
       where: { id, congregationId: user.congregationId },
     });
     if (!t) throw new NotFoundException('Territory not found');
+    // Lines of one day (a territory handed on twice the same day) newest
+    // first, as they were made (17 November 2026).
     const history = await this.assignments.find({
       where: { territoryId: t.id },
-      order: { assignedOn: 'DESC' },
+      order: { assignedOn: 'DESC', createdAt: 'DESC' },
     });
     const noCalls = await this.noCalls.find({
       where: { territoryId: t.id },

@@ -81,6 +81,31 @@ export function outlineChangedWords(
 }
 
 /**
+ * The territory he held was handed on to someone else (17 November 2026):
+ * nothing more to do with it — the paper map goes back to the territory
+ * servant. Names nobody.
+ */
+export function handedOnWords(number: string, lang: SupportedLanguage): Words {
+  switch (lang) {
+    case 'en':
+      return {
+        title: `Territory ${number} was handed on`,
+        body: 'The territory servant gave it to another publisher. If you have its paper map, please give it back.',
+      };
+    case 'de':
+      return {
+        title: `Gebiet ${number} wurde weitergegeben`,
+        body: 'Der Gebietsdiener hat es einem anderen Verkündiger gegeben. Wenn Sie die Papierkarte haben, geben Sie sie bitte zurück.',
+      };
+    default:
+      return {
+        title: `Участок ${number} передан другому`,
+        body: 'Ответственный за участки передал его другому возвещателю. Если у вас бумажная карта, верните её, пожалуйста.',
+      };
+  }
+}
+
+/**
  * The day itself (13 November 2026): worked through — mark it; more time —
  * the holder may extend once, after that he asks the territory servant.
  */

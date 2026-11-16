@@ -54,6 +54,7 @@ import {
   SplitLineDto,
 } from './dto/reshape.dto';
 import { TerritoryAssignmentsService } from './territory-assignments.service';
+import { TerritoryHistoryService } from './territory-history.service';
 import { HomesSurveyService } from './homes-survey.service';
 import { HomeMarksService } from './home-marks.service';
 import { HomeMarkDto } from './dto/home-mark.dto';
@@ -64,6 +65,8 @@ import {
   MeetingTerritoryDto,
   SummaryQueryDto,
   TransferAssignmentDto,
+  PastAssignmentDto,
+  HistoryQueryDto,
   CompleteAssignmentDto,
   EditAssignmentDto,
   ExtendAssignmentDto,
@@ -87,6 +90,7 @@ export class TerritoriesController {
   constructor(
     private readonly service: TerritoriesService,
     private readonly given: TerritoryAssignmentsService,
+    private readonly history: TerritoryHistoryService,
     private readonly links: TerritoryLinksService,
     private readonly noCalls: TerritoryNoCallsService,
     private readonly outline: TerritoryOutlineService,
@@ -148,6 +152,18 @@ export class TerritoriesController {
   }
 
   /** A month of the territories, for the service committee. */
+  /**
+   * What happened to the territories (17 November 2026): one territory's
+   * journal with `territoryId`, «Что происходит» without.
+   */
+  @Get('history')
+  historyOf(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() q: HistoryQueryDto,
+  ) {
+    return this.history.history(user, q);
+  }
+
   @Get('summary')
   summary(@CurrentUser() user: AuthenticatedUser, @Query() q: SummaryQueryDto) {
     return this.service.summary(user, q.month);
@@ -318,6 +334,16 @@ export class TerritoriesController {
     @Body() dto: AssignTerritoryDto,
   ) {
     return this.given.assign(user, id, dto);
+  }
+
+  /** A line of the S-13 from before the app («начать учёт с бумаги»). */
+  @Post(':id/past')
+  addPast(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PastAssignmentDto,
+  ) {
+    return this.given.addPast(user, id, dto);
   }
 
   @Post('assignments/:id/complete')

@@ -4,10 +4,18 @@ import {
   IsArray,
   IsBoolean,
   IsIn,
+  IsInt,
+  IsISO8601,
+  Max,
+  Min,
   IsOptional,
+  IsString,
   IsUUID,
+  Length,
   Matches,
+  ValidateIf,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { TERRITORY_METHODS } from '../../entities/territory-assignment.entity';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -73,10 +81,30 @@ export class ExtendAssignmentDto {
 }
 
 /**
- * A keeper's correction of a mistake (current service year only). Absent
- * fields stay; `reopen` clears the end so the territory is held again.
+ * A keeper's correction of a mistake (the current and the previous service
+ * year — as long as the S-13 keeps names). Absent fields stay; `reopen`
+ * clears the end so the territory is held again.
+ *
+ * Who held it (17 November 2026): `publisherId` — a card; `holderName` —
+ * «нет в списке», a name written by hand and tied to no card (moved away,
+ * no longer serving). `forGroupId` — the group it was held for; null: his
+ * own.
  */
 export class EditAssignmentDto {
+  @IsOptional()
+  @IsUUID()
+  publisherId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(2, 160)
+  holderName?: string;
+
+  /** Null: not a group's territory. Absent: as it was. */
+  @ValidateIf((_o, v) => v !== null && v !== undefined)
+  @IsUUID()
+  forGroupId?: string | null;
+
   @IsOptional()
   @Matches(DAY)
   assignedOn?: string;
@@ -116,7 +144,48 @@ export class CampaignDto {
   workedOn?: string;
 }
 
-/** A group's territory handed on to the group's new overseer. */
+/**
+ * A line of the S-13 from before the app (17 November 2026): «начать учёт с
+ * бумаги». Nobody is told. From the start of the previous service year.
+ */
+export class PastAssignmentDto {
+  @ValidateIf((o: PastAssignmentDto) => o.holderName === undefined)
+  @IsUUID()
+  publisherId?: string;
+
+  @ValidateIf((o: PastAssignmentDto) => o.publisherId === undefined)
+  @IsString()
+  @Length(2, 160)
+  holderName?: string;
+
+  @IsOptional()
+  @IsUUID()
+  forGroupId?: string;
+
+  @Matches(DAY)
+  assignedOn!: string;
+
+  @IsOptional()
+  @Matches(DAY)
+  dueOn?: string;
+
+  /** How it ended; `open` — still in his hands. */
+  @IsIn(['completed', 'returned', 'open'])
+  end!: 'completed' | 'returned' | 'open';
+
+  @ValidateIf((o: PastAssignmentDto) => o.end !== 'open')
+  @Matches(DAY)
+  endedOn?: string;
+
+  @IsOptional()
+  @IsIn(TERRITORY_METHODS)
+  method?: string;
+}
+
+/**
+ * A territory handed on to someone else, through the keeper (17 November
+ * 2026; at first only a group's territory to the group's new overseer).
+ */
 export class TransferAssignmentDto {
   /** Defaults to the group's overseer. */
   @IsOptional()
@@ -127,6 +196,11 @@ export class TransferAssignmentDto {
   @IsOptional()
   @Matches(DAY)
   on?: string;
+
+  /** A new day it is due; absent: the day it was due stays. */
+  @IsOptional()
+  @Matches(DAY)
+  dueOn?: string;
 }
 
 /** The territory a meeting for field service goes out to, or none. */
@@ -134,6 +208,29 @@ export class MeetingTerritoryDto {
   @IsOptional()
   @IsUUID()
   territoryId?: string | null;
+}
+
+/** The journal of a territory, or «Что происходит». */
+export class HistoryQueryDto {
+  @IsOptional()
+  @IsUUID()
+  territoryId?: string;
+
+  /** given, back, fixes, territory — one or several with commas. */
+  @IsOptional()
+  @Matches(/^[a-z,]{1,60}$/)
+  filter?: string;
+
+  @IsOptional()
+  @IsISO8601()
+  before?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
 }
 
 export class SummaryQueryDto {

@@ -316,9 +316,11 @@ describe('territory assignments (real database)', () => {
     });
   });
 
-  it('corrections stay inside the current service year', async () => {
+  it('corrections stay inside the kept service years (current and previous)', async () => {
     await verify();
-    const start = serviceYearStart(serviceYearOf(today));
+    // 17 November 2026: as long as the S-13 keeps names — from the start of
+    // the previous service year.
+    const start = serviceYearStart(serviceYearOf(today) - 1);
     const before = addDays(start, -20);
     const [old] = await h.sql<{ id: string }>(
       `INSERT INTO territory_assignments
@@ -365,12 +367,12 @@ describe('territory assignments (real database)', () => {
       .as('keeper')
       .patch(`/territories/assignments/${second.id}`, { assignedOn: d(10) });
     expect(over.status).toBe(400);
-    expect(over.body.code).toBe('TERRITORY_DATES');
+    expect(over.body.code).toBe('TERRITORY_OVERLAP');
     // The first stretched into the second: refused.
     const into = await h
       .as('keeper')
       .patch(`/territories/assignments/${first.id}`, { completedOn: d(35) });
-    expect(into.body.code).toBe('TERRITORY_DATES');
+    expect(into.body.code).toBe('TERRITORY_OVERLAP');
     // Starting the day the first was worked: fine.
     expect(
       (
