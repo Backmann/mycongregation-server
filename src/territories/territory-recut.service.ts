@@ -975,7 +975,10 @@ export class TerritoryRecutService {
           ...fields,
           // The database's clock, as the remarks' own updated_at.
           ...(much ? { linesChangedAt: () => 'now()' } : {}),
-          ...(reopen ? { approvedAt: null, reopenedAt: new Date() } : {}),
+          // Back to the committee: nothing is held back for it meanwhile.
+          ...(reopen
+            ? { approvedAt: null, reopenedAt: new Date(), holdIds: [] }
+            : {}),
         },
       );
       return { reopen, numbers: ts.map((t) => t.number), kind: fields.kind };

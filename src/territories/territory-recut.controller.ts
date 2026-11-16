@@ -13,13 +13,16 @@ import {
   type AuthenticatedUser,
 } from '../auth/decorators/current-user.decorator';
 import {
+  RecutApplyDto,
   RecutClassDto,
+  RecutHoldDto,
   RecutMeasureDto,
   RecutPreviewDto,
   RecutProposalDto,
   RecutRemarkDto,
 } from './dto/recut.dto';
 import { TerritoryRecutService } from './territory-recut.service';
+import { TerritoryRecutApplyService } from './territory-recut-apply.service';
 
 /**
  * The draft of re-cutting the territories (15 November 2026). Who may do
@@ -28,7 +31,53 @@ import { TerritoryRecutService } from './territory-recut.service';
  */
 @Controller('territory-recut')
 export class TerritoryRecutController {
-  constructor(private readonly recut: TerritoryRecutService) {}
+  constructor(
+    private readonly recut: TerritoryRecutService,
+    private readonly applying: TerritoryRecutApplyService,
+  ) {}
+
+  /** Decided proposals not applied yet: the keepers' list, giving out, taking back. */
+  @Get('waiting')
+  waiting(@CurrentUser() user: AuthenticatedUser) {
+    return this.applying.waiting(user);
+  }
+
+  /** What «Применить» would do now (16 November 2026, step 5). */
+  @Get('proposals/:id/apply')
+  applyCheck(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.applying.check(user, id);
+  }
+
+  @Post('proposals/:id/apply')
+  apply(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RecutApplyDto,
+  ) {
+    return this.applying.apply(user, id, dto);
+  }
+
+  /** «Вернуть как было». */
+  @Post('proposals/:id/unapply')
+  unapply(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.applying.unapply(user, id);
+  }
+
+  /** A territory of a join held back, or let go. */
+  @Put('proposals/:id/hold')
+  hold(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RecutHoldDto,
+  ) {
+    return this.applying.hold(user, id, dto);
+  }
 
   @Get()
   view(@CurrentUser() user: AuthenticatedUser) {

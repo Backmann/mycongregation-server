@@ -31,6 +31,14 @@ export class AssignTerritoryDto {
   @IsOptional()
   @Matches(DAY)
   dueOn?: string;
+
+  /**
+   * Held back for a join of the re-cutting draft: given out anyway, and the
+   * hold let go (16 November 2026).
+   */
+  @IsOptional()
+  @IsBoolean()
+  releaseHold?: boolean;
 }
 
 /** «Участок пройден». */

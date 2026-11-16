@@ -48,6 +48,7 @@ import type {
   ExtendAssignmentDto,
   ReturnAssignmentDto,
 } from './dto/assignment.dto';
+import { mustNotBeHeldBack } from './recut-apply';
 
 const PG_UNIQUE_VIOLATION = '23505';
 
@@ -567,6 +568,14 @@ export class TerritoryAssignmentsService {
     }
     const dueOn = dto.dueOn ?? addDays(assignedOn, TERM_DAYS);
     if (dueOn <= assignedOn) throw this.dates('due before given out');
+    // Held back for a join of the re-cutting draft (16 November 2026).
+    await mustNotBeHeldBack(
+      this.assignments.manager,
+      tenantId,
+      t.id,
+      t.number,
+      dto.releaseHold === true,
+    );
     let saved: TerritoryAssignment;
     try {
       saved = await this.assignments.save(

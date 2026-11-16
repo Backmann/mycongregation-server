@@ -37,6 +37,7 @@ import { HomesSurveyService } from './homes-survey.service';
 import { HomeMarksService } from './home-marks.service';
 import { TerritoryRecutController } from './territory-recut.controller';
 import { TerritoryRecutService } from './territory-recut.service';
+import { TerritoryRecutApplyService } from './territory-recut-apply.service';
 import {
   TerritoryRecut,
   TerritoryRecutProposal,
@@ -88,6 +89,7 @@ import {
     HomesSurveyService,
     HomeMarksService,
     TerritoryRecutService,
+    TerritoryRecutApplyService,
   ],
   exports: [
     TerritoryAccessService,

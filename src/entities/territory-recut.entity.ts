@@ -158,6 +158,13 @@ export class TerritoryRecutProposal {
   @Column({ type: 'timestamptz', nullable: true })
   appliedAt!: Date | null;
 
+  /**
+   * A join: its territories held back — not given out again — while the
+   * others are still out (16 November 2026).
+   */
+  @Column({ type: 'uuid', array: true, default: () => "'{}'" })
+  holdIds!: string[];
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
