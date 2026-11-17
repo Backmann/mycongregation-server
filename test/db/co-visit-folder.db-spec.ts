@@ -258,7 +258,7 @@ describe('the S-61 folder (real database)', () => {
         stamp: string | null;
         groups?: { key: string; stamp: string }[];
       }[]
-    ).flatMap((i) =>
+    ).flatMap((i): { key: string; stamp: string | null }[] =>
       i.key === '2.1' ? i.groups! : i.source === 'pdf' ? [i] : [],
     );
     expect(lines.length).toBeGreaterThanOrEqual(12);
