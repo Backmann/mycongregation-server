@@ -30,6 +30,7 @@ import { refusal } from '../common/errors/refusal';
 import { Congregation } from '../entities/congregation.entity';
 import { Territory } from '../entities/territory.entity';
 import { TerritoryAssignment } from '../entities/territory-assignment.entity';
+import { TerritoryRequest } from '../entities/territory-request.entity';
 import {
   coerceLanguage,
   type SupportedLanguage,
@@ -127,6 +128,20 @@ export class DataRightsService {
       returnedOn: a.returnedOn,
       method: a.method,
     }));
+    // His requests for a territory (17 November 2026): when, and how each
+    // closed — not who closed it.
+    const territoryRequests = pubId
+      ? (
+          await ds.getRepository(TerritoryRequest).find({
+            where: { congregationId: tenantId, publisherId: pubId },
+            order: { createdAt: 'ASC' },
+          })
+        ).map((r) => ({
+          createdAt: r.createdAt,
+          closedAt: r.closedAt,
+          closedHow: r.closedHow,
+        }))
+      : [];
 
     const responsibilities = await ds
       .getRepository(Responsibility)
@@ -169,6 +184,7 @@ export class DataRightsService {
       cartRequests,
       cartAssignments,
       territories,
+      territoryRequests,
       responsibilities,
       devices: { webPushSubscriptions, pushTokens },
     };

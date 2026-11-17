@@ -15,9 +15,11 @@ import {
   Length,
   Matches,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { TERRITORY_METHODS } from '../../entities/territory-assignment.entity';
+import { BoundaryDescriptionDto } from './import.dto';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -230,6 +232,12 @@ export class BoundaryS54Dto {
 export class BoundaryFileDto {
   @IsObject()
   geometry!: Record<string, unknown>;
+
+  /** The branch file's own words: borders north, east, south, west. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => BoundaryDescriptionDto)
+  description?: BoundaryDescriptionDto;
 
   @IsOptional()
   @Matches(DAY)

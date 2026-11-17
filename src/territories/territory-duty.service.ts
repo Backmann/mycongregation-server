@@ -14,6 +14,7 @@ import { TerritoryBoundary } from '../entities/territory-boundary.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { Congregation } from '../entities/congregation.entity';
+import { PublisherStatus } from '../common/enums/publisher-status.enum';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -25,7 +26,13 @@ import {
   TerritoryAccessService,
 } from './territory-access.service';
 import { holderNameOf } from './territory-assignments.service';
-import { boxOf, checkGeometry, GeometryError, pointInside } from './geometry';
+import {
+  areaShareOutside,
+  boxOf,
+  checkGeometry,
+  GeometryError,
+  pointInside,
+} from './geometry';
 import type { TerritoryGeometry } from '../entities/territory.entity';
 import { namesKeptFrom } from './territory-retention';
 import { serviceYearOf, serviceYearStart } from './service-year';
@@ -135,18 +142,25 @@ export class TerritoryDutyService {
 
   // ----------------------------------------------------------------- me --
 
-  /** Whether he may ask for a territory: a card in use, the section open. */
+  /**
+   * Whether he may ask for a territory: the section open, and a card that
+   * could be given one — the same as «Выдать» asks (assertAssignable): in
+   * use, not removed, not inactive. Otherwise a request would reach the
+   * keepers that none of them could answer (independent review, 17 November
+   * 2026).
+   */
   async mayAsk(user: AuthenticatedUser): Promise<boolean> {
     if ((await this.access.verifiedAt(user.congregationId)) === null) {
       return false;
     }
     const me = await this.access.person(user);
     if (!me.publisherId) return false;
-    const card = await this.publishers.findOne({
-      where: { id: me.publisherId, congregationId: user.congregationId },
-      select: { id: true, isActive: true, removedAt: true },
-    });
-    return !!card && card.isActive && !card.removedAt;
+    return askable(
+      await this.publishers.findOne({
+        where: { id: me.publisherId, congregationId: user.congregationId },
+        select: { id: true, isActive: true, removedAt: true, status: true },
+      }),
+    );
   }
 
   /** What «Мои участки» shows beside the territories themselves. */
@@ -157,10 +171,10 @@ export class TerritoryDutyService {
     const card = me.publisherId
       ? await this.publishers.findOne({
           where: { id: me.publisherId, congregationId: tenantId },
-          select: { id: true, isActive: true, removedAt: true },
+          select: { id: true, isActive: true, removedAt: true, status: true },
         })
       : null;
-    const mayAsk = verified && !!card && card.isActive && !card.removedAt;
+    const mayAsk = verified && askable(card);
     if (!verified || !card) {
       return {
         mayAsk: false,
@@ -184,8 +198,10 @@ export class TerritoryDutyService {
       tenantId,
       held.map((a) => a.territoryId),
     );
+    // His own territories: one held for his group is the group's, and does
+    // not stand in the way of his own request.
     const overdue = held
-      .filter((a) => a.dueOn !== null && a.dueOn < today)
+      .filter((a) => !a.forGroupId && a.dueOn !== null && a.dueOn < today)
       .map((a) => ({
         number: numbers.get(a.territoryId) ?? '',
         dueOn: a.dueOn,
@@ -219,9 +235,11 @@ export class TerritoryDutyService {
     );
     return {
       mayAsk,
-      request: request
-        ? { id: request.id, createdAt: request.createdAt }
-        : null,
+      // A request from when he could ask, now unanswerable: not shown.
+      request:
+        request && mayAsk
+          ? { id: request.id, createdAt: request.createdAt }
+          : null,
       overdue,
       keeper: await this.keeperName(tenantId),
       past: ended.map((r) => ({
@@ -377,10 +395,21 @@ export class TerritoryDutyService {
       }
       throw e;
     }
-    const keepers = await this.responsibilities.find({
-      where: { congregationId: tenantId, type: In(TERRITORY_KEEPERS) },
-      select: { id: true, userId: true },
-    });
+    // Asked, withdrew, asked again within a day: the request is on the
+    // keepers' list, the phones are not rung again.
+    const [{ recent }] = await this.dataSource.query<{ recent: number }[]>(
+      `SELECT count(*)::int AS recent FROM territory_requests
+        WHERE congregation_id = $1 AND publisher_id = $2
+          AND closed_at > now() - interval '24 hours'`,
+      [tenantId, me.publisherId],
+    );
+    const keepers =
+      recent > 0
+        ? []
+        : await this.responsibilities.find({
+            where: { congregationId: tenantId, type: In(TERRITORY_KEEPERS) },
+            select: { id: true, userId: true },
+          });
     const userIds = [
       ...new Set(keepers.map((k) => k.userId).filter((u): u is string => !!u)),
     ].filter((u) => u !== user.id);
@@ -445,14 +474,28 @@ export class TerritoryDutyService {
 
   /** The open requests, oldest first, for the keepers' «Нужно сделать». */
   async openRequests(congregationId: string) {
-    const rows = await this.requests.find({
-      where: { congregationId, closedAt: IsNull() },
-      order: { createdAt: 'ASC' },
+    const rows = await this.dataSource.query<
+      { id: string; publisher_id: string; created_at: Date }[]
+    >(
+      `SELECT r.id, r.publisher_id, r.created_at
+         FROM territory_requests r
+         JOIN publishers p ON p.id = r.publisher_id
+        WHERE r.congregation_id = $1 AND r.closed_at IS NULL
+          AND p.is_active AND p.removed_at IS NULL
+          AND p.status IS DISTINCT FROM $2
+        ORDER BY r.created_at ASC`,
+      [congregationId, PublisherStatus.INACTIVE],
+    );
+    const c = await this.congregations.findOne({
+      where: { id: congregationId },
+      select: { id: true, timezone: true },
     });
     return rows.map((r) => ({
       id: r.id,
-      publisherId: r.publisherId,
-      createdAt: r.createdAt,
+      publisherId: r.publisher_id,
+      createdAt: r.created_at,
+      // The day he asked, in the congregation's own time zone.
+      askedOn: todayIn(new Date(r.created_at), c?.timezone),
     }));
   }
 
@@ -581,10 +624,11 @@ export class TerritoryDutyService {
       where: { congregationId: user.congregationId, archivedAt: IsNull() },
       select: { id: true, number: true, geometry: true },
     });
+    // By the share of ground outside, as «Проверка участков» counts it: a
+    // territory drawn along the border is not outside it (independent
+    // review, 17 November 2026).
     const outside = rows
-      .filter((t) =>
-        verticesOf(t.geometry).some((p) => !pointInside(p, geometry)),
-      )
+      .filter((t) => areaShareOutside(t.geometry, geometry) >= 0.01)
       .map((t) => t.number)
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     return { outside };
@@ -600,6 +644,7 @@ export class TerritoryDutyService {
     user: AuthenticatedUser,
     raw: unknown,
     s54On: string | undefined,
+    description?: Record<string, string> | null,
   ) {
     await this.access.mustKeep(user);
     if (!s54On) {
@@ -607,12 +652,30 @@ export class TerritoryDutyService {
         refusal('TERRITORY_BOUNDARY_S54', 'The date of the S-54 is required.'),
       );
     }
+    // A form from the branch is not dated ahead, nor before the one in force.
+    const today = await this.today(user.congregationId);
+    const current = await this.boundaries.findOne({
+      where: { congregationId: user.congregationId },
+      order: { createdAt: 'DESC' },
+      select: { id: true, s54On: true },
+    });
+    if (s54On > today || (current?.s54On && s54On < current.s54On)) {
+      throw new BadRequestException(
+        refusal(
+          'TERRITORY_BOUNDARY_S54_DATE',
+          'The S-54 date is in the future or before the one in force.',
+          { date: current?.s54On ?? today },
+        ),
+      );
+    }
     const geometry = this.geometryOf(raw);
     const saved = await this.boundaries.save(
       this.boundaries.create({
         congregationId: user.congregationId,
         geometry,
-        description: null,
+        // The branch file's own words (borders north, east, south, west),
+        // kept as the first import keeps them.
+        description: description ? { ...description } : null,
         validFrom: s54On,
         s54On,
         createdByUserId: user.id,
@@ -646,15 +709,14 @@ export class TerritoryDutyService {
   }
 }
 
-/** Every corner of a polygon or multipolygon. */
-function verticesOf(g: TerritoryGeometry): [number, number][] {
-  const polys =
-    g.type === 'Polygon'
-      ? [g.coordinates as number[][][]]
-      : (g.coordinates as number[][][][]);
-  const out: [number, number][] = [];
-  for (const poly of polys)
-    for (const ring of poly.slice(0, 1))
-      for (const p of ring) out.push([p[0], p[1]]);
-  return out;
+/** A card that could be given a territory (as assertAssignable asks). */
+function askable(
+  card: Pick<Publisher, 'isActive' | 'removedAt' | 'status'> | null,
+): boolean {
+  return (
+    !!card &&
+    card.isActive &&
+    !card.removedAt &&
+    card.status !== PublisherStatus.INACTIVE
+  );
 }

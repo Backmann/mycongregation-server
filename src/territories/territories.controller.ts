@@ -228,7 +228,12 @@ export class TerritoriesController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: BoundaryFileDto,
   ) {
-    return this.duty.replaceBoundary(user, dto.geometry, dto.s54On);
+    return this.duty.replaceBoundary(
+      user,
+      dto.geometry,
+      dto.s54On,
+      dto.description as Record<string, string> | undefined,
+    );
   }
 
   @Get('summary')

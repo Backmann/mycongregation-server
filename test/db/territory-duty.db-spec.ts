@@ -362,6 +362,34 @@ describe('territory duty (real database)', () => {
       .as('keeper')
       .post('/territories/boundary/preview', { geometry: small });
     expect(preview.body.outside).toEqual(['D02']);
+    // Drawn along the border: D01's east side IS the new border — not outside.
+    const edge = {
+      type: 'Polygon',
+      coordinates: [
+        [
+          [6.9, 50.9],
+          [7.01, 50.9],
+          [7.01, 51.1],
+          [6.9, 51.1],
+          [6.9, 50.9],
+        ],
+      ],
+    };
+    expect(
+      (
+        await h
+          .as('keeper')
+          .post('/territories/boundary/preview', { geometry: edge })
+      ).body.outside,
+    ).toEqual(['D02']);
+    // A form is not dated ahead, nor before the one in force.
+    for (const s54On of [addDays(today, 1), '2019-03-11']) {
+      const wrong = await h
+        .as('keeper')
+        .post('/territories/boundary/replace', { geometry: small, s54On });
+      expect(wrong.status).toBe(400);
+      expect(wrong.body.code).toBe('TERRITORY_BOUNDARY_S54_DATE');
+    }
     const noDate = await h
       .as('keeper')
       .post('/territories/boundary/replace', { geometry: small });
@@ -378,11 +406,149 @@ describe('territory duty (real database)', () => {
     const done = await h.as('keeper').post('/territories/boundary/replace', {
       geometry: small,
       s54On: '2026-11-05',
+      description: { north: 'Fluss', south: 'Bahn' },
     });
     expect(done.status).toBe(201);
+    const [kept] = await h.sql<{ description: Record<string, string> }>(
+      `SELECT description FROM territory_boundaries WHERE id = $1`,
+      [done.body.id],
+    );
+    expect(kept.description).toEqual({ north: 'Fluss', south: 'Bahn' });
     const b = await h.as('keeper').get('/territories/boundary');
     expect(b.body).toMatchObject({ id: done.body.id, s54On: '2026-11-05' });
     expect(await h.sql(`SELECT id FROM territory_boundaries`)).toHaveLength(2);
+  });
+
+  it('review 17.11: a request only from whom a territory can be given; answered however one of his own reaches him', async () => {
+    const [g] = await h.sql<{ id: string }>(
+      `INSERT INTO service_groups (congregation_id, name, overseer_publisher_id)
+       VALUES ($1, 'Группа D', $2) RETURNING id`,
+      [congregationId, card.asker],
+    );
+    try {
+      const asked = await h.as('asker').post('/territories/requests', {});
+      expect(asked.status).toBe(201);
+      const pushes = (await outbox('territory_request')).length;
+      // A territory for his group is not his own: the request stays open,
+      // and the group's overdue territory does not stand in his way.
+      const forGroup = await give('keeper', {
+        publisherId: card.asker,
+        forGroupId: g.id,
+        assignedOn: addDays(today, -30),
+      });
+      expect(forGroup.status).toBe(201);
+      await h.sql(
+        `UPDATE territory_assignments SET due_on = $1 WHERE id = $2`,
+        [addDays(today, -1), forGroup.body.id],
+      );
+      const me = await h.as('asker').get('/territories/me');
+      expect(me.body.overdue).toEqual([]);
+      expect(me.body.request?.id).toBe(asked.body.id);
+      // Withdrawn and asked again the same day: on the list, no new ring.
+      await h.as('asker').delete('/territories/requests/mine');
+      const again = await h.as('asker').post('/territories/requests', {});
+      expect(again.status).toBe(201);
+      expect((await outbox('territory_request')).length).toBe(pushes);
+      // «Мои данные» lists his own requests, and how each closed.
+      const exported = await h.as('asker').get('/me/export');
+      expect(
+        (exported.body.territoryRequests as { closedHow: string | null }[]).map(
+          (r) => r.closedHow,
+        ),
+      ).toEqual(['cancelled', null]);
+      expect(JSON.stringify(exported.body.territoryRequests)).not.toContain(
+        userId.asker,
+      );
+      const desk = await h.as('keeper').get('/territories/desk');
+      expect(desk.body.requests).toEqual([
+        expect.objectContaining({
+          id: again.body.id,
+          publisherId: card.asker,
+          askedOn: today,
+        }),
+      ]);
+      // Handed on to him: his request is answered.
+      const toHolder = await h
+        .as('keeper')
+        .post(`/territories/${otherId}/assign`, {
+          publisherId: card.holder,
+          assignedOn: addDays(today, -10),
+        });
+      expect(toHolder.status).toBe(201);
+      const handed = await h
+        .as('keeper')
+        .post(`/territories/assignments/${toHolder.body.id}/transfer`, {
+          toPublisherId: card.asker,
+        });
+      expect(handed.status).toBe(201);
+      const [answered] = await h.sql<{ closed_how: string }>(
+        `SELECT closed_how FROM territory_requests WHERE id = $1`,
+        [again.body.id],
+      );
+      expect(answered.closed_how).toBe('given');
+      // An inactive card: no request, and an earlier one is not shown to
+      // the keepers nor to him — none of them could answer it.
+      const holderAsks = await h.as('holder').post('/territories/requests', {});
+      expect(holderAsks.status).toBe(201);
+      await h.sql(`UPDATE publishers SET status = 'inactive' WHERE id = $1`, [
+        card.holder,
+      ]);
+      const mine = await h.as('holder').get('/territories/me');
+      expect(mine.body).toMatchObject({ mayAsk: false, request: null });
+      expect(
+        (await h.as('keeper').get('/territories/desk')).body.requests,
+      ).toEqual([]);
+      const refused = await h.as('holder').post('/territories/requests', {});
+      expect(refused.status).toBe(400);
+      expect(refused.body.code).toBe('PERSON_NOT_ASSIGNABLE');
+    } finally {
+      await h.sql(`UPDATE publishers SET status = 'active' WHERE id = $1`, [
+        card.holder,
+      ]);
+      await h.sql(`DELETE FROM territory_assignments`);
+      await h.sql(`DELETE FROM service_groups WHERE id = $1`, [g.id]);
+    }
+  });
+
+  it('review 17.11: kept again only by a card that can hold one; pressed twice is a refusal, not an error', async () => {
+    const given = await give('keeper', {
+      publisherId: card.holder,
+      assignedOn: addDays(today, -30),
+    });
+    const twice = await Promise.all(
+      [0, 1].map(() =>
+        h
+          .as('holder')
+          .post(`/territories/assignments/${given.body.id}/complete`, {
+            again: true,
+          }),
+      ),
+    );
+    expect(twice.map((r) => r.status).sort()).toEqual([200, 409]);
+    const open = await h.sql(
+      `SELECT id FROM territory_assignments WHERE completed_on IS NULL AND returned_on IS NULL`,
+    );
+    expect(open).toHaveLength(1);
+    try {
+      await h.sql(`UPDATE publishers SET status = 'inactive' WHERE id = $1`, [
+        card.holder,
+      ]);
+      const [line] = open as { id: string }[];
+      const no = await h
+        .as('keeper')
+        .post(`/territories/assignments/${line.id}/complete`, { again: true });
+      expect(no.status).toBe(400);
+      expect(no.body.code).toBe('PERSON_NOT_ASSIGNABLE');
+      const [still] = await h.sql<{ completed_on: string | null }>(
+        `SELECT completed_on::text FROM territory_assignments WHERE id = $1`,
+        [line.id],
+      );
+      expect(still.completed_on).toBeNull();
+    } finally {
+      await h.sql(`UPDATE publishers SET status = 'active' WHERE id = $1`, [
+        card.holder,
+      ]);
+    }
   });
 
   it('closed requests go after 30 days', async () => {

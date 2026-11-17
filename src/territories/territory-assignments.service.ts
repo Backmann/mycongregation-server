@@ -128,6 +128,26 @@ export class TerritoryAssignmentsService {
    * wiped on return; the record keeps only «worked»). So do a residential
    * territory's divisions between groups and «street walked» marks.
    */
+  /**
+   * His «Попросить участок» is answered (17 November 2026): a territory of
+   * his own reached him — given, handed on to him, entered as held, or the
+   * holder corrected to him. A territory for his group is not his own: his
+   * own request stays open (independent review, 17 November 2026).
+   */
+  private async answerRequest(
+    tenantId: string,
+    line: Pick<TerritoryAssignment, 'publisherId' | 'forGroupId'>,
+    userId: string,
+  ): Promise<void> {
+    if (!line.publisherId || line.forGroupId) return;
+    await this.assignments.manager.query(
+      `UPDATE territory_requests
+          SET closed_at = now(), closed_how = 'given', closed_by_user_id = $3
+        WHERE congregation_id = $1 AND publisher_id = $2 AND closed_at IS NULL`,
+      [tenantId, line.publisherId, userId],
+    );
+  }
+
   private async forgetMarks(assignmentId: string): Promise<void> {
     await this.businessVisits.delete({ assignmentId });
     await this.streetMarks.delete({ assignmentId });
@@ -782,13 +802,7 @@ export class TerritoryAssignmentsService {
       dueOn,
       forGroup: group?.name ?? null,
     });
-    // His «Попросить участок» is answered (17 November 2026).
-    await this.assignments.manager.query(
-      `UPDATE territory_requests
-          SET closed_at = now(), closed_how = 'given', closed_by_user_id = $3
-        WHERE congregation_id = $1 AND publisher_id = $2 AND closed_at IS NULL`,
-      [tenantId, p.id, user.id],
-    );
+    await this.answerRequest(tenantId, saved, user.id);
     // «Вам выдан участок …» — to the holder, if he has the app.
     if (p.userId) {
       await this.notifications.notify({
@@ -853,31 +867,57 @@ export class TerritoryAssignmentsService {
     // Kept for working again: the same holder, a new line from the same day,
     // a new term — in one transaction with the end of the old one.
     let again: TerritoryAssignment | null = null;
-    const saved = await this.assignments.manager.transaction(async (m) => {
-      const done = await m.save(a);
-      if (dto.again) {
-        again = await m.save(
-          m.create(TerritoryAssignment, {
-            congregationId: a.congregationId,
-            territoryId: a.territoryId,
-            publisherId: a.publisherId,
-            holderName: a.holderName,
-            forGroupId: a.forGroupId,
-            forGroupName: a.forGroupName,
-            assignedOn: on,
-            dueOn: addDays(on, TERM_DAYS),
-            completedOn: null,
-            returnedOn: null,
-            method: null,
-            extended: false,
-            transferred: false,
-            imported: false,
-            createdByUserId: user.id,
-          }),
+    // Kept again only by someone who may still be given a territory (an
+    // inactive or removed card returns it instead — independent review,
+    // 17 November 2026).
+    if (dto.again && a.publisherId) {
+      const card = await this.publishers.findOne({
+        where: { id: a.publisherId, congregationId: a.congregationId },
+        select: { id: true, isActive: true, removedAt: true },
+      });
+      if (!card || card.removedAt || !card.isActive) {
+        throw new BadRequestException(
+          refusal(
+            'PERSON_NOT_ASSIGNABLE',
+            'This person cannot be given a task at the moment.',
+          ),
         );
       }
-      return done;
-    });
+      await assertAssignable(this.assignments.manager, a.congregationId, [
+        a.publisherId,
+      ]);
+    }
+    let saved!: TerritoryAssignment;
+    try {
+      saved = await this.assignments.manager.transaction(async (m) => {
+        const done = await m.save(a);
+        if (dto.again) {
+          again = await m.save(
+            m.create(TerritoryAssignment, {
+              congregationId: a.congregationId,
+              territoryId: a.territoryId,
+              publisherId: a.publisherId,
+              holderName: a.holderName,
+              forGroupId: a.forGroupId,
+              forGroupName: a.forGroupName,
+              assignedOn: on,
+              dueOn: addDays(on, TERM_DAYS),
+              completedOn: null,
+              returnedOn: null,
+              method: null,
+              extended: false,
+              transferred: false,
+              imported: false,
+              createdByUserId: user.id,
+            }),
+          );
+        }
+        return done;
+      });
+    } catch (e) {
+      // Pressed twice: the second finds the new line already open.
+      this.refused(e);
+    }
     await this.forgetMarks(saved.id);
     await this.log(user, saved, 'UPDATE', {
       completedOn: on,
@@ -1126,6 +1166,9 @@ export class TerritoryAssignmentsService {
       after,
     });
     await this.releaseMeetings(user, saved.territoryId);
+    if (open && saved.publisherId !== oldPublisherId) {
+      await this.answerRequest(tenantId, saved, user.id);
+    }
     // The territory in someone's hands has a new holder: he is told, as when
     // it is given out. Corrections of the past tell nobody.
     if (open && saved.publisherId !== oldPublisherId && holder?.userId && t) {
@@ -1239,7 +1282,10 @@ export class TerritoryAssignmentsService {
       past: true,
       ...TerritoryAssignmentsService.facts(saved),
     });
-    if (open) await this.releaseMeetings(user, t.id);
+    if (open) {
+      await this.releaseMeetings(user, t.id);
+      await this.answerRequest(tenantId, saved, user.id);
+    }
     return saved;
   }
 
@@ -1726,6 +1772,7 @@ export class TerritoryAssignmentsService {
       ...TerritoryAssignmentsService.facts(next),
     });
     await this.releaseMeetings(user, a.territoryId);
+    await this.answerRequest(tenantId, next, user.id);
     if (t && holder.userId) {
       await this.notifications.notify({
         tenantId,
