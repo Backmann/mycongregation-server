@@ -81,11 +81,6 @@ export function joinStanding(
 }
 
 /**
- * Refuses giving out a territory held back for a decided join, unless the
- * keeper gives it out anyway — then the hold is let go
- * (territory-assignments.service assign).
- */
-/**
  * Territories a decided re-cutting waits for (17 November 2026): in an open
  * proposal the service committee approved. Kept «for working again», one of
  * these would put the decision off by another four months unseen.
@@ -100,13 +95,25 @@ export async function awaitingRecut(
     `SELECT DISTINCT unnest(territory_ids)::text AS id
        FROM territory_recut_proposals
       WHERE congregation_id = $1 AND state = 'open'
-        AND approved_at IS NOT NULL AND territory_ids && $2::uuid[]`,
+        AND approved_at IS NOT NULL AND territory_ids && $2::uuid[]
+        -- One of its territories put away meanwhile: it can never be
+        -- applied, and must not hold anything back (review, 17 November).
+        AND NOT EXISTS (
+          SELECT 1 FROM territories t
+           WHERE t.id = ANY(territory_recut_proposals.territory_ids)
+             AND (t.archived_at IS NOT NULL OR t.congregation_id <> $1)
+        )`,
     [tenantId, territoryIds],
   );
   const wanted = new Set(territoryIds);
   return new Set(rows.map((r) => r.id).filter((id) => wanted.has(id)));
 }
 
+/**
+ * Refuses giving out a territory held back for a decided join, unless the
+ * keeper gives it out anyway — then the hold is let go
+ * (territory-assignments.service assign).
+ */
 export async function mustNotBeHeldBack(
   m: EntityManager,
   tenantId: string,

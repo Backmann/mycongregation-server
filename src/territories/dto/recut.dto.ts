@@ -149,7 +149,6 @@ export class RecutApplyDto {
   noCalls?: RecutNoCallPlaceDto[];
 }
 
-/** Held back for a join, or let go. */
 /**
  * The service committee decides one queue at a time (17 November 2026):
  * the joins first, the cuts after the joins are seen to work.
@@ -162,6 +161,7 @@ export class RecutApproveDto {
   queue!: number;
 }
 
+/** Held back for a join, or let go. */
 export class RecutHoldDto {
   @IsUUID()
   territoryId!: string;

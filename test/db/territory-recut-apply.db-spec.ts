@@ -1,4 +1,10 @@
 import { Harness, startHarness } from './harness';
+import { todayIn } from '../../src/common/congregation-clock';
+import {
+  addDays,
+  serviceYearOf,
+  serviceYearStart,
+} from '../../src/territories/service-year';
 
 /**
  * Applying a decided proposal of the re-cutting draft (16 November 2026,
@@ -498,5 +504,58 @@ describe('applying the re-cutting draft (real database)', () => {
       });
     expect(again.status).toBe(409);
     expect((await give('J1')).status).toBe(201);
+  });
+
+  it('review 17.11: the past year keeps a later join off its sheet; a join made in the editor; a join that can no longer be applied', async () => {
+    const today = todayIn(new Date(), 'Europe/Berlin');
+    const lastYearDay = addDays(serviceYearStart(serviceYearOf(today)), -60);
+    await h.sql(
+      `INSERT INTO territory_assignments (congregation_id, territory_id, holder_name, assigned_on, completed_on, method)
+       VALUES ($1, $2, 'Прошлый', $3, $4, 'door_to_door')`,
+      [congregationId, ids.J2, lastYearDay, addDays(lastYearDay, 20)],
+    );
+    // Joined in the border editor: J2 put away, J1's shape names it.
+    await h.sql(`UPDATE territories SET archived_at = now() WHERE id = $1`, [
+      ids.J2,
+    ]);
+    const [shape] = await h.sql<{ id: string }>(
+      `INSERT INTO territory_shapes (congregation_id, territory_id, geometry, reason, detail)
+       SELECT congregation_id, id, geometry, 'merge', jsonb_build_object('archived', $2::text)
+         FROM territories WHERE id = $1 RETURNING id`,
+      [ids.J1, ids.J2],
+    );
+    try {
+      type Sheet = {
+        territories: {
+          number: string;
+          archived: { joinedInto: string | null } | null;
+        }[];
+      };
+      const now = (await h.as('keeper').get('/territories/s13')).body as Sheet;
+      expect(
+        now.territories.find((t) => t.number === 'J2')?.archived?.joinedInto,
+      ).toBe('J1');
+      const past = (
+        await h
+          .as('keeper')
+          .get(`/territories/s13?serviceYear=${serviceYearOf(today) - 1}`)
+      ).body as Sheet;
+      const j2past = past.territories.find((t) => t.number === 'J2');
+      expect(j2past).toBeDefined();
+      expect(j2past!.archived).toBeNull();
+      // The approved join J1+J2 can never be applied now: J1, given out,
+      // is not held up by it.
+      await h.as('overseer').post('/territory-recut/approve', { queue: 1 });
+      const desk = (await h.as('keeper').get('/territories/desk')).body.out as {
+        number: string;
+        awaitsRecut: boolean;
+      }[];
+      expect(desk.find((o) => o.number === 'J1')?.awaitsRecut).toBe(false);
+    } finally {
+      await h.sql(`DELETE FROM territory_shapes WHERE id = $1`, [shape.id]);
+      await h.sql(`UPDATE territories SET archived_at = NULL WHERE id = $1`, [
+        ids.J2,
+      ]);
+    }
   });
 });

@@ -374,6 +374,21 @@ export class TerritoriesService {
         if (id !== j.keep_id) joinedInto.set(id, numberOf.get(j.keep_id) ?? '');
       }
     }
+    // A join made in the border editor names the one it put away on the
+    // kept territory's shape (independent review, 17 November 2026).
+    const editorJoins = await this.territories.manager.query<
+      { kept: string; gone: string }[]
+    >(
+      `SELECT territory_id AS kept, detail->>'archived' AS gone
+         FROM territory_shapes
+        WHERE congregation_id = $1 AND detail ? 'archived'`,
+      [tenantId],
+    );
+    for (const j of editorJoins) {
+      if (!joinedInto.has(j.gone) && numberOf.has(j.kept)) {
+        joinedInto.set(j.gone, numberOf.get(j.kept)!);
+      }
+    }
     const inYearOf = (list: TerritoryAssignment[]) =>
       list.filter((x) => {
         if (x.assignedOn > to) return false;
@@ -406,12 +421,15 @@ export class TerritoriesService {
         const inYear = inYearOf(list);
         return {
           number: t.number,
-          archived: t.archivedAt
-            ? {
-                on: todayIn(t.archivedAt, zone),
-                joinedInto: joinedInto.get(t.id) || null,
-              }
-            : null,
+          // Put away after this year ended: on that year's sheet it is an
+          // ordinary row (independent review, 17 November 2026).
+          archived:
+            t.archivedAt && todayIn(t.archivedAt, zone) <= to
+              ? {
+                  on: todayIn(t.archivedAt, zone),
+                  joinedInto: joinedInto.get(t.id) || null,
+                }
+              : null,
           lastCompletedBefore: before ?? null,
           assignments: inYear.map((x) => ({
             holderName: x.holderName,
