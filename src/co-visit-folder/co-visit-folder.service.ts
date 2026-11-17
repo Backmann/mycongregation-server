@@ -447,7 +447,9 @@ export class CoVisitFolderService {
           [tenantId],
         );
       }
-      if (s !== null) out.set(key, s.length > 40 ? hash40(s) : s);
+      // One md5 stays as it is; anything joined or appended is folded to
+      // one fixed-length hex string — the only shape a mark accepts.
+      if (s !== null) out.set(key, /^[0-9a-f]{32}$/.test(s) ? s : hash40(s));
     }
     return out;
   }

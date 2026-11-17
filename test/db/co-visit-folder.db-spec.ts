@@ -249,6 +249,31 @@ describe('the S-61 folder (real database)', () => {
     expect(item.facts.again).toBe(1);
   });
 
+  it('takes back as «saved» the fingerprint the folder gave, for every file', async () => {
+    const f = await h.as('secrx').get(`/co-visit-folder/${visit}`).expect(200);
+    const lines = (
+      f.body.items as {
+        key: string;
+        source: string;
+        stamp: string | null;
+        groups?: { key: string; stamp: string }[];
+      }[]
+    ).flatMap((i) =>
+      i.key === '2.1' ? i.groups! : i.source === 'pdf' ? [i] : [],
+    );
+    expect(lines.length).toBeGreaterThanOrEqual(12);
+    for (const l of lines) {
+      expect(l.stamp).toMatch(/^[0-9a-f]{32,40}$/);
+      const res = await h
+        .as('secrx')
+        .put(`/co-visit-folder/${visit}/marks/${encodeURIComponent(l.key)}`, {
+          state: 'saved',
+          stamp: l.stamp,
+        });
+      expect([l.key, res.status]).toEqual([l.key, 200]);
+    }
+  });
+
   it('gives the contacts to the three only, for the file', async () => {
     const res = await h
       .as('sover')
