@@ -17,6 +17,8 @@ const CHECKED_IN_SERVICE: Record<string, string> = {
     'service: the applicant his own, the committee\u2019s places, an elder in an open one, the secretary for a paper',
   auth: 'sign-in, reset and one\u2019s own account — public or self by design',
   'auxiliary-pioneers': 'service: self-application, managers for others',
+  'co-visit-folder':
+    'service: the coordinator of the body of elders, the secretary, the service overseer',
   'conduct-live': 'service: chairman, timekeeper or admin of that week',
   'conduct-runs': 'service: chairman, timekeeper or admin of that week',
   cart: 'the self-service routes (a wish, its withdrawal, «не смогу»); the rest carry @UseGuards(ResponsibilityGuard)',

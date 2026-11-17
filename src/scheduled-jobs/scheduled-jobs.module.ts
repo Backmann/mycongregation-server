@@ -3,6 +3,7 @@ import { NotHeldModule } from '../not-held/not-held.module';
 import { CartWeeksModule } from '../cart-weeks/cart-weeks.module';
 import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneers.module';
 import { PioneerMeetingsModule } from '../pioneer-meetings/pioneer-meetings.module';
+import { CoVisitFolderModule } from '../co-visit-folder/co-visit-folder.module';
 import { Module } from '@nestjs/common';
 import { MeetingAttendanceModule } from '../meeting-attendance/meeting-attendance.module';
 import { AnnualReportModule } from '../annual-report/annual-report.module';
@@ -51,6 +52,7 @@ import { PioneerSchoolModule } from '../pioneer-school/pioneer-school.module';
     LocalNeedsModule,
     AuxiliaryPioneersModule,
     PioneerMeetingsModule,
+    CoVisitFolderModule,
     CartWeeksModule,
     NotHeldModule,
     TerritoriesModule,

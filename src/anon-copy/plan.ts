@@ -401,6 +401,16 @@ export const PLAN: Record<string, TablePlan> = {
   territory_boundaries: copy(`id congregation_id geometry description
     valid_from created_by_user_id created_at s54_on`),
   /** «Попросить участок»: who asked and when, no reason, no text. */
+  // The S-61 folder (17 November 2026): how it stands is copied; the
+  // elders' answers to page 2 are not.
+  co_visit_folders: table(
+    copy(`id congregation_id special_event_id s62_sent_at s62_sent_by_user_id
+      s62_checked_at s62_checked_by_user_id answers_erased_at handed_over_at
+      handed_over_by_user_id files_deleted created_at updated_at`),
+    remove('answers'),
+  ),
+  co_visit_folder_marks: copy(`id congregation_id special_event_id item_key
+    state stamp marked_by_user_id marked_at`),
   territory_requests: copy(`id congregation_id publisher_id created_at
     closed_at closed_how closed_by_user_id`),
   territory_assignments: table(

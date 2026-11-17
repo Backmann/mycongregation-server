@@ -384,6 +384,13 @@ export const REFUSAL_CODES = [
   'TERRITORY_BOUNDARY_S54',
   'TERRITORY_BOUNDARY_S54_DATE',
   'TERRITORY_AWAITS_RECUT',
+  // ---- the folder for the circuit overseer, S-61 (co-visit-folder) ----
+  'FOLDER_NO_ACCESS',
+  'FOLDER_NOT_A_VISIT',
+  'FOLDER_MARK_INVALID',
+  'FOLDER_ANSWER_INVALID',
+  'FOLDER_ANSWERS_ERASED',
+  'FOLDER_PAGE2_INCOMPLETE',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];
