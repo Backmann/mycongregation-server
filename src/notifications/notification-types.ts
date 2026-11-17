@@ -73,6 +73,8 @@ export const NOTIFICATION_TYPES = [
   'aux_report_hours',
   // The annual meeting of the elders with the pioneers — invited, conducting.
   'pioneer_meeting',
+  // The folder for the circuit overseer (S-61): S-62, open items, delete files.
+  'co_visit_folder',
   // Today's meeting still without its attendance figure, at 20:00.
   'attendance_due',
   // A new kind of failure met in the app — for whoever runs the platform.

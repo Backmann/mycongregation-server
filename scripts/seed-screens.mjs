@@ -548,6 +548,53 @@ async function main() {
     address: 'Конгресс-холл',
   });
 
+  // 6⅜. The circuit overseer's visit five weeks on, with its folder for him
+  //     (form S-61, 17 November 2026). The administrator Андрей is the
+  //     secretary, so the folder is photographed whole: a few items marked,
+  //     one file saved, the rest open; a day without a lunch.
+  const visitStart = addDays(CURRENT, 36); // a Tuesday
+  const coVisit = await post('/special-events', {
+    title: 'Посещение районного старейшины',
+    type: 'circuit_overseer_visit',
+    date: iso(visitStart),
+    endDate: iso(addDays(visitStart, 5)),
+    coFirstName: 'Пётр',
+    coLastName: 'Иванов',
+    coWifeName: 'Мария',
+    coAccommodationPublisherId: P('Борис'),
+  });
+  await post('/responsibilities', { type: 'secretary', userId: adminUserId });
+  for (const [kind, d, who, extra] of [
+    ['pastoral', 1, 'Борис', {}],
+    ['pastoral', 2, 'Виктор', {}],
+    ['lunch', 0, 'Глеб', {}],
+    ['lunch', 1, 'Денис', {}],
+    ['lunch', 2, 'Егор', {}],
+    ['lunch', 4, 'Илья', {}],
+    ['lunch', 5, 'Кирилл', {}],
+    ['field_service', 1, 'Захар', {}],
+    ['field_service', 3, null, { withWife: true }],
+  ]) {
+    await post('/co-visit-items', {
+      specialEventId: coVisit.id,
+      kind,
+      itemDate: iso(addDays(visitStart, d)),
+      startTime: kind === 'lunch' ? '13:00' : '10:00',
+      ...(who ? { assigneePublisherId: P(who) } : {}),
+      ...extra,
+    });
+  }
+  for (const [key, state] of [
+    ['1.1', 'paper'],
+    ['1.2', 'separate'],
+    ['2.3', 'separate'],
+    ['2.4', 'na'],
+    ['3.2', 'na'],
+    ['2.2', 'saved'],
+  ]) {
+    await put(`/co-visit-folder/${coVisit.id}/marks/${key}`, { state });
+  }
+
   // 6¼. A service overseer's visit: Андрей (Группа 1) visits Группа 2 on a
   //     Friday at 10:30, and the congregation has a combined meeting that
   //     morning at 09:00 — next week (Home's two weeks: both rows, the

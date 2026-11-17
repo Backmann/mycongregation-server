@@ -2,6 +2,7 @@ import { TerritoryRemindersService } from '../territories/territory-reminders.se
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { NotHeldService } from '../not-held/not-held.service';
 import { PioneerMeetingsService } from '../pioneer-meetings/pioneer-meetings.service';
+import { CoVisitFolderService } from '../co-visit-folder/co-visit-folder.service';
 import { AttendanceReminderService } from '../meeting-attendance/attendance-reminder.service';
 import { Cron } from '@nestjs/schedule';
 import { MemorialService } from '../memorial/memorial.service';
@@ -88,6 +89,9 @@ export class ScheduledJobsService {
     private readonly cardMerge?: CardMergeService,
     @Optional()
     private readonly possibleDuplicates?: PossibleDuplicateService,
+    /** The folder for the circuit overseer (S-61): reminders, page 2 erased. */
+    @Optional()
+    private readonly coVisitFolder?: CoVisitFolderService,
     /** The stand: sign-up closing, a plan not published, a permit ending. */
     @Optional()
     private readonly cartReminders?: CartRemindersService,
@@ -211,6 +215,25 @@ export class ScheduledJobsService {
     } catch (err) {
       this.logger.error(
         `attendance reminder failed: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * The folder for the circuit overseer (17 November 2026): the S-62 a month
+   * before its date, the open items a week before the Tuesday, page 2
+   * erased the day after the visit. Each reminder once — its key says so.
+   */
+  @Cron('50 8 * * *', {
+    name: 'co-visit-folder',
+    timeZone: 'Europe/Berlin',
+  })
+  async handleCoVisitFolder(): Promise<void> {
+    try {
+      await this.coVisitFolder?.daily();
+    } catch (err) {
+      this.logger.error(
+        `co-visit folder round failed: ${(err as Error).message}`,
       );
     }
   }

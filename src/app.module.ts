@@ -34,6 +34,7 @@ import { LocalNeedsModule } from './local-needs/local-needs.module';
 import { LocalNeedsPlacementModule } from './local-needs/placement/local-needs-placement.module';
 import { PioneerSchoolModule } from './pioneer-school/pioneer-school.module';
 import { PioneerMeetingsModule } from './pioneer-meetings/pioneer-meetings.module';
+import { CoVisitFolderModule } from './co-visit-folder/co-visit-folder.module';
 import { AuditRevertModule } from './audit-revert/audit-revert.module';
 import { AppVersionModule } from './app-version/app-version.module';
 import { ExternalCongregationsModule } from './external-congregations/external-congregations.module';
@@ -135,6 +136,7 @@ import { PairPrepModule } from './pair-prep/pair-prep.module';
     LocalNeedsPlacementModule,
     PioneerSchoolModule,
     PioneerMeetingsModule,
+    CoVisitFolderModule,
     AuditRevertModule,
     AppVersionModule,
     ExternalCongregationsModule,
