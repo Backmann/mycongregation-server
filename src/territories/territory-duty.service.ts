@@ -54,6 +54,7 @@ export function coverageOf(
   within12: number;
   oneToTwo: number;
   overTwo: number;
+  noRecord: number;
   sinceYear: number;
 } {
   const y1 = yearsBack(today, 1);
@@ -62,14 +63,29 @@ export function coverageOf(
   let within12 = 0;
   let oneToTwo = 0;
   let overTwo = 0;
+  // No record of it ever being worked (a territory just cut, or one whose
+  // paper card was not carried over): unknown, not «two years» — counted
+  // apart so the elders check it rather than report it (17 November 2026).
+  let noRecord = 0;
   let sinceYear = 0;
   for (const d of lastWorked) {
-    if (d && d >= start) sinceYear++;
-    if (d && d >= y1) within12++;
-    else if (d && d >= y2) oneToTwo++;
+    if (!d) {
+      noRecord++;
+      continue;
+    }
+    if (d >= start) sinceYear++;
+    if (d >= y1) within12++;
+    else if (d >= y2) oneToTwo++;
     else overTwo++;
   }
-  return { total: lastWorked.length, within12, oneToTwo, overTwo, sinceYear };
+  return {
+    total: lastWorked.length,
+    within12,
+    oneToTwo,
+    overTwo,
+    noRecord,
+    sinceYear,
+  };
 }
 
 /**
@@ -500,9 +516,9 @@ export class TerritoryDutyService {
     const tenantId = user.congregationId;
     const today = await this.today(tenantId);
     const y2 = yearsBack(today, 2);
-    const all = (await this.lastWorked(tenantId)).filter(
-      (x) => !x.last || x.last < y2,
-    );
+    const every = await this.lastWorked(tenantId);
+    const noRecord = every.filter((x) => !x.last).length;
+    const all = every.filter((x) => !!x.last && x.last < y2);
     const held = await this.assignments.find({
       where: {
         congregationId: tenantId,
@@ -517,6 +533,7 @@ export class TerritoryDutyService {
     return {
       today,
       recordsFrom: settings ? settings.toISOString().slice(0, 10) : null,
+      noRecord,
       items: all
         .sort((a, b) => (a.last ?? '').localeCompare(b.last ?? ''))
         .map((x) => ({

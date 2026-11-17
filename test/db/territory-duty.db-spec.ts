@@ -292,7 +292,8 @@ describe('territory duty (real database)', () => {
       addDays(today, -800),
       otherId,
     ]);
-    // D01 held for 400 days, never worked: a year unworked though held.
+    // D01 held for 400 days, no record of it ever being worked: unknown,
+    // counted apart and not reported as «two years».
     const held = await h.as('keeper').post(`/territories/${territoryId}/past`, {
       publisherId: card.holder,
       assignedOn: addDays(today, -400),
@@ -303,15 +304,33 @@ describe('territory duty (real database)', () => {
     expect(desk.body.coverage.residential).toMatchObject({
       total: 2,
       within12: 0,
-      overTwo: 2,
+      overTwo: 1,
+      noRecord: 1,
     });
     const long = await h.as('coord').get('/territories/coverage/long');
     expect(long.status).toBe(200);
     expect(long.body.items.map((i: { number: string }) => i.number)).toEqual([
+      'D02',
+    ]);
+    expect(long.body.items[0].lastWorkedOn).toBe(addDays(today, -800));
+    expect(long.body.items[0].heldSince).toBeNull();
+    expect(long.body.noRecord).toBe(1);
+    // Held for 800 days and worked before that: in the list, with since when.
+    await h.sql(`UPDATE territories SET last_completed_on = $1 WHERE id = $2`, [
+      addDays(today, -900),
+      territoryId,
+    ]);
+    await h.sql(
+      `UPDATE territory_assignments SET assigned_on = $1 WHERE territory_id = $2 AND completed_on IS NULL AND returned_on IS NULL`,
+      [addDays(today, -800), territoryId],
+    );
+    const both = await h.as('coord').get('/territories/coverage/long');
+    expect(both.body.items.map((i: { number: string }) => i.number)).toEqual([
       'D01',
       'D02',
     ]);
-    expect(long.body.items[0].heldSince).toBe(addDays(today, -400));
+    expect(both.body.items[0].heldSince).toBe(addDays(today, -800));
+    expect(both.body.noRecord).toBe(0);
     expect(
       (await h.as('holder').get('/territories/coverage/long')).status,
     ).toBe(403);
