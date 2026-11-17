@@ -210,6 +210,9 @@ describe('territory duty (real database)', () => {
        VALUES ($1, $2, 'a', '["1","2","5"]'::jsonb, now())`,
       [congregationId, given.body.id],
     );
+    expect((await h.as('asker').get('/territories/access')).body.mayAsk).toBe(
+      true,
+    );
     const me = await h.as('holder').get('/territories/me');
     expect(me.status).toBe(200);
     expect(me.body).toMatchObject({

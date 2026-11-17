@@ -108,12 +108,16 @@ export class TerritoriesController {
   /** The door: what the user may open, and the territories he has a part in. */
   @Get('access')
   async access(@CurrentUser() user: AuthenticatedUser) {
-    const [a, mine] = await Promise.all([
+    const [a, mine, mayAsk] = await Promise.all([
       this.service.accessOf(user),
       this.given.mine(user),
+      this.duty.mayAsk(user),
     ]);
     return {
       ...a,
+      // «Мои участки» for everyone a territory may be given to: there he
+      // asks for one (17 November 2026).
+      mayAsk,
       mine: mine.map((t) => ({
         id: t.id,
         number: t.number,

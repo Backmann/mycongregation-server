@@ -119,6 +119,20 @@ export class TerritoryDutyService {
 
   // ----------------------------------------------------------------- me --
 
+  /** Whether he may ask for a territory: a card in use, the section open. */
+  async mayAsk(user: AuthenticatedUser): Promise<boolean> {
+    if ((await this.access.verifiedAt(user.congregationId)) === null) {
+      return false;
+    }
+    const me = await this.access.person(user);
+    if (!me.publisherId) return false;
+    const card = await this.publishers.findOne({
+      where: { id: me.publisherId, congregationId: user.congregationId },
+      select: { id: true, isActive: true, removedAt: true },
+    });
+    return !!card && card.isActive && !card.removedAt;
+  }
+
   /** What «Мои участки» shows beside the territories themselves. */
   async me(user: AuthenticatedUser) {
     const tenantId = user.congregationId;
