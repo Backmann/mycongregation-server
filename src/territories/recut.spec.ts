@@ -2,6 +2,7 @@ import type { TerritoryGeometry } from '../entities/territory.entity';
 import {
   DEFAULT_MEASURE,
   joinAll,
+  judgedOtherwise,
   measureProblem,
   movedShare,
   partOf,
@@ -130,5 +131,53 @@ describe('the measure', () => {
     ).not.toBeNull();
     expect(measureProblem({ ...DEFAULT_MEASURE, minKm: -1 })).not.toBeNull();
     expect(measureProblem({ ...DEFAULT_MEASURE, minKm: 20 })).not.toBeNull();
+  });
+});
+
+describe('judgedOtherwise — which approvals a new measure sends back (17.11.2026)', () => {
+  const M = DEFAULT_MEASURE;
+  const figures = {
+    small: { walkKm: M.minKm - 1, driveMinutes: 5 },
+    long: { walkKm: M.cityMaxKm + 5, driveMinutes: 5 },
+    far: { walkKm: M.remoteMaxKm - 1, driveMinutes: M.remoteMinutes + 10 },
+  };
+  it('keeps a join of small ones when only the far measure moves', () => {
+    expect(
+      judgedOtherwise(['small'], figures, {}, M, {
+        ...M,
+        remoteMaxKm: M.remoteMaxKm + 5,
+      }),
+    ).toBe(false);
+  });
+  it('sends a join back when the small ones are no longer small', () => {
+    expect(
+      judgedOtherwise(['small'], figures, {}, M, { ...M, minKm: M.minKm - 2 }),
+    ).toBe(true);
+  });
+  it('sends a cut back when it would be cut into another number of parts', () => {
+    expect(
+      judgedOtherwise(['long'], figures, {}, M, {
+        ...M,
+        cityTargetKm: M.cityTargetKm / 2,
+      }),
+    ).toBe(true);
+  });
+  it('a far one turned near by the minutes is judged anew', () => {
+    expect(
+      judgedOtherwise(['far'], figures, {}, M, {
+        ...M,
+        remoteMinutes: M.remoteMinutes + 30,
+      }),
+    ).toBe(true);
+    // Unless the keeper named it far himself.
+    expect(
+      judgedOtherwise(['far'], figures, { far: 'far' }, M, {
+        ...M,
+        remoteMinutes: M.remoteMinutes + 30,
+      }),
+    ).toBe(false);
+  });
+  it('a territory without figures counts as changed', () => {
+    expect(judgedOtherwise(['unknown'], figures, {}, M, M)).toBe(true);
   });
 });

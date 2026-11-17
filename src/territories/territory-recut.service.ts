@@ -47,6 +47,7 @@ import {
   type RecutVerdict,
   joinAll,
   measureProblem,
+  judgedOtherwise,
   movedShare,
   partsOfCut,
   REOPEN_SHARE,
@@ -670,15 +671,34 @@ export class TerritoryRecutService {
       const recut = (await this.recutOf(m, tenantId, true))!;
       const same = JSON.stringify(recut.measure) === JSON.stringify(measure);
       if (same) return;
+      const before = recut.measure;
       await m.update(TerritoryRecut, { id: recut.id }, { measure });
-      // The proposals were judged by the old measure: back to the committee.
-      const r = await m.update(
-        TerritoryRecutProposal,
-        { recutId: recut.id, state: 'open', approvedAt: Not(IsNull()) },
-        // Nothing stays held back for a proposal that is no longer decided.
-        { approvedAt: null, reopenedAt: new Date(), holdIds: [] },
-      );
-      reopened = r.affected ?? 0;
+      // Back to the service committee only what the new measure judges
+      // otherwise (17 November 2026): the rest stays decided.
+      const decided = await m.find(TerritoryRecutProposal, {
+        where: { recutId: recut.id, state: 'open', approvedAt: Not(IsNull()) },
+        select: { id: true, territoryIds: true },
+      });
+      const back = decided
+        .filter((p) =>
+          judgedOtherwise(
+            p.territoryIds,
+            recut.metrics?.territories ?? {},
+            recut.classes,
+            before,
+            measure,
+          ),
+        )
+        .map((p) => p.id);
+      if (back.length) {
+        await m.update(
+          TerritoryRecutProposal,
+          { id: In(back) },
+          // Nothing stays held back for a proposal that is no longer decided.
+          { approvedAt: null, reopenedAt: new Date(), holdIds: [] },
+        );
+      }
+      reopened = back.length;
     });
     await this.audit.logFact({
       tenantId,

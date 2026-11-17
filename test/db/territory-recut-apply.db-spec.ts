@@ -558,4 +558,54 @@ describe('applying the re-cutting draft (real database)', () => {
       ]);
     }
   });
+
+  it('17.11: a new measure sends back only what it judges otherwise', async () => {
+    // The figures the measure sees: both small, near the hall.
+    const small = { walkKm: 2, driveMinutes: 4, homes: 40, hall: null };
+    await h.sql(
+      `UPDATE territory_recuts SET metrics = $2::jsonb WHERE congregation_id = $1`,
+      [
+        congregationId,
+        JSON.stringify({
+          halls: [],
+          territories: { [ids.J1]: small, [ids.J2]: small },
+        }),
+      ],
+    );
+    await h.sql(
+      `UPDATE territory_recut_proposals SET approved_at = now(), state = 'open' WHERE id = $1`,
+      [joinId],
+    );
+    const approved = async () =>
+      (
+        await h.sql<{ approved: boolean }>(
+          `SELECT approved_at IS NOT NULL AS approved FROM territory_recut_proposals WHERE id = $1`,
+          [joinId],
+        )
+      )[0].approved;
+    const view = (await h.as('keeper').get('/territory-recut')).body as {
+      measure: Record<string, number>;
+    };
+    // Only the far measure moves: the join of two small near ones stays decided.
+    expect(
+      (
+        await h.as('keeper').put('/territory-recut/measure', {
+          ...view.measure,
+          remoteMaxKm: view.measure.remoteMaxKm + 5,
+        })
+      ).status,
+    ).toBe(200);
+    expect(await approved()).toBe(true);
+    // The least size drops below them: they are no longer small — asked again.
+    expect(
+      (
+        await h.as('keeper').put('/territory-recut/measure', {
+          ...view.measure,
+          remoteMaxKm: view.measure.remoteMaxKm + 5,
+          minKm: 1,
+        })
+      ).status,
+    ).toBe(200);
+    expect(await approved()).toBe(false);
+  });
 });
