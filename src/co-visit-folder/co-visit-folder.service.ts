@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'crypto';
-import { In, IsNull, LessThan, Repository } from 'typeorm';
+import { In, IsNull, LessThan, Not, Repository } from 'typeorm';
 import { CoVisitFolder } from '../entities/co-visit-folder.entity';
 import {
   CoVisitFolderMark,
@@ -54,6 +54,7 @@ import {
 import { folderText, type FolderNews } from './folder-messages';
 
 const VISIT = 'circuit_overseer_visit';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const ROLE_OF: Record<string, FolderRole> = {
   [ResponsibilityType.BODY_COORDINATOR]: 'coordinator',
@@ -148,17 +149,20 @@ export class CoVisitFolderService {
       select: { type: true },
     });
     const roles = [...new Set(held.map((r) => ROLE_OF[r.type]))];
-    if (roles.length > 0) return { full: true, roles };
-    // Another elder sees section 1 only — the coordinator's part, which
-    // concerns the whole body (pastoral calls, lodging, meals).
-    if (user.role === UserRole.ELDER) return { full: false, roles: [] };
     const card = await this.publishers.findOne({
       where: { congregationId: tenantId, userId: user.id },
       select: { id: true, appointment: true },
     });
-    if (card?.appointment === PublisherAppointment.ELDER) {
-      return { full: false, roles: [] };
-    }
+    const elder =
+      user.role === UserRole.ELDER ||
+      card?.appointment === PublisherAppointment.ELDER;
+    // The three hold their duties as elders (responsibilities refuse anyone
+    // else since 31 October 2026); an older grant on a non-elder opens
+    // nothing, as the S-21 behind the folder would not open either.
+    if (roles.length > 0 && elder) return { full: true, roles };
+    // Another elder sees section 1 only — the coordinator's part, which
+    // concerns the whole body (pastoral calls, lodging, meals).
+    if (elder) return { full: false, roles: [] };
     return null;
   }
 
@@ -201,25 +205,15 @@ export class CoVisitFolderService {
     tenantId: string,
     eventId: string,
   ): Promise<CoVisitFolder> {
-    const found = await this.folders.findOne({
+    // Two first taps at once: whichever comes second finds the row there.
+    await this.folders.query(
+      `INSERT INTO co_visit_folders (congregation_id, special_event_id)
+       VALUES ($1, $2) ON CONFLICT (special_event_id) DO NOTHING`,
+      [tenantId, eventId],
+    );
+    return this.folders.findOneOrFail({
       where: { congregationId: tenantId, specialEventId: eventId },
     });
-    if (found) return found;
-    try {
-      return await this.folders.save(
-        this.folders.create({
-          congregationId: tenantId,
-          specialEventId: eventId,
-          answers: null,
-          filesDeleted: {},
-        }),
-      );
-    } catch {
-      // Two first taps at once: the other one made it.
-      return this.folders.findOneOrFail({
-        where: { congregationId: tenantId, specialEventId: eventId },
-      });
-    }
   }
 
   private async namesOf(
@@ -260,23 +254,43 @@ export class CoVisitFolderService {
     return out;
   }
 
-  /** The members a group's S-21 file holds: here today, not students. */
+  /**
+   * The members a group's S-21 file holds: here today, not students. «No
+   * group» also takes in the people of a group that was removed — their
+   * card still points at it, and they would otherwise be in no file.
+   */
   private async groupMembers(
     tenantId: string,
     groupId: string | null,
   ): Promise<Publisher[]> {
-    return this.publishers
-      .find({
-        where: {
-          congregationId: tenantId,
-          serviceGroupId: groupId === null ? IsNull() : groupId,
-          removedAt: IsNull(),
-        },
-        order: { lastName: 'ASC', firstName: 'ASC' },
-      })
-      .then((rows) =>
-        rows.filter((p) => p.appointment !== PublisherAppointment.STUDENT),
-      );
+    const removed =
+      groupId === null
+        ? (
+            await this.groups.find({
+              where: { congregationId: tenantId, deletedAt: Not(IsNull()) },
+              withDeleted: true,
+              select: { id: true },
+            })
+          ).map((g) => g.id)
+        : [];
+    const where = (serviceGroupId: ReturnType<typeof IsNull> | string) => ({
+      congregationId: tenantId,
+      serviceGroupId,
+      removedAt: IsNull(),
+    });
+    const rows = await this.publishers.find({
+      where:
+        groupId === null
+          ? [
+              where(IsNull()),
+              ...(removed.length
+                ? [{ ...where(IsNull()), serviceGroupId: In(removed) }]
+                : []),
+            ]
+          : where(groupId),
+      order: { lastName: 'ASC', firstName: 'ASC' },
+    });
+    return rows.filter((p) => p.appointment !== PublisherAppointment.STUDENT);
   }
 
   private async groupsOf(
@@ -357,7 +371,8 @@ export class CoVisitFolderService {
         const g = key.slice(4);
         const groupCond =
           g === 'none'
-            ? 'p.service_group_id IS NULL'
+            ? `(p.service_group_id IS NULL OR p.service_group_id IN
+                 (SELECT id FROM service_groups WHERE congregation_id = $1 AND deleted_at IS NOT NULL))`
             : 'p.service_group_id = $2::uuid';
         const params: unknown[] = [tenantId];
         if (g !== 'none') params.push(g);
@@ -377,7 +392,8 @@ export class CoVisitFolderService {
           ),
           await this.stamp(
             rowsStamp(
-              `service_reports t WHERE t.publisher_id IN (${members}) AND t.report_month >= $${n}`,
+              // A report taken back is a change too: only the live ones count.
+              `service_reports t WHERE t.publisher_id IN (${members}) AND t.report_month >= $${n} AND t.deleted_at IS NULL`,
               ts,
             ),
             params,
@@ -411,7 +427,8 @@ export class CoVisitFolderService {
             `(SELECT p.id, p.first_name, p.last_name, p.mobile_phone, p.email,
                      p.address, p.service_group_id
                 FROM publishers p WHERE p.congregation_id = $1
-                 AND p.deleted_at IS NULL AND p.removed_at IS NULL) t`,
+                 AND p.deleted_at IS NULL AND p.removed_at IS NULL
+                 AND p.appointment <> 'student') t`,
           ),
           [tenantId],
         );
@@ -669,7 +686,11 @@ export class CoVisitFolderService {
         .map((r) => r.item_date),
     );
     const contacts = await this.publishers.count({
-      where: { congregationId: tenantId, removedAt: IsNull() },
+      where: {
+        congregationId: tenantId,
+        removedAt: IsNull(),
+        appointment: Not(PublisherAppointment.STUDENT),
+      },
     });
     return {
       '1.3': { count: rows.filter((r) => r.kind === 'pastoral').length },
@@ -835,10 +856,15 @@ export class CoVisitFolderService {
     const event = await this.visit(tenantId, eventId);
     const base = key.startsWith('2.1:') ? '2.1' : key;
     const def = FOLDER_ITEMS.find((d) => d.key === base);
+    const groupId = key.startsWith('2.1:') ? key.slice(4) : null;
     const groupOk =
-      !key.startsWith('2.1:') ||
-      key === '2.1:none' ||
-      /^2\.1:[0-9a-f-]{36}$/i.test(key);
+      groupId === null ||
+      groupId === 'none' ||
+      (UUID.test(groupId) &&
+        (await this.groups.count({
+          where: { id: groupId, congregationId: tenantId },
+          withDeleted: true,
+        })) > 0);
     if (
       !def ||
       !groupOk ||
@@ -864,22 +890,16 @@ export class CoVisitFolderService {
     const current =
       (await this.stamps(tenantId, event, [key])).get(key) ?? null;
     const kept = state === 'saved' ? (stamp ?? current) : null;
-    const existing = await this.marks.findOne({
-      where: {
-        congregationId: tenantId,
-        specialEventId: event.id,
-        itemKey: key,
-      },
-    });
-    await this.marks.save({
-      ...(existing ?? {}),
-      congregationId: tenantId,
-      specialEventId: event.id,
-      itemKey: key,
-      state,
-      stamp: kept,
-      markedByUserId: user.id,
-    });
+    // One row an item: a second tap at the same moment updates it.
+    await this.marks.query(
+      `INSERT INTO co_visit_folder_marks
+         (congregation_id, special_event_id, item_key, state, stamp, marked_by_user_id, marked_at)
+       VALUES ($1, $2, $3, $4, $5, $6, now())
+       ON CONFLICT (special_event_id, item_key) DO UPDATE
+         SET state = EXCLUDED.state, stamp = EXCLUDED.stamp,
+             marked_by_user_id = EXCLUDED.marked_by_user_id, marked_at = now()`,
+      [tenantId, event.id, key, state, kept, user.id],
+    );
     await this.folderOf(tenantId, event.id);
     return { ok: true, changed: !!kept && !!current && kept !== current };
   }
@@ -894,14 +914,20 @@ export class CoVisitFolderService {
     await this.assertAccess(tenantId, user, true);
     const event = await this.visit(tenantId, eventId);
     const f = await this.folderOf(tenantId, event.id);
-    if (what === 'sent') {
-      f.s62SentAt = on ? new Date() : null;
-      f.s62SentByUserId = on ? user.id : null;
-    } else {
-      f.s62CheckedAt = on ? new Date() : null;
-      f.s62CheckedByUserId = on ? user.id : null;
-    }
-    await this.folders.save(f);
+    // Only these columns: a whole-row save would put back answers another
+    // elder gave a moment ago.
+    await this.folders.update(
+      { id: f.id },
+      what === 'sent'
+        ? {
+            s62SentAt: on ? new Date() : null,
+            s62SentByUserId: on ? user.id : null,
+          }
+        : {
+            s62CheckedAt: on ? new Date() : null,
+            s62CheckedByUserId: on ? user.id : null,
+          },
+    );
     return { ok: true };
   }
 
@@ -932,17 +958,40 @@ export class CoVisitFolderService {
         ),
       );
     }
-    const next = { ...(f.answers ?? {}) };
-    if (answer === null) delete next[String(q)];
-    else
-      next[String(q)] = {
-        answer,
-        byUserId: user.id,
-        at: new Date().toISOString(),
-      };
-    f.answers = next;
-    await this.folders.save(f);
-    return { ok: true, answered: Object.keys(next).length };
+    // One question changed in place: two elders answering at once keep
+    // each other's answers. Refused once the answers are erased.
+    const value =
+      answer === null
+        ? null
+        : JSON.stringify({
+            answer,
+            byUserId: user.id,
+            at: new Date().toISOString(),
+          });
+    const rows: Array<{ answers: Record<string, unknown> | null }> =
+      await this.folders.query(
+        `UPDATE co_visit_folders
+          SET answers = CASE WHEN $3::jsonb IS NULL
+                             THEN coalesce(answers, '{}'::jsonb) - $2::text
+                             ELSE coalesce(answers, '{}'::jsonb) || jsonb_build_object($2::text, $3::jsonb) END,
+              updated_at = now()
+        WHERE id = $1 AND answers_erased_at IS NULL
+        RETURNING answers`,
+        [f.id, String(q), value],
+      );
+    // TypeORM returns [rows, count] for an UPDATE … RETURNING.
+    const row = (
+      Array.isArray(rows[0]) ? (rows[0] as unknown[])[0] : rows[0]
+    ) as { answers: Record<string, unknown> | null } | undefined;
+    if (!row) {
+      throw new ConflictException(
+        refusal(
+          'FOLDER_ANSWERS_ERASED',
+          'The visit is over and the answers have been erased.',
+        ),
+      );
+    }
+    return { ok: true, answered: Object.keys(row.answers ?? {}).length };
   }
 
   /**
@@ -975,14 +1024,16 @@ export class CoVisitFolderService {
         );
       }
       if (f.handedOverAt) return { ok: true };
-      f.handedOverAt = new Date();
-      f.handedOverByUserId = user.id;
-      await this.folders.save(f);
+      await this.folders.update(
+        { id: f.id },
+        { handedOverAt: new Date(), handedOverByUserId: user.id },
+      );
       await this.tellToDelete(tenantId, event);
     } else {
-      f.handedOverAt = null;
-      f.handedOverByUserId = null;
-      await this.folders.save(f);
+      await this.folders.update(
+        { id: f.id },
+        { handedOverAt: null, handedOverByUserId: null },
+      );
     }
     return { ok: true };
   }
@@ -995,11 +1046,13 @@ export class CoVisitFolderService {
     await this.assertAccess(tenantId, user, true);
     const event = await this.visit(tenantId, eventId);
     const f = await this.folderOf(tenantId, event.id);
-    f.filesDeleted = {
-      ...(f.filesDeleted ?? {}),
-      [user.id]: await this.clock.todayFor(tenantId),
-    };
-    await this.folders.save(f);
+    await this.folders.query(
+      `UPDATE co_visit_folders
+          SET files_deleted = files_deleted || jsonb_build_object($2::text, $3::text),
+              updated_at = now()
+        WHERE id = $1`,
+      [f.id, user.id, await this.clock.todayFor(tenantId)],
+    );
     return { ok: true };
   }
 
@@ -1053,7 +1106,12 @@ export class CoVisitFolderService {
     const stamp =
       (await this.stamps(tenantId, event, ['2.5'])).get('2.5') ?? null;
     const rows = await this.publishers.find({
-      where: { congregationId: tenantId, removedAt: IsNull() },
+      where: {
+        congregationId: tenantId,
+        removedAt: IsNull(),
+        // Publishers (form S-61, 2.5): a student is not one yet.
+        appointment: Not(PublisherAppointment.STUDENT),
+      },
       relations: { serviceGroup: true },
       order: { lastName: 'ASC', firstName: 'ASC' },
     });
@@ -1103,7 +1161,7 @@ export class CoVisitFolderService {
       userIds,
       text: (lang) => folderText(news, facts, lang),
       kind: 'co_visit_folder',
-      key: `co-visit-folder:${event.id}:${news}`,
+      key: `co-visit-folder:${event.id}:${news}:${start}`,
       data: { type: 'co_visit_folder', eventId: event.id },
     });
   }
@@ -1138,23 +1196,26 @@ export class CoVisitFolderService {
     let n = 0;
     for (const c of congs) {
       const today = todayIn(now, c.timezone || DEFAULT_CONGREGATION_TIMEZONE);
+      // Removed visits too: their answers must go all the same.
       const visits = await this.events.find({
         where: { congregationId: c.id, type: VISIT },
+        withDeleted: true,
       });
       for (const v of visits) {
         const start = String(v.date).slice(0, 10);
         const end = v.endDate ? String(v.endDate).slice(0, 10) : start;
         try {
-          if (today >= eraseOn(start, end)) {
-            const f = await this.folders.findOne({
-              where: { congregationId: c.id, specialEventId: v.id },
-            });
-            if (f && f.answers && !f.answersErasedAt) {
-              f.answers = null;
-              f.answersErasedAt = new Date();
-              await this.folders.save(f);
-              n += 1;
-            }
+          if (today >= eraseOn(start, end) || v.deletedAt) {
+            // Erased, and closed to late answers, even when none were given.
+            const done = await this.folders.update(
+              {
+                congregationId: c.id,
+                specialEventId: v.id,
+                answersErasedAt: IsNull(),
+              },
+              { answers: null, answersErasedAt: new Date() },
+            );
+            n += done.affected ?? 0;
             continue;
           }
           if (today > dueOn(start)) continue;

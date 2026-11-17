@@ -314,8 +314,8 @@ describe('the S-61 folder (real database)', () => {
 
     // Whoever saved a file is asked to delete it; each marks his own.
     const keys = await h.sql<{ user_id: string }>(
-      `SELECT user_id FROM notification_outbox WHERE dedupe_key = $1`,
-      [`co-visit-folder:${visit}:deleteFiles`],
+      `SELECT user_id FROM notification_outbox WHERE dedupe_key LIKE $1`,
+      [`co-visit-folder:${visit}:deleteFiles:%`],
     );
     expect(keys.map((k) => k.user_id).sort()).toEqual([users.secrx].sort());
     await h
@@ -343,8 +343,8 @@ describe('the S-61 folder (real database)', () => {
     await svc.daily(at(`${year}-12-23`)); // before the S-62 reminder of v2 (29 Dec)
     await svc.daily(at(`${year + 1}-01-02`));
     const s62 = await h.sql<{ user_id: string }>(
-      `SELECT user_id FROM notification_outbox WHERE dedupe_key = $1`,
-      [`co-visit-folder:${v2}:s62`],
+      `SELECT user_id FROM notification_outbox WHERE dedupe_key LIKE $1`,
+      [`co-visit-folder:${v2}:s62:%`],
     );
     expect(s62.map((r) => r.user_id).sort()).toEqual(
       [users.coordx, users.secrx].sort(),
@@ -352,8 +352,8 @@ describe('the S-61 folder (real database)', () => {
 
     await svc.daily(at(`${year + 1}-02-23`)); // within the week before its Tuesday
     const gaps = await h.sql<{ user_id: string }>(
-      `SELECT user_id FROM notification_outbox WHERE dedupe_key = $1`,
-      [`co-visit-folder:${v2}:gaps`],
+      `SELECT user_id FROM notification_outbox WHERE dedupe_key LIKE $1`,
+      [`co-visit-folder:${v2}:gaps:%`],
     );
     expect(gaps.map((r) => r.user_id).sort()).toEqual(
       [users.coordx, users.secrx, users.sover].sort(),
@@ -403,5 +403,114 @@ describe('the S-61 folder (real database)', () => {
     expect(f.body.page2.hints.since).toBe(prev);
     expect(f.body.page2.hints['9'].moved).toEqual(['Переехал Ушёл']);
     expect(f.body.page2.hints['12'].total).toBeGreaterThan(0);
+  });
+
+  it('a report taken back makes the group’s S-21 stale too', async () => {
+    const f0 = await h.as('secrx').get(`/co-visit-folder/${visit}`).expect(200);
+    const line = f0.body.items
+      .find((i: { key: string }) => i.key === '2.1')
+      .groups.find((g: { groupId: string | null }) => g.groupId === groupId);
+    await h
+      .as('secrx')
+      .put(`/co-visit-folder/${visit}/marks/${encodeURIComponent(line.key)}`, {
+        state: 'saved',
+        stamp: line.stamp,
+      })
+      .expect(200);
+    await h.sql(
+      `UPDATE service_reports SET deleted_at = now() WHERE publisher_id = $1`,
+      [cards.pubx],
+    );
+    const f1 = await h.as('secrx').get(`/co-visit-folder/${visit}`).expect(200);
+    const after = f1.body.items
+      .find((i: { key: string }) => i.key === '2.1')
+      .groups.find((g: { groupId: string | null }) => g.groupId === groupId);
+    expect(after.changed).toBe(true);
+  });
+
+  it('keeps two answers given at once, and a double tap on a mark is one mark', async () => {
+    const v3 = (
+      await h.sql<{ id: string }>(
+        `INSERT INTO special_events (congregation_id, title, type, date, end_date)
+         VALUES ($1, 'Визит 3', 'circuit_overseer_visit', $2, $3) RETURNING id`,
+        [tenant, `${year + 2}-02-22`, `${year + 2}-02-27`],
+      )
+    )[0].id;
+    await Promise.all(
+      [1, 2, 3, 4, 5, 6].map((q) =>
+        h
+          .as(q % 2 ? 'coordx' : 'secrx')
+          .put(`/co-visit-folder/${v3}/answers/${q}`, { answer: 'yes' })
+          .expect(200),
+      ),
+    );
+    const f = await h.as('coordx').get(`/co-visit-folder/${v3}`).expect(200);
+    expect(f.body.page2.answered).toBe(6);
+    const taps = await Promise.all(
+      [0, 1, 2].map(() =>
+        h
+          .as('coordx')
+          .put(`/co-visit-folder/${v3}/marks/1.1`, { state: 'paper' }),
+      ),
+    );
+    expect(taps.map((r) => r.status)).toEqual([200, 200, 200]);
+    const rows = await h.sql<{ n: string }>(
+      `SELECT count(*) AS n FROM co_visit_folder_marks WHERE special_event_id = $1`,
+      [v3],
+    );
+    expect(Number(rows[0].n)).toBe(1);
+
+    // A group of another congregation, or a key that only looks like one.
+    const bad = await h
+      .as('coordx')
+      .put(
+        `/co-visit-folder/${v3}/marks/${encodeURIComponent('2.1:' + '-'.repeat(36))}`,
+        {
+          state: 'saved',
+        },
+      );
+    expect(bad.status).toBe(400);
+    const stranger = await h
+      .as('coordx')
+      .put(
+        `/co-visit-folder/${v3}/marks/${encodeURIComponent('2.1:00000000-0000-4000-8000-000000000000')}`,
+        { state: 'saved' },
+      );
+    expect(stranger.status).toBe(400);
+
+    // The visit is taken away: its answers go at the next round all the same.
+    await h.sql(`UPDATE special_events SET deleted_at = now() WHERE id = $1`, [
+      v3,
+    ]);
+    await h.app.get(CoVisitFolderService).daily(new Date());
+    const gone = await h.sql<{ answers: unknown; answers_erased_at: unknown }>(
+      `SELECT answers, answers_erased_at FROM co_visit_folders WHERE special_event_id = $1`,
+      [v3],
+    );
+    expect(gone[0].answers).toBeNull();
+    expect(gone[0].answers_erased_at).not.toBeNull();
+  });
+
+  it('people of a removed group are in «no group», not in no file', async () => {
+    const g2 = await h
+      .as('admin')
+      .post('/service-groups', { name: 'Группа 2' });
+    const lost = await h.addPublisher({
+      firstName: 'Остался',
+      lastName: 'Безгруппы',
+      baptismDate: '2000-01-01',
+      serviceGroupId: g2.body.id,
+    });
+    await h.sql(`UPDATE service_groups SET deleted_at = now() WHERE id = $1`, [
+      g2.body.id,
+    ]);
+    const none = await h
+      .as('secrx')
+      .get(`/co-visit-folder/${visit}/s21/none`)
+      .expect(200);
+    const ids = none.body.cards.map(
+      (c: { publisher: { id: string } }[]) => c[0].publisher.id,
+    );
+    expect(ids).toContain(lost);
   });
 });
