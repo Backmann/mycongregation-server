@@ -179,7 +179,8 @@ describe('moving the lines of a cut (real database)', () => {
       ).status,
     ).toBe(200);
     expect(
-      (await h.as('overseer').post('/territory-recut/approve')).status,
+      (await h.as('overseer').post('/territory-recut/approve', { queue: 2 }))
+        .status,
     ).toBe(201);
     // A small move (one home of thirty): the mark and the decision stand.
     let p = await proposal();

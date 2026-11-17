@@ -1,4 +1,10 @@
 import { Harness, startHarness } from './harness';
+import { todayIn } from '../../src/common/congregation-clock';
+import {
+  addDays,
+  serviceYearOf,
+  serviceYearStart,
+} from '../../src/territories/service-year';
 
 /**
  * Applying a decided proposal of the re-cutting draft (16 November 2026,
@@ -95,6 +101,11 @@ describe('applying the re-cutting draft (real database)', () => {
     await giveResp(keeper, 'territory_servant');
     await giveResp(overseer, 'secretary');
     holder = await card('Держатель', 'publisher');
+    await h.addUser({
+      login: 'holder',
+      role: 'publisher',
+      publisherId: holder,
+    });
     const r = await h.as('keeper').post('/territories/import/territories', {
       items: [
         { number: 'Big1', locality: 'Hamm', geometry: rect(7.0, 7.03) },
@@ -179,9 +190,35 @@ describe('applying the re-cutting draft (real database)', () => {
       .as('overseer')
       .get(`/territory-recut/proposals/${cutId}/apply`);
     expect(r.status).toBe(403);
+    // One queue at a time (17 November 2026): the join's queue first, and
+    // the cut of queue 2 stays undecided until its own decision.
     expect(
-      (await h.as('overseer').post('/territory-recut/approve')).status,
+      (await h.as('overseer').post('/territory-recut/approve', { queue: 1 }))
+        .status,
     ).toBe(201);
+    const cutCheck = await h
+      .as('keeper')
+      .get(`/territory-recut/proposals/${cutId}/apply`);
+    expect(cutCheck.body.blocks).toContain('notApproved');
+    const early = await h
+      .as('keeper')
+      .post(`/territory-recut/proposals/${cutId}/apply`, {
+        updatedAt: cutCheck.body.updatedAt,
+      });
+    expect(early.status).toBe(409);
+    expect(early.body.code).toBe('TERRITORY_RECUT_NOT_READY');
+    // No queue named: refused, not «everything».
+    expect(
+      (await h.as('overseer').post('/territory-recut/approve', {})).status,
+    ).toBe(400);
+    expect(
+      (await h.as('overseer').post('/territory-recut/approve', { queue: 2 }))
+        .status,
+    ).toBe(201);
+    expect(
+      (await h.as('keeper').get(`/territory-recut/proposals/${cutId}/apply`))
+        .body.blocks,
+    ).not.toContain('notApproved');
   });
 
   it('a join waits for all its territories; one held back is not given out', async () => {
@@ -199,6 +236,38 @@ describe('applying the re-cutting draft (real database)', () => {
     expect([j1.free, j1.total, j1.ready]).toEqual([1, 2, false]);
     expect(j1.waiting.map((w) => w.number)).toEqual(['J2']);
     expect((await check(joinId)).blocks).toEqual(['held']);
+    // Worked, but not «kept for working again» (17 November 2026): the
+    // decided join waits for it; the line stays open, nothing changes.
+    const [line] = await h.sql<{ id: string }>(
+      `SELECT id FROM territory_assignments
+        WHERE territory_id = $1 AND completed_on IS NULL AND returned_on IS NULL`,
+      [ids.J2],
+    );
+    const again = await h
+      .as('keeper')
+      .post(`/territories/assignments/${line.id}/complete`, { again: true });
+    expect(again.status).toBe(409);
+    expect(again.body.code).toBe('TERRITORY_AWAITS_RECUT');
+    expect(again.body.params?.number ?? again.body.number).toBe('J2');
+    expect(
+      await h.sql(
+        `SELECT 1 FROM territory_assignments WHERE id = $1 AND completed_on IS NULL`,
+        [line.id],
+      ),
+    ).toHaveLength(1);
+    expect(
+      (await h.as('keeper').get(`/territories/${ids.J2}`)).body.awaitsRecut,
+    ).toBe(true);
+    const deskOut = (await h.as('keeper').get('/territories/desk')).body
+      .out as { number: string; awaitsRecut: boolean }[];
+    expect(deskOut.find((o) => o.number === 'J2')?.awaitsRecut).toBe(true);
+    const mine = (await h.as('holder').get('/territories/mine')).body as {
+      number: string;
+      assignment: { awaitsRecut: boolean };
+    }[];
+    expect(mine.map((x) => [x.number, x.assignment.awaitsRecut])).toEqual([
+      ['J2', true],
+    ]);
 
     const held = await h
       .as('keeper')
@@ -371,6 +440,21 @@ describe('applying the re-cutting draft (real database)', () => {
       [feld.id],
     );
     expect(calls).toEqual([{ number: 'J1' }]);
+    // The year's sheet keeps J2's line, marked where it went (17 November
+    // 2026); a territory put away without a line this year is not on it.
+    const sheet = (await h.as('keeper').get('/territories/s13')).body as {
+      territories: {
+        number: string;
+        archived: { on: string; joinedInto: string | null } | null;
+        assignments: unknown[];
+      }[];
+    };
+    const j2row = sheet.territories.find((t) => t.number === 'J2')!;
+    expect(j2row.archived?.joinedInto).toBe('J1');
+    expect(j2row.assignments.length).toBeGreaterThan(0);
+    expect(
+      sheet.territories.find((t) => t.number === 'J1')!.archived,
+    ).toBeNull();
     // Back as it was: J2 in use again, its address with it.
     expect(
       (
@@ -420,5 +504,58 @@ describe('applying the re-cutting draft (real database)', () => {
       });
     expect(again.status).toBe(409);
     expect((await give('J1')).status).toBe(201);
+  });
+
+  it('review 17.11: the past year keeps a later join off its sheet; a join made in the editor; a join that can no longer be applied', async () => {
+    const today = todayIn(new Date(), 'Europe/Berlin');
+    const lastYearDay = addDays(serviceYearStart(serviceYearOf(today)), -60);
+    await h.sql(
+      `INSERT INTO territory_assignments (congregation_id, territory_id, holder_name, assigned_on, completed_on, method)
+       VALUES ($1, $2, 'Прошлый', $3, $4, 'door_to_door')`,
+      [congregationId, ids.J2, lastYearDay, addDays(lastYearDay, 20)],
+    );
+    // Joined in the border editor: J2 put away, J1's shape names it.
+    await h.sql(`UPDATE territories SET archived_at = now() WHERE id = $1`, [
+      ids.J2,
+    ]);
+    const [shape] = await h.sql<{ id: string }>(
+      `INSERT INTO territory_shapes (congregation_id, territory_id, geometry, reason, detail)
+       SELECT congregation_id, id, geometry, 'merge', jsonb_build_object('archived', $2::text)
+         FROM territories WHERE id = $1 RETURNING id`,
+      [ids.J1, ids.J2],
+    );
+    try {
+      type Sheet = {
+        territories: {
+          number: string;
+          archived: { joinedInto: string | null } | null;
+        }[];
+      };
+      const now = (await h.as('keeper').get('/territories/s13')).body as Sheet;
+      expect(
+        now.territories.find((t) => t.number === 'J2')?.archived?.joinedInto,
+      ).toBe('J1');
+      const past = (
+        await h
+          .as('keeper')
+          .get(`/territories/s13?serviceYear=${serviceYearOf(today) - 1}`)
+      ).body as Sheet;
+      const j2past = past.territories.find((t) => t.number === 'J2');
+      expect(j2past).toBeDefined();
+      expect(j2past!.archived).toBeNull();
+      // The approved join J1+J2 can never be applied now: J1, given out,
+      // is not held up by it.
+      await h.as('overseer').post('/territory-recut/approve', { queue: 1 });
+      const desk = (await h.as('keeper').get('/territories/desk')).body.out as {
+        number: string;
+        awaitsRecut: boolean;
+      }[];
+      expect(desk.find((o) => o.number === 'J1')?.awaitsRecut).toBe(false);
+    } finally {
+      await h.sql(`DELETE FROM territory_shapes WHERE id = $1`, [shape.id]);
+      await h.sql(`UPDATE territories SET archived_at = NULL WHERE id = $1`, [
+        ids.J2,
+      ]);
+    }
   });
 });

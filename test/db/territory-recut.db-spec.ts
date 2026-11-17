@@ -269,10 +269,13 @@ describe('the draft of re-cutting (real database)', () => {
   });
 
   it('the decision: only the committee records it; a small redraw keeps it, a large one reopens it', async () => {
-    expect((await h.as('keeper').post('/territory-recut/approve')).status).toBe(
-      403,
-    );
-    const ok = await h.as('overseer').post('/territory-recut/approve');
+    expect(
+      (await h.as('keeper').post('/territory-recut/approve', { queue: 2 }))
+        .status,
+    ).toBe(403);
+    const ok = await h
+      .as('overseer')
+      .post('/territory-recut/approve', { queue: 2 });
     expect(ok.status).toBe(201);
     const p = await proposalOf('Big1');
     expect(p.approvedAt).not.toBeNull();
@@ -298,7 +301,7 @@ describe('the draft of re-cutting (real database)', () => {
   });
 
   it('a new measure sends decided proposals back; a measure that does not hold is refused', async () => {
-    await h.as('overseer').post('/territory-recut/approve');
+    await h.as('overseer').post('/territory-recut/approve', { queue: 2 });
     const bad = await h.as('keeper').put('/territory-recut/measure', {
       cityMaxKm: 25,
       cityTargetKm: 30,
@@ -327,7 +330,7 @@ describe('the draft of re-cutting (real database)', () => {
   });
 
   it('what stands in the way: held, a border moved since — not giving out alone', async () => {
-    await h.as('overseer').post('/territory-recut/approve');
+    await h.as('overseer').post('/territory-recut/approve', { queue: 2 });
     // Given out and taken back: the row changes, the border does not.
     await h.sql(
       `INSERT INTO territory_assignments (congregation_id, territory_id, holder_name, assigned_on, completed_on)

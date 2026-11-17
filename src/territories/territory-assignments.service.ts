@@ -55,7 +55,7 @@ import type {
   PastAssignmentDto,
   ReturnAssignmentDto,
 } from './dto/assignment.dto';
-import { mustNotBeHeldBack } from './recut-apply';
+import { awaitingRecut, mustNotBeHeldBack } from './recut-apply';
 
 const PG_UNIQUE_VIOLATION = '23505';
 /** The exclusion constraint: two lines of a territory lie over each other. */
@@ -401,6 +401,11 @@ export class TerritoryAssignmentsService {
       where: { territoryId: In(ids), congregationId },
       order: { notedOn: 'DESC' },
     });
+    const waits = await awaitingRecut(
+      this.assignments.manager,
+      congregationId,
+      ids,
+    );
     return rows
       .filter((a) => byId.has(a.territoryId))
       .map((a) => {
@@ -422,6 +427,8 @@ export class TerritoryAssignmentsService {
             dueOn: a.dueOn,
             extended: a.extended,
             mine: a.publisherId === me.publisherId,
+            // Waits for a decided re-cutting: not «kept for working again».
+            awaitsRecut: waits.has(t.id),
           },
           meeting: m
             ? {
@@ -608,6 +615,9 @@ export class TerritoryAssignmentsService {
       select: { id: true, number: true, locality: true, category: true },
     });
     const byId = new Map(terr.map((t) => [t.id, t]));
+    const waits = await awaitingRecut(this.assignments.manager, tenantId, [
+      ...byId.keys(),
+    ]);
     // A month before the S-13 lets go of a service year's names (1
     // September), the territory servant sees how many lines will read «—»
     // (17 November 2026): time to print or copy what he still needs.
@@ -656,6 +666,7 @@ export class TerritoryAssignmentsService {
             dueOn: a.dueOn,
             extended: a.extended,
             paperWanted: !!a.paperWantedAt,
+            awaitsRecut: waits.has(t.id),
           };
         }),
       history: kept.map((a) => ({
@@ -867,6 +878,29 @@ export class TerritoryAssignmentsService {
     // Kept for working again: the same holder, a new line from the same day,
     // a new term — in one transaction with the end of the old one.
     let again: TerritoryAssignment | null = null;
+    // Not a territory a decided re-cutting waits for (17 November 2026):
+    // kept again, it would put the committee's decision off by four months
+    // without anyone seeing why. It goes back to the territory servant.
+    if (
+      dto.again &&
+      (
+        await awaitingRecut(this.assignments.manager, a.congregationId, [
+          a.territoryId,
+        ])
+      ).size > 0
+    ) {
+      const t = await this.territories.findOne({
+        where: { id: a.territoryId, congregationId: a.congregationId },
+        select: { id: true, number: true },
+      });
+      throw new ConflictException(
+        refusal(
+          'TERRITORY_AWAITS_RECUT',
+          'The territory waits for a decided re-cutting.',
+          { number: t?.number ?? '' },
+        ),
+      );
+    }
     // Kept again only by someone who may still be given a territory (an
     // inactive or removed card returns it instead — independent review,
     // 17 November 2026).

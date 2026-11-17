@@ -14,6 +14,7 @@ import {
 } from '../auth/decorators/current-user.decorator';
 import {
   RecutApplyDto,
+  RecutApproveDto,
   RecutClassDto,
   RecutHoldDto,
   RecutMeasureDto,
@@ -166,7 +167,10 @@ export class TerritoryRecutController {
   }
 
   @Post('approve')
-  approve(@CurrentUser() user: AuthenticatedUser) {
-    return this.recut.approve(user);
+  approve(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: RecutApproveDto,
+  ) {
+    return this.recut.approve(user, dto.queue);
   }
 }

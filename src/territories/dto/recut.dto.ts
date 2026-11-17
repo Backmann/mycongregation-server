@@ -149,6 +149,18 @@ export class RecutApplyDto {
   noCalls?: RecutNoCallPlaceDto[];
 }
 
+/**
+ * The service committee decides one queue at a time (17 November 2026):
+ * the joins first, the cuts after the joins are seen to work.
+ */
+export class RecutApproveDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(9)
+  queue!: number;
+}
+
 /** Held back for a join, or let go. */
 export class RecutHoldDto {
   @IsUUID()
