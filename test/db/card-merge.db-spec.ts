@@ -24,6 +24,7 @@ describe('merging two cards of one person (real database)', () => {
     'report_snapshots',
     'elder_task_assignees',
     'publisher_distinct_pairs',
+    'territory_requests',
   ];
   // The standing is computed from the reports and recomputed after a merge
   // and after its undo; the fixtures here put reports in by hand without it.
@@ -109,6 +110,13 @@ describe('merging two cards of one person (real database)', () => {
         JSON.stringify({ publishers: [kept, dupe] }),
         JSON.stringify({ [kept]: 'publisher', [dupe]: 'publisher' }),
       ],
+    );
+    // Both cards asked for a territory: one open request per person
+    // (independent review, 17 November 2026).
+    await h.sql(
+      `INSERT INTO territory_requests (congregation_id, publisher_id)
+       VALUES ($1, $2), ($1, $3)`,
+      [c, kept, dupe],
     );
     await h.sql(
       `INSERT INTO publisher_distinct_pairs (congregation_id, a_id, b_id)
@@ -204,6 +212,11 @@ describe('merging two cards of one person (real database)', () => {
     });
     expect(r.status).toBe(201);
     mergeId = r.body.mergeId;
+    expect(
+      await h.sql(
+        `SELECT publisher_id FROM territory_requests WHERE closed_at IS NULL`,
+      ),
+    ).toEqual([{ publisher_id: kept }]);
 
     // The duplicate is gone; its reports, its hours and its sign-in are here.
     expect(

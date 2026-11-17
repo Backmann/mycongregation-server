@@ -77,7 +77,7 @@ describe('moving the lines of a cut (real database)', () => {
       publisherId: await card('Служебный', 'elder'),
     });
     await give(keeper, 'territory_servant');
-    await give(overseer, 'service_overseer');
+    await give(overseer, 'secretary');
     const r = await h.as('keeper').post('/territories/import/territories', {
       items: [
         { number: 'Big1', locality: 'Hamm', geometry: rect(7.0, 7.03) },

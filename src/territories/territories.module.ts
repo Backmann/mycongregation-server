@@ -3,6 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Territory } from '../entities/territory.entity';
 import { TerritoryShape } from '../entities/territory-shape.entity';
 import { TerritoryBoundary } from '../entities/territory-boundary.entity';
+import { TerritoryRequest } from '../entities/territory-request.entity';
+import { TerritoryDutyService } from './territory-duty.service';
 import { TerritoryAssignment } from '../entities/territory-assignment.entity';
 import { TerritoryNoCall } from '../entities/territory-no-call.entity';
 import { TerritorySettings } from '../entities/territory-settings.entity';
@@ -52,6 +54,7 @@ import {
       Territory,
       TerritoryShape,
       TerritoryBoundary,
+      TerritoryRequest,
       TerritoryAssignment,
       TerritoryNoCall,
       TerritorySettings,
@@ -81,6 +84,7 @@ import {
   providers: [
     TerritoriesService,
     TerritoryHistoryService,
+    TerritoryDutyService,
     TerritoryAccessService,
     TerritoryAssignmentsService,
     TerritoryLinksService,

@@ -72,7 +72,7 @@ describe('the draft of re-cutting (real database)', () => {
       publisherId: await card('Простой', 'publisher'),
     });
     await give(keeper, 'territory_servant');
-    await give(overseer, 'service_overseer');
+    await give(overseer, 'secretary');
     const r = await h.as('keeper').post('/territories/import/territories', {
       items: [
         // One large strip to cut, three small ones in a row to join, one

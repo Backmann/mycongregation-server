@@ -32,6 +32,14 @@ export class TerritoryBoundary {
   @Column({ type: 'date', nullable: true })
   validFrom!: string | null;
 
+  /**
+   * The date of the branch's «Назначение территории собрания» (S-54) this
+   * boundary follows (17 November 2026). The boundary is the branch's: in
+   * the app it is only replaced by a new file from the branch.
+   */
+  @Column({ type: 'date', nullable: true })
+  s54On!: string | null;
+
   @Column({ type: 'uuid', nullable: true })
   createdByUserId!: string | null;
 

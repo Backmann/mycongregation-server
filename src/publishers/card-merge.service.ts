@@ -974,6 +974,17 @@ export class CardMergeService {
         for (const pk of pks) addDrop(link.table, pk);
       }
     }
+    // One open request for a territory per person: a partial index, which
+    // the rule above leaves alone. Both cards asking is one request — the
+    // kept card's stays (independent review, 17 November 2026).
+    const askedTwice: { id: string }[] = await m.query(
+      `SELECT r.id FROM territory_requests r
+        WHERE r.publisher_id = $1 AND r.closed_at IS NULL
+          AND EXISTS (SELECT 1 FROM territory_requests k
+                       WHERE k.publisher_id = $2 AND k.closed_at IS NULL)`,
+      [A, keptCard.id],
+    );
+    for (const r of askedTwice) addDrop('territory_requests', { id: r.id });
     // Marks («these two are different people») are not history.
     for (const link of links) {
       if (!DROP_TABLES.has(link.table)) continue;

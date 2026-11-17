@@ -55,6 +55,7 @@ import {
 } from './dto/reshape.dto';
 import { TerritoryAssignmentsService } from './territory-assignments.service';
 import { TerritoryHistoryService } from './territory-history.service';
+import { TerritoryDutyService } from './territory-duty.service';
 import { HomesSurveyService } from './homes-survey.service';
 import { HomeMarksService } from './home-marks.service';
 import { HomeMarkDto } from './dto/home-mark.dto';
@@ -67,6 +68,8 @@ import {
   TransferAssignmentDto,
   PastAssignmentDto,
   HistoryQueryDto,
+  BoundaryS54Dto,
+  BoundaryFileDto,
   CompleteAssignmentDto,
   EditAssignmentDto,
   ExtendAssignmentDto,
@@ -91,6 +94,7 @@ export class TerritoriesController {
     private readonly service: TerritoriesService,
     private readonly given: TerritoryAssignmentsService,
     private readonly history: TerritoryHistoryService,
+    private readonly duty: TerritoryDutyService,
     private readonly links: TerritoryLinksService,
     private readonly noCalls: TerritoryNoCallsService,
     private readonly outline: TerritoryOutlineService,
@@ -104,12 +108,16 @@ export class TerritoriesController {
   /** The door: what the user may open, and the territories he has a part in. */
   @Get('access')
   async access(@CurrentUser() user: AuthenticatedUser) {
-    const [a, mine] = await Promise.all([
+    const [a, mine, mayAsk] = await Promise.all([
       this.service.accessOf(user),
       this.given.mine(user),
+      this.duty.mayAsk(user),
     ]);
     return {
       ...a,
+      // «Мои участки» for everyone a territory may be given to: there he
+      // asks for one (17 November 2026).
+      mayAsk,
       mine: mine.map((t) => ({
         id: t.id,
         number: t.number,
@@ -164,6 +172,70 @@ export class TerritoriesController {
   }
 
   /** A month of the territories, for the service committee. */
+  // ------------------------------- the holder's duty (17 November 2026) --
+
+  /** «Мои участки» beside the territories: past lines, request, progress. */
+  @Get('me')
+  me(@CurrentUser() user: AuthenticatedUser) {
+    return this.duty.me(user);
+  }
+
+  /** «Попросить участок». */
+  @Post('requests')
+  ask(@CurrentUser() user: AuthenticatedUser) {
+    return this.duty.ask(user);
+  }
+
+  /** He takes his request back. */
+  @Delete('requests/mine')
+  cancelAsk(@CurrentUser() user: AuthenticatedUser) {
+    return this.duty.cancel(user);
+  }
+
+  /** The keepers' «Пока нет свободных». */
+  @Post('requests/:id/not-now')
+  notNow(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.duty.notNow(user, id);
+  }
+
+  /** Territories not worked for two years or longer. */
+  @Get('coverage/long')
+  longUnworked(@CurrentUser() user: AuthenticatedUser) {
+    return this.duty.longUnworked(user);
+  }
+
+  /** The date of the branch's S-54 behind the boundary in force. */
+  @Patch('boundary/s54')
+  setS54(@CurrentUser() user: AuthenticatedUser, @Body() dto: BoundaryS54Dto) {
+    return this.duty.setS54(user, dto.s54On);
+  }
+
+  /** What a new boundary from the branch would leave outside. */
+  @Post('boundary/preview')
+  previewBoundary(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: BoundaryFileDto,
+  ) {
+    return this.duty.previewBoundary(user, dto.geometry);
+  }
+
+  /** A new boundary from the branch replaces the one in force. */
+  @Post('boundary/replace')
+  replaceBoundary(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: BoundaryFileDto,
+  ) {
+    return this.duty.replaceBoundary(
+      user,
+      dto.geometry,
+      dto.s54On,
+      dto.description as Record<string, string> | undefined,
+    );
+  }
+
   @Get('summary')
   summary(@CurrentUser() user: AuthenticatedUser, @Query() q: SummaryQueryDto) {
     return this.service.summary(user, q.month);
@@ -585,7 +657,24 @@ export class TerritoriesController {
   @Get('desk')
   async desk(@CurrentUser() user: AuthenticatedUser) {
     const desk = await this.given.desk(user);
-    return { ...desk, ...(await this.service.sizes(user)) };
+    // 17 November 2026: who asks for a territory, how far the overdue ones
+    // are worked, and how the whole territory is covered in a year.
+    const overdue = desk.out.filter(
+      (o: { dueOn: string | null }) => o.dueOn !== null && o.dueOn < desk.today,
+    );
+    return {
+      ...desk,
+      ...(await this.service.sizes(user)),
+      requests: await this.duty.openRequests(user.congregationId),
+      progress: await this.duty.progressOf(
+        user.congregationId,
+        overdue.map((o: { assignmentId: string; territoryId: string }) => ({
+          id: o.assignmentId,
+          territoryId: o.territoryId,
+        })),
+      ),
+      coverage: await this.duty.coverage(user.congregationId),
+    };
   }
 
   /** Into the queue of paper maps, or out of it once printed. */

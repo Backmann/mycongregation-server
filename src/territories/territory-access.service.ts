@@ -14,6 +14,10 @@ import { refusal } from '../common/errors/refusal';
 export const TERRITORY_KEEPERS: ResponsibilityType[] = [
   ResponsibilityType.TERRITORY_SERVANT,
   ResponsibilityType.TERRITORY_SERVANT_ASSISTANT,
+  // He directs the preaching in the congregation's territory («Организованы
+  // исполнять волю Иеговы», ch. 9 §31); Lionel, 31 October and 17 November
+  // 2026: the same rights as the territory servant.
+  ResponsibilityType.SERVICE_OVERSEER,
 ];
 
 /**
