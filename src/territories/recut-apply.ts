@@ -85,6 +85,28 @@ export function joinStanding(
  * keeper gives it out anyway — then the hold is let go
  * (territory-assignments.service assign).
  */
+/**
+ * Territories a decided re-cutting waits for (17 November 2026): in an open
+ * proposal the service committee approved. Kept «for working again», one of
+ * these would put the decision off by another four months unseen.
+ */
+export async function awaitingRecut(
+  m: EntityManager,
+  tenantId: string,
+  territoryIds: string[],
+): Promise<Set<string>> {
+  if (territoryIds.length === 0) return new Set();
+  const rows = await m.query<{ id: string }[]>(
+    `SELECT DISTINCT unnest(territory_ids)::text AS id
+       FROM territory_recut_proposals
+      WHERE congregation_id = $1 AND state = 'open'
+        AND approved_at IS NOT NULL AND territory_ids && $2::uuid[]`,
+    [tenantId, territoryIds],
+  );
+  const wanted = new Set(territoryIds);
+  return new Set(rows.map((r) => r.id).filter((id) => wanted.has(id)));
+}
+
 export async function mustNotBeHeldBack(
   m: EntityManager,
   tenantId: string,

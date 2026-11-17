@@ -383,6 +383,7 @@ export const REFUSAL_CODES = [
   'TERRITORY_ASK_OPEN',
   'TERRITORY_BOUNDARY_S54',
   'TERRITORY_BOUNDARY_S54_DATE',
+  'TERRITORY_AWAITS_RECUT',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];

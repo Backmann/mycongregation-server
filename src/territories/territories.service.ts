@@ -35,6 +35,7 @@ import {
   closestOutline,
 } from './geometry';
 import { sharedGround } from './reshape';
+import { awaitingRecut } from './recut-apply';
 import {
   addDays,
   keptFrom,
@@ -335,8 +336,12 @@ export class TerritoriesService {
     const from = serviceYearStart(year);
     const to = addDays(serviceYearStart(year + 1), -1);
     // Business territories have a sheet of their own (12 November 2026).
+    // A territory put away during the year (joined into another by a
+    // re-cutting) keeps its lines of the year on the sheet, marked where it
+    // went (17 November 2026): the sheet is the year's record, and the
+    // circuit overseer reads it.
     const rows = await this.territories.find({
-      where: { congregationId: tenantId, archivedAt: IsNull(), category },
+      where: { congregationId: tenantId, category },
     });
     const all = await this.assignments.find({
       where: { congregationId: tenantId },
@@ -348,11 +353,41 @@ export class TerritoriesService {
       list.push(x);
       byTerritory.set(x.territoryId, list);
     }
+    const joins = await this.territories.manager.query<
+      { keep_id: string; territory_ids: string[]; applied_at: Date }[]
+    >(
+      `SELECT keep_id, territory_ids, applied_at FROM territory_recut_proposals
+        WHERE congregation_id = $1 AND state = 'applied' AND kind = 'merge'
+          AND keep_id IS NOT NULL`,
+      [tenantId],
+    );
+    const zone = (
+      await this.congregations.findOne({
+        where: { id: tenantId },
+        select: { id: true, timezone: true },
+      })
+    )?.timezone;
+    const numberOf = new Map(rows.map((t) => [t.id, t.number]));
+    const joinedInto = new Map<string, string>();
+    for (const j of joins) {
+      for (const id of j.territory_ids) {
+        if (id !== j.keep_id) joinedInto.set(id, numberOf.get(j.keep_id) ?? '');
+      }
+    }
+    const inYearOf = (list: TerritoryAssignment[]) =>
+      list.filter((x) => {
+        if (x.assignedOn > to) return false;
+        const end = x.completedOn ?? x.returnedOn;
+        return !end || end >= from;
+      });
+    const shown = rows.filter(
+      (t) => !t.archivedAt || inYearOf(byTerritory.get(t.id) ?? []).length > 0,
+    );
     return {
       serviceYear: year,
       from,
       to,
-      territories: rows.map((t) => {
+      territories: shown.map((t) => {
         const list = byTerritory.get(t.id) ?? [];
         const before = [
           t.lastCompletedOn && t.lastCompletedOn < from
@@ -368,13 +403,15 @@ export class TerritoriesService {
           .filter((d): d is string => !!d)
           .sort()
           .pop();
-        const inYear = list.filter((x) => {
-          if (x.assignedOn > to) return false;
-          const end = x.completedOn ?? x.returnedOn;
-          return !end || end >= from;
-        });
+        const inYear = inYearOf(list);
         return {
           number: t.number,
+          archived: t.archivedAt
+            ? {
+                on: todayIn(t.archivedAt, zone),
+                joinedInto: joinedInto.get(t.id) || null,
+              }
+            : null,
           lastCompletedBefore: before ?? null,
           assignments: inYear.map((x) => ({
             holderName: x.holderName,
@@ -592,9 +629,16 @@ export class TerritoriesService {
         .filter((d): d is string => !!d)
         .sort()
         .pop() ?? null;
+    const waits = await awaitingRecut(
+      this.territories.manager,
+      user.congregationId,
+      [t.id],
+    );
     return {
       ...t,
       lastWorkedOn,
+      // A decided re-cutting waits for it: not «kept for working again».
+      awaitsRecut: waits.size > 0,
       assignments: history,
       noCalls: noCalls.map((n) => ({
         id: n.id,

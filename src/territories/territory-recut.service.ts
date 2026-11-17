@@ -1208,9 +1208,12 @@ export class TerritoryRecutService {
 
   /**
    * The service committee decided at its meeting: one of its members
-   * records it. Every open proposal not yet decided is decided now.
+   * records it. One queue at a time (17 November 2026): «вводить очередями —
+   * сначала объединения малых, затем 5 самых больших, остальное после
+   * сверки». Approving the whole draft at once let a cut of the second queue
+   * be applied the same day, before the joins had been seen to work.
    */
-  async approve(user: AuthenticatedUser) {
+  async approve(user: AuthenticatedUser, queue: number) {
     await this.mustSee(user);
     if (!(await this.decides(user))) {
       throw new ForbiddenException(
@@ -1225,7 +1228,7 @@ export class TerritoryRecutService {
     const r = recut
       ? await m.update(
           TerritoryRecutProposal,
-          { recutId: recut.id, state: 'open', approvedAt: IsNull() },
+          { recutId: recut.id, state: 'open', approvedAt: IsNull(), queue },
           { approvedAt: new Date(), reopenedAt: null },
         )
       : { affected: 0 };
@@ -1235,7 +1238,7 @@ export class TerritoryRecutService {
       entityId: tenantId,
       action: 'UPDATE',
       actorUserId: user.id,
-      detail: { recut: 'approved', proposals: r.affected ?? 0 },
+      detail: { recut: 'approved', queue, proposals: r.affected ?? 0 },
     });
     return this.view(user);
   }
