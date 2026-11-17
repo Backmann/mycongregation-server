@@ -22,12 +22,16 @@ import { ServiceGroup } from '../entities/service-group.entity';
 import { ServiceReport } from '../entities/service-report.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { TalkExchange } from '../entities/talk-exchange.entity';
+import { TerritoryRequest } from '../entities/territory-request.entity';
 import { TerritoryAssignment } from '../entities/territory-assignment.entity';
 import {
   anonymiseNamesBefore,
   countLinesBefore,
   countNamedLinesBefore,
   deleteLinesBefore,
+  countClosedRequestsBefore,
+  deleteClosedRequestsBefore,
+  requestsKeptFrom,
   linesKeptFrom,
   namesKeptFrom,
 } from '../territories/territory-retention';
@@ -301,6 +305,19 @@ export const RETENTION_RULES: RetentionRule[] = [
     keptFrom: linesKeptFrom,
     count: countLinesBefore,
     apply: deleteLinesBefore,
+  },
+  {
+    kind: 'counted',
+    key: 'territory-requests',
+    what: 'Закрытые просьбы об участке старше 30 дней',
+    basis:
+      'Решение 17.11.2026 — просьба хранится до ответа и ещё 30 дней, ' +
+      'без причин и текста',
+    entity: TerritoryRequest,
+    does: 'delete',
+    keptFrom: requestsKeptFrom,
+    count: countClosedRequestsBefore,
+    apply: deleteClosedRequestsBefore,
   },
 
   // «Deleted» rows stay in the table so a deletion can be undone. After

@@ -376,6 +376,12 @@ export const REFUSAL_CODES = [
   'TERRITORY_ALL_WALKED',
   'TERRITORY_SPLIT_BUSINESS',
   'TERRITORY_PART_STARTED',
+  // 17 November 2026: a holder returns or hands on only through the keeper;
+  // a request for a territory, and what stops one.
+  'TERRITORY_ASK_KEEPER',
+  'TERRITORY_ASK_OVERDUE',
+  'TERRITORY_ASK_OPEN',
+  'TERRITORY_BOUNDARY_S54',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];

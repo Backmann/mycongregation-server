@@ -399,7 +399,10 @@ export const PLAN: Record<string, TablePlan> = {
   territory_shapes: copy(`id congregation_id territory_id geometry reason
     from_territory_ids edit_id detail created_by_user_id created_at`),
   territory_boundaries: copy(`id congregation_id geometry description
-    valid_from created_by_user_id created_at`),
+    valid_from created_by_user_id created_at s54_on`),
+  /** «Попросить участок»: who asked and when, no reason, no text. */
+  territory_requests: copy(`id congregation_id publisher_id created_at
+    closed_at closed_how closed_by_user_id`),
   territory_assignments: table(
     copy(`id congregation_id territory_id publisher_id for_group_id assigned_on
       due_on completed_on returned_on method extended imported

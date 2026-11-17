@@ -65,7 +65,7 @@ describe('territory history (real database)', () => {
     card.noApp = await person('Безприложения');
     for (const [userId, type] of [
       [keeper, 'territory_servant'],
-      [overseer, 'service_overseer'],
+      [overseer, 'secretary'],
     ]) {
       await h.sql(
         `INSERT INTO responsibilities (congregation_id, type, user_id) VALUES ($1, $2, $3)`,
@@ -682,6 +682,7 @@ describe('territory history (real database)', () => {
     expect(await retention.applyCounted(congregationId)).toEqual({
       'territory-names': 2,
       'territory-lines': 1,
+      'territory-requests': 0,
     });
     expect(await line(a.id)).toMatchObject({
       publisher_id: null,
@@ -707,6 +708,7 @@ describe('territory history (real database)', () => {
     expect(await retention.applyCounted(congregationId)).toEqual({
       'territory-names': 0,
       'territory-lines': 0,
+      'territory-requests': 0,
     });
   });
 });

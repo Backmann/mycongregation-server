@@ -282,8 +282,10 @@ export class TerritoriesService {
     const lastOf = new Map(lastDone.map((r) => [r.territoryId, r.last]));
     const held = new Set(open.map((a) => a.territoryId));
     const yearAgo = `${Number(today.slice(0, 4)) - 1}${today.slice(4)}`;
+    // Held or free alike (17 November 2026): a territory a year in someone's
+    // hands unworked is a year unworked — the aim is the whole territory at
+    // least once a year.
     const idle = rows.filter((t) => {
-      if (held.has(t.id)) return false;
       const done = [t.lastCompletedOn, lastOf.get(t.id) ?? null]
         .filter((d): d is string => !!d)
         .sort()

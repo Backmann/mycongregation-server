@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -781,6 +782,13 @@ export class TerritoryAssignmentsService {
       dueOn,
       forGroup: group?.name ?? null,
     });
+    // His «Попросить участок» is answered (17 November 2026).
+    await this.assignments.manager.query(
+      `UPDATE territory_requests
+          SET closed_at = now(), closed_how = 'given', closed_by_user_id = $3
+        WHERE congregation_id = $1 AND publisher_id = $2 AND closed_at IS NULL`,
+      [tenantId, p.id, user.id],
+    );
     // «Вам выдан участок …» — to the holder, if he has the app.
     if (p.userId) {
       await this.notifications.notify({
@@ -842,14 +850,49 @@ export class TerritoryAssignmentsService {
     if (on < a.assignedOn) throw this.dates('worked before given out');
     a.completedOn = on;
     a.method = (dto.method as TerritoryMethod) ?? 'door_to_door';
-    const saved = await this.assignments.save(a);
+    // Kept for working again: the same holder, a new line from the same day,
+    // a new term — in one transaction with the end of the old one.
+    let again: TerritoryAssignment | null = null;
+    const saved = await this.assignments.manager.transaction(async (m) => {
+      const done = await m.save(a);
+      if (dto.again) {
+        again = await m.save(
+          m.create(TerritoryAssignment, {
+            congregationId: a.congregationId,
+            territoryId: a.territoryId,
+            publisherId: a.publisherId,
+            holderName: a.holderName,
+            forGroupId: a.forGroupId,
+            forGroupName: a.forGroupName,
+            assignedOn: on,
+            dueOn: addDays(on, TERM_DAYS),
+            completedOn: null,
+            returnedOn: null,
+            method: null,
+            extended: false,
+            transferred: false,
+            imported: false,
+            createdByUserId: user.id,
+          }),
+        );
+      }
+      return done;
+    });
     await this.forgetMarks(saved.id);
     await this.log(user, saved, 'UPDATE', {
       completedOn: on,
       method: a.method,
+      ...(dto.again ? { again: true } : {}),
     });
+    if (again) {
+      await this.log(user, again, 'CREATE', {
+        assignedOn: on,
+        dueOn: (again as TerritoryAssignment).dueOn,
+        again: true,
+      });
+    }
     await this.releaseMeetings(user, saved.territoryId);
-    return saved;
+    return again ?? saved;
   }
 
   async giveBack(
@@ -857,7 +900,18 @@ export class TerritoryAssignmentsService {
     id: string,
     dto: ReturnAssignmentDto,
   ) {
-    const { a } = await this.openFor(user, id);
+    const { a, keeps } = await this.openFor(user, id);
+    // Returning a territory unworked is the keepers' decision, after a word
+    // with the holder (17 November 2026): the holder has taken it on; the
+    // book knows only «worked, reported, kept or returned» (ch. 9 §33).
+    if (!keeps) {
+      throw new ForbiddenException(
+        refusal(
+          'TERRITORY_ASK_KEEPER',
+          'Talk to the territory servant: only he takes a territory back unworked.',
+        ),
+      );
+    }
     const today = await this.today(user.congregationId);
     const on = dto.returnedOn ?? today;
     if (on > today) throw this.dates('returned in the future');

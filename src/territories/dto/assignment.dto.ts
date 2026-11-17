@@ -8,6 +8,7 @@ import {
   IsISO8601,
   Max,
   Min,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -60,9 +61,18 @@ export class CompleteAssignmentDto {
   @IsOptional()
   @IsIn(TERRITORY_METHODS)
   method?: string;
+
+  /**
+   * «Оставить для повторной обработки» (book ch. 9 §33): worked, reported,
+   * and kept — a new line of the S-13 starts the same day for the same
+   * holder, for a new term.
+   */
+  @IsOptional()
+  @IsBoolean()
+  again?: boolean;
 }
 
-/** «Вернуть без обработки». */
+/** «Вернуть без обработки» — the keepers only (17 November 2026). */
 export class ReturnAssignmentDto {
   /** Defaults to today. */
   @IsOptional()
@@ -208,6 +218,22 @@ export class MeetingTerritoryDto {
   @IsOptional()
   @IsUUID()
   territoryId?: string | null;
+}
+
+/** The date of the S-54 behind the boundary (17 November 2026). */
+export class BoundaryS54Dto {
+  @Matches(DAY)
+  s54On!: string;
+}
+
+/** A new boundary file from the branch; for a preview the date may wait. */
+export class BoundaryFileDto {
+  @IsObject()
+  geometry!: Record<string, unknown>;
+
+  @IsOptional()
+  @Matches(DAY)
+  s54On?: string;
 }
 
 /** The journal of a territory, or «Что происходит». */

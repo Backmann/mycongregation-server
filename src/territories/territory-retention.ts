@@ -124,3 +124,36 @@ export async function deleteLinesBefore(
     return res[1] ?? 0;
   });
 }
+
+/** A request for a territory, closed a month ago, goes (17 November 2026). */
+export function requestsKeptFrom(today: string): string {
+  const d = new Date(`${today}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 30);
+  return d.toISOString().slice(0, 10);
+}
+
+export async function countClosedRequestsBefore(
+  ds: DataSource,
+  congregationId: string,
+  before: string,
+): Promise<number> {
+  const [row] = (await ds.query(
+    `SELECT count(*)::int AS n FROM territory_requests
+      WHERE congregation_id = $1 AND closed_at < $2::date`,
+    [congregationId, before],
+  )) as { n: number }[];
+  return row?.n ?? 0;
+}
+
+export async function deleteClosedRequestsBefore(
+  ds: DataSource,
+  congregationId: string,
+  before: string,
+): Promise<number> {
+  const res = (await ds.query(
+    `DELETE FROM territory_requests
+      WHERE congregation_id = $1 AND closed_at < $2::date`,
+    [congregationId, before],
+  )) as [unknown, number];
+  return res[1] ?? 0;
+}

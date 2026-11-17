@@ -81,6 +81,52 @@ export function outlineChangedWords(
 }
 
 /**
+ * A publisher asks for a territory (17 November 2026) — to the territory
+ * servant, his assistant and the service overseer. Names nobody on a locked
+ * screen.
+ */
+export function askedWords(lang: SupportedLanguage): Words {
+  switch (lang) {
+    case 'en':
+      return {
+        title: 'A publisher asks for a territory',
+        body: 'See «To do» in the territory desk.',
+      };
+    case 'de':
+      return {
+        title: 'Ein Verkündiger bittet um ein Gebiet',
+        body: 'Siehe «Zu erledigen» bei Ausgabe und Rückgabe.',
+      };
+    default:
+      return {
+        title: 'Возвещатель просит участок',
+        body: 'Смотрите «Нужно сделать» в «Выдаче и приёме».',
+      };
+  }
+}
+
+/** The keeper's «not now» to a request (17 November 2026). */
+export function notNowWords(lang: SupportedLanguage): Words {
+  switch (lang) {
+    case 'en':
+      return {
+        title: 'No territory for now',
+        body: 'The territory servant has no free personal territory at the moment. You can ask again later.',
+      };
+    case 'de':
+      return {
+        title: 'Zurzeit kein Gebiet',
+        body: 'Der Gebietsdiener hat im Moment kein freies persönliches Gebiet. Sie können später wieder fragen.',
+      };
+    default:
+      return {
+        title: 'Пока нет свободного участка',
+        body: 'У ответственного за участки сейчас нет свободного личного участка. Попросите позже ещё раз.',
+      };
+  }
+}
+
+/**
  * The territory he held was handed on to someone else (17 November 2026):
  * nothing more to do with it — the paper map goes back to the territory
  * servant. Names nobody.

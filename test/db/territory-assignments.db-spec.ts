@@ -297,11 +297,18 @@ describe('territory assignments (real database)', () => {
     });
   });
 
-  it('handed back without working: free again, and no «worked» date', async () => {
+  it('handed back without working — by the keepers: free again, and no «worked» date', async () => {
     await verify();
     const a = await giveToHolder();
-    const r = await h
+    // The holder does not drop it himself (17 November 2026): a word with
+    // the territory servant first.
+    const own = await h
       .as('holder')
+      .post(`/territories/assignments/${a.id}/return`, {});
+    expect(own.status).toBe(403);
+    expect(own.body.code).toBe('TERRITORY_ASK_KEEPER');
+    const r = await h
+      .as('keeper')
       .post(`/territories/assignments/${a.id}/return`, {});
     expect(r.status).toBe(200);
     expect(r.body.returnedOn).toBe(today);

@@ -93,7 +93,7 @@ describe('applying the re-cutting draft (real database)', () => {
       publisherId: await card('Служебный', 'elder'),
     });
     await giveResp(keeper, 'territory_servant');
-    await giveResp(overseer, 'service_overseer');
+    await giveResp(overseer, 'secretary');
     holder = await card('Держатель', 'publisher');
     const r = await h.as('keeper').post('/territories/import/territories', {
       items: [
