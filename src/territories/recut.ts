@@ -201,6 +201,46 @@ export function verdictOf(
 }
 
 /**
+ * Whether a new measure judges a proposal's territories otherwise than the
+ * old one did (17 November 2026, Lionel's decision): another action, or a
+ * cut into another number of parts, for any of them. Only then does an
+ * approval go back to the service committee — a join of small territories
+ * stays decided when only the far measure moved. A territory the measure
+ * cannot see (no figures yet) counts as changed: better asked again than
+ * kept unseen.
+ */
+export function judgedOtherwise(
+  territoryIds: string[],
+  figures: Record<
+    string,
+    { walkKm: number; driveMinutes: number | null } | undefined
+  >,
+  words: Record<string, 'city' | 'far'> | null | undefined,
+  before: RecutMeasure,
+  after: RecutMeasure,
+): boolean {
+  const same = (a: RecutVerdict, b: RecutVerdict) =>
+    a.action === b.action &&
+    (a.action !== 'cut' || b.action !== 'cut' || a.parts === b.parts);
+  return territoryIds.some((id) => {
+    const x = figures[id];
+    if (!x) return true;
+    const word = words?.[id];
+    const was = verdictOf(
+      x.walkKm,
+      classOf(x.driveMinutes, word, before),
+      before,
+    );
+    const now = verdictOf(
+      x.walkKm,
+      classOf(x.driveMinutes, word, after),
+      after,
+    );
+    return !same(was, now);
+  });
+}
+
+/**
  * Small territories joined with neighbours (the draft's joins): from the
  * smallest up, each takes the smallest touching neighbour not yet taken,
  * while together they stay within the target and are below a full
