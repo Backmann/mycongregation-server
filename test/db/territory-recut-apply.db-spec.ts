@@ -252,6 +252,9 @@ describe('applying the re-cutting draft (real database)', () => {
     expect(
       (await h.as('keeper').get(`/territories/${ids.J2}`)).body.awaitsRecut,
     ).toBe(true);
+    const deskOut = (await h.as('keeper').get('/territories/desk')).body
+      .out as { number: string; awaitsRecut: boolean }[];
+    expect(deskOut.find((o) => o.number === 'J2')?.awaitsRecut).toBe(true);
     const mine = (await h.as('holder').get('/territories/mine')).body as {
       number: string;
       assignment: { awaitsRecut: boolean };

@@ -615,6 +615,9 @@ export class TerritoryAssignmentsService {
       select: { id: true, number: true, locality: true, category: true },
     });
     const byId = new Map(terr.map((t) => [t.id, t]));
+    const waits = await awaitingRecut(this.assignments.manager, tenantId, [
+      ...byId.keys(),
+    ]);
     // A month before the S-13 lets go of a service year's names (1
     // September), the territory servant sees how many lines will read «—»
     // (17 November 2026): time to print or copy what he still needs.
@@ -663,6 +666,7 @@ export class TerritoryAssignmentsService {
             dueOn: a.dueOn,
             extended: a.extended,
             paperWanted: !!a.paperWantedAt,
+            awaitsRecut: waits.has(t.id),
           };
         }),
       history: kept.map((a) => ({
