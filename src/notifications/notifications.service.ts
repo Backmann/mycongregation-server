@@ -74,6 +74,8 @@ export function categoryOfKind(kind: string): NotificationCategory | 'other' {
     // A territory given to him, and its day coming (11 November 2026).
     kind === 'territory_assigned' ||
     kind === 'territory_due' ||
+    // The territory he held went on to someone else (17 November 2026).
+    kind === 'territory_transferred' ||
     // The border of the territory he holds moved (13 November 2026).
     kind === 'territory_outline_changed' ||
     // One's own time at the stand is one's assignment: nobody learns too late

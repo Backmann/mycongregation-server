@@ -28,7 +28,9 @@ export const TERRITORY_METHODS: TerritoryMethod[] = [
  *
  * It ends one of two ways: worked (`completedOn`, with the method) or handed
  * back unworked (`returnedOn`), which leaves the S-13's «worked» date empty.
- * At most one is open per territory (a partial unique index).
+ * At most one is open per territory (a partial unique index), and two lines
+ * of a territory never lie over each other by days (an exclusion constraint,
+ * 17 November 2026).
  */
 @Entity('territory_assignments')
 @Index(['congregationId'])
@@ -75,6 +77,14 @@ export class TerritoryAssignment {
   /** The holder has used his one extension of a month. */
   @Column({ type: 'boolean', default: false })
   extended!: boolean;
+
+  /**
+   * Ended because a keeper handed it on to someone else (17 November 2026):
+   * `returnedOn` is the day, and the S-13 reads «передан …», not an empty
+   * «worked» column. The marks of the walk went on with it.
+   */
+  @Column({ type: 'boolean', default: false })
+  transferred!: boolean;
 
   /** Brought over from earlier records rather than given out here. */
   @Column({ type: 'boolean', default: false })

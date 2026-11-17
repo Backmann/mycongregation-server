@@ -24,8 +24,10 @@ import { SpecialEvent } from '../entities/special-event.entity';
 import { TalkExchange } from '../entities/talk-exchange.entity';
 import { TerritoryAssignment } from '../entities/territory-assignment.entity';
 import {
+  anonymiseNamesBefore,
   countLinesBefore,
   countNamedLinesBefore,
+  deleteLinesBefore,
   linesKeptFrom,
   namesKeptFrom,
 } from '../territories/territory-retention';
@@ -98,6 +100,15 @@ export interface CountedRule {
   /** The first day still kept, seen from the congregation's today. */
   keptFrom: (today: string) => string;
   count: (
+    ds: DataSource,
+    congregationId: string,
+    before: string,
+  ) => Promise<number>;
+  /**
+   * Switched on: what it counts is done every night
+   * (RetentionService.applyCounted). Absent: it only counts.
+   */
+  apply?: (
     ds: DataSource,
     congregationId: string,
     before: string,
@@ -275,6 +286,8 @@ export const RETENTION_RULES: RetentionRule[] = [
     does: 'anonymise',
     keptFrom: namesKeptFrom,
     count: countNamedLinesBefore,
+    // Switched on 17 November 2026 (decision of Lionel; 0 on the live data).
+    apply: anonymiseNamesBefore,
   },
   {
     kind: 'counted',
@@ -287,6 +300,7 @@ export const RETENTION_RULES: RetentionRule[] = [
     does: 'delete',
     keptFrom: linesKeptFrom,
     count: countLinesBefore,
+    apply: deleteLinesBefore,
   },
 
   // «Deleted» rows stay in the table so a deletion can be undone. After

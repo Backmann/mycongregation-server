@@ -17,15 +17,18 @@ export interface RetentionPreviewRow {
   caution?: string;
   /** What removal will do once switched on, where it is not plain deletion. */
   does?: 'anonymise' | 'delete';
+  /** Switched on: done every night, not only counted. */
+  on?: boolean;
 }
 
 /**
  * Counts what the retention rules would remove (31 October 2026).
  *
- * PREVIEW ONLY. Nothing here deletes. The counts are looked at first — on the
- * live data, through `GET /retention/preview` and the night log — and only
- * then is removal switched on, in a change of its own. A rule that deletes on
- * the first night after it ships has never been seen doing it.
+ * The counts are looked at first — on the live data, through
+ * `GET /retention/preview` and the night log — and only then is removal
+ * switched on, in a change of its own, rule by rule (`apply`). A rule that
+ * deletes on the first night after it ships has never been seen doing it.
+ * Switched on so far: the S-13's names and lines (17 November 2026).
  */
 @Injectable()
 export class RetentionService {
@@ -52,6 +55,7 @@ export class RetentionService {
           before,
           count: await rule.count(this.dataSource, congregationId, before),
           does: rule.does,
+          ...(rule.apply ? { on: true } : {}),
         });
         continue;
       }
@@ -94,6 +98,58 @@ export class RetentionService {
       where: where as FindOptionsWhere<object>,
       withDeleted: true,
     });
+  }
+
+  /**
+   * What the switched-on rules do, for one congregation: one rule after
+   * another, each in its own statement or transaction. Returns how many rows
+   * each touched.
+   */
+  async applyCounted(
+    congregationId: string,
+    now: Date = new Date(),
+  ): Promise<Record<string, number>> {
+    const congregation = await this.dataSource
+      .getRepository(Congregation)
+      .findOne({ where: { id: congregationId } });
+    const today = todayIn(now, congregation?.timezone);
+    const done: Record<string, number> = {};
+    for (const rule of RETENTION_RULES) {
+      if (rule.kind !== 'counted' || !rule.apply) continue;
+      done[rule.key] = await rule.apply(
+        this.dataSource,
+        congregationId,
+        rule.keptFrom(today),
+      );
+    }
+    return done;
+  }
+
+  /**
+   * Every night, before the counts: the switched-on rules act. The log says
+   * how many rows, never which.
+   */
+  @Cron('45 2 * * *', { name: 'retention-apply', timeZone: 'UTC' })
+  async applyNightly(): Promise<void> {
+    try {
+      const congregations = await this.dataSource
+        .getRepository(Congregation)
+        .find({ select: { id: true } });
+      const totals = new Map<string, number>();
+      for (const c of congregations) {
+        for (const [key, n] of Object.entries(await this.applyCounted(c.id))) {
+          totals.set(key, (totals.get(key) ?? 0) + n);
+        }
+      }
+      const done = [...totals].filter(([, n]) => n > 0);
+      this.logger.log(
+        done.length === 0
+          ? 'retention: nothing past its time'
+          : `retention done: ${done.map(([k, n]) => `${k}=${n}`).join(' ')}`,
+      );
+    } catch (err) {
+      this.logger.error(`retention failed: ${String(err)}`);
+    }
   }
 
   /**

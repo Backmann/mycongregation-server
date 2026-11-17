@@ -12,6 +12,8 @@ import { ServiceGroup } from '../entities/service-group.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { AuditLogModule } from '../audit-log/audit-log.module';
+import { AuditLog } from '../entities/audit-log.entity';
+import { TerritoryHistoryService } from './territory-history.service';
 import {
   TerritoriesController,
   TerritoryLinksController,
@@ -65,6 +67,7 @@ import {
       TerritoryRecut,
       TerritoryRecutProposal,
       TerritoryRecutRemark,
+      AuditLog,
     ]),
     AuditLogModule,
     NotificationsModule,
@@ -77,6 +80,7 @@ import {
   ],
   providers: [
     TerritoriesService,
+    TerritoryHistoryService,
     TerritoryAccessService,
     TerritoryAssignmentsService,
     TerritoryLinksService,
