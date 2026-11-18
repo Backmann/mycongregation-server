@@ -87,6 +87,9 @@ export const REFUSAL_CODES = [
   // Starting from the last visit: only on an empty week, and only when one exists.
   'CO_VISIT_TEMPLATE_NOT_EMPTY',
   'CO_VISIT_TEMPLATE_NO_SOURCE',
+  'CO_VISIT_PASTORAL_ELDERS',
+  'CO_VISIT_NO_WIFE',
+  'CO_VISIT_WIFE_COMES',
   // ---- special events ----
   'EVENT_CHANGE_EMPTY',
   'EVENT_END_BEFORE_START',

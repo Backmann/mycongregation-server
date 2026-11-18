@@ -34,6 +34,12 @@ describe('the visit week from the last visit (real database)', () => {
       )[0].id;
     past = await ev(pastStart, pastEnd);
     next = await ev(nextStart, nextEnd);
+    // Both overseers come with their wives: her outing is carried
+    // (co-visit-wife-pastoral.db-spec covers the one who comes alone).
+    await h.sql(
+      `UPDATE special_events SET co_wife_comes = true WHERE id = ANY($1)`,
+      [[past, next]],
+    );
     host = await h.addPublisher({
       firstName: 'Глеб',
       lastName: 'Хозяин',

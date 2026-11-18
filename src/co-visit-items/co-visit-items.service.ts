@@ -25,6 +25,7 @@ import { CongregationClock } from '../common/congregation-clock.service';
 import { refusal } from '../common/errors/refusal';
 import { CartLocation } from '../entities/cart-location.entity';
 import { daysOf, templateFrom, type TemplateItem } from './visit-week-copy';
+import { asVisited, strayWifeRows, wifeComes } from './co-visit-wife';
 
 /**
  * The field-service part of a circuit-overseer visit, as everyone may see it.
@@ -107,6 +108,37 @@ export interface CoVisitItemView {
   assigneeText: string | null;
   note: string | null;
   sortOrder: number;
+  /**
+   * A shepherding call read by someone who is not an elder: the slot is
+   * shown — the time is taken — but not who goes nor to whom (Lionel,
+   * 18 November 2026: «видно только старейшинам»).
+   */
+  restricted: boolean;
+}
+
+/**
+ * A shepherding call as a planner who is not an elder sees it: when, and
+ * nothing else. Every other kind is returned as it is.
+ */
+export function forReader(
+  view: CoVisitItemView,
+  elder: boolean,
+): CoVisitItemView {
+  if (elder || view.kind !== 'pastoral') return view;
+  return {
+    ...view,
+    placeKind: null,
+    cartLocationId: null,
+    cartLocationName: null,
+    placeText: null,
+    assigneePublisherId: null,
+    assigneeName: null,
+    assigneePhone: null,
+    assigneeAddress: null,
+    assigneeText: null,
+    note: null,
+    restricted: true,
+  };
 }
 
 /**
@@ -137,6 +169,7 @@ export function toCoVisitItemView(
     assigneeText: item.assigneeText,
     note: item.note,
     sortOrder: item.sortOrder,
+    restricted: false,
   };
 }
 
@@ -194,6 +227,55 @@ export class CoVisitItemsService {
   }
 
   /**
+   * Is the reader an elder? Shepherding calls are theirs alone (Lionel,
+   * 18 November 2026). Judged as the S-61 folder judges it: by the account's
+   * role or by the appointment on his card — an administrator who is not an
+   * elder is not one here either.
+   */
+  async isElder(
+    congregationId: string,
+    user: AuthenticatedUser,
+  ): Promise<boolean> {
+    if (user.role === UserRole.ELDER) return true;
+    const card = await this.publishersRepo.findOne({
+      where: { congregationId, userId: user.id },
+      select: { id: true, appointment: true },
+    });
+    return card?.appointment === PublisherAppointment.ELDER;
+  }
+
+  /** Shepherding calls are written by elders only. */
+  private async assertMayTouch(
+    congregationId: string,
+    user: AuthenticatedUser,
+    kinds: (string | undefined | null)[],
+  ): Promise<void> {
+    if (!kinds.includes('pastoral')) return;
+    if (await this.isElder(congregationId, user)) return;
+    throw new ForbiddenException(
+      refusal(
+        'CO_VISIT_PASTORAL_ELDERS',
+        'Shepherding calls are planned by elders only.',
+      ),
+    );
+  }
+
+  /** Her rows exist only when the overseer's wife comes on this visit. */
+  private assertWifeComes(
+    event: SpecialEvent,
+    asks: { forWife?: boolean | null; withWife?: boolean | null },
+  ): void {
+    if (wifeComes(event)) return;
+    if (asks.forWife !== true && asks.withWife !== true) return;
+    throw new ConflictException(
+      refusal(
+        'CO_VISIT_NO_WIFE',
+        "The overseer's wife does not come on this visit.",
+      ),
+    );
+  }
+
+  /**
    * The signed-in person's own slice of upcoming circuit-overseer visits,
    * readable by ANY authenticated member (unlike the full schedule):
    *   • items where they are the assignee (service partner, lunch host, …) —
@@ -219,7 +301,10 @@ export class CoVisitItemsService {
    * same person really is the right one, and the choice stays with whoever is
    * planning the visit.
    */
-  async hostStats(congregationId: string): Promise<
+  async hostStats(
+    congregationId: string,
+    elder: boolean,
+  ): Promise<
     {
       publisherId: string;
       kind: string;
@@ -233,7 +318,10 @@ export class CoVisitItemsService {
       .select(['i.kind', 'i.itemDate', 'i.assigneePublisherId'])
       .where('i.congregationId = :congregationId', { congregationId })
       .andWhere('i.kind IN (:...kinds)', {
-        kinds: ['lunch', 'lunch_box', 'field_service', 'pastoral'],
+        // Who went on which shepherding call is the elders' (18 Nov 2026).
+        kinds: elder
+          ? ['lunch', 'lunch_box', 'field_service', 'pastoral']
+          : ['lunch', 'lunch_box', 'field_service'],
       })
       .andWhere('i.assigneePublisherId IS NOT NULL')
       .getMany();
@@ -326,7 +414,8 @@ export class CoVisitItemsService {
         relations: { assignee: true, cartLocation: true },
         order: { itemDate: 'ASC', startTime: 'ASC', sortOrder: 'ASC' },
       });
-      if (items.length === 0) continue;
+      const held = asVisited(items, wifeComes(visit));
+      if (held.length === 0) continue;
       out.push({
         visit: {
           id: visit.id,
@@ -334,7 +423,7 @@ export class CoVisitItemsService {
           date: visit.date,
           endDate: visit.endDate ?? null,
         },
-        meetings: collapse(items),
+        meetings: collapse(held),
       });
     }
     return out;
@@ -396,11 +485,14 @@ export class CoVisitItemsService {
       items: (CoVisitItemView & { serviceWith?: 'co' | 'wife' | 'joint' })[];
     }[] = [];
     for (const visit of visits) {
-      const items = await this.repo.find({
-        where: { congregationId, specialEventId: visit.id },
-        relations: { assignee: true, cartLocation: true },
-        order: { itemDate: 'ASC', startTime: 'ASC', sortOrder: 'ASC' },
-      });
+      const items = asVisited(
+        await this.repo.find({
+          where: { congregationId, specialEventId: visit.id },
+          relations: { assignee: true, cartLocation: true },
+          order: { itemDate: 'ASC', startTime: 'ASC', sortOrder: 'ASC' },
+        }),
+        wifeComes(visit),
+      );
       const mine: (CoVisitItemView & {
         serviceWith?: 'co' | 'wife' | 'joint';
       })[] = [];
@@ -443,6 +535,7 @@ export class CoVisitItemsService {
           assigneeText: null,
           note: null,
           sortOrder: -1,
+          restricted: false,
         });
       }
       if (mine.length > 0) {
@@ -479,12 +572,15 @@ export class CoVisitItemsService {
     user: AuthenticatedUser,
   ): Promise<CoVisitItemView[]> {
     const cvp = await this.canViewPrivate(congregationId, user);
+    const elder = await this.isElder(congregationId, user);
     const items = await this.repo.find({
       where: { congregationId, specialEventId },
       relations: { assignee: true, cartLocation: true },
       order: { itemDate: 'ASC', sortOrder: 'ASC', startTime: 'ASC' },
     });
-    return items.map((it) => toCoVisitItemView(it, cvp));
+    // Raw on purpose — her stray rows included: the planner is shown them
+    // so he can clear them (see co-visit-wife.ts).
+    return items.map((it) => forReader(toCoVisitItemView(it, cvp), elder));
   }
 
   private async viewById(
@@ -582,7 +678,7 @@ export class CoVisitItemsService {
         where: { congregationId, specialEventId: ev.id },
         order: { itemDate: 'ASC', sortOrder: 'ASC' },
       });
-      const made = templateFrom(rows, days, active);
+      const made = templateFrom(rows, days, active, wifeComes(target));
       if (made.items.length > 0) return { source: ev, ...made };
     }
     return { source: null, items: [], skipped: 0 };
@@ -720,6 +816,8 @@ export class CoVisitItemsService {
     });
     if (!event) throw new NotFoundException('Visit not found');
     await this.assertVisitEditable(congregationId, dto.specialEventId);
+    await this.assertMayTouch(congregationId, user, [dto.kind]);
+    this.assertWifeComes(event, dto);
     await assertAssignable(this.repo.manager, congregationId, [
       dto.assigneePublisherId,
     ]);
@@ -756,6 +854,11 @@ export class CoVisitItemsService {
     const item = await this.repo.findOne({ where: { id, congregationId } });
     if (!item) throw new NotFoundException('Item not found');
     await this.assertVisitEditable(congregationId, item.specialEventId);
+    await this.assertMayTouch(congregationId, user, [item.kind, dto.kind]);
+    const event = await this.eventsRepo.findOne({
+      where: { id: item.specialEventId, congregationId },
+    });
+    if (event) this.assertWifeComes(event, dto);
     await assertAssignable(
       this.repo.manager,
       congregationId,
@@ -798,11 +901,13 @@ export class CoVisitItemsService {
   async remove(
     congregationId: string,
     id: string,
-    actorUserId?: string,
+    user: AuthenticatedUser,
   ): Promise<void> {
+    const actorUserId = user.id;
     const item = await this.repo.findOne({ where: { id, congregationId } });
     if (!item) throw new NotFoundException('Item not found');
     await this.assertVisitEditable(congregationId, item.specialEventId);
+    await this.assertMayTouch(congregationId, user, [item.kind]);
     await this.repo.softDelete({ id, congregationId });
     await this.auditLog.logEvent({
       tenantId: congregationId,
@@ -820,14 +925,131 @@ export class CoVisitItemsService {
     });
   }
 
+  /**
+   * Clear the overseer's wife out of a week she does not come to — in one
+   * step, undone in one step (18 November 2026). Her own outings are removed
+   * (kept, as every removal is) and «together with his wife» becomes his
+   * outing. A sister named on a removed outing is told by the published
+   * visit's own pass, as for any other removal.
+   */
+  async clearWife(
+    congregationId: string,
+    specialEventId: string,
+    userId: string,
+  ): Promise<{ removed: string[]; unjoined: string[] }> {
+    await this.assertVisitEditable(congregationId, specialEventId);
+    const done = await this.repo.manager.transaction(async (m) => {
+      const event = await m.getRepository(SpecialEvent).findOne({
+        where: {
+          id: specialEventId,
+          congregationId,
+          type: 'circuit_overseer_visit',
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!event) throw new NotFoundException('Visit not found');
+      if (wifeComes(event))
+        throw new ConflictException(
+          refusal(
+            'CO_VISIT_WIFE_COMES',
+            "The overseer's wife comes on this visit; her rows stay.",
+          ),
+        );
+      const rows = await m
+        .getRepository(CoVisitItem)
+        .find({ where: { congregationId, specialEventId } });
+      const stray = strayWifeRows(rows, false);
+      if (stray.removed.length > 0)
+        await m
+          .getRepository(CoVisitItem)
+          .softDelete({ congregationId, id: In(stray.removed) });
+      if (stray.unjoined.length > 0)
+        await m
+          .getRepository(CoVisitItem)
+          .update(
+            { congregationId, id: In(stray.unjoined) },
+            { withWife: false },
+          );
+      return stray;
+    });
+    if (done.removed.length + done.unjoined.length > 0)
+      await this.auditLog.logFact({
+        tenantId: congregationId,
+        entityType: 'co_visit_item',
+        entityId: specialEventId,
+        action: 'UPDATE',
+        actorUserId: userId,
+        detail: {
+          wifeCleared: true,
+          removed: done.removed.length,
+          unjoined: done.unjoined.length,
+        },
+      });
+    return done;
+  }
+
+  /**
+   * Undo `clearWife`: exactly the rows it touched, and only rows of this
+   * visit. Allowed whether or not she comes now — it puts back what was.
+   */
+  async unclearWife(
+    congregationId: string,
+    specialEventId: string,
+    removed: string[],
+    unjoined: string[],
+    userId: string,
+  ): Promise<void> {
+    await this.assertVisitEditable(congregationId, specialEventId);
+    await this.repo.manager.transaction(async (m) => {
+      const repo = m.getRepository(CoVisitItem);
+      if (removed.length > 0) {
+        const back = await repo.find({
+          where: {
+            congregationId,
+            specialEventId,
+            id: In(removed),
+            forWife: true,
+          },
+          withDeleted: true,
+        });
+        const ids = back.filter((r) => !!r.deletedAt).map((r) => r.id);
+        if (ids.length > 0) await repo.restore({ congregationId, id: In(ids) });
+      }
+      if (unjoined.length > 0)
+        await repo.update(
+          {
+            congregationId,
+            specialEventId,
+            id: In(unjoined),
+            forWife: false,
+            kind: 'field_service',
+          },
+          { withWife: true },
+        );
+    });
+    await this.auditLog.logFact({
+      tenantId: congregationId,
+      entityType: 'co_visit_item',
+      entityId: specialEventId,
+      action: 'RESTORE',
+      actorUserId: userId,
+      detail: { wifeCleared: false },
+    });
+  }
+
   /** Put a removed item back where it was. */
-  async restore(congregationId: string, id: string): Promise<void> {
+  async restore(
+    congregationId: string,
+    id: string,
+    user: AuthenticatedUser,
+  ): Promise<void> {
     const item = await this.repo.findOne({
       where: { id, congregationId },
       withDeleted: true,
     });
     if (!item) throw new NotFoundException('Item not found');
     if (!item.deletedAt) return;
+    await this.assertMayTouch(congregationId, user, [item.kind]);
     // Putting something back is a change to the record too.
     await this.assertVisitEditable(congregationId, item.specialEventId);
     await this.repo.restore({ id, congregationId });

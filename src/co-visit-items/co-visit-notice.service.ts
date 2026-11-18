@@ -30,6 +30,7 @@ import {
   linesByPerson,
   messageOf,
 } from './co-visit-notice';
+import { asVisited, wifeComes } from './co-visit-wife';
 
 /** How long after the last edit of a published visit its people are told. */
 export const CO_SETTLE_MS = 10 * 60 * 1000;
@@ -60,6 +61,11 @@ export interface CoPublication {
   dueAt: string | null;
   /** Who would hear what if it went now. */
   rows: CoPublicationRow[];
+  /**
+   * People left out of `rows` for a reader who is not an elder: all they
+   * hold is a shepherding call (18 November 2026).
+   */
+  eldersOnly: number;
   /** Lines with a name typed as text: nobody the app can reach. */
   textOnly: { date: string; time: string | null; kind: string; text: string }[];
 }
@@ -110,12 +116,19 @@ export class CoVisitNoticeService {
     return e;
   }
 
-  /** Each person's lines now, and what each was told. */
-  private async state(congregationId: string, eventId: string) {
-    const rows = await this.items.find({
-      where: { congregationId, specialEventId: eventId },
-      relations: { cartLocation: true },
-    });
+  /**
+   * Each person's lines now, and what each was told. Her rows count only
+   * when the overseer's wife comes on this visit (co-visit-wife.ts).
+   */
+  private async state(congregationId: string, event: SpecialEvent) {
+    const eventId = event.id;
+    const rows = asVisited(
+      await this.items.find({
+        where: { congregationId, specialEventId: eventId },
+        relations: { cartLocation: true },
+      }),
+      wifeComes(event),
+    );
     const now = linesByPerson(
       rows.map((r) => ({
         ...r,
@@ -141,7 +154,7 @@ export class CoVisitNoticeService {
   async announce(congregationId: string, event: SpecialEvent): Promise<number> {
     const { now, told, toldAt, people } = await this.state(
       congregationId,
-      event.id,
+      event,
     );
     if (people.length === 0) return 0;
     const cards = await this.publishers.find({
@@ -206,15 +219,32 @@ export class CoVisitNoticeService {
     congregationId: string,
     eventId: string,
     readerLang: string,
+    readerIsElder: boolean,
   ): Promise<CoPublication> {
     const event = await this.visit(congregationId, eventId);
     const lang = langOf(readerLang);
-    const {
-      rows: items,
-      now,
-      told,
-      people,
-    } = await this.state(congregationId, eventId);
+    const state = await this.state(congregationId, event);
+    const { rows: items } = state;
+    let { now, told, people } = state;
+    // A reader who is not an elder: no shepherding call in what he is shown
+    // — not who goes, not to whom; a man who holds nothing else is counted,
+    // not named (18 November 2026). What is SAID to the elders is unchanged.
+    let eldersOnly = 0;
+    if (!readerIsElder) {
+      const strip = (m: Map<string, CoNoticeLine[]>) =>
+        new Map(
+          [...m].map(
+            ([k, v]) => [k, v.filter((l) => l.kind !== 'pastoral')] as const,
+          ),
+        );
+      now = strip(now);
+      told = strip(told);
+      const kept = people.filter(
+        (p) => (now.get(p) ?? []).length + (told.get(p) ?? []).length > 0,
+      );
+      eldersOnly = people.length - kept.length;
+      people = kept;
+    }
     const cards = people.length
       ? await this.publishers.find({
           where: { congregationId, id: In(people) },
@@ -271,6 +301,7 @@ export class CoVisitNoticeService {
           !i.assigneePublisherId &&
           !!i.assigneeText?.trim() &&
           i.kind !== 'document_review' &&
+          (readerIsElder || i.kind !== 'pastoral') &&
           !(i.forWife && i.kind !== 'field_service'),
       )
       .map((i) => ({
@@ -292,6 +323,7 @@ export class CoVisitNoticeService {
       noticedAt: event.coNoticedAt?.toISOString() ?? null,
       dueAt,
       rows,
+      eldersOnly,
       textOnly,
     };
   }

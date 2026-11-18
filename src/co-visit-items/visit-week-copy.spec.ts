@@ -42,6 +42,7 @@ describe('the last visit week carried to an empty one', () => {
       [src({ itemDate: '2026-08-05', note: 'door to door' })],
       FEB,
       new Set(),
+      true,
     );
     expect(skipped).toBe(0);
     expect(items).toEqual([
@@ -75,6 +76,7 @@ describe('the last visit week carried to an empty one', () => {
       ],
       FEB,
       new Set(),
+      true,
     );
     expect(items.map((i) => [i.kind, i.note])).toEqual([
       ['pastoral', null],
@@ -96,10 +98,28 @@ describe('the last visit week carried to an empty one', () => {
       ],
       FEB,
       new Set(),
+      true,
     );
     expect(items.map((i) => [i.kind, i.forWife, i.withWife])).toEqual([
       ['field_service', true, false],
       ['field_service', false, true],
+    ]);
+  });
+
+  it('when the wife does not come, leaves her outings behind and makes «together» his own', () => {
+    const { items } = templateFrom(
+      [
+        src({ forWife: true }),
+        src({}),
+        src({ withWife: true, startTime: '14:00' }),
+      ],
+      FEB,
+      new Set(),
+      false,
+    );
+    expect(items.map((i) => [i.startTime, i.forWife, i.withWife])).toEqual([
+      ['10:00:00', false, false],
+      ['14:00', false, false],
     ]);
   });
 
@@ -108,6 +128,7 @@ describe('the last visit week carried to an empty one', () => {
       [src({ itemDate: '2026-08-10' }) /* a Monday */, src({})],
       FEB,
       new Set(),
+      true,
     );
     expect(skipped).toBe(1);
     expect(items).toHaveLength(1);
@@ -130,6 +151,7 @@ describe('the last visit week carried to an empty one', () => {
       ],
       FEB,
       new Set(['kept']),
+      true,
     );
     expect(items.map((i) => [i.placeKind, i.cartLocationId])).toEqual([
       [null, null],

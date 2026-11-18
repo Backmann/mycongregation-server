@@ -50,6 +50,7 @@ const JOURNAL_FIELDS = [
   'meetingNote',
   'meetingTime',
   'meetingAddress',
+  'coWifeComes',
 ] as const;
 
 function journalView(e: SpecialEvent): Record<string, unknown> {
@@ -482,6 +483,11 @@ export class SpecialEventsService {
     ]);
     const event = this.specialEventsRepo.create({
       ...dto,
+      // An older client sends only the name: a name written down means she
+      // comes, as the migration read the visits already there.
+      coWifeComes:
+        dto.type === CIRCUIT_OVERSEER_VISIT_TYPE &&
+        (dto.coWifeComes ?? !!dto.coWifeName?.trim()),
       congregationId: tenantId,
       // Only a campaign gives the auxiliary pioneers 15 hours.
       auxReducedHours: dto.type === 'campaign' && dto.auxReducedHours === true,
@@ -642,6 +648,11 @@ export class SpecialEventsService {
     }
 
     Object.assign(event, dto, meeting);
+    // An older client knows only the name: a name given means she comes,
+    // a name taken away that she does not. A newer one says so itself.
+    if (dto.coWifeComes === undefined && dto.coWifeName !== undefined)
+      event.coWifeComes = !!dto.coWifeName?.trim();
+    if (event.type !== CIRCUIT_OVERSEER_VISIT_TYPE) event.coWifeComes = false;
     if (event.type !== 'campaign') event.auxReducedHours = false;
     const saved = await this.specialEventsRepo.save(event);
     await this.auditLog.logUpdate({

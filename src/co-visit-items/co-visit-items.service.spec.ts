@@ -68,7 +68,7 @@ describe('CoVisitItemsService — a removed item is kept, not erased', () => {
       audit,
     );
 
-    await svc.remove('c1', 'i1', 'user-1');
+    await svc.remove('c1', 'i1', { id: 'user-1', role: 'elder' } as any);
 
     expect(repo.softDelete).toHaveBeenCalledWith({
       id: 'i1',
@@ -85,7 +85,7 @@ describe('CoVisitItemsService — a removed item is kept, not erased', () => {
       audit,
     );
 
-    await svc.remove('c1', 'i1', 'user-1');
+    await svc.remove('c1', 'i1', { id: 'user-1', role: 'elder' } as any);
 
     expect(audit.logEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -110,7 +110,7 @@ describe('CoVisitItemsService — a removed item is kept, not erased', () => {
       audit,
     );
 
-    await svc.restore('c1', 'i1');
+    await svc.restore('c1', 'i1', { id: 'user-1', role: 'elder' } as any);
 
     expect(repo.restore).toHaveBeenCalledWith({
       id: 'i1',
@@ -122,7 +122,7 @@ describe('CoVisitItemsService — a removed item is kept, not erased', () => {
     const audit = { logEvent: jest.fn(), logUpdate: jest.fn() };
     const { svc, repo } = build({ id: 'i1', deletedAt: null }, audit);
 
-    await svc.restore('c1', 'i1');
+    await svc.restore('c1', 'i1', { id: 'user-1', role: 'elder' } as any);
 
     expect(repo.restore).not.toHaveBeenCalled();
   });
@@ -199,6 +199,7 @@ describe('CoVisitItemsService.mine', () => {
           ...visit,
           type: 'circuit_overseer_visit',
           coPublishedAt: new Date('2026-01-01T00:00:00Z'),
+          coWifeComes: true,
         },
       ]),
     } as any;
@@ -403,7 +404,7 @@ describe('CoVisitItemsService.hostStats', () => {
       clockStub(),
       { count: jest.fn(async () => 0) } as any,
     );
-    const out = await svc.hostStats('c1');
+    const out = await svc.hostStats('c1', true);
     const p1lunch = out.find(
       (s) => s.publisherId === 'p1' && s.kind === 'lunch',
     );
@@ -452,7 +453,7 @@ describe('CoVisitItemsService.hostStats — counted per kind', () => {
       { logEvent: jest.fn(), logUpdate: jest.fn() } as never,
       clockStub(),
       { count: jest.fn(async () => 0) } as any,
-    ).hostStats('c1');
+    ).hostStats('c1', true);
   }
 
   it('keeps the ministry apart from the lunches for the same person', async () => {
@@ -766,8 +767,10 @@ describe('CoVisitItemsService — a visit already over is a record', () => {
   it('refuses to change one, to remove one, and to put one back', async () => {
     for (const call of [
       (s: CoVisitItemsService) => s.update('cong-1', 'it-1', {}, user),
-      (s: CoVisitItemsService) => s.remove('cong-1', 'it-1', 'u-1'),
-      (s: CoVisitItemsService) => s.restore('cong-1', 'it-1'),
+      (s: CoVisitItemsService) =>
+        s.remove('cong-1', 'it-1', { id: 'u-1', role: 'elder' } as any),
+      (s: CoVisitItemsService) =>
+        s.restore('cong-1', 'it-1', { id: 'u-1', role: 'elder' } as any),
     ]) {
       const { svc, repo } = build(PAST);
       await expect(call(svc)).rejects.toThrow(ConflictException);
@@ -778,7 +781,9 @@ describe('CoVisitItemsService — a visit already over is a record', () => {
 
   it('writes the refusal to the journal — a rejection that leaves no trace answers nothing', async () => {
     const { svc, audit } = build(PAST);
-    await expect(svc.remove('cong-1', 'it-1', 'u-1')).rejects.toThrow();
+    await expect(
+      svc.remove('cong-1', 'it-1', { id: 'u-1', role: 'elder' } as any),
+    ).rejects.toThrow();
     expect(audit.logEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'DENY',
@@ -790,7 +795,7 @@ describe('CoVisitItemsService — a visit already over is a record', () => {
 
   it('leaves a visit still to come alone', async () => {
     const { svc, repo } = build(FUTURE);
-    await svc.remove('cong-1', 'it-1', 'u-1');
+    await svc.remove('cong-1', 'it-1', { id: 'u-1', role: 'elder' } as any);
     expect(repo.softDelete).toHaveBeenCalled();
   });
 });

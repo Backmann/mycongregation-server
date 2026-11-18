@@ -76,6 +76,14 @@ export class SpecialEvent {
   @Column({ type: 'varchar', length: 100, nullable: true })
   coWifeName!: string | null;
 
+  /**
+   * Circuit-overseer visit only: his wife comes on this visit. Her outings,
+   * «together with his wife» and everything else of hers in the week exist
+   * only when this is true; her name alone says nothing (18 November 2026).
+   */
+  @Column({ type: 'boolean', default: false, name: 'co_wife_comes' })
+  coWifeComes!: boolean;
+
   /** Circuit-overseer visit only: 'overseer' (regular) or 'substitute'. */
   @Column({ type: 'varchar', length: 20, nullable: true })
   coRole!: string | null;
