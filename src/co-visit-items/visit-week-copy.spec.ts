@@ -3,7 +3,7 @@ import {
   isoWeekday,
   templateFrom,
   type TemplateSource,
-} from './co-visit-template';
+} from './visit-week-copy';
 
 const src = (o: Partial<TemplateSource>): TemplateSource => ({
   kind: 'field_service',

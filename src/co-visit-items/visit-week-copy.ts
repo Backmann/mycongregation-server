@@ -1,6 +1,10 @@
 /**
  * The shape of the last visit week, carried to an empty one (17 November 2026).
  *
+ * Not to be confused with special-events/co-visit-template.service.ts — the
+ * template of the congregation's MEETINGS during a visit. This file is the
+ * week of the visit itself: outings, lunches, calls.
+ *
  * A real visit repeats its week: outings at 10:00 and 14:00, a lunch at
  * 12:15, a lunch box every day, a meeting with the pioneers and one with the
  * elders. In August all of it — 37 rows — was typed by hand, and the next

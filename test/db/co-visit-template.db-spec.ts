@@ -103,6 +103,94 @@ describe('the visit week from the last visit (real database)', () => {
     ]);
   });
 
+  it('another congregation is never a source and never a target', async () => {
+    const other = (
+      await h.sql<{ id: string }>(
+        `INSERT INTO congregations (name, country, language) VALUES ('Чужое', 'DE', 'de') RETURNING id`,
+      )
+    )[0].id;
+    const ev = async (s: string, e: string) =>
+      (
+        await h.sql<{ id: string }>(
+          `INSERT INTO special_events (congregation_id, title, type, date, end_date)
+           VALUES ($1, 'Визит', 'circuit_overseer_visit', $2, $3) RETURNING id`,
+          [other, s, e],
+        )
+      )[0].id;
+    // A later visit of the OTHER congregation, full of items: were it read,
+    // it would be the newest source.
+    const theirs = await ev('2093-01-06', '2093-01-11');
+    await h.sql(
+      `INSERT INTO co_visit_items (congregation_id, special_event_id, kind, item_date, start_time, sort_order)
+       VALUES ($1, $2, 'elders', '2093-01-07', '19:00', 0)`,
+      [other, theirs],
+    );
+    const pre = await h
+      .as('admin')
+      .get(`/co-visit-items/template?specialEventId=${next}`)
+      .expect(200);
+    expect(pre.body.source.id).toBe(past);
+    const theirNext = await ev('2094-03-02', '2094-03-07');
+    await h
+      .as('admin')
+      .get(`/co-visit-items/template?specialEventId=${theirNext}`)
+      .expect(404);
+    await h
+      .as('admin')
+      .post('/co-visit-items/template', { specialEventId: theirNext })
+      .expect(404);
+    expect(
+      await h.sql(`SELECT 1 FROM co_visit_items WHERE special_event_id = $1`, [
+        theirNext,
+      ]),
+    ).toHaveLength(0);
+  });
+
+  it('a deleted item or a deleted visit is never a source', async () => {
+    // A deleted outing on Thursday and a deleted, later visit with items.
+    await h.sql(
+      `INSERT INTO co_visit_items (congregation_id, special_event_id, kind, item_date, start_time, sort_order, deleted_at)
+       VALUES ($1, $2, 'pioneers', '2026-08-06', '19:00', 0, now())`,
+      [tenant, past],
+    );
+    const gone = (
+      await h.sql<{ id: string }>(
+        `INSERT INTO special_events (congregation_id, title, type, date, end_date, deleted_at)
+         VALUES ($1, 'Визит', 'circuit_overseer_visit', '2027-01-05', '2027-01-10', now()) RETURNING id`,
+        [tenant],
+      )
+    )[0].id;
+    await h.sql(
+      `INSERT INTO co_visit_items (congregation_id, special_event_id, kind, item_date, start_time, sort_order)
+       VALUES ($1, $2, 'elders', '2027-01-06', '19:00', 0)`,
+      [tenant, gone],
+    );
+    const pre = await h
+      .as('admin')
+      .get(`/co-visit-items/template?specialEventId=${next}`)
+      .expect(200);
+    expect(pre.body.source.id).toBe(past);
+    expect(pre.body.total).toBe(6);
+  });
+
+  it('an elder sees the preview but only a planner may lay it', async () => {
+    const card = await h.addPublisher({
+      firstName: 'Илья',
+      lastName: 'Старейшина',
+      appointment: 'elder',
+      baptismDate: '1990-01-01',
+    });
+    await h.addUser({ login: 'tplelder', role: 'elder', publisherId: card });
+    await h
+      .as('tplelder')
+      .get(`/co-visit-items/template?specialEventId=${next}`)
+      .expect(200);
+    await h
+      .as('tplelder')
+      .post('/co-visit-items/template', { specialEventId: next })
+      .expect(403);
+  });
+
   it('a publisher may neither see nor apply it', async () => {
     const pub = await h.addPublisher({
       firstName: 'Анна',
@@ -183,6 +271,86 @@ describe('the visit week from the last visit (real database)', () => {
     // The journal keeps one line for the whole copy (its text is encrypted).
   });
 
+  it('two planners pressing at once lay one week, not two', async () => {
+    const twin = (
+      await h.sql<{ id: string }>(
+        `INSERT INTO special_events (congregation_id, title, type, date, end_date)
+         VALUES ($1, 'Визит', 'circuit_overseer_visit', '2095-02-22', '2095-02-27') RETURNING id`,
+        [tenant],
+      )
+    )[0].id;
+    const [a, b] = await Promise.all([
+      h.as('admin').post('/co-visit-items/template', { specialEventId: twin }),
+      h.as('admin').post('/co-visit-items/template', { specialEventId: twin }),
+    ]);
+    expect([a.status, b.status].sort()).toEqual([201, 409]);
+    const rows = await h.sql(
+      `SELECT 1 FROM co_visit_items WHERE special_event_id = $1 AND deleted_at IS NULL`,
+      [twin],
+    );
+    expect(rows).toHaveLength(
+      Math.max(a.body.created ?? 0, b.body.created ?? 0),
+    );
+  });
+
+  it('a stand no longer in use loses its place; an active one keeps it', async () => {
+    const stand = async (active: boolean) =>
+      (
+        await h.sql<{ id: string }>(
+          `INSERT INTO cart_locations (congregation_id, name, is_active) VALUES ($1, 'Стенд', $2) RETURNING id`,
+          [tenant, active],
+        )
+      )[0].id;
+    const live = await stand(true);
+    const dead = await stand(false);
+    const src = (
+      await h.sql<{ id: string }>(
+        `INSERT INTO special_events (congregation_id, title, type, date, end_date)
+         VALUES ($1, 'Визит', 'circuit_overseer_visit', '2096-02-21', '2096-02-26') RETURNING id`,
+        [tenant],
+      )
+    )[0].id;
+    for (const [loc, time] of [
+      [live, '10:00'],
+      [dead, '14:00'],
+    ])
+      await h.sql(
+        `INSERT INTO co_visit_items (congregation_id, special_event_id, kind, item_date, start_time, place_kind, cart_location_id, sort_order)
+         VALUES ($1, $2, 'field_service', '2096-02-22', $4, 'cart_location', $3, 0)`,
+        [tenant, src, loc, time],
+      );
+    const dst = (
+      await h.sql<{ id: string }>(
+        `INSERT INTO special_events (congregation_id, title, type, date, end_date)
+         VALUES ($1, 'Визит', 'circuit_overseer_visit', '2097-02-19', '2097-02-24') RETURNING id`,
+        [tenant],
+      )
+    )[0].id;
+    await h
+      .as('admin')
+      .post('/co-visit-items/template', { specialEventId: dst })
+      .expect(201);
+    const rows = await h.sql<{
+      start_time: string;
+      place_kind: string | null;
+      cart_location_id: string | null;
+    }>(
+      `SELECT start_time::text start_time, place_kind, cart_location_id FROM co_visit_items
+        WHERE special_event_id = $1 ORDER BY start_time`,
+      [dst],
+    );
+    expect(
+      rows.map((r) => [
+        r.start_time.slice(0, 5),
+        r.place_kind,
+        r.cart_location_id,
+      ]),
+    ).toEqual([
+      ['10:00', 'cart_location', live],
+      ['14:00', null, null],
+    ]);
+  });
+
   it('refuses a week that already has items', async () => {
     const r = await h
       .as('admin')
@@ -210,9 +378,10 @@ describe('the visit week from the last visit (real database)', () => {
       .expect(200);
     expect(pre.body.source).toBeNull();
     // A past visit is frozen before anything else is asked.
-    await h
+    const r = await h
       .as('admin')
       .post('/co-visit-items/template', { specialEventId: first })
       .expect(409);
+    expect(r.body.code).toBe('CO_VISIT_PAST_LOCKED');
   });
 });

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { assertAssignable } from '../common/inactive';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { CoVisitItem } from '../entities/co-visit-item.entity';
@@ -24,7 +24,7 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { refusal } from '../common/errors/refusal';
 import { CartLocation } from '../entities/cart-location.entity';
-import { daysOf, templateFrom, type TemplateItem } from './co-visit-template';
+import { daysOf, templateFrom, type TemplateItem } from './visit-week-copy';
 
 /**
  * The field-service part of a circuit-overseer visit, as everyone may see it.
@@ -546,6 +546,7 @@ export class CoVisitItemsService {
    * what is created.
    */
   private async templateFor(
+    m: EntityManager,
     congregationId: string,
     target: SpecialEvent,
   ): Promise<{
@@ -553,13 +554,16 @@ export class CoVisitItemsService {
     items: TemplateItem[];
     skipped: number;
   }> {
-    const earlier = await this.eventsRepo.find({
+    // Read through the caller's manager: inside the copy that is the locked
+    // transaction itself, so one copy holds one connection, not two
+    // (review, 18 November 2026).
+    const earlier = await m.getRepository(SpecialEvent).find({
       where: { congregationId, type: 'circuit_overseer_visit' },
       order: { date: 'DESC' },
     });
     const active = new Set(
       (
-        await this.repo.manager.getRepository(CartLocation).find({
+        await m.getRepository(CartLocation).find({
           where: { congregationId, isActive: true },
           select: { id: true },
         })
@@ -568,7 +572,7 @@ export class CoVisitItemsService {
     const days = daysOf(target.date, target.endDate);
     for (const ev of earlier) {
       if (ev.id === target.id || ev.date >= target.date) continue;
-      const rows = await this.repo.find({
+      const rows = await m.getRepository(CoVisitItem).find({
         where: { congregationId, specialEventId: ev.id },
         order: { itemDate: 'ASC', sortOrder: 'ASC' },
       });
@@ -596,7 +600,7 @@ export class CoVisitItemsService {
     });
     if (!target) throw new NotFoundException('Visit not found');
     const empty = (await this.liveItemCount(congregationId, target.id)) === 0;
-    const t = await this.templateFor(congregationId, target);
+    const t = await this.templateFor(this.repo.manager, congregationId, target);
     const perDay = new Map<string, number>();
     for (const it of t.items)
       perDay.set(it.itemDate, (perDay.get(it.itemDate) ?? 0) + 1);
@@ -633,7 +637,7 @@ export class CoVisitItemsService {
     userId: string,
   ): Promise<{ created: number; skipped: number; sourceId: string }> {
     await this.assertVisitEditable(congregationId, specialEventId);
-    return this.repo.manager.transaction(async (m) => {
+    const done = await this.repo.manager.transaction(async (m) => {
       const target = await m.getRepository(SpecialEvent).findOne({
         where: {
           id: specialEventId,
@@ -653,7 +657,7 @@ export class CoVisitItemsService {
             'This visit already has items; a template is only laid on an empty week.',
           ),
         );
-      const t = await this.templateFor(congregationId, target);
+      const t = await this.templateFor(m, congregationId, target);
       if (!t.source)
         throw new NotFoundException(
           refusal(
@@ -672,24 +676,32 @@ export class CoVisitItemsService {
           }),
         ),
       );
-      await this.auditLog.logFact({
-        tenantId: congregationId,
-        entityType: 'co_visit_item',
-        entityId: specialEventId,
-        action: 'CREATE',
-        actorUserId: userId,
-        detail: {
-          template_from: t.source.date,
-          created: t.items.length,
-          skipped: t.skipped,
-        },
-      });
       return {
         created: t.items.length,
         skipped: t.skipped,
         sourceId: t.source.id,
+        sourceDate: t.source.date,
       };
     });
+    // Journalled once the copy is committed, never for one rolled back
+    // (review, 18 November 2026).
+    await this.auditLog.logFact({
+      tenantId: congregationId,
+      entityType: 'co_visit_item',
+      entityId: specialEventId,
+      action: 'CREATE',
+      actorUserId: userId,
+      detail: {
+        template_from: done.sourceDate,
+        created: done.created,
+        skipped: done.skipped,
+      },
+    });
+    return {
+      created: done.created,
+      skipped: done.skipped,
+      sourceId: done.sourceId,
+    };
   }
 
   async create(
