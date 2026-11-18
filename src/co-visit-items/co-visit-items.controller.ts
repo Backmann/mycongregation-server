@@ -15,6 +15,7 @@ import {
 import { CoVisitItemsService } from './co-visit-items.service';
 import { CreateCoVisitItemDto } from './dto/create-co-visit-item.dto';
 import { UpdateCoVisitItemDto } from './dto/update-co-visit-item.dto';
+import { ApplyCoVisitTemplateDto } from './dto/apply-co-visit-template.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
@@ -68,6 +69,37 @@ export class CoVisitItemsController {
   ) {
     await this.service.assertCanViewSchedule(congregationId, user);
     return this.service.list(congregationId, specialEventId, user);
+  }
+
+  /** What starting from the last visit would create — those who may read it. */
+  @Get('template')
+  async templatePreview(
+    @TenantId() congregationId: string,
+    @Query('specialEventId', ParseUUIDPipe) specialEventId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.service.assertCanViewSchedule(congregationId, user);
+    return this.service.templatePreview(congregationId, specialEventId);
+  }
+
+  /** Fill an empty visit week from the last one — those who plan it. */
+  @Post('template')
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+    ResponsibilityType.BODY_COORDINATOR,
+  )
+  applyTemplate(
+    @TenantId() congregationId: string,
+    @Body() dto: ApplyCoVisitTemplateDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.applyTemplate(
+      congregationId,
+      dto.specialEventId,
+      user.id,
+    );
   }
 
   @Post()

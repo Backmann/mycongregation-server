@@ -23,6 +23,8 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { CongregationClock } from '../common/congregation-clock.service';
 import { refusal } from '../common/errors/refusal';
+import { CartLocation } from '../entities/cart-location.entity';
+import { daysOf, templateFrom, type TemplateItem } from './co-visit-template';
 
 /**
  * The field-service part of a circuit-overseer visit, as everyone may see it.
@@ -535,6 +537,159 @@ export class CoVisitItemsService {
         { date: over },
       ),
     );
+  }
+
+  /**
+   * The last visit before this one that has a week to carry over, and the
+   * template it makes for this visit's days (see co-visit-template.ts). The
+   * preview and the copy share this, so what the planner is shown is exactly
+   * what is created.
+   */
+  private async templateFor(
+    congregationId: string,
+    target: SpecialEvent,
+  ): Promise<{
+    source: SpecialEvent | null;
+    items: TemplateItem[];
+    skipped: number;
+  }> {
+    const earlier = await this.eventsRepo.find({
+      where: { congregationId, type: 'circuit_overseer_visit' },
+      order: { date: 'DESC' },
+    });
+    const active = new Set(
+      (
+        await this.repo.manager.getRepository(CartLocation).find({
+          where: { congregationId, isActive: true },
+          select: { id: true },
+        })
+      ).map((l) => l.id),
+    );
+    const days = daysOf(target.date, target.endDate);
+    for (const ev of earlier) {
+      if (ev.id === target.id || ev.date >= target.date) continue;
+      const rows = await this.repo.find({
+        where: { congregationId, specialEventId: ev.id },
+        order: { itemDate: 'ASC', sortOrder: 'ASC' },
+      });
+      const made = templateFrom(rows, days, active);
+      if (made.items.length > 0) return { source: ev, ...made };
+    }
+    return { source: null, items: [], skipped: 0 };
+  }
+
+  private async liveItemCount(
+    congregationId: string,
+    specialEventId: string,
+  ): Promise<number> {
+    return this.repo.count({ where: { congregationId, specialEventId } });
+  }
+
+  /** What «start from the last visit» would create — read only. */
+  async templatePreview(congregationId: string, specialEventId: string) {
+    const target = await this.eventsRepo.findOne({
+      where: {
+        id: specialEventId,
+        congregationId,
+        type: 'circuit_overseer_visit',
+      },
+    });
+    if (!target) throw new NotFoundException('Visit not found');
+    const empty = (await this.liveItemCount(congregationId, target.id)) === 0;
+    const t = await this.templateFor(congregationId, target);
+    const perDay = new Map<string, number>();
+    for (const it of t.items)
+      perDay.set(it.itemDate, (perDay.get(it.itemDate) ?? 0) + 1);
+    return {
+      empty,
+      source: t.source
+        ? {
+            id: t.source.id,
+            date: t.source.date,
+            endDate: t.source.endDate,
+            coFirstName: t.source.coFirstName,
+            coLastName: t.source.coLastName,
+          }
+        : null,
+      total: t.items.length,
+      skipped: t.skipped,
+      days: daysOf(target.date, target.endDate).map((date) => ({
+        date,
+        count: perDay.get(date) ?? 0,
+      })),
+    };
+  }
+
+  /**
+   * Fill an EMPTY visit week from the last one — all of it or nothing.
+   *
+   * Refused when the week already has an item: a template laid over a week
+   * half planned would double every outing. The visit row is locked for the
+   * copy, so two planners pressing at once cannot both pass the «empty» test.
+   */
+  async applyTemplate(
+    congregationId: string,
+    specialEventId: string,
+    userId: string,
+  ): Promise<{ created: number; skipped: number; sourceId: string }> {
+    await this.assertVisitEditable(congregationId, specialEventId);
+    return this.repo.manager.transaction(async (m) => {
+      const target = await m.getRepository(SpecialEvent).findOne({
+        where: {
+          id: specialEventId,
+          congregationId,
+          type: 'circuit_overseer_visit',
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!target) throw new NotFoundException('Visit not found');
+      const existing = await m
+        .getRepository(CoVisitItem)
+        .count({ where: { congregationId, specialEventId } });
+      if (existing > 0)
+        throw new ConflictException(
+          refusal(
+            'CO_VISIT_TEMPLATE_NOT_EMPTY',
+            'This visit already has items; a template is only laid on an empty week.',
+          ),
+        );
+      const t = await this.templateFor(congregationId, target);
+      if (!t.source)
+        throw new NotFoundException(
+          refusal(
+            'CO_VISIT_TEMPLATE_NO_SOURCE',
+            'No earlier visit has a week to start from.',
+          ),
+        );
+      await m.getRepository(CoVisitItem).save(
+        t.items.map((it) =>
+          m.getRepository(CoVisitItem).create({
+            congregationId,
+            specialEventId,
+            ...it,
+            assigneePublisherId: null,
+            assigneeText: null,
+          }),
+        ),
+      );
+      await this.auditLog.logFact({
+        tenantId: congregationId,
+        entityType: 'co_visit_item',
+        entityId: specialEventId,
+        action: 'CREATE',
+        actorUserId: userId,
+        detail: {
+          template_from: t.source.date,
+          created: t.items.length,
+          skipped: t.skipped,
+        },
+      });
+      return {
+        created: t.items.length,
+        skipped: t.skipped,
+        sourceId: t.source.id,
+      };
+    });
   }
 
   async create(
