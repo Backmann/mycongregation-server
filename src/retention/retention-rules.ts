@@ -204,7 +204,7 @@ export const RETENTION_RULES: RetentionRule[] = [
     entity: SpecialEvent,
     column: 'date',
     keep: TWELVE_MONTHS,
-    cascades: ['co_visit_items', 'memorial_items'],
+    cascades: ['co_visit_items', 'co_visit_told', 'memorial_items'],
   },
   {
     kind: 'dated',

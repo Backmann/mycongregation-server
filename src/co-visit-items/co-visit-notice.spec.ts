@@ -77,6 +77,14 @@ describe('what a person is told about a visit', () => {
     );
   });
 
+  it('a changed kind of ministry says what it was', () => {
+    const was = linesByPerson([item({})]).get('p1')!;
+    const now = linesByPerson([item({ note: 'повторные' })]).get('p1')!;
+    expect(messageOf(diffLines(was, now), v, 'ru')!.body).toContain(
+      '(было: по домам)',
+    );
+  });
+
   it('a line taken away says so, in plain words for a sister too', () => {
     const was = linesByPerson([item({})]).get('p1')!;
     const msg = messageOf(diffLines(was, []), v, 'ru')!;

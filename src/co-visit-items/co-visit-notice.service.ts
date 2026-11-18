@@ -122,15 +122,15 @@ export class CoVisitNoticeService {
         cartLocationName: r.cartLocation?.name ?? null,
       })),
     );
-    const told = new Map(
-      (
-        await this.told.find({
-          where: { congregationId, specialEventId: eventId },
-        })
-      ).map((t) => [t.publisherId, t.lines]),
+    const toldRows = await this.told.find({
+      where: { congregationId, specialEventId: eventId },
+    });
+    const told = new Map(toldRows.map((t) => [t.publisherId, t.lines]));
+    const toldAt = new Map(
+      toldRows.map((t) => [t.publisherId, t.toldAt.getTime()]),
     );
     const people = [...new Set([...now.keys(), ...told.keys()])];
-    return { rows, now, told, people };
+    return { rows, now, told, toldAt, people };
   }
 
   /**
@@ -139,7 +139,10 @@ export class CoVisitNoticeService {
    * too: the planner was shown that he must be told by voice.
    */
   async announce(congregationId: string, event: SpecialEvent): Promise<number> {
-    const { now, told, people } = await this.state(congregationId, event.id);
+    const { now, told, toldAt, people } = await this.state(
+      congregationId,
+      event.id,
+    );
     if (people.length === 0) return 0;
     const cards = await this.publishers.find({
       where: { congregationId, id: In(people) },
@@ -159,42 +162,41 @@ export class CoVisitNoticeService {
           userIds: [userId],
           text: (lang) => messageOf(diff, v, lang)!,
           kind: 'co_visit',
-          // What was said, not when: the same change is said once.
-          key: `co-visit:${event.id}:${pid}:${fingerprint(was)}>${fingerprint(is)}`,
+          // The same change is said once — a publish and a pass racing read
+          // the same «told» moment. Never the same key twice for real news:
+          // the moment moves with every word, so an undone deletion or a
+          // time toggled back is said again (review, 18 November 2026).
+          key: `co-visit:${event.id}:${pid}:${toldAt.get(pid) ?? 0}>${fingerprint(is)}`,
           data: { type: 'co_visit', eventId: event.id },
           // His own assignment: by letter when no device reaches him.
           emailFallback: true,
         });
         said += 1;
       }
-      if (is.length === 0) {
-        await this.told.delete({
+      // Kept even when empty: its moment is what the next key counts from.
+      await this.told.upsert(
+        {
           congregationId,
           specialEventId: event.id,
           publisherId: pid,
-        });
-      } else {
-        await this.told.upsert(
-          {
-            congregationId,
-            specialEventId: event.id,
-            publisherId: pid,
-            lines: is,
-            toldAt: new Date(),
-          },
-          { conflictPaths: ['specialEventId', 'publisherId'] },
-        );
-      }
+          lines: is,
+          toldAt: new Date(),
+        },
+        { conflictPaths: ['specialEventId', 'publisherId'] },
+      );
     }
     return said;
   }
 
   /** The last edit of a visit's items — deleted ones included. */
-  private async lastEditOf(eventId: string): Promise<Date | null> {
+  private async lastEditOf(
+    congregationId: string,
+    eventId: string,
+  ): Promise<Date | null> {
     const r: { last: Date | null }[] = await this.items.manager.query(
       `SELECT max(greatest(updated_at, created_at, coalesce(deleted_at, created_at))) AS last
-         FROM co_visit_items WHERE special_event_id = $1`,
-      [eventId],
+         FROM co_visit_items WHERE congregation_id = $1 AND special_event_id = $2`,
+      [congregationId, eventId],
     );
     return r[0]?.last ? new Date(r[0].last) : null;
   }
@@ -280,7 +282,7 @@ export class CoVisitNoticeService {
       .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
     let dueAt: string | null = null;
     if (event.coPublishedAt) {
-      const last = await this.lastEditOf(eventId);
+      const last = await this.lastEditOf(congregationId, eventId);
       const since = event.coNoticedAt ?? event.coPublishedAt;
       if (last && last > since && rows.some((r) => r.title))
         dueAt = new Date(last.getTime() + CO_SETTLE_MS).toISOString();
@@ -311,9 +313,16 @@ export class CoVisitNoticeService {
       );
     const first = !event.coPublishedAt;
     if (first) event.coPublishedAt = new Date();
+    // Told up to the last edit READ, never to «now»: an edit saved while the
+    // messages go out is the next pass's (review, 18 November 2026).
+    const last = await this.lastEditOf(congregationId, eventId);
     const said = await this.announce(congregationId, event);
-    event.coNoticedAt = new Date();
-    await this.events.save(event);
+    event.coNoticedAt =
+      last && last > event.coPublishedAt! ? last : event.coPublishedAt;
+    await this.events.update(event.id, {
+      coPublishedAt: event.coPublishedAt,
+      coNoticedAt: event.coNoticedAt,
+    });
     if (first)
       await this.auditLog.logFact({
         tenantId: congregationId,
@@ -343,7 +352,7 @@ export class CoVisitNoticeService {
       try {
         const today = await this.clock.todayFor(e.congregationId);
         if ((e.endDate ?? e.date) < today) continue;
-        const last = await this.lastEditOf(e.id);
+        const last = await this.lastEditOf(e.congregationId, e.id);
         const since = e.coNoticedAt ?? e.coPublishedAt!;
         if (!last || last <= since) continue;
         if (last.getTime() + CO_SETTLE_MS > now.getTime()) continue;

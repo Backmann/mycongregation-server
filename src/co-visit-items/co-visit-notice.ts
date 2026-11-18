@@ -343,6 +343,8 @@ export function messageOf(
         was.push(whenOf(before, lang));
       if (before.place !== after.place && before.place)
         was.push(placeText(before.place, lang)!);
+      // A changed kind of ministry says what it was too (review).
+      if (before.note !== after.note && before.note) was.push(before.note);
       return {
         at: `${after.date}${after.time ?? ''}`,
         text: `${lineText(after, v, lang)}${was.length ? ` (${w.was(was.join(', '))})` : ''}`,

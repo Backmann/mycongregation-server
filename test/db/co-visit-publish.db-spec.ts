@@ -193,6 +193,33 @@ describe('publishing a visit week (real database)', () => {
     expect(await svc.toldLines(visit, cards.copart)).toEqual([]);
   });
 
+  it('an undone deletion is said again, and a time put back is said again', async () => {
+    const svc = h.app.get(CoVisitNoticeService);
+    const later = (m: number) => new Date(Date.now() + m * 60 * 1000);
+    // Restored: he hears he has it again — the same lines as the first word,
+    // a new word (review, 18 November 2026).
+    await h.as('admin').post(`/co-visit-items/${fs}/restore`).expect(204);
+    await svc.tick(later(11));
+    expect(await outbox(users.copart)).toHaveLength(4);
+    // A time changed and changed back: each is news.
+    await h
+      .as('admin')
+      .patch(`/co-visit-items/${fs}`, { startTime: '09:30' })
+      .expect(200);
+    await svc.tick(later(22));
+    await h
+      .as('admin')
+      .patch(`/co-visit-items/${fs}`, { startTime: '11:00' })
+      .expect(200);
+    await svc.tick(later(33));
+    await h
+      .as('admin')
+      .patch(`/co-visit-items/${fs}`, { startTime: '09:30' })
+      .expect(200);
+    await svc.tick(later(44));
+    expect(await outbox(users.copart)).toHaveLength(7);
+  });
+
   it('a visit that is over cannot be published', async () => {
     const old = (
       await h.sql<{ id: string }>(
