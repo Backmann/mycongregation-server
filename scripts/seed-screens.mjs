@@ -551,7 +551,7 @@ async function main() {
   // 6⅜. The circuit overseer's visit five weeks on, with its folder for him
   //     (form S-61, 17 November 2026). The administrator Андрей is the
   //     secretary, so the folder is photographed whole: a few items marked,
-  //     one file saved, the rest open; a day without a lunch.
+  //     one file saved, the rest open.
   const visitStart = addDays(CURRENT, 36); // a Tuesday
   const coVisit = await post('/special-events', {
     title: 'Посещение районного старейшины',
@@ -564,22 +564,63 @@ async function main() {
     coAccommodationPublisherId: P('Борис'),
   });
   await post('/responsibilities', { type: 'secretary', userId: adminUserId });
-  for (const [kind, d, who, extra] of [
-    ['pastoral', 1, 'Борис', {}],
-    ['pastoral', 2, 'Виктор', {}],
-    ['lunch', 0, 'Глеб', {}],
-    ['lunch', 1, 'Денис', {}],
-    ['lunch', 2, 'Егор', {}],
-    ['lunch', 4, 'Илья', {}],
-    ['lunch', 5, 'Кирилл', {}],
-    ['field_service', 1, 'Захар', {}],
-    ['field_service', 3, null, { withWife: true }],
+  // The week as a real visit has it (August 2026, counted on the live site
+  // without names): two outings a day at 10:00 and 14:00 — the wife mostly
+  // with her own partner — a lunch at 12:15, a lunch box every day,
+  // shepherding calls at 16:00, the pioneers and the elders at 19:00. Two
+  // gaps stay open on purpose: no lunch on Saturday, no partner on Thursday
+  // afternoon.
+  const HALL = 'Примерная улица 1, 12345 Примерный город';
+  const hall = { placeKind: 'kingdom_hall', placeText: HALL };
+  for (const [kind, d, time, who, extra] of [
+    ['lunch_box', 0, null, 'Анна', {}],
+    ['field_service', 1, '10:00', 'Захар', { ...hall, note: 'по домам' }],
+    [
+      'field_service',
+      1,
+      '10:00',
+      'Вера',
+      { ...hall, forWife: true, note: 'по домам' },
+    ],
+    ['lunch', 1, '12:15', 'Денис', {}],
+    [
+      'field_service',
+      1,
+      '14:00',
+      'Лев',
+      { ...hall, note: 'повторные посещения' },
+    ],
+    ['field_service', 1, '14:00', 'Вера', { ...hall, forWife: true }],
+    ['pastoral', 1, '16:00', 'Борис', { note: 'семья Озеровых' }],
+    ['lunch_box', 1, null, 'Ольга', {}],
+    ['field_service', 2, '10:00', 'Илья', { ...hall, note: 'стенд' }],
+    ['field_service', 2, '10:00', 'Нина', { ...hall, forWife: true }],
+    ['lunch', 2, '12:15', 'Глеб', {}],
+    [
+      'field_service',
+      2,
+      '14:00',
+      null,
+      { ...hall, note: 'повторные посещения' },
+    ],
+    ['pastoral', 2, '16:00', 'Виктор', { note: 'брат Шубин' }],
+    ['pioneers', 2, '19:00', null, { ...hall }],
+    ['lunch_box', 2, null, 'Инна', {}],
+    ['field_service', 3, '10:00', null, { ...hall, withWife: true }],
+    ['lunch', 3, '12:15', 'Кирилл', {}],
+    ['elders', 3, '19:00', null, { ...hall }],
+    ['lunch_box', 3, null, 'Мария', {}],
+    ['field_service', 4, '10:00', 'Матвей', { ...hall, note: 'по домам' }],
+    ['field_service', 4, '10:00', 'Нина', { ...hall, forWife: true }],
+    ['field_service', 4, '14:00', 'Илья', { ...hall }],
+    ['lunch_box', 4, null, 'Анна', {}],
+    ['lunch_box', 5, null, 'Дарья', {}],
   ]) {
     await post('/co-visit-items', {
       specialEventId: coVisit.id,
       kind,
       itemDate: iso(addDays(visitStart, d)),
-      startTime: kind === 'lunch' ? '13:00' : '10:00',
+      ...(time ? { startTime: time } : {}),
       ...(who ? { assigneePublisherId: P(who) } : {}),
       ...extra,
     });
