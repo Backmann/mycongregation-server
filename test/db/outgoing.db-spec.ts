@@ -98,6 +98,44 @@ describe('trips «От нас» without a brother (real database)', () => {
     );
   });
 
+  it('deleting a standing trip outright tells the others, not the one who deleted it', async () => {
+    const trip = await h.as('admin').post('/talk-exchange', {
+      direction: 'outgoing',
+      date: inDays(30),
+      publisherId: brotherCard,
+      hostCongregationId: hostId,
+    });
+    expect(trip.status).toBe(201);
+    await h.as('admin').delete(`/talk-exchange/${trip.body.id}`).expect(204);
+    const told = await attentionNotices(trip.body.id);
+    expect(told.map((t) => t.user_id)).toContain(coordinatorUser);
+    const [admin] = await h.sql<{ id: string }>(
+      `SELECT id FROM users WHERE login_name = 'dbtest-admin'`,
+    );
+    expect(told.map((t) => t.user_id)).not.toContain(admin.id);
+    expect(told.every((t) => t.key.startsWith('talk-attention:deleted:'))).toBe(
+      true,
+    );
+  });
+
+  it('deleting a trip already marked as not held says nothing more', async () => {
+    const trip = await h.as('coord').post('/talk-exchange', {
+      direction: 'outgoing',
+      date: inDays(31),
+      publisherId: brotherCard,
+      hostCongregationId: hostId,
+    });
+    await h
+      .as('coord')
+      .patch(`/talk-exchange/${trip.body.id}`, { status: 'did_not_happen' })
+      .expect(200);
+    await h.as('coord').delete(`/talk-exchange/${trip.body.id}`).expect(204);
+    const told = await attentionNotices(trip.body.id);
+    expect(told.some((t) => t.key.startsWith('talk-attention:deleted:'))).toBe(
+      false,
+    );
+  });
+
   it('a trip without a brother is counted in the week summary, said once a week', async () => {
     const trip = await h.as('coord').post('/talk-exchange', {
       direction: 'outgoing',
