@@ -12,6 +12,11 @@ import { Publisher } from '../entities/publisher.entity';
 import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneers.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { CongregationClockModule } from '../common/congregation-clock.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { CoVisitTold } from '../entities/co-visit-told.entity';
+import { PushToken } from '../entities/push-token.entity';
+import { WebPushSubscription } from '../entities/web-push-subscription.entity';
+import { CoVisitNoticeService } from './co-visit-notice.service';
 
 @Module({
   imports: [
@@ -22,12 +27,21 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
       Responsibility,
       User,
       Publisher,
+      CoVisitTold,
+      PushToken,
+      WebPushSubscription,
     ]),
     AuxiliaryPioneersModule,
     AuditLogModule,
+    NotificationsModule,
   ],
   controllers: [CoVisitItemsController],
-  providers: [CoVisitItemsService, RolesGuard, ResponsibilityGuard],
-  exports: [CoVisitItemsService],
+  providers: [
+    CoVisitItemsService,
+    CoVisitNoticeService,
+    RolesGuard,
+    ResponsibilityGuard,
+  ],
+  exports: [CoVisitItemsService, CoVisitNoticeService],
 })
 export class CoVisitItemsModule {}

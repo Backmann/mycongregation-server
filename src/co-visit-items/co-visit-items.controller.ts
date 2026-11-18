@@ -13,6 +13,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { CoVisitItemsService } from './co-visit-items.service';
+import { CoVisitNoticeService } from './co-visit-notice.service';
 import { CreateCoVisitItemDto } from './dto/create-co-visit-item.dto';
 import { UpdateCoVisitItemDto } from './dto/update-co-visit-item.dto';
 import { ApplyCoVisitTemplateDto } from './dto/apply-co-visit-template.dto';
@@ -29,7 +30,10 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
  */
 @Controller('co-visit-items')
 export class CoVisitItemsController {
-  constructor(private readonly service: CoVisitItemsService) {}
+  constructor(
+    private readonly service: CoVisitItemsService,
+    private readonly notices: CoVisitNoticeService,
+  ) {}
 
   /** The signed-in member's own slice of upcoming visits (any role). */
   @Get('mine')
@@ -69,6 +73,45 @@ export class CoVisitItemsController {
   ) {
     await this.service.assertCanViewSchedule(congregationId, user);
     return this.service.list(congregationId, specialEventId, user);
+  }
+
+  /**
+   * Where the visit's publishing stands, and who would hear what if it were
+   * said now — for those who plan it (18 November 2026).
+   */
+  @Get('publication')
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+    ResponsibilityType.BODY_COORDINATOR,
+  )
+  publication(
+    @TenantId() congregationId: string,
+    @Query('specialEventId', ParseUUIDPipe) specialEventId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.notices.publication(
+      congregationId,
+      specialEventId,
+      user.uiLanguage,
+    );
+  }
+
+  /** Publish the week: from now on it is seen, and it speaks for itself. */
+  @Post('publish')
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+    ResponsibilityType.BODY_COORDINATOR,
+  )
+  publish(
+    @TenantId() congregationId: string,
+    @Body() dto: ApplyCoVisitTemplateDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.notices.publish(congregationId, dto.specialEventId, user.id);
   }
 
   /** What starting from the last visit would create — those who may read it. */

@@ -3,6 +3,7 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { NotHeldService } from '../not-held/not-held.service';
 import { PioneerMeetingsService } from '../pioneer-meetings/pioneer-meetings.service';
 import { CoVisitFolderService } from '../co-visit-folder/co-visit-folder.service';
+import { CoVisitNoticeService } from '../co-visit-items/co-visit-notice.service';
 import { AttendanceReminderService } from '../meeting-attendance/attendance-reminder.service';
 import { Cron } from '@nestjs/schedule';
 import { MemorialService } from '../memorial/memorial.service';
@@ -92,6 +93,8 @@ export class ScheduledJobsService {
     /** The folder for the circuit overseer (S-61): reminders, page 2 erased. */
     @Optional()
     private readonly coVisitFolder?: CoVisitFolderService,
+    @Optional()
+    private readonly coVisitNotices?: CoVisitNoticeService,
     /** The stand: sign-up closing, a plan not published, a permit ending. */
     @Optional()
     private readonly cartReminders?: CartRemindersService,
@@ -381,6 +384,22 @@ export class ScheduledJobsService {
       await this.programmeNotices.runDue();
     } catch (err) {
       this.logger.error('[ProgrammeNotices] pass failed', err as Error);
+    }
+  }
+
+  /**
+   * A published visit week edited — every minute: its people are told ten
+   * minutes after the last edit, never at night (co-visit-notice.service.ts).
+   */
+  @Cron('* * * * *', {
+    name: 'co-visit-notices',
+    timeZone: 'UTC',
+  })
+  async handleCoVisitNotices(): Promise<void> {
+    try {
+      await this.coVisitNotices?.tick();
+    } catch (err) {
+      this.logger.error('[CoVisitNotices] pass failed', err as Error);
     }
   }
 

@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   DeleteDateColumn,
+  UpdateDateColumn,
   Entity,
   Index,
   JoinColumn,
@@ -90,6 +91,9 @@ export class CoVisitItem {
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
+  /** The last edit — what a published visit's notices count from. */
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updatedAt!: Date;
   /**
    * Removed, but kept.
    *

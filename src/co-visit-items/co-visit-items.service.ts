@@ -310,7 +310,10 @@ export class CoVisitItemsService {
         where: { congregationId, type: 'circuit_overseer_visit' },
         order: { date: 'ASC' },
       })
-    ).filter((e) => (e.endDate ?? e.date) >= today);
+    )
+      // A draft week is the planner's alone (18 November 2026).
+      .filter((e) => !!e.coPublishedAt)
+      .filter((e) => (e.endDate ?? e.date) >= today);
 
     const out: CoVisitFieldServiceWeek[] = [];
     for (const visit of visits) {
@@ -377,7 +380,10 @@ export class CoVisitItemsService {
         where: { congregationId, type: 'circuit_overseer_visit' },
         order: { date: 'ASC' },
       })
-    ).filter((e) => (e.endDate ?? e.date) >= today);
+    )
+      // A draft week is the planner's alone (18 November 2026).
+      .filter((e) => !!e.coPublishedAt)
+      .filter((e) => (e.endDate ?? e.date) >= today);
     if (visits.length === 0) return [];
 
     const out: {

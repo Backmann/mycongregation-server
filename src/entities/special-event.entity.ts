@@ -156,6 +156,17 @@ export class SpecialEvent {
   @Column({ type: 'timestamptz', nullable: true })
   memorialPublishedAt!: Date | null;
 
+  /**
+   * A circuit overseer's visit: null while its week is a draft — nobody sees
+   * it on Home, in the calendar or in a notification (18 November 2026).
+   */
+  @Column({ type: 'timestamptz', nullable: true, name: 'co_published_at' })
+  coPublishedAt!: Date | null;
+
+  /** When the visit's people were last told what is theirs. */
+  @Column({ type: 'timestamptz', nullable: true, name: 'co_noticed_at' })
+  coNoticedAt!: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 

@@ -869,6 +869,12 @@ export class MeService {
     // ---- CO-visit lunches the publisher organizes (note = instruction) ----
     const coLunches = await this.coVisitItemsRepo
       .createQueryBuilder('c')
+      // A draft week is the planner's alone (18 November 2026).
+      .innerJoin(
+        'special_events',
+        'ev',
+        'ev.id = c.special_event_id AND ev.co_published_at IS NOT NULL',
+      )
       .where('c.congregation_id = :tenantId', { tenantId })
       .andWhere("c.kind IN ('lunch', 'lunch_box')")
       .andWhere('c.assignee_publisher_id = :pid', { pid })
