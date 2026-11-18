@@ -540,3 +540,74 @@ describe('a pair is asked to meet before its part', () => {
     );
   });
 });
+
+describe('a circuit overseer visit line (18 November 2026)', () => {
+  const co = part({
+    type: 'co',
+    id: 'c1',
+    kind: 'co',
+    labelKey: 'field_service',
+    time: '10:00',
+    place: '§hall',
+    co: {
+      side: 'co',
+      withWife: false,
+      name: 'Пётр Иванов',
+      wife: 'Мария',
+      note: 'по домам',
+    },
+  });
+
+  it('comes back a week before and the evening before, and is never announced here', () => {
+    expect(evenings(co, 'full', false)).toEqual([7, 1]);
+    const plan = planDigest({
+      today: '2026-10-21',
+      ladder: 'full',
+      items: [co],
+      marks: [],
+    });
+    expect(plan.lines[0].tone).toBe('reminder');
+    expect(plan.mark).toEqual([]);
+  });
+
+  it('is worded as the notice: day, hour, with whom, where', () => {
+    const plan = planDigest({
+      today: '2026-10-21',
+      ladder: 'full',
+      items: [co],
+      marks: [],
+    });
+    const text = writeDigest(plan.lines, 'ru')!;
+    expect(text.title).toBe('Завтра у вас');
+    expect(text.body).toBe(
+      'Чт 22 октября, 10:00: служение с районным старейшиной (Пётр Иванов), Зал Царства · по домам',
+    );
+  });
+
+  it("the wife's partner hears of the wife, a group meeting of the group", () => {
+    const wife = {
+      ...co,
+      co: { ...co.co!, side: 'wife' as const, note: null },
+    };
+    const elders = {
+      ...co,
+      id: 'e',
+      labelKey: 'elders',
+      time: '19:00',
+      co: { ...co.co!, side: null, note: null },
+    };
+    const plan = planDigest({
+      today: '2026-10-21',
+      ladder: 'full',
+      items: [wife, elders],
+      marks: [],
+    });
+    const body = writeDigest(plan.lines, 'ru')!.body;
+    expect(body).toContain(
+      'служение с женой районного старейшины (Мария), Зал Царства',
+    );
+    expect(body).toContain(
+      'встреча районного старейшины со старейшинами и помощниками',
+    );
+  });
+});

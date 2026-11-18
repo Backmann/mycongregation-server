@@ -625,6 +625,10 @@ async function main() {
       ...extra,
     });
   }
+  // Published, as a real visit is by now: its people see it on Home
+  // (18 November 2026 — a draft is the planner's alone).
+  await post('/co-visit-items/publish', { specialEventId: coVisit.id });
+
   for (const [key, state] of [
     ['1.1', 'paper'],
     ['1.2', 'separate'],

@@ -16,6 +16,19 @@ import {
   overlaps as cartOverlaps,
 } from '../cart-weeks/cart-time';
 import { Absence } from '../entities/absence.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
+import { CoVisitItem } from '../entities/co-visit-item.entity';
+import { AuxiliaryPioneer } from '../entities/auxiliary-pioneer.entity';
+import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
+import { isActivePermanentPioneer } from '../common/pioneer-status';
+import {
+  isActiveInMonth,
+  monthKeyOf,
+} from '../auxiliary-pioneers/auxiliary-pioneer-hours';
+import {
+  type CoNoticeLine,
+  linesByPerson,
+} from '../co-visit-items/co-visit-notice';
 import { Assignment } from '../entities/assignment.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
 import { ExternalCongregation } from '../entities/external-congregation.entity';
@@ -409,6 +422,13 @@ export class AssignmentRemindersService {
       add(publisherId, item);
     }
 
+    for (const [publisherId, item] of await this.coVisitLines(
+      congregationId,
+      today,
+    )) {
+      add(publisherId, item);
+    }
+
     const going = talks.filter(
       (t) => t.status !== TalkExchangeStatus.DID_NOT_HAPPEN,
     );
@@ -631,6 +651,128 @@ export class AssignmentRemindersService {
             with: others,
           },
         ]);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * What is each person's at a PUBLISHED circuit overseer's visit in the
+   * coming week — his own lines, and the meeting of his group: the pioneers'
+   * for every pioneer, the elders' for every elder and ministerial servant.
+   * Recalled a week before and the evening before (18 November 2026).
+   */
+  private async coVisitLines(
+    congregationId: string,
+    today: string,
+  ): Promise<[string, ReminderItem][]> {
+    const manager = (this.publishers as { manager?: { query?: unknown } })
+      .manager;
+    if (typeof manager?.query !== 'function') return [];
+    const until = addDaysISO(today, 8);
+    const visits = (
+      await this.publishers.manager.getRepository(SpecialEvent).find({
+        where: {
+          congregationId,
+          type: 'circuit_overseer_visit',
+          coPublishedAt: Not(IsNull()),
+        },
+      })
+    ).filter((v) => (v.endDate ?? v.date) >= today && v.date <= until);
+    if (visits.length === 0) return [];
+    const items = await this.publishers.manager
+      .getRepository(CoVisitItem)
+      .find({
+        where: {
+          congregationId,
+          specialEventId: In(visits.map((v) => v.id)),
+          itemDate: Between(today, until),
+        },
+        relations: { cartLocation: true },
+      });
+    if (items.length === 0) return [];
+    const visitOf = new Map(visits.map((v) => [v.id, v]));
+    const out: [string, ReminderItem][] = [];
+    const itemOf = (
+      it: CoVisitItem,
+      line: CoNoticeLine | null,
+    ): ReminderItem => {
+      const v = visitOf.get(it.specialEventId)!;
+      return {
+        type: 'co',
+        id: it.id,
+        date: it.itemDate,
+        kind: 'co',
+        labelKey: it.kind,
+        labelTitle: null,
+        assistant: false,
+        slot: null,
+        time: it.startTime ? it.startTime.slice(0, 5) : null,
+        place: line?.place ?? null,
+        co: {
+          side: line?.side ?? null,
+          withWife: it.withWife,
+          name: [v.coFirstName, v.coLastName].filter(Boolean).join(' ').trim(),
+          wife: v.coWifeName?.trim() ?? '',
+          note: line?.note ?? null,
+        },
+      };
+    };
+    const own = linesByPerson(
+      items.map((i) => ({
+        ...i,
+        cartLocationName: i.cartLocation?.name ?? null,
+      })),
+    );
+    const byId = new Map(items.map((i) => [i.id, i]));
+    for (const [pid, lines] of own)
+      for (const l of lines) out.push([pid, itemOf(byId.get(l.id)!, l)]);
+
+    // The meetings of a group: everybody in it, unless the line is his own.
+    const groupItems = items.filter(
+      (i) => i.kind === 'pioneers' || i.kind === 'elders',
+    );
+    if (groupItems.length > 0) {
+      const cards = await this.publishers.find({
+        where: { congregationId, isActive: true },
+      });
+      const auxRows = await this.publishers.manager
+        .getRepository(AuxiliaryPioneer)
+        .find({ where: { congregationId } });
+      for (const it of groupItems) {
+        const month = monthKeyOf(it.itemDate);
+        const line = linesByPerson([
+          {
+            ...it,
+            assigneePublisherId: 'x',
+            cartLocationName: it.cartLocation?.name ?? null,
+          },
+        ]).get('x')![0];
+        for (const p of cards) {
+          if (it.assigneePublisherId === p.id) continue;
+          const member =
+            it.kind === 'elders'
+              ? p.appointment === PublisherAppointment.ELDER ||
+                p.appointment === PublisherAppointment.MINISTERIAL_SERVANT
+              : isActivePermanentPioneer(
+                  p.pioneerType,
+                  p.pioneerSince,
+                  it.itemDate,
+                ) ||
+                auxRows.some(
+                  (a) =>
+                    a.publisherId === p.id &&
+                    isActiveInMonth(
+                      {
+                        startMonth: a.startMonth,
+                        endMonth: a.endMonth,
+                        untilCancelled: a.untilCancelled,
+                      },
+                      month,
+                    ),
+                );
+          if (member) out.push([p.id, itemOf(it, line)]);
+        }
       }
     }
     return out;

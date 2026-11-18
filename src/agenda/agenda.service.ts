@@ -1049,7 +1049,11 @@ export class AgendaService {
       await this.ds.getRepository(SpecialEvent).find({
         where: { congregationId, type: 'circuit_overseer_visit' },
       })
-    ).filter((v) => (v.endDate ?? v.date) >= from && v.date <= to);
+    ).filter(
+      (v) =>
+        // A draft week is the planner's alone (18 November 2026).
+        !!v.coPublishedAt && (v.endDate ?? v.date) >= from && v.date <= to,
+    );
     if (visits.length === 0) return;
     const isPioneer =
       isActivePermanentPioneer(me.pioneerType, me.pioneerSince) ||

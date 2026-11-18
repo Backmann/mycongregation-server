@@ -194,7 +194,13 @@ describe('CoVisitItemsService.mine', () => {
   function build(publisher: any, items: any[]) {
     const repo = { find: jest.fn(async () => items) } as any;
     const eventsRepo = {
-      find: jest.fn(async () => [{ ...visit, type: 'circuit_overseer_visit' }]),
+      find: jest.fn(async () => [
+        {
+          ...visit,
+          type: 'circuit_overseer_visit',
+          coPublishedAt: new Date('2026-01-01T00:00:00Z'),
+        },
+      ]),
     } as any;
     const usersRepo = {} as any;
     const publishersRepo = { findOne: jest.fn(async () => publisher) } as any;
@@ -307,7 +313,13 @@ describe('CoVisitItemsService.mine', () => {
     // Publisher with no permanent pioneer type, but auxiliary this month.
     const repo = { find: jest.fn(async () => items) } as any;
     const eventsRepo = {
-      find: jest.fn(async () => [{ ...visit, type: 'circuit_overseer_visit' }]),
+      find: jest.fn(async () => [
+        {
+          ...visit,
+          type: 'circuit_overseer_visit',
+          coPublishedAt: new Date('2026-01-01T00:00:00Z'),
+        },
+      ]),
     } as any;
     const publishersRepo = {
       findOne: jest.fn(async () => ({
@@ -500,6 +512,7 @@ describe('CoVisitItemsService.mine — accommodation host & legacy copies', () =
           date: '2099-01-05',
           endDate: '2099-01-11',
           type: 'circuit_overseer_visit',
+          coPublishedAt: new Date('2026-01-01T00:00:00Z'),
           ...visitExtra,
         },
       ]),
@@ -581,6 +594,7 @@ describe('CoVisitItemsService.fieldService', () => {
     date: '2099-01-05',
     endDate: '2099-01-11',
     type: 'circuit_overseer_visit',
+    coPublishedAt: new Date('2026-01-01T00:00:00Z'),
   };
 
   function build(items: any[]) {

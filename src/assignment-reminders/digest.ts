@@ -1,4 +1,5 @@
 import { MEETING_NAMES, PART_NAMES } from '../common/i18n/push-strings';
+import { HALL, hallWord, whatOf } from '../co-visit-items/co-visit-notice';
 import { SupportedLanguage } from '../common/i18n/supported-languages';
 
 /**
@@ -40,8 +41,15 @@ export type ItemType =
   | 'service'
   | 'cleaning'
   | 'talk'
-  | 'cart';
-export type MeetingKindOf = 'midweek' | 'weekend' | 'service' | 'away' | 'cart';
+  | 'cart'
+  | 'co';
+export type MeetingKindOf =
+  | 'midweek'
+  | 'weekend'
+  | 'service'
+  | 'away'
+  | 'cart'
+  | 'co';
 
 /**
  * Things that are only ever RECALLED here — never announced, never marked.
@@ -60,6 +68,10 @@ export type MeetingKindOf = 'midweek' | 'weekend' | 'service' | 'away' | 'cart';
  *     with the hour, the place and who stands with him (2 November 2026).
  */
 const RECALL_ONLY: ReadonlySet<ItemType> = new Set<ItemType>([
+  // `co`: what is his at a circuit overseer's visit. He is told when the week
+  // is published and when it changes (co-visit-notice.service.ts); here it
+  // comes back a week before and the evening before (18 November 2026).
+  'co',
   'service',
   'cleaning',
   'talk',
@@ -76,12 +88,14 @@ export const SERVICE_STEPS: readonly number[] = [1];
 export const CLEANING_STEPS: readonly number[] = [1];
 export const TALK_STEPS: readonly number[] = [7, 1];
 export const CART_STEPS: readonly number[] = [1];
+export const CO_STEPS: readonly number[] = [7, 1];
 
 export function stepsFor(type: ItemType, ladder: Ladder): readonly number[] {
   if (type === 'service') return SERVICE_STEPS;
   if (type === 'cleaning') return CLEANING_STEPS;
   if (type === 'talk') return TALK_STEPS;
   if (type === 'cart') return CART_STEPS;
+  if (type === 'co') return CO_STEPS;
   return type === 'duty' ? DUTY_STEPS : PART_STEPS[ladder];
 }
 
@@ -129,6 +143,17 @@ export interface ReminderItem {
    * 25 October 2026). Empty when the week's study is not imported.
    */
   avoidSongs?: number[];
+  /**
+   * A line of a circuit overseer's visit: with whom (the overseer, his wife)
+   * and who is visiting — what the words need (18 November 2026).
+   */
+  co?: {
+    side: 'co' | 'wife' | null;
+    withWife: boolean;
+    name: string;
+    wife: string;
+    note: string | null;
+  };
   /**
    * Where it stands in the programme. Only decides the order in which the
    * things of one meeting are named; a duty comes after the parts.
@@ -724,6 +749,31 @@ export function writeDigest(
           : '';
       groups.push({
         head: `${day}${whenOf(l)}${at}: ${w.cart(it.equipmentKind, it.place?.trim() ?? '')}${people}`,
+        tail: '',
+        lines: [],
+      });
+      continue;
+    } else if (l.item.kind === 'co') {
+      // A circuit overseer's visit: its own line, worded as the notice that
+      // announced it — with whom, where.
+      const it = l.item as ReminderItem;
+      const at = it.time ? `, ${it.time.slice(0, 5)}` : '';
+      const c = it.co ?? {
+        side: null,
+        withWife: false,
+        name: '',
+        wife: '',
+        note: null,
+      };
+      const what = whatOf(
+        { kind: it.labelKey, side: c.side, withWife: c.withWife },
+        { name: c.name, wife: c.wife },
+        lang,
+      );
+      const place = it.place === HALL ? hallWord(lang) : it.place?.trim();
+      const where = [place, c.note].filter(Boolean).join(' · ');
+      groups.push({
+        head: `${day}${whenOf(l)}${at}: ${what}${where ? `, ${where}` : ''}`,
         tail: '',
         lines: [],
       });

@@ -293,6 +293,7 @@ export const PLAN: Record<string, TablePlan> = {
     copy(`id congregation_id type date replaces_meeting created_at updated_at
       deleted_at end_date co_midweek_dow co_role
       co_accommodation_publisher_id time_end memorial_published_at
+      co_published_at co_noticed_at
       meeting_mode meeting_time aux_reduced_hours`),
     {
       title: 'eventTitle',
@@ -311,7 +312,7 @@ export const PLAN: Record<string, TablePlan> = {
   co_visit_items: table(
     copy(`id congregation_id special_event_id kind for_wife item_date
       start_time place_kind cart_location_id assignee_publisher_id sort_order
-      created_at with_wife deleted_at`),
+      created_at updated_at with_wife deleted_at`),
     { place_text: 'label:Место', assignee_text: 'label:Участник' },
     remove('note'),
   ),
@@ -409,6 +410,10 @@ export const PLAN: Record<string, TablePlan> = {
       handed_over_by_user_id files_deleted created_at updated_at`),
     remove('answers'),
   ),
+  // What each person was told of a visit (18 November 2026): its lines carry
+  // places and a shepherding call's family — not copied; the copy has no
+  // phones to tell anyway.
+  co_visit_told: 'skip',
   co_visit_folder_marks: copy(`id congregation_id special_event_id item_key
     state stamp marked_by_user_id marked_at`),
   territory_requests: copy(`id congregation_id publisher_id created_at
