@@ -84,6 +84,11 @@ export class UpdateSpecialEventDto {
   @Length(1, 100)
   coWifeName?: string | null;
 
+  /** Circuit-overseer visit only: his wife comes on this visit. */
+  @IsOptional()
+  @IsBoolean()
+  coWifeComes?: boolean;
+
   @IsOptional()
   @IsIn(['overseer', 'substitute'])
   coRole?: string;

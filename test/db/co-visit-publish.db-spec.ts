@@ -61,8 +61,8 @@ describe('publishing a visit week (real database)', () => {
     // Tuesday 23 to Sunday 28 February 2094.
     visit = (
       await h.sql<{ id: string }>(
-        `INSERT INTO special_events (congregation_id, title, type, date, end_date, co_first_name, co_last_name, co_wife_name)
-         VALUES ($1, 'Визит', 'circuit_overseer_visit', '2094-02-23', '2094-02-28', 'Пётр', 'Иванов', 'Мария') RETURNING id`,
+        `INSERT INTO special_events (congregation_id, title, type, date, end_date, co_first_name, co_last_name, co_wife_name, co_wife_comes)
+         VALUES ($1, 'Визит', 'circuit_overseer_visit', '2094-02-23', '2094-02-28', 'Пётр', 'Иванов', 'Мария', true) RETURNING id`,
         [tenant],
       )
     )[0].id;

@@ -1,3 +1,5 @@
+import { asVisited } from './co-visit-wife';
+
 /**
  * The shape of the last visit week, carried to an empty one (17 November 2026).
  *
@@ -78,6 +80,9 @@ export function daysOf(from: string, to: string | null): string[] {
  * - Left behind: document reviews (a task of the folder, not the week), and
  *   the old empty copies of the wife's lunches the screen already hides —
  *   only her own OUTINGS are hers.
+ * - When the overseer's wife does not come on the new visit, her outings stay
+ *   behind and «together with his wife» becomes his outing (18 November
+ *   2026): the last visit's wife is not this one's.
  * - A stand that is no longer in use is not carried: the outing keeps its
  *   slot and loses only the place (`activeCartLocations`).
  */
@@ -85,13 +90,14 @@ export function templateFrom(
   source: TemplateSource[],
   targetDays: string[],
   activeCartLocations: Set<string>,
+  wifeComes: boolean,
 ): { items: TemplateItem[]; skipped: number } {
   const byWeekday = new Map<number, string>();
   for (const d of targetDays)
     if (!byWeekday.has(isoWeekday(d))) byWeekday.set(isoWeekday(d), d);
   const items: TemplateItem[] = [];
   let skipped = 0;
-  for (const s of source) {
+  for (const s of asVisited(source, wifeComes)) {
     if (s.kind === 'document_review') continue;
     if (s.forWife && s.kind !== 'field_service') continue;
     const day = byWeekday.get(isoWeekday(s.itemDate));
@@ -102,16 +108,19 @@ export function templateFrom(
     const standGone =
       s.placeKind === 'cart_location' &&
       (!s.cartLocationId || !activeCartLocations.has(s.cartLocationId));
+    // A place, like a note, is carried only where it is a public one: a
+    // shepherding call's place is somebody's home (review, 18 November 2026).
+    const placeKept = NOTE_KEPT.has(s.kind) && !standGone;
     items.push({
       kind: s.kind,
       forWife: s.forWife,
       withWife: s.withWife,
       itemDate: day,
       startTime: s.startTime,
-      placeKind: standGone ? null : s.placeKind,
+      placeKind: placeKept ? s.placeKind : null,
       cartLocationId:
-        standGone || s.placeKind !== 'cart_location' ? null : s.cartLocationId,
-      placeText: standGone ? null : s.placeText,
+        placeKept && s.placeKind === 'cart_location' ? s.cartLocationId : null,
+      placeText: placeKept ? s.placeText : null,
       note: NOTE_KEPT.has(s.kind) ? s.note : null,
       sortOrder: s.sortOrder,
     });

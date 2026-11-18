@@ -1,3 +1,4 @@
+import { wifeComes } from '../co-visit-items/co-visit-wife';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PairPrepService } from '../pair-prep/pair-prep.service';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -680,18 +681,23 @@ export class AssignmentRemindersService {
       })
     ).filter((v) => (v.endDate ?? v.date) >= today && v.date <= until);
     if (visits.length === 0) return [];
-    const items = await this.publishers.manager
-      .getRepository(CoVisitItem)
-      .find({
-        where: {
-          congregationId,
-          specialEventId: In(visits.map((v) => v.id)),
-          itemDate: Between(today, until),
-        },
-        relations: { cartLocation: true },
-      });
+    let items = await this.publishers.manager.getRepository(CoVisitItem).find({
+      where: {
+        congregationId,
+        specialEventId: In(visits.map((v) => v.id)),
+        itemDate: Between(today, until),
+      },
+      relations: { cartLocation: true },
+    });
     if (items.length === 0) return [];
     const visitOf = new Map(visits.map((v) => [v.id, v]));
+    // Her rows only when the overseer's wife comes (co-visit-wife.ts).
+    items = items.filter(
+      (i) => wifeComes(visitOf.get(i.specialEventId)!) || !i.forWife,
+    );
+    for (const i of items)
+      if (i.withWife && !wifeComes(visitOf.get(i.specialEventId)!))
+        i.withWife = false;
     const out: [string, ReminderItem][] = [];
     const itemOf = (
       it: CoVisitItem,

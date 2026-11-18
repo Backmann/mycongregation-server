@@ -1,3 +1,4 @@
+import { wifeComes } from '../co-visit-items/co-visit-wife';
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { Between, DataSource, In, IsNull, Not } from 'typeorm';
@@ -1065,11 +1066,17 @@ export class AgendaService {
     const isAppointed =
       me.appointment === PublisherAppointment.ELDER ||
       me.appointment === PublisherAppointment.MINISTERIAL_SERVANT;
-    const lines = await this.ds.getRepository(CoVisitItem).find({
-      where: { congregationId, specialEventId: In(visits.map((v) => v.id)) },
-      relations: { cartLocation: true },
-    });
     const visitById = new Map(visits.map((v) => [v.id, v]));
+    // Her rows only when the overseer's wife comes (co-visit-wife.ts): a
+    // sister's outing with a wife who stays at home leaves her calendar.
+    const lines = (
+      await this.ds.getRepository(CoVisitItem).find({
+        where: { congregationId, specialEventId: In(visits.map((v) => v.id)) },
+        relations: { cartLocation: true },
+      })
+    ).filter(
+      (it) => !it.forWife || wifeComes(visitById.get(it.specialEventId) ?? {}),
+    );
     for (const it of lines) {
       if (it.kind === 'document_review') continue;
       if (it.forWife && it.kind !== 'field_service') continue;

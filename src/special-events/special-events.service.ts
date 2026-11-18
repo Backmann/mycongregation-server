@@ -50,6 +50,7 @@ const JOURNAL_FIELDS = [
   'meetingNote',
   'meetingTime',
   'meetingAddress',
+  'coWifeComes',
 ] as const;
 
 function journalView(e: SpecialEvent): Record<string, unknown> {
@@ -482,6 +483,11 @@ export class SpecialEventsService {
     ]);
     const event = this.specialEventsRepo.create({
       ...dto,
+      // An older client sends only the name: a name written down means she
+      // comes, as the migration read the visits already there.
+      coWifeComes:
+        dto.type === CIRCUIT_OVERSEER_VISIT_TYPE &&
+        (dto.coWifeComes ?? !!dto.coWifeName?.trim()),
       congregationId: tenantId,
       // Only a campaign gives the auxiliary pioneers 15 hours.
       auxReducedHours: dto.type === 'campaign' && dto.auxReducedHours === true,
@@ -641,7 +647,20 @@ export class SpecialEventsService {
       await this.coVisitTemplate.revert(event);
     }
 
+    // An older client knows only the name and sends it with every save: a
+    // name GIVEN means she comes, a name TAKEN AWAY that she does not; the
+    // same name sent again changes nothing — or an old phone saving the
+    // accommodation would bring back a wife who stays at home (review,
+    // 18 November 2026). A newer client says so itself.
+    const hadName = !!event.coWifeName?.trim();
     Object.assign(event, dto, meeting);
+    if (
+      dto.coWifeComes === undefined &&
+      dto.coWifeName !== undefined &&
+      !!dto.coWifeName?.trim() !== hadName
+    )
+      event.coWifeComes = !!dto.coWifeName?.trim();
+    if (event.type !== CIRCUIT_OVERSEER_VISIT_TYPE) event.coWifeComes = false;
     if (event.type !== 'campaign') event.auxReducedHours = false;
     const saved = await this.specialEventsRepo.save(event);
     await this.auditLog.logUpdate({

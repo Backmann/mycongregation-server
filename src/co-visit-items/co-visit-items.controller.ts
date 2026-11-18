@@ -17,6 +17,7 @@ import { CoVisitNoticeService } from './co-visit-notice.service';
 import { CreateCoVisitItemDto } from './dto/create-co-visit-item.dto';
 import { UpdateCoVisitItemDto } from './dto/update-co-visit-item.dto';
 import { ApplyCoVisitTemplateDto } from './dto/apply-co-visit-template.dto';
+import { UndoClearWifeDto } from './dto/undo-clear-wife.dto';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
@@ -61,7 +62,23 @@ export class CoVisitItemsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     await this.service.assertCanViewSchedule(congregationId, user);
-    return this.service.hostStats(congregationId);
+    return this.service.hostStats(
+      congregationId,
+      await this.service.isElder(congregationId, user),
+    );
+  }
+
+  /**
+   * What the reader of the schedule is: an elder sees and plans shepherding
+   * calls, anyone else only the time they take (18 November 2026).
+   */
+  @Get('reader')
+  async reader(
+    @TenantId() congregationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.service.assertCanViewSchedule(congregationId, user);
+    return { elder: await this.service.isElder(congregationId, user) };
   }
 
   /** Elders, the admin, and those who plan the visit (see the service). */
@@ -86,7 +103,7 @@ export class CoVisitItemsController {
     ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
     ResponsibilityType.BODY_COORDINATOR,
   )
-  publication(
+  async publication(
     @TenantId() congregationId: string,
     @Query('specialEventId', ParseUUIDPipe) specialEventId: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -95,6 +112,7 @@ export class CoVisitItemsController {
       congregationId,
       specialEventId,
       user.uiLanguage,
+      await this.service.isElder(congregationId, user),
     );
   }
 
@@ -122,7 +140,11 @@ export class CoVisitItemsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     await this.service.assertCanViewSchedule(congregationId, user);
-    return this.service.templatePreview(congregationId, specialEventId);
+    return this.service.templatePreview(
+      congregationId,
+      specialEventId,
+      await this.service.isElder(congregationId, user),
+    );
   }
 
   /** Fill an empty visit week from the last one — those who plan it. */
@@ -138,10 +160,48 @@ export class CoVisitItemsController {
     @Body() dto: ApplyCoVisitTemplateDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.applyTemplate(
+    return this.service.applyTemplate(congregationId, dto.specialEventId, user);
+  }
+
+  /**
+   * The overseer's wife does not come: clear her rows out of the week in
+   * one undoable step (18 November 2026).
+   */
+  @Post('clear-wife')
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+    ResponsibilityType.BODY_COORDINATOR,
+  )
+  clearWife(
+    @TenantId() congregationId: string,
+    @Body() dto: ApplyCoVisitTemplateDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.clearWife(congregationId, dto.specialEventId, user);
+  }
+
+  /** Undo of `clear-wife`: exactly the rows it touched. */
+  @Post('clear-wife/undo')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(
+    ResponsibilityType.SERVICE_OVERSEER,
+    ResponsibilityType.SERVICE_OVERSEER_ASSISTANT,
+    ResponsibilityType.BODY_COORDINATOR,
+  )
+  unclearWife(
+    @TenantId() congregationId: string,
+    @Body() dto: UndoClearWifeDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.unclearWife(
       congregationId,
       dto.specialEventId,
-      user.id,
+      dto.removed,
+      dto.unjoined,
+      user,
     );
   }
 
@@ -189,7 +249,7 @@ export class CoVisitItemsController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.remove(congregationId, id, user.id);
+    return this.service.remove(congregationId, id, user);
   }
 
   /** Put a removed item back — the same right as removing it. */
@@ -204,7 +264,8 @@ export class CoVisitItemsController {
   restore(
     @TenantId() congregationId: string,
     @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.restore(congregationId, id);
+    return this.service.restore(congregationId, id, user);
   }
 }

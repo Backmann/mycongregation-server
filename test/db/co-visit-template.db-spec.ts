@@ -32,8 +32,31 @@ describe('the visit week from the last visit (real database)', () => {
           [tenant, s, e],
         )
       )[0].id;
+    // The planner is an elder: shepherding calls are laid out by elders only
+    // (co-visit-wife-pastoral.db-spec covers the planner who is not one).
+    const elderCard = await h.addPublisher({
+      firstName: 'Пётр',
+      lastName: 'Старейшина',
+      baptismDate: '2000-01-01',
+      appointment: 'elder',
+    });
+    const elderUser = await h.addUser({
+      login: 'tplplanner',
+      role: 'elder',
+      publisherId: elderCard,
+    });
+    await h.sql(
+      `INSERT INTO responsibilities (congregation_id, type, user_id) VALUES ($1, 'service_overseer', $2)`,
+      [tenant, elderUser],
+    );
     past = await ev(pastStart, pastEnd);
     next = await ev(nextStart, nextEnd);
+    // Both overseers come with their wives: her outing is carried
+    // (co-visit-wife-pastoral.db-spec covers the one who comes alone).
+    await h.sql(
+      `UPDATE special_events SET co_wife_comes = true WHERE id = ANY($1)`,
+      [[past, next]],
+    );
     host = await h.addPublisher({
       firstName: 'Глеб',
       lastName: 'Хозяин',
@@ -91,7 +114,7 @@ describe('the visit week from the last visit (real database)', () => {
 
   it('the preview names the source week and counts per day', async () => {
     const r = await h
-      .as('admin')
+      .as('tplplanner')
       .get(`/co-visit-items/template?specialEventId=${next}`)
       .expect(200);
     expect(r.body.empty).toBe(true);
@@ -126,17 +149,17 @@ describe('the visit week from the last visit (real database)', () => {
       [other, theirs],
     );
     const pre = await h
-      .as('admin')
+      .as('tplplanner')
       .get(`/co-visit-items/template?specialEventId=${next}`)
       .expect(200);
     expect(pre.body.source.id).toBe(past);
     const theirNext = await ev('2094-03-02', '2094-03-07');
     await h
-      .as('admin')
+      .as('tplplanner')
       .get(`/co-visit-items/template?specialEventId=${theirNext}`)
       .expect(404);
     await h
-      .as('admin')
+      .as('tplplanner')
       .post('/co-visit-items/template', { specialEventId: theirNext })
       .expect(404);
     expect(
@@ -166,7 +189,7 @@ describe('the visit week from the last visit (real database)', () => {
       [tenant, gone],
     );
     const pre = await h
-      .as('admin')
+      .as('tplplanner')
       .get(`/co-visit-items/template?specialEventId=${next}`)
       .expect(200);
     expect(pre.body.source.id).toBe(past);
@@ -215,7 +238,7 @@ describe('the visit week from the last visit (real database)', () => {
 
   it('copies the form of the week and no person', async () => {
     const r = await h
-      .as('admin')
+      .as('tplplanner')
       .post('/co-visit-items/template', { specialEventId: next })
       .expect(201);
     expect(r.body).toEqual({ created: 6, skipped: 0, sourceId: past });
@@ -280,8 +303,12 @@ describe('the visit week from the last visit (real database)', () => {
       )
     )[0].id;
     const [a, b] = await Promise.all([
-      h.as('admin').post('/co-visit-items/template', { specialEventId: twin }),
-      h.as('admin').post('/co-visit-items/template', { specialEventId: twin }),
+      h
+        .as('tplplanner')
+        .post('/co-visit-items/template', { specialEventId: twin }),
+      h
+        .as('tplplanner')
+        .post('/co-visit-items/template', { specialEventId: twin }),
     ]);
     expect([a.status, b.status].sort()).toEqual([201, 409]);
     const rows = await h.sql(
@@ -327,7 +354,7 @@ describe('the visit week from the last visit (real database)', () => {
       )
     )[0].id;
     await h
-      .as('admin')
+      .as('tplplanner')
       .post('/co-visit-items/template', { specialEventId: dst })
       .expect(201);
     const rows = await h.sql<{
@@ -353,12 +380,12 @@ describe('the visit week from the last visit (real database)', () => {
 
   it('refuses a week that already has items', async () => {
     const r = await h
-      .as('admin')
+      .as('tplplanner')
       .post('/co-visit-items/template', { specialEventId: next })
       .expect(409);
     expect(r.body.code).toBe('CO_VISIT_TEMPLATE_NOT_EMPTY');
     const pre = await h
-      .as('admin')
+      .as('tplplanner')
       .get(`/co-visit-items/template?specialEventId=${next}`)
       .expect(200);
     expect(pre.body.empty).toBe(false);
@@ -373,13 +400,13 @@ describe('the visit week from the last visit (real database)', () => {
       )
     )[0].id;
     const pre = await h
-      .as('admin')
+      .as('tplplanner')
       .get(`/co-visit-items/template?specialEventId=${first}`)
       .expect(200);
     expect(pre.body.source).toBeNull();
     // A past visit is frozen before anything else is asked.
     const r = await h
-      .as('admin')
+      .as('tplplanner')
       .post('/co-visit-items/template', { specialEventId: first })
       .expect(409);
     expect(r.body.code).toBe('CO_VISIT_PAST_LOCKED');
