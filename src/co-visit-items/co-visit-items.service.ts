@@ -1068,7 +1068,7 @@ export class CoVisitItemsService {
       entityId: specialEventId,
       action: 'RESTORE',
       actorUserId: userId,
-      detail: { wifeCleared: false },
+      detail: { wifeRestored: true },
     });
   }
 
