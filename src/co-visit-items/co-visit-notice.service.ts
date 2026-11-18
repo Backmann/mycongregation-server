@@ -321,7 +321,10 @@ export class CoVisitNoticeService {
         entityId: eventId,
         action: 'UPDATE',
         actorUserId: userId,
-        detail: { published: event.coPublishedAt!.toISOString(), told: said },
+        detail: {
+          visitPublished: event.coPublishedAt!.toISOString(),
+          toldPeople: said,
+        },
       });
     return { publishedAt: event.coPublishedAt!.toISOString(), told: said };
   }
