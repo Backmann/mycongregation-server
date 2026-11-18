@@ -647,10 +647,18 @@ export class SpecialEventsService {
       await this.coVisitTemplate.revert(event);
     }
 
+    // An older client knows only the name and sends it with every save: a
+    // name GIVEN means she comes, a name TAKEN AWAY that she does not; the
+    // same name sent again changes nothing — or an old phone saving the
+    // accommodation would bring back a wife who stays at home (review,
+    // 18 November 2026). A newer client says so itself.
+    const hadName = !!event.coWifeName?.trim();
     Object.assign(event, dto, meeting);
-    // An older client knows only the name: a name given means she comes,
-    // a name taken away that she does not. A newer one says so itself.
-    if (dto.coWifeComes === undefined && dto.coWifeName !== undefined)
+    if (
+      dto.coWifeComes === undefined &&
+      dto.coWifeName !== undefined &&
+      !!dto.coWifeName?.trim() !== hadName
+    )
       event.coWifeComes = !!dto.coWifeName?.trim();
     if (event.type !== CIRCUIT_OVERSEER_VISIT_TYPE) event.coWifeComes = false;
     if (event.type !== 'campaign') event.auxReducedHours = false;

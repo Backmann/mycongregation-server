@@ -108,16 +108,19 @@ export function templateFrom(
     const standGone =
       s.placeKind === 'cart_location' &&
       (!s.cartLocationId || !activeCartLocations.has(s.cartLocationId));
+    // A place, like a note, is carried only where it is a public one: a
+    // shepherding call's place is somebody's home (review, 18 November 2026).
+    const placeKept = NOTE_KEPT.has(s.kind) && !standGone;
     items.push({
       kind: s.kind,
       forWife: s.forWife,
       withWife: s.withWife,
       itemDate: day,
       startTime: s.startTime,
-      placeKind: standGone ? null : s.placeKind,
+      placeKind: placeKept ? s.placeKind : null,
       cartLocationId:
-        standGone || s.placeKind !== 'cart_location' ? null : s.cartLocationId,
-      placeText: standGone ? null : s.placeText,
+        placeKept && s.placeKind === 'cart_location' ? s.cartLocationId : null,
+      placeText: placeKept ? s.placeText : null,
       note: NOTE_KEPT.has(s.kind) ? s.note : null,
       sortOrder: s.sortOrder,
     });

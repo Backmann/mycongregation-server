@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { assertAssignable } from '../common/inactive';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, In, Repository } from 'typeorm';
+import { EntityManager, In, Not, Repository } from 'typeorm';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { CoVisitItem } from '../entities/co-visit-item.entity';
@@ -651,6 +651,7 @@ export class CoVisitItemsService {
     m: EntityManager,
     congregationId: string,
     target: SpecialEvent,
+    elder: boolean,
   ): Promise<{
     source: SpecialEvent | null;
     items: TemplateItem[];
@@ -679,6 +680,9 @@ export class CoVisitItemsService {
         order: { itemDate: 'ASC', sortOrder: 'ASC' },
       });
       const made = templateFrom(rows, days, active, wifeComes(target));
+      // Shepherding calls are laid out by elders only (review, 18 November
+      // 2026): a planner who is not one gets the rest of the week.
+      if (!elder) made.items = made.items.filter((i) => i.kind !== 'pastoral');
       if (made.items.length > 0) return { source: ev, ...made };
     }
     return { source: null, items: [], skipped: 0 };
@@ -692,7 +696,11 @@ export class CoVisitItemsService {
   }
 
   /** What «start from the last visit» would create — read only. */
-  async templatePreview(congregationId: string, specialEventId: string) {
+  async templatePreview(
+    congregationId: string,
+    specialEventId: string,
+    elder: boolean,
+  ) {
     const target = await this.eventsRepo.findOne({
       where: {
         id: specialEventId,
@@ -702,7 +710,12 @@ export class CoVisitItemsService {
     });
     if (!target) throw new NotFoundException('Visit not found');
     const empty = (await this.liveItemCount(congregationId, target.id)) === 0;
-    const t = await this.templateFor(this.repo.manager, congregationId, target);
+    const t = await this.templateFor(
+      this.repo.manager,
+      congregationId,
+      target,
+      elder,
+    );
     const perDay = new Map<string, number>();
     for (const it of t.items)
       perDay.set(it.itemDate, (perDay.get(it.itemDate) ?? 0) + 1);
@@ -736,9 +749,11 @@ export class CoVisitItemsService {
   async applyTemplate(
     congregationId: string,
     specialEventId: string,
-    userId: string,
+    user: AuthenticatedUser,
   ): Promise<{ created: number; skipped: number; sourceId: string }> {
+    const userId = user.id;
     await this.assertVisitEditable(congregationId, specialEventId);
+    const elder = await this.isElder(congregationId, user);
     const done = await this.repo.manager.transaction(async (m) => {
       const target = await m.getRepository(SpecialEvent).findOne({
         where: {
@@ -759,7 +774,7 @@ export class CoVisitItemsService {
             'This visit already has items; a template is only laid on an empty week.',
           ),
         );
-      const t = await this.templateFor(m, congregationId, target);
+      const t = await this.templateFor(m, congregationId, target, elder);
       if (!t.source)
         throw new NotFoundException(
           refusal(
@@ -919,7 +934,10 @@ export class CoVisitItemsService {
         kind: item.kind,
         itemDate: item.itemDate,
         startTime: item.startTime,
-        placeText: item.placeText,
+        // A shepherding call's place is somebody's home, and the journal is
+        // read by an administrator who need not be an elder (review,
+        // 18 November 2026).
+        placeText: item.kind === 'pastoral' ? null : item.placeText,
         specialEventId: item.specialEventId,
       },
     });
@@ -935,9 +953,11 @@ export class CoVisitItemsService {
   async clearWife(
     congregationId: string,
     specialEventId: string,
-    userId: string,
+    user: AuthenticatedUser,
   ): Promise<{ removed: string[]; unjoined: string[] }> {
+    const userId = user.id;
     await this.assertVisitEditable(congregationId, specialEventId);
+    const elder = await this.isElder(congregationId, user);
     const done = await this.repo.manager.transaction(async (m) => {
       const event = await m.getRepository(SpecialEvent).findOne({
         where: {
@@ -958,7 +978,12 @@ export class CoVisitItemsService {
       const rows = await m
         .getRepository(CoVisitItem)
         .find({ where: { congregationId, specialEventId } });
-      const stray = strayWifeRows(rows, false);
+      // A shepherding call stays an elder's to touch, even one stored as
+      // hers in old data (review, 18 November 2026).
+      const stray = strayWifeRows(
+        rows.filter((r) => elder || r.kind !== 'pastoral'),
+        false,
+      );
       if (stray.removed.length > 0)
         await m
           .getRepository(CoVisitItem)
@@ -979,10 +1004,13 @@ export class CoVisitItemsService {
         entityId: specialEventId,
         action: 'UPDATE',
         actorUserId: userId,
+        // The rows themselves, not only how many: once the undo strip is
+        // gone, this entry is how they are found and put back (review,
+        // 18 November 2026).
         detail: {
           wifeCleared: true,
-          removed: done.removed.length,
-          unjoined: done.unjoined.length,
+          removed: done.removed,
+          unjoined: done.unjoined,
         },
       });
     return done;
@@ -997,9 +1025,15 @@ export class CoVisitItemsService {
     specialEventId: string,
     removed: string[],
     unjoined: string[],
-    userId: string,
+    user: AuthenticatedUser,
   ): Promise<void> {
+    const userId = user.id;
     await this.assertVisitEditable(congregationId, specialEventId);
+    // Calls are never among what a non-elder cleared; nor are they put back
+    // by him (review, 18 November 2026).
+    const kinds = (await this.isElder(congregationId, user))
+      ? undefined
+      : Not('pastoral');
     await this.repo.manager.transaction(async (m) => {
       const repo = m.getRepository(CoVisitItem);
       if (removed.length > 0) {
@@ -1009,6 +1043,7 @@ export class CoVisitItemsService {
             specialEventId,
             id: In(removed),
             forWife: true,
+            ...(kinds ? { kind: kinds } : {}),
           },
           withDeleted: true,
         });

@@ -1,3 +1,4 @@
+import { wifeComes } from '../co-visit-items/co-visit-wife';
 import {
   BadRequestException,
   ConflictException,
@@ -672,13 +673,17 @@ export class CoVisitFolderService {
       with_wife: boolean;
       item_date: string;
       has_partner: boolean;
-    }> = await this.marks.query(
-      `SELECT kind, for_wife, with_wife, item_date::text AS item_date,
+    }> = (
+      await this.marks.query(
+        `SELECT kind, for_wife, with_wife, item_date::text AS item_date,
                 (assignee_publisher_id IS NOT NULL OR coalesce(assignee_text, '') <> '') AS has_partner
            FROM co_visit_items
           WHERE congregation_id = $1 AND special_event_id = $2 AND deleted_at IS NULL`,
-      [tenantId, event.id],
-    );
+        [tenantId, event.id],
+      )
+    ).filter((r) => !r.for_wife || wifeComes(event));
+    // Her rows only when she comes (co-visit-wife.ts); «together» too.
+    if (!wifeComes(event)) for (const r of rows) r.with_wife = false;
     const days = this.visitDays(event);
     const lunchDays = new Set(
       rows
@@ -724,13 +729,17 @@ export class CoVisitFolderService {
       with_wife: boolean;
       item_date: string;
       has_partner: boolean;
-    }> = await this.marks.query(
-      `SELECT kind, for_wife, with_wife, item_date::text AS item_date,
+    }> = (
+      await this.marks.query(
+        `SELECT kind, for_wife, with_wife, item_date::text AS item_date,
                 (assignee_publisher_id IS NOT NULL OR coalesce(assignee_text, '') <> '') AS has_partner
            FROM co_visit_items
           WHERE congregation_id = $1 AND special_event_id = $2 AND deleted_at IS NULL`,
-      [tenantId, event.id],
-    );
+        [tenantId, event.id],
+      )
+    ).filter((r) => !r.for_wife || wifeComes(event));
+    // Her rows only when she comes (co-visit-wife.ts); «together» too.
+    if (!wifeComes(event)) for (const r of rows) r.with_wife = false;
     const days = this.visitDays(event);
     const lunch = new Set(
       rows

@@ -366,6 +366,110 @@ describe('the wife who stays at home, and calls for elders (real database)', () 
       .expect(201);
   });
 
+  it('a planner who is not an elder lays out the week without the calls', async () => {
+    // `alone` now holds a call with an elder and a family: the newest source.
+    const empty = await visit('2094-08-03', '2094-08-08', false);
+    const pre = await h
+      .as('wpasst')
+      .get(`/co-visit-items/template?specialEventId=${empty}`)
+      .expect(200);
+    const r = await h
+      .as('wpasst')
+      .post('/co-visit-items/template', { specialEventId: empty })
+      .expect(201);
+    expect(r.body.created).toBe(pre.body.total);
+    const kinds = await h.sql<{ kind: string }>(
+      `SELECT kind FROM co_visit_items WHERE special_event_id = $1 AND deleted_at IS NULL`,
+      [empty],
+    );
+    expect(kinds.length).toBeGreaterThan(0);
+    expect(kinds.some((k) => k.kind === 'pastoral')).toBe(false);
+    // An elder gets the calls — with no place: a call's place is a home.
+    // Earlier than the assistant's week, so `alone` is its source.
+    const mine = await visit('2094-05-04', '2094-05-09', false);
+    await h
+      .as('wpelder')
+      .post('/co-visit-items/template', { specialEventId: mine })
+      .expect(201);
+    const calls = await h.sql<{
+      place_kind: string | null;
+      place_text: string | null;
+    }>(
+      `SELECT place_kind, place_text FROM co_visit_items WHERE special_event_id = $1 AND kind = 'pastoral'`,
+      [mine],
+    );
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((c) => !c.place_kind && !c.place_text)).toBe(true);
+  });
+
+  it('a sister’s outing with a wife who stays at home leaves her calendar and Home', async () => {
+    await h.sql(
+      `UPDATE special_events SET co_published_at = now() WHERE id = $1`,
+      [alone],
+    );
+    await item(alone, 'field_service', '2094-02-25', '10:00', {
+      forWife: true,
+      who: cards.wpsis,
+    });
+    const agenda = async () =>
+      (
+        await h
+          .as('wpsis')
+          .get('/me/agenda?from=2094-02-20&to=2094-03-05')
+          .expect(200)
+      ).body.items.filter((i: { kind: string }) => i.kind === 'co_visit');
+    const home = async () =>
+      JSON.stringify(
+        (await h.as('wpsis').get('/co-visit-items/mine').expect(200)).body,
+      );
+    expect(await agenda()).toHaveLength(0);
+    expect(await home()).not.toContain(alone);
+    await h.sql(
+      `UPDATE special_events SET co_wife_comes = true WHERE id = $1`,
+      [alone],
+    );
+    expect(await agenda()).toHaveLength(1);
+    expect(await home()).toContain(alone);
+    await h.sql(
+      `UPDATE special_events SET co_wife_comes = false WHERE id = $1`,
+      [alone],
+    );
+  });
+
+  it('an old app saving the same name does not bring her back', async () => {
+    const married = await visit('2096-02-21', '2096-02-26', true);
+    await h
+      .as('admin')
+      .patch(`/special-events/${married}`, { coWifeComes: false })
+      .expect(200);
+    // An old phone sends the name it had, with some other change.
+    await h
+      .as('admin')
+      .patch(`/special-events/${married}`, {
+        coWifeName: 'Мария',
+        coAccommodationAddress: 'Somewhere 1',
+      })
+      .expect(200);
+    const comes = async () =>
+      (
+        await h.sql<{ c: boolean }>(
+          `SELECT co_wife_comes c FROM special_events WHERE id = $1`,
+          [married],
+        )
+      )[0].c;
+    expect(await comes()).toBe(false);
+    // A name taken away and given again does speak.
+    await h
+      .as('admin')
+      .patch(`/special-events/${married}`, { coWifeName: null })
+      .expect(200);
+    await h
+      .as('admin')
+      .patch(`/special-events/${married}`, { coWifeName: 'Анна' })
+      .expect(200);
+    expect(await comes()).toBe(true);
+  });
+
   it('the migration read the old sign: a name written down means she comes', async () => {
     // A visit row in the old shape, then the migration's own statement.
     const old = (

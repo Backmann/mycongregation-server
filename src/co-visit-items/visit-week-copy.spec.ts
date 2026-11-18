@@ -83,6 +83,14 @@ describe('the last visit week carried to an empty one', () => {
       ['lunch', null],
       ['pioneers', 'theme of the meeting'],
     ]);
+    // Nor a place where it is somebody's home (review, 18 November 2026).
+    const call = templateFrom(
+      [src({ kind: 'pastoral', placeKind: 'custom', placeText: 'Home 5' })],
+      FEB,
+      new Set(),
+      true,
+    ).items[0];
+    expect([call.placeKind, call.placeText]).toEqual([null, null]);
     for (const i of items)
       expect(Object.keys(i)).not.toContain('assigneePublisherId');
   });

@@ -877,6 +877,9 @@ export class MeService {
       )
       .where('c.congregation_id = :tenantId', { tenantId })
       .andWhere("c.kind IN ('lunch', 'lunch_box')")
+      // The old empty copies of a lunch for the overseer's wife are nobody's:
+      // the lunch is the overseer's row (18 November 2026).
+      .andWhere('c.for_wife = false')
       .andWhere('c.assignee_publisher_id = :pid', { pid })
       .andWhere('c.item_date BETWEEN :today AND :horizon', { today, horizon })
       .orderBy('c.item_date', 'ASC')

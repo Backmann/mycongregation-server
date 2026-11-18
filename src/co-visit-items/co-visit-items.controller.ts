@@ -140,7 +140,11 @@ export class CoVisitItemsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     await this.service.assertCanViewSchedule(congregationId, user);
-    return this.service.templatePreview(congregationId, specialEventId);
+    return this.service.templatePreview(
+      congregationId,
+      specialEventId,
+      await this.service.isElder(congregationId, user),
+    );
   }
 
   /** Fill an empty visit week from the last one — those who plan it. */
@@ -156,11 +160,7 @@ export class CoVisitItemsController {
     @Body() dto: ApplyCoVisitTemplateDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.applyTemplate(
-      congregationId,
-      dto.specialEventId,
-      user.id,
-    );
+    return this.service.applyTemplate(congregationId, dto.specialEventId, user);
   }
 
   /**
@@ -179,7 +179,7 @@ export class CoVisitItemsController {
     @Body() dto: ApplyCoVisitTemplateDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.clearWife(congregationId, dto.specialEventId, user.id);
+    return this.service.clearWife(congregationId, dto.specialEventId, user);
   }
 
   /** Undo of `clear-wife`: exactly the rows it touched. */
@@ -201,7 +201,7 @@ export class CoVisitItemsController {
       dto.specialEventId,
       dto.removed,
       dto.unjoined,
-      user.id,
+      user,
     );
   }
 
