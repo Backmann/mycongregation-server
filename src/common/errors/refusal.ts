@@ -84,6 +84,9 @@ export const REFUSAL_CODES = [
   'CO_VISIT_PAST_LOCKED',
   'CO_VISIT_SCHEDULE_CLOSED',
   'CO_VISIT_WEEK_TAKEN',
+  // Starting from the last visit: only on an empty week, and only when one exists.
+  'CO_VISIT_TEMPLATE_NOT_EMPTY',
+  'CO_VISIT_TEMPLATE_NO_SOURCE',
   // ---- special events ----
   'EVENT_CHANGE_EMPTY',
   'EVENT_END_BEFORE_START',
