@@ -667,6 +667,15 @@ export class TalkExchangeService {
       await this.clearProgramSlot(tenantId, row);
     }
     await this.repo.softDelete(row.id);
+    // A trip that still stood, with a brother on it, deleted outright: the
+    // others who answer for the exchange hear of it (18 November 2026).
+    if (
+      row.direction === TalkExchangeDirection.OUTGOING &&
+      row.publisherId &&
+      row.status !== TalkExchangeStatus.DID_NOT_HAPPEN
+    ) {
+      await this.attention?.tripDeleted(tenantId, row, user.id);
+    }
     // The visit's opening song leaves the programme with it.
     await this.openingSongToProgramme(
       tenantId,

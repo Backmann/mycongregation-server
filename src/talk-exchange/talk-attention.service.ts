@@ -187,6 +187,8 @@ const STR: Record<
   {
     needsTitle: string;
     needsBody: (day: string, host: string) => string;
+    deletedTitle: string;
+    deletedBody: (day: string, host: string) => string;
     riskTitle: string;
     absence: (day: string, host: string) => string;
     departed: (day: string, host: string) => string;
@@ -207,6 +209,9 @@ const STR: Record<
   ru: {
     needsTitle: 'От нас нужен брат',
     needsBody: (day, host) => `${day} · ${host} ждёт докладчика от нас`,
+    deletedTitle: 'Поездка от нас удалена',
+    deletedBody: (day, host) =>
+      `${day} · ${host} — запись удалена; если там ждут докладчика, предупредите собрание`,
     riskTitle: 'Поездка под вопросом',
     absence: (day, host) =>
       `${day} · ${host}: у брата в этот день отсутствие. Уточните, поедет ли он`,
@@ -233,6 +238,9 @@ const STR: Record<
   de: {
     needsTitle: 'Ein Bruder von uns wird gebraucht',
     needsBody: (day, host) => `${day} · ${host} erwartet einen Redner von uns`,
+    deletedTitle: 'Vortragsreise von uns gelöscht',
+    deletedBody: (day, host) =>
+      `${day} · ${host} — Eintrag gelöscht; falls dort ein Redner erwartet wird, bitte die Versammlung informieren`,
     riskTitle: 'Vortragsreise fraglich',
     absence: (day, host) =>
       `${day} · ${host}: Der Bruder ist an diesem Tag abwesend. Bitte klären, ob er fährt`,
@@ -259,6 +267,9 @@ const STR: Record<
   en: {
     needsTitle: 'A brother from us is needed',
     needsBody: (day, host) => `${day} · ${host} expects a speaker from us`,
+    deletedTitle: 'A trip from us was deleted',
+    deletedBody: (day, host) =>
+      `${day} · ${host} — the entry was deleted; if a speaker is expected there, let the congregation know`,
     riskTitle: 'Talk trip in question',
     absence: (day, host) =>
       `${day} · ${host}: the brother is away that day. Check whether he is going`,
@@ -782,6 +793,40 @@ export class TalkAttentionService {
   }
 
   /**
+   * A trip that still stood, with a brother on it, was deleted outright —
+   * entered by mistake, or moved and entered again (18 November 2026). The
+   * place over there must not be lost without a word: those who answer for
+   * the exchange are told, except the one who deleted it.
+   */
+  async tripDeleted(
+    tenantId: string,
+    entry: Pick<TalkExchange, 'id' | 'date' | 'hostCongregationId'>,
+    actorUserId: string,
+  ): Promise<void> {
+    try {
+      const date = String(entry.date).slice(0, 10);
+      if (date < (await this.today(tenantId))) return;
+      const host = await this.hostName(tenantId, entry.hostCongregationId);
+      await this.say(
+        tenantId,
+        entry.id,
+        date,
+        (l) => ({
+          title: STR[l].deletedTitle,
+          body: STR[l].deletedBody(shortDay(date, l), host ?? STR[l].elsewhere),
+        }),
+        `talk-attention:deleted:${entry.id}`,
+        {},
+        actorUserId,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `talk attention ${entry.id}: deletion not announced: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /**
    * A guest is booked for a weekend whose meeting was just cancelled — a
    * convention, the circuit assembly. His entry is kept; the brother himself
    * must be told, and only those who answer for the talks can (23 October
@@ -1024,8 +1069,11 @@ export class TalkAttentionService {
     text: (l: SupportedLanguage) => { title: string; body: string },
     key: string,
     extra: Record<string, string> = {},
+    except?: string,
   ): Promise<void> {
-    const userIds = await this.recipients(tenantId);
+    const userIds = (await this.recipients(tenantId)).filter(
+      (u) => u !== except,
+    );
     if (userIds.length === 0) return;
     await this.notifications.notify({
       tenantId,
