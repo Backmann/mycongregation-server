@@ -116,4 +116,58 @@ describe('pioneer school: busy at the meeting means that day (real database)', (
     expect(await warningsOf(wed)).toContain('busyAtMeeting');
     expect(await warningsOf(mon)).not.toContain('busyAtMeeting');
   });
+
+  // 19 November 2026: Home showed the school's absence («В отъезде») and
+  // nothing of the duty. /me/assignments now carries his school days. The
+  // school is placed from the real today: the endpoint reads from today on.
+  it('/me/assignments carries his school days, one item a day, and only his', async () => {
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const start = new Date(Date.now() + 28 * 86400000);
+    const day1 = iso(start);
+    const day3 = iso(new Date(start.getTime() + 2 * 86400000));
+    const created = await h.as('admin').post('/pioneer-school', {
+      title: 'Школа скоро',
+      startDate: day1,
+      endDate: day3,
+    });
+    expect([200, 201]).toContain(created.status);
+    const soonId: string = created.body.id;
+    const dutyOn = async (date: string) =>
+      (
+        await h.sql<{ id: string }>(
+          `SELECT d.id FROM pioneer_school_duties d
+             JOIN pioneer_school_days y ON y.id = d.day_id
+            WHERE y.school_id = $1 AND y.date = $2
+            ORDER BY d.duty_type, d.slot_index LIMIT 1`,
+          [soonId, date],
+        )
+      )[0].id;
+    for (const date of [day1, day3]) {
+      const r = await h
+        .as('admin')
+        .patch(`/pioneer-school/${soonId}/duties/${await dutyOn(date)}`, {
+          helperId,
+        });
+      expect(r.status).toBe(200);
+    }
+    await h.addUser({ login: 'langschool', role: 'publisher', publisherId });
+    const items = (
+      (await h.as('langschool').get('/me/assignments')).body.items as {
+        kind: string;
+        date?: string;
+        agendaId?: string;
+        label?: string;
+        schoolDuties?: { type: string }[];
+      }[]
+    ).filter((i) => i.kind === 'pioneer_school' && i.label === 'Школа скоро');
+    expect(items.map((i) => i.date)).toEqual([day1, day3]);
+    expect(items[0].agendaId).toBe(`pioneer_school:${soonId}:${day1}`);
+    expect(items[0].schoolDuties?.length).toBe(1);
+    const other = (
+      (await h.as('admin').get('/me/assignments')).body.items as {
+        kind: string;
+      }[]
+    ).filter((i) => i.kind === 'pioneer_school');
+    expect(other).toEqual([]);
+  });
 });

@@ -1,6 +1,7 @@
 import { TerritoriesModule } from '../territories/territories.module';
 import { AuxiliaryPioneersModule } from '../auxiliary-pioneers/auxiliary-pioneers.module';
 import { PioneerMeeting } from '../entities/pioneer-meeting.entity';
+import { PioneerSchoolDuty } from '../entities/pioneer-school-duty.entity';
 import { PioneerSpell } from '../entities/pioneer-spell.entity';
 import { Module } from '@nestjs/common';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -49,6 +50,7 @@ import { MePendingService } from './me-pending.service';
       MemorialItem,
       SpecialEvent,
       PioneerMeeting,
+      PioneerSchoolDuty,
       PioneerSpell,
     ]),
   ],
