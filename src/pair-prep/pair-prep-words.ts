@@ -96,8 +96,9 @@ const TEXT: Record<
     proposesSelf: (who) => `${who} предлагает договориться о подготовке.`,
     counter: (who, m) => `${who} предлагает другое время: ${m}.`,
     agreed: (who, m) => `${who}: подходит — ${m}.`,
-    declined: (who) =>
-      `${who}: не получится в эти дни. Договоритесь о подготовке лично.`,
+    // Never «не получится» (19 November 2026): it read as refusing the part,
+    // and a part is settled only with the brother responsible.
+    declined: (who) => `${who} предлагает договориться о подготовке лично.`,
     tomorrow: (part, m) => `Завтра — подготовка к «${part}» в паре: ${m}.`,
     waiting: (who, part) =>
       `Ждёт вашего ответа: ${who} предлагает подготовиться к «${part}».`,
@@ -108,8 +109,7 @@ const TEXT: Record<
     proposesSelf: (who) => `${who} suggests arranging your preparation.`,
     counter: (who, m) => `${who} suggests another time: ${m}.`,
     agreed: (who, m) => `${who}: that works — ${m}.`,
-    declined: (who) =>
-      `${who}: not possible on those days. Arrange your preparation in person.`,
+    declined: (who) => `${who} suggests arranging your preparation in person.`,
     tomorrow: (part, m) => `Tomorrow — preparing “${part}” together: ${m}.`,
     waiting: (who, part) =>
       `Waiting for your answer: ${who} suggests preparing “${part}”.`,
@@ -121,7 +121,7 @@ const TEXT: Record<
     counter: (who, m) => `${who} schlägt eine andere Zeit vor: ${m}.`,
     agreed: (who, m) => `${who}: passt — ${m}.`,
     declined: (who) =>
-      `${who}: an diesen Tagen geht es nicht. Sprechen Sie die Vorbereitung bitte persönlich ab.`,
+      `${who} möchte die Vorbereitung lieber persönlich absprechen.`,
     tomorrow: (part, m) =>
       `Morgen — gemeinsame Vorbereitung auf „${part}“: ${m}.`,
     waiting: (who, part) =>

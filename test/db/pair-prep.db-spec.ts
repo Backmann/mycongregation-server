@@ -205,7 +205,7 @@ describe('two people of a part agree when to prepare it (real database)', () => 
     expect(sixth.body.code).toBe('PAIR_PREP_TOO_MANY');
   }, 30_000);
 
-  it('«не получится» closes it; taking a proposal back does not reopen the day', async () => {
+  it('«договоримся лично» closes it; taking a proposal back does not reopen the day', async () => {
     const a = await person('ppa3', 'Ольга', 'Орлова');
     const b = await person('ppb3', 'Инна', 'Калинина');
     const id = await part(week(), a.card, b.card);
@@ -215,7 +215,7 @@ describe('two people of a part agree when to prepare it (real database)', () => 
       .post(`/pair-prep/${id}/answer`, { answer: 'decline' });
     expect(d.body.agreement.status).toBe('declined');
     expect((await told(a.user!)).at(-1)).toContain(
-      'Калинина Инна: не получится в эти дни',
+      'Калинина Инна предлагает договориться о подготовке лично',
     );
 
     const id2 = await part(week(), b.card, a.card);

@@ -77,7 +77,8 @@ function refuse(
  *
  * Rules (agreed with Lionel on the mock-up):
  *   • one open proposal a pair; the other one answers it — «подходит», another
- *     time (a counter-proposal is an ANSWER), or «не получится»;
+ *     time (a counter-proposal is an ANSWER), or «договоримся лично» (stored as
+ *     `declined`; the app no longer offers it since 19 November 2026);
  *   • a NEW proposal once a day per pair; answers always, up to
  *     MESSAGES_A_DAY messages a day in all;
  *   • only before the meeting's day; only when the partner has a login;
