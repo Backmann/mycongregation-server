@@ -227,6 +227,58 @@ describe('the Kingdom Ministry School marks its brothers away (real database)', 
     expect(await absencesOf(elder)).toHaveLength(1);
   });
 
+  it('two passes at the same moment write one absence, not two', async () => {
+    const id = await school();
+    await h.sql(`DELETE FROM absences`);
+    const svc = h.app.get(SchoolAbsencesService);
+    await Promise.all([svc.sync(id), svc.sync(id), svc.sync(id)]);
+    expect(await absencesOf(elder)).toHaveLength(1);
+  });
+
+  it('two rows for one brother (cards merged): the pass keeps one', async () => {
+    const id = await school();
+    await h.sql(
+      `INSERT INTO absences (congregation_id, publisher_id, start_date, end_date, special_event_id)
+       SELECT congregation_id, $1, '2099-02-07', '2099-02-08', id FROM special_events WHERE id = $2`,
+      [elder, id],
+    );
+    expect(await absencesOf(elder)).toHaveLength(2);
+    await h.app.get(SchoolAbsencesService).sync(id);
+    expect(await absencesOf(elder)).toHaveLength(1);
+  });
+
+  it('the kind is fixed: a refused change keeps the absences', async () => {
+    const id = await school();
+    const r = await h
+      .as('admin')
+      .patch(`/special-events/${id}`, { type: 'other', title: 'Другое' });
+    expect(r.status).toBe(400);
+    expect(await absencesOf(elder)).toHaveLength(1);
+  });
+
+  it('a past school removed as entered by mistake takes its absences', async () => {
+    const id = await school({ date: '2020-02-07', endDate: '2020-02-08' });
+    await h.sql(
+      `INSERT INTO absences (congregation_id, publisher_id, start_date, end_date, special_event_id)
+       SELECT congregation_id, $1, '2020-02-07', '2020-02-08', id FROM special_events WHERE id = $2`,
+      [elder, id],
+    );
+    const del = await h.as('admin').delete(`/special-events/${id}`);
+    expect([200, 204]).toContain(del.status);
+    expect(await absencesOf(elder)).toHaveLength(0);
+  });
+
+  it('not brought back by hand after a removal', async () => {
+    await school();
+    const [row] = await absencesOf(elder);
+    await h.sql(`UPDATE absences SET deleted_at = now() WHERE id = $1`, [
+      row.id,
+    ]);
+    const r = await h.as('admin').post(`/absences/${row.id}/restore`);
+    expect(r.status).toBe(400);
+    expect((r.body as { code?: string }).code).toBe('ABSENCE_FROM_EVENT');
+  });
+
   it('the school itself is not shown «away» in his agenda', async () => {
     const id = await school();
     const r = await h

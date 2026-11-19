@@ -84,26 +84,51 @@ export class SchoolAbsencesService {
     return done;
   }
 
-  /** Exposed for the tests; `follow` is the door the app uses. */
+  /**
+   * Exposed for the tests; `follow` is the door the app uses.
+   *
+   * One at a time per event (review, 19 November 2026): the night's pass and
+   * a save at the same moment both read «nothing yet» and both wrote a row,
+   * and the brother stood away twice until the next pass. A transaction-
+   * scoped advisory lock on the event makes the second wait for the first.
+   */
   async sync(eventId: string): Promise<void> {
-    const event = await this.events.findOne({
+    await this.absences.manager.transaction(async (m) => {
+      await m.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        `school-absences:${eventId}`,
+      ]);
+      await this.syncIn(
+        m.getRepository(Absence),
+        m.getRepository(SpecialEvent),
+        eventId,
+      );
+    });
+  }
+
+  private async syncIn(
+    absences: Repository<Absence>,
+    events: Repository<SpecialEvent>,
+    eventId: string,
+  ): Promise<void> {
+    const event = await events.findOne({
       where: { id: eventId },
       withDeleted: true,
     });
-    const existing = await this.absences.find({
+    const existing = await absences.find({
       where: { specialEventId: eventId },
       withDeleted: true,
     });
     if (!event) {
-      if (existing.length)
-        await this.absences.delete({ specialEventId: eventId });
+      if (existing.length) await absences.delete({ specialEventId: eventId });
       return;
     }
     const today = await this.clock.todayFor(event.congregationId);
     const from = day(event.date)!;
     const to = day(event.endDate) ?? from;
-    // History: a school that is over keeps the absences it had.
-    if (to < today) return;
+    // History: a school that is over keeps the absences it had — unless it
+    // was removed: an administrator removes a past event only to put right
+    // an entry made by mistake, and a school that never was marks nobody.
+    if (to < today && !event.deletedAt) return;
 
     const wanted = new Map<string, true>();
     if (!event.deletedAt && ABSENT_EVENT_TYPES.includes(event.type ?? '')) {
@@ -119,17 +144,18 @@ export class SchoolAbsencesService {
         day(row.startDate) === from &&
         (day(row.endDate) ?? day(row.startDate)) === to;
       if (fits) {
-        if (row.deletedAt) await this.absences.restore(row.id);
+        if (row.deletedAt) await absences.restore(row.id);
         wanted.delete(row.publisherId);
         continue;
       }
-      // Moved, uninvited or the school gone: the absence goes with it.
-      await this.absences.delete(row.id);
+      // Moved, uninvited, a second row for the same brother (two cards
+      // merged), or the school gone: the absence goes with it.
+      await absences.delete(row.id);
     }
 
     for (const publisherId of wanted.keys()) {
-      await this.absences.save(
-        this.absences.create({
+      await absences.save(
+        absences.create({
           congregationId: event.congregationId,
           publisherId,
           startDate: from,
@@ -141,16 +167,5 @@ export class SchoolAbsencesService {
         }),
       );
     }
-  }
-
-  /** The kinds of the events these absences come from, for their labels. */
-  async typesOf(eventIds: string[]): Promise<Map<string, string | null>> {
-    if (!eventIds.length) return new Map();
-    const rows = await this.events.find({
-      where: { id: In(eventIds) },
-      select: { id: true, type: true },
-      withDeleted: true,
-    });
-    return new Map(rows.map((e) => [e.id, e.type]));
   }
 }

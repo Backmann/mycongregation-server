@@ -137,15 +137,16 @@ export class SpecialEventsService {
     return out;
   }
 
+  /** The Kingdom Ministry School's absences follow it (19 November 2026). */
+  private async absencesFollow(eventId: string): Promise<void> {
+    await this.schoolAbsences?.follow(eventId);
+  }
+
   /**
    * A visit, an assembly or the Memorial moves or takes a meeting: the
    * pioneer school's absences are brought in line now, not when the school
    * is next opened. Best effort — the event is saved whatever happens here.
    */
-  private async absencesFollow(eventId: string): Promise<void> {
-    await this.schoolAbsences?.follow(eventId);
-  }
-
   private async schoolsFollow(tenantId: string): Promise<void> {
     try {
       await this.schools?.resyncUpcoming(tenantId);
