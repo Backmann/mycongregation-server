@@ -669,35 +669,6 @@ async function main() {
     });
   }
 
-  // 6½. «Договориться о подготовке»: Вера, Anna's partner in the current
-  //     week, proposes a last check before the meeting — Anna's card shows it with
-  //     the answers. Anna's part a week later is with Дарья, who has no
-  //     login: that card says to arrange it in person.
-  const adminToken = token;
-  token = (
-    await call(
-      'POST',
-      '/auth/login',
-      { login: LOGINS.partner, password: PASSWORD },
-      { as: null },
-    )
-  ).accessToken;
-  const mine = await get('/pair-prep/mine');
-  const withAnna = mine.find((i) => i.partnerName === 'Белова Анна');
-  if (withAnna) {
-    const { options } = await get(
-      `/pair-prep/${withAnna.assignmentId}/options`,
-    );
-    // «Before» the part's own meeting: the server offers moments by the real
-    // clock, and the screens freeze the browser on the part's week — this is
-    // the one moment that reads right on both.
-    const pick = options.find((o) => o.kind === 'before') ?? options[0];
-    await post(`/pair-prep/${withAnna.assignmentId}/propose`, {
-      key: pick.key,
-    });
-  }
-  token = adminToken;
-
   // 6¾. Territories (11 November 2026): an invented boundary and six
   //     invented squares far from anywhere real, brought over the way the
   //     import does it, confirmed, then one given out. Anna holds one of
