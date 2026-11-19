@@ -116,4 +116,33 @@ describe('pioneer school: busy at the meeting means that day (real database)', (
     expect(await warningsOf(wed)).toContain('busyAtMeeting');
     expect(await warningsOf(mon)).not.toContain('busyAtMeeting');
   });
+
+  // 19 November 2026: Home showed the school's absence («В отъезде») and
+  // nothing of the duty. /me/assignments now carries his school days.
+  it('/me/assignments carries his school days, one item a day, and only his', async () => {
+    await h.addUser({ login: 'langschool', role: 'publisher', publisherId });
+    const mon = await firstDutyOn('2027-04-05');
+    const wed = await firstDutyOn('2027-04-07');
+    await put(mon);
+    await put(wed);
+    const items = (
+      (await h.as('langschool').get('/me/assignments')).body.items as {
+        kind: string;
+        date?: string;
+        agendaId?: string;
+        label?: string;
+        schoolDuties?: { type: string }[];
+      }[]
+    ).filter((i) => i.kind === 'pioneer_school');
+    expect(items.map((i) => i.date)).toEqual(['2027-04-05', '2027-04-07']);
+    expect(items[0].agendaId).toBe(`pioneer_school:${schoolId}:2027-04-05`);
+    expect(items[0].label).toBe('Школа');
+    expect(items[0].schoolDuties?.length).toBe(1);
+    const other = (
+      (await h.as('admin').get('/me/assignments')).body.items as {
+        kind: string;
+      }[]
+    ).filter((i) => i.kind === 'pioneer_school');
+    expect(other).toEqual([]);
+  });
 });

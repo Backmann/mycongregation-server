@@ -17,6 +17,7 @@ import { CoVisitItem } from '../entities/co-visit-item.entity';
 import { MemorialItem } from '../entities/memorial-item.entity';
 import { SpecialEvent } from '../entities/special-event.entity';
 import { PioneerMeeting } from '../entities/pioneer-meeting.entity';
+import { PioneerSchoolDuty } from '../entities/pioneer-school-duty.entity';
 import { PioneerSpell } from '../entities/pioneer-spell.entity';
 import {
   conductorIdsOf,
@@ -38,7 +39,10 @@ export type MyAssignmentKind =
   | 'guest_lunch'
   // The annual meeting of the elders with the pioneers: invited, or the
   // elder who conducts it (label «invited» | «conduct»).
-  | 'pioneer_meeting';
+  | 'pioneer_meeting'
+  // A school day where he serves (microphone, audio/video…): one item per
+  // day, every duty of the day in `schoolDuties` (19 November 2026).
+  | 'pioneer_school';
 
 export interface MyAssignmentItem {
   /**
@@ -109,6 +113,13 @@ export interface MyAssignmentItem {
   notice?: string | null;
   /** CO-visit lunch: organizer note shown as a task instruction. */
   note?: string;
+  /**
+   * Pioneer school: his duties of the day, the client names them (its own
+   * words for `av`, `microphone`, `ventilation`; `label` for a custom one).
+   * `slot` is 1-based and given only where the school has more than one
+   * microphone.
+   */
+  schoolDuties?: { type: string; slot?: number; label?: string }[];
 }
 
 /** The fields a publisher may change in their own card. */
@@ -219,6 +230,10 @@ export class MeService {
     @Optional()
     @InjectRepository(PioneerSpell)
     private readonly pioneerSpellsRepo?: Repository<PioneerSpell>,
+    // His duties at the pioneer school — the same query as the agenda's.
+    @Optional()
+    @InjectRepository(PioneerSchoolDuty)
+    private readonly schoolDutiesRepo?: Repository<PioneerSchoolDuty>,
   ) {}
 
   /**
@@ -984,6 +999,61 @@ export class MeService {
           // For the invited: who conducts it; for a conductor: the other one.
           partnerName: others.length ? others.join(', ') : undefined,
           partnerNames: others.length ? others : undefined,
+        });
+      }
+    }
+
+    // ---- Pioneer school: the days he serves there ----
+    // Home showed the school's own absence («В отъезде») and nothing of the
+    // duty (review, 18 November 2026). One item per school day, as the
+    // agenda has it (agenda.service.ts).
+    if (this.schoolDutiesRepo) {
+      const duties = await this.schoolDutiesRepo
+        .createQueryBuilder('d')
+        .innerJoinAndSelect('d.day', 'y')
+        .innerJoinAndSelect('y.school', 's')
+        .innerJoin('d.helper', 'h')
+        .where('d.congregation_id = :tenantId', { tenantId })
+        .andWhere('h.publisher_id = :pid', { pid })
+        .andWhere('h.deleted_at IS NULL')
+        .andWhere('s.deleted_at IS NULL')
+        .andWhere('y.date BETWEEN :from AND :to', { from: today, to: horizon })
+        .getMany();
+      const byDay = new Map<string, PioneerSchoolDuty[]>();
+      for (const d of duties) {
+        const key = `${d.day.schoolId}|${String(d.day.date).slice(0, 10)}`;
+        byDay.set(key, [...(byDay.get(key) ?? []), d]);
+      }
+      for (const [key, list] of byDay) {
+        const [schoolId, day] = key.split('|');
+        const first = list[0];
+        const s = first.day.school;
+        const hhmm = (t: string | null | undefined) =>
+          t ? t.slice(0, 5) : undefined;
+        list.sort(
+          (a, b) =>
+            String(a.dutyType).localeCompare(String(b.dutyType)) ||
+            a.slotIndex - b.slotIndex,
+        );
+        items.push({
+          agendaId: `pioneer_school:${schoolId}:${day}`,
+          kind: 'pioneer_school',
+          sortDate: day,
+          date: day,
+          time: hhmm(first.day.startTime) ?? hhmm(s.startTime),
+          endTime: hhmm(first.day.endTime) ?? hhmm(s.endTime),
+          label: s.title,
+          location:
+            [s.hallName?.trim(), s.hallAddress?.trim()]
+              .filter(Boolean)
+              .join(', ') || undefined,
+          schoolDuties: list.map((d) => ({
+            type: String(d.dutyType),
+            ...(String(d.dutyType) === 'microphone' && s.microphoneSlots > 1
+              ? { slot: d.slotIndex + 1 }
+              : {}),
+            ...(d.customLabel?.trim() ? { label: d.customLabel.trim() } : {}),
+          })),
         });
       }
     }
