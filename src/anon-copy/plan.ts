@@ -527,7 +527,7 @@ export const PLAN: Record<string, TablePlan> = {
   absences: table(
     copy(`id congregation_id publisher_id start_date end_date created_by_id
       created_at updated_at deleted_at pioneer_school_duty_id
-      talk_exchange_id`),
+      talk_exchange_id special_event_id`),
     remove('note'),
   ),
   meeting_attendance: table(

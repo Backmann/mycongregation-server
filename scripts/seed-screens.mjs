@@ -524,7 +524,7 @@ async function main() {
   //     the admin sees it, Anna does not), the pioneers' special meeting six
   //     weeks on (Захар and Галина are pioneers), and a convention for all.
   await post('/special-events', {
-    title: 'Школа царственного служения для старейшин',
+    title: 'Школа Священного Служения для старейшин',
     type: 'kingdom_ministry_school_elders',
     date: iso(addDays(WEEKS[3], 5)),
     endDate: iso(addDays(WEEKS[3], 6)),

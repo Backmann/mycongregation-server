@@ -76,6 +76,16 @@ export class Absence {
   @Index()
   talkExchangeId!: string | null;
 
+  /**
+   * The event for the invited this absence follows from (19 November 2026):
+   * the Kingdom Ministry School takes the whole day, so each invited brother
+   * is away on its days. Written and withdrawn by the event — never by hand,
+   * as with the school duty and the trip above.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  @Index()
+  specialEventId!: string | null;
+
   // Login (user id) that recorded this absence; for future self-service.
   @Column({ type: 'uuid', nullable: true })
   createdById!: string | null;

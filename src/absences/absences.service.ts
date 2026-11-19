@@ -3,11 +3,13 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { In, Repository } from 'typeorm';
 import { Absence } from '../entities/absence.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
@@ -30,7 +32,48 @@ export class AbsencesService {
     private readonly responsibilitiesRepo: Repository<Responsibility>,
     private readonly auditLog: AuditLogService,
     private readonly clock: CongregationClock,
+    /** The kind of the event an absence comes from — for its label. */
+    @Optional()
+    @InjectRepository(SpecialEvent)
+    private readonly eventsRepo?: Repository<SpecialEvent>,
   ) {}
+
+  /**
+   * An absence the Kingdom Ministry School wrote carries the school's kind
+   * (19 November 2026): the app names it in the reader's language, as it
+   * names the pioneer school's. Nothing else of the event — its place and
+   * note are for the invited.
+   */
+  private async withEventType(rows: Absence[]): Promise<Absence[]> {
+    const ids = [
+      ...new Set(
+        rows.map((a) => a.specialEventId).filter((x): x is string => !!x),
+      ),
+    ];
+    if (!ids.length || !this.eventsRepo) return rows;
+    const events = await this.eventsRepo.find({
+      where: { id: In(ids) },
+      select: { id: true, type: true },
+      withDeleted: true,
+    });
+    const typeOf = new Map(events.map((e) => [e.id, e.type]));
+    return rows.map((a) =>
+      a.specialEventId
+        ? Object.assign(a, {
+            specialEventType: typeOf.get(a.specialEventId) ?? null,
+          })
+        : a,
+    );
+  }
+
+  private static fromEvent(): BadRequestException {
+    return new BadRequestException(
+      refusal(
+        'ABSENCE_FROM_EVENT',
+        'This absence comes from an event the brother is invited to. Change the event instead.',
+      ),
+    );
+  }
 
   /** Responsibilities that may manage ANY publisher's absences. */
   private static readonly MANAGER_RESPONSIBILITIES = [
@@ -207,7 +250,7 @@ export class AbsencesService {
     }
 
     const rows = await qb.orderBy('a.start_date', 'ASC').getMany();
-    return this.hideTripNotes(rows, user);
+    return this.withEventType(await this.hideTripNotes(rows, user));
   }
 
   async findOne(
@@ -233,7 +276,8 @@ export class AbsencesService {
     // Карточка отсутствия — то же правило, что и список: причина поездки не
     // для всех, кто просто планирует расписание.
     const [visible] = await this.hideTripNotes([found], user);
-    return visible;
+    const [named] = await this.withEventType([visible]);
+    return named;
   }
 
   async create(
@@ -284,6 +328,8 @@ export class AbsencesService {
         ),
       );
     }
+    // Nor one written by the Kingdom Ministry School (19 November 2026).
+    if (found.specialEventId) throw AbsencesService.fromEvent();
     // Nor one written by a trip «От нас» (24 October 2026, events audit L4):
     // the trip's next save puts its dates back. The trip is what to change.
     if (found.talkExchangeId) {
@@ -365,6 +411,7 @@ export class AbsencesService {
           'This absence comes from a talk in another congregation. Cancel the trip instead.',
       });
     }
+    if (found.specialEventId) throw AbsencesService.fromEvent();
     await this.auditLog.logEvent({
       tenantId,
       entityType: 'absence',
@@ -390,6 +437,7 @@ export class AbsencesService {
     }
     await this.assertCanWrite(user, found.publisherId);
     // A trip or school absence comes back only with what wrote it.
+    if (found.specialEventId) throw AbsencesService.fromEvent();
     if (found.talkExchangeId || found.pioneerSchoolDutyId) {
       throw new BadRequestException({
         code: found.talkExchangeId
