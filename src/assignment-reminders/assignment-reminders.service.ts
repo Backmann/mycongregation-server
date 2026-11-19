@@ -1,6 +1,5 @@
 import { wifeComes } from '../co-visit-items/co-visit-wife';
-import { Injectable, Logger, Optional } from '@nestjs/common';
-import { PairPrepService } from '../pair-prep/pair-prep.service';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   Between,
@@ -214,8 +213,6 @@ export class AssignmentRemindersService {
     private readonly talks: Repository<TalkExchange>,
     @InjectRepository(ExternalCongregation)
     private readonly hosts: Repository<ExternalCongregation>,
-    // Optional: the unit chains build this service by hand without it.
-    @Optional() private readonly pairPrep?: PairPrepService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -858,23 +855,8 @@ export class AssignmentRemindersService {
       ]);
     }
 
-    // A pair's agreed preparation tomorrow, or a proposal waiting for an
-    // answer since yesterday: one line in this same message, never a push of
-    // its own (agreed on the mock-up, 10 November 2026).
-    const pairLines =
-      (await this.pairPrep
-        ?.eveningLines(congregationId, today)
-        .catch((err: any) => {
-          this.logger.warn(`pair lines failed: ${err?.message ?? err}`);
-          return undefined;
-        })) ?? new Map<string, (lang: SupportedLanguage) => string[]>();
-
     const userIds = [
-      ...new Set([
-        ...itemsByUser.keys(),
-        ...marksByUser.keys(),
-        ...pairLines.keys(),
-      ]),
+      ...new Set([...itemsByUser.keys(), ...marksByUser.keys()]),
     ];
     if (userIds.length === 0) return 0;
     const users = await this.users.find({
@@ -902,17 +884,7 @@ export class AssignmentRemindersService {
       });
       const lang = coerceLanguage(user.uiLanguage);
       const digest = writeDigest(plan.lines, lang);
-      const pair = pairLines.get(user.id)?.(lang) ?? [];
-      const text =
-        digest && pair.length
-          ? { ...digest, body: `${digest.body}\n${pair.join('\n')}` }
-          : (digest ??
-            (pair.length && this.pairPrep
-              ? {
-                  title: this.pairPrep.eveningTitle(lang),
-                  body: pair.join('\n'),
-                }
-              : null));
+      const text = digest;
       // A letter is for what must not be missed. «Your group cleans tomorrow»
       // alone is not that: a mailbox filling with cleaning reminders would be
       // a complaint of its own.

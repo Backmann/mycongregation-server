@@ -75,7 +75,6 @@ import { DevInfoModule } from './dev-info/dev-info.module';
 import { PublisherActivityModule } from './publisher-activity/publisher-activity.module';
 
 import { ClientErrorsModule } from './client-errors/client-errors.module';
-import { PairPrepModule } from './pair-prep/pair-prep.module';
 @Module({
   imports: [
     ActivityFeedModule,
@@ -178,7 +177,6 @@ import { PairPrepModule } from './pair-prep/pair-prep.module';
     // script running flat out is stopped within the minute.
     // Failures met in the app, for the administrator (10 November 2026).
     ClientErrorsModule,
-    PairPrepModule,
     ThrottlerModule.forRoot([
       { name: 'short', ttl: 10_000, limit: 60 },
       { name: 'long', ttl: 60_000, limit: 300 },

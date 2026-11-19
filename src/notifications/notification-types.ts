@@ -81,7 +81,8 @@ export const NOTIFICATION_TYPES = [
   'attendance_due',
   // A new kind of failure met in the app — for whoever runs the platform.
   'client_error',
-  // The two people of a part agreeing when to prepare it.
+  // The two people of a part agreeing when to prepare it — removed on 19
+  // November 2026; kept so a notice still in a phone leads somewhere.
   'pair_prep',
   // The territories (11 November 2026): one's own — given out, due in two
   // weeks; and for the territory servant, one to take back.
