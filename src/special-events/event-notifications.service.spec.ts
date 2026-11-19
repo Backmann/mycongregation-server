@@ -186,7 +186,7 @@ describe('the Memorial, the evening before', () => {
 
 describe('an event for the invited only (10 November 2026)', () => {
   const school = ev({
-    title: 'Школа царственного служения для старейшин',
+    title: 'Школа Священного Служения для старейшин',
     type: 'kingdom_ministry_school_elders',
     date: '2026-10-10',
   });
@@ -220,7 +220,7 @@ describe('an event for the invited only (10 November 2026)', () => {
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify.mock.calls[0][0].userIds).toEqual(['u-elder']);
     expect(notify.mock.calls[0][0].title).toBe(
-      'Вас приглашают: Школа царственного служения для старейшин',
+      'Вас приглашают: Школа Священного Служения для старейшин',
     );
   });
 

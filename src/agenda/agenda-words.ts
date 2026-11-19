@@ -64,10 +64,9 @@ export const AGENDA_WORDS: Record<SupportedLanguage, AgendaWords> = {
       circuit_overseer_visit: 'Посещение районного старейшины',
       branch_representative_visit: 'Посещение представителя филиала',
       memorial: 'Вечеря воспоминания',
-      kingdom_ministry_school_elders:
-        'Школа царственного служения для старейшин',
+      kingdom_ministry_school_elders: 'Школа Священного Служения для старейшин',
       kingdom_ministry_school_servants:
-        'Школа царственного служения для служебных помощников',
+        'Школа Священного Служения для служебных помощников',
       pioneer_special_meeting: 'Специальная встреча с пионерами района',
     },
   },

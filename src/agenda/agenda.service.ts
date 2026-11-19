@@ -272,14 +272,16 @@ export class AgendaService {
      */
     const awayOn = (
       date: string,
-      own?: { talkExchangeId?: string; school?: boolean },
+      own?: { talkExchangeId?: string; school?: boolean; eventId?: string },
     ) =>
       absences.some(
         (a) =>
           a.startDate <= date &&
           (a.endDate ?? a.startDate) >= date &&
           !(own?.talkExchangeId && a.talkExchangeId === own.talkExchangeId) &&
-          !(own?.school && a.pioneerSchoolDutyId),
+          !(own?.school && a.pioneerSchoolDutyId) &&
+          // The Kingdom Ministry School marks its own days (19 November).
+          !(own?.eventId && a.specialEventId === own.eventId),
       );
 
     const base = (
@@ -304,7 +306,7 @@ export class AgendaService {
     });
     const push = (
       item: AgendaItem,
-      own?: { talkExchangeId?: string; school?: boolean },
+      own?: { talkExchangeId?: string; school?: boolean; eventId?: string },
     ) => {
       if (
         !inSpan(item.date) &&
@@ -976,6 +978,7 @@ export class AgendaService {
             mapUrl: e.mapUrl ?? null,
             eventType: String(e.type),
           }),
+          { eventId: e.id },
         );
       }
     }

@@ -36,6 +36,7 @@ import { SCHOOL_SYNC, type SchoolSync } from '../pioneer-school/school-sync';
 import { CardMergeService } from '../publishers/card-merge.service';
 import { PossibleDuplicateService } from '../tasks/possible-duplicate.service';
 import { CartRemindersService } from '../cart-weeks/cart-reminders.service';
+import { SchoolAbsencesService } from '../special-events/school-absences.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -104,6 +105,9 @@ export class ScheduledJobsService {
     /** The territories: two weeks before the day; a territory to take back. */
     @Optional()
     private readonly territoryReminders?: TerritoryRemindersService,
+    /** The Kingdom Ministry School's absences: appointments change. */
+    @Optional()
+    private readonly schoolAbsences?: SchoolAbsencesService,
   ) {}
 
   /**
@@ -617,6 +621,23 @@ export class ScheduledJobsService {
       await this.schools?.resyncUpcoming();
     } catch (e) {
       this.logger.error(`pioneer school absences failed: ${String(e)}`);
+    }
+  }
+
+  /**
+   * The Kingdom Ministry Schools still to come, once a night (19 November
+   * 2026): a brother appointed or no longer appointed since the school was
+   * saved is invited or not, and his absence follows.
+   */
+  @Cron('22 3 * * *', {
+    name: 'kingdom-ministry-school-absences',
+    timeZone: 'Europe/Berlin',
+  })
+  async handleSchoolAbsences(): Promise<void> {
+    try {
+      await this.schoolAbsences?.resyncUpcoming();
+    } catch (e) {
+      this.logger.error(`school absences failed: ${String(e)}`);
     }
   }
 

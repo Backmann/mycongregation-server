@@ -14,6 +14,8 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { User } from '../entities/user.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { InvitationsService } from './invitations.service';
+import { SchoolAbsencesService } from './school-absences.service';
+import { Absence } from '../entities/absence.entity';
 import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
 import { CongregationClockModule } from '../common/congregation-clock.module';
 
@@ -28,6 +30,7 @@ import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
       Assignment,
       User,
       Publisher,
+      Absence,
     ]),
     NotificationsModule,
     AuditLogModule,
@@ -41,12 +44,14 @@ import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
     SpecialEventsService,
     EventNotificationsService,
     InvitationsService,
+    SchoolAbsencesService,
     ResponsibilityGuard,
   ],
   exports: [
     SpecialEventsService,
     EventNotificationsService,
     InvitationsService,
+    SchoolAbsencesService,
   ],
 })
 export class SpecialEventsModule {}

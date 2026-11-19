@@ -112,7 +112,7 @@ describe('events for the invited only (real database)', () => {
 
   it('the school for elders: seen and told only by the elders; the keeper sees it with a count', async () => {
     const r = await create({
-      title: 'Школа царственного служения для старейшин',
+      title: 'Школа Священного Служения для старейшин',
       type: 'kingdom_ministry_school_elders',
       date: '2099-02-07',
       endDate: '2099-02-08',

@@ -34,6 +34,7 @@ import { signatureOf } from './event-messages';
 import { settleMeeting } from './meeting-mode';
 import { inviteesOf } from './invitations';
 import { InvitationsService } from './invitations.service';
+import { SchoolAbsencesService } from './school-absences.service';
 import { assertEventShape, serviceYearOf } from './event-shape';
 
 /** The fields the journal records for an event — the ones a reader can follow. */
@@ -96,6 +97,9 @@ export class SpecialEventsService {
     /** Who is invited to an event for the invited only (10 November 2026). */
     @Optional()
     private readonly invitations?: InvitationsService,
+    /** The Kingdom Ministry School marks its brothers away (19 November). */
+    @Optional()
+    private readonly schoolAbsences?: SchoolAbsencesService,
   ) {}
 
   /**
@@ -138,6 +142,10 @@ export class SpecialEventsService {
    * pioneer school's absences are brought in line now, not when the school
    * is next opened. Best effort — the event is saved whatever happens here.
    */
+  private async absencesFollow(eventId: string): Promise<void> {
+    await this.schoolAbsences?.follow(eventId);
+  }
+
   private async schoolsFollow(tenantId: string): Promise<void> {
     try {
       await this.schools?.resyncUpcoming(tenantId);
@@ -526,6 +534,7 @@ export class SpecialEventsService {
     }
     await this.eventNotifications.announce(applied, 'created');
     await this.schoolsFollow(tenantId);
+    await this.absencesFollow(applied.id);
     return this.present(applied, true);
   }
 
@@ -719,6 +728,7 @@ export class SpecialEventsService {
       }
       if (told) await this.eventNotifications.announce(applied, 'changed');
       await this.schoolsFollow(tenantId);
+      await this.absencesFollow(applied.id);
       return this.present(applied, true);
     }
     if (!(await this.coVisitTemplate.weekIsOver(saved))) {
@@ -742,6 +752,7 @@ export class SpecialEventsService {
     }
     if (told) await this.eventNotifications.announce(saved, 'changed');
     await this.schoolsFollow(tenantId);
+    await this.absencesFollow(saved.id);
     return this.present(saved, true);
   }
 
@@ -819,6 +830,7 @@ export class SpecialEventsService {
     await this.specialEventsRepo.softDelete({ id, congregationId: tenantId });
     if (!over) await this.eventNotifications.announce(event, 'cancelled');
     await this.schoolsFollow(tenantId);
+    await this.absencesFollow(id);
   }
 
   async restore(tenantId: string, id: string): Promise<SpecialEvent> {
@@ -839,6 +851,7 @@ export class SpecialEventsService {
       await this.eventNotifications.announce(applied, 'restored');
     }
     await this.schoolsFollow(tenantId);
+    await this.absencesFollow(applied.id);
     return this.present(applied, true);
   }
 }
