@@ -106,7 +106,7 @@ describe('the Kingdom Ministry School marks its brothers away (real database)', 
 
   it('the school for servants: the servants, not the elders', async () => {
     const id = await school({
-      title: 'Школа Священного Служения для служебных помощников',
+      title: 'Школа Священного Служения для помощников собрания',
       type: 'kingdom_ministry_school_servants',
       endDate: null,
     });

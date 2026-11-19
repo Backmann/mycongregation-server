@@ -66,7 +66,7 @@ export const AGENDA_WORDS: Record<SupportedLanguage, AgendaWords> = {
       memorial: 'Вечеря воспоминания',
       kingdom_ministry_school_elders: 'Школа Священного Служения для старейшин',
       kingdom_ministry_school_servants:
-        'Школа Священного Служения для служебных помощников',
+        'Школа Священного Служения для помощников собрания',
       pioneer_special_meeting: 'Специальная встреча с пионерами района',
     },
   },
