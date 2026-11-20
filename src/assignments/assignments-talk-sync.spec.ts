@@ -36,6 +36,7 @@ describe('AssignmentsService — journal sync coverage and public-talk swap', ()
     findOne: jest.Mock;
     softDelete: jest.Mock;
     restore: jest.Mock;
+    count: jest.Mock;
   };
   let sync: jest.Mock;
 

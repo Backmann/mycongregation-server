@@ -111,4 +111,29 @@ describe('a part added to a published meeting (real database)', () => {
     });
     expect(await row(r.body.id)).toEqual({ status: 'draft', changed: false });
   });
+
+  it('published by the caller into a published meeting: news for its person', async () => {
+    const week = monday();
+    await post({
+      weekStartDate: week,
+      eventType: 'midweek',
+      partKey: 'midweek_chairman',
+    });
+    await h.as('admin').post('/assignments/publish', {
+      weekStartDate: week,
+      eventType: 'midweek',
+      notify: false,
+    });
+    const r = await post({
+      weekStartDate: week,
+      eventType: 'midweek',
+      partKey: 'living_christians_extra',
+      status: 'published',
+      publisherId: sister,
+    });
+    expect(await row(r.body.id)).toEqual({
+      status: 'published',
+      changed: true,
+    });
+  });
 });

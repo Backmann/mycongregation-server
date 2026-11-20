@@ -438,9 +438,10 @@ export class AssignmentsService {
      * replacement is — not for a meeting already held.
      */
     let changedSincePublish = false;
+    const status = fields.status ?? AssignmentStatus.DRAFT;
     if (
-      !retroactive &&
-      (fields.status ?? AssignmentStatus.DRAFT) === AssignmentStatus.DRAFT &&
+      (status === AssignmentStatus.DRAFT ||
+        status === AssignmentStatus.PUBLISHED) &&
       (await this.repo.count({
         where: {
           congregationId,
@@ -451,12 +452,17 @@ export class AssignmentsService {
       })) > 0
     ) {
       fields.status = AssignmentStatus.PUBLISHED;
-      const lock = await this.freeze.lockOf(congregationId, {
-        weekStartDate: fields.weekStartDate,
-        eventType: fields.eventType,
-      });
-      changedSincePublish =
-        !lock.held && !!(fields.publisherId || fields.assistantPublisherId);
+      // News for its person — also when the caller published it itself (a
+      // topic placed from «Местные потребности», review 20 November) — but
+      // not for a correction after the fact, nor a meeting already held.
+      if (!retroactive) {
+        const lock = await this.freeze.lockOf(congregationId, {
+          weekStartDate: fields.weekStartDate,
+          eventType: fields.eventType,
+        });
+        changedSincePublish =
+          !lock.held && !!(fields.publisherId || fields.assistantPublisherId);
+      }
     }
     const assignment = this.repo.create({
       ...fields,
