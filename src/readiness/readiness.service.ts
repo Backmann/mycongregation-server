@@ -41,6 +41,7 @@ import { refusal } from '../common/errors/refusal';
  * - THE CIRCUIT OVERSEER'S SERVICE TALK. He gives it; the congregation has
  *   nobody to put there, and counting it would make a visit week impossible
  *   to complete.
+ * - THE HOSPITALITY LINE: not a part of the programme.
  * - CANCELLED ROWS, and rows the congregation removed.
  *
  * DRAFTS COUNT AS ASSIGNED. A person written in is a part settled, whether or
@@ -60,8 +61,17 @@ const SONG_KEYS = new Set<string>([
   'weekend_opening_song',
 ]);
 
-/** Parts the congregation has nobody to assign. */
-const NOT_OURS_TO_ASSIGN = new Set<string>(['co_service_talk']);
+/**
+ * Parts the congregation has nobody to assign — and the hospitality line,
+ * which is no part of the programme: a weekend without a hospitality sister
+ * is complete (programme audit, 20 November 2026; before, an emptied
+ * hospitality line kept the weekend «not ready» for good, and the duties'
+ * month waited on it).
+ */
+const NOT_OURS_TO_ASSIGN = new Set<string>([
+  'co_service_talk',
+  'weekend_hospitality',
+]);
 
 /**
  * A year of weeks at a time is plenty for any screen; the ceiling exists so
