@@ -17,9 +17,14 @@ on:
     # 04:30 UTC = 05:30 in Berlin in winter (06:30 in summer): after the copy
     # at 03:00, the Monday verify at 04:00 and the cache clean-up at 04:15.
     - cron: '30 4 * * *'
+  # Only a deploy of main. Without the filter, the same workflow's pull-request
+  # checks (a Dependabot rebase, any PR) also started this check, and one that
+  # finished while main was still deploying compared the old server with the
+  # new main commit and went red (20 November 2026).
   workflow_run:
     workflows: [Deploy to production]
     types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -31,7 +36,7 @@ concurrency:
 
 jobs:
   nightly-live:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event != 'pull_request')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -47,7 +52,7 @@ jobs:
         run: node app/scripts/check-live.mjs
 
   nightly-server:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event != 'pull_request')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
