@@ -76,6 +76,31 @@ describe('midweek guidelines on saving a part (real database)', () => {
     expect(ok.status).toBe(201);
   });
 
+  it('the weekend chairman and a prayer: a brother only, on both meetings', async () => {
+    const week = monday();
+    for (const [eventType, partKey] of [
+      ['weekend', 'weekend_chairman'],
+      ['weekend', 'watchtower_reader'],
+      ['midweek', 'midweek_closing_prayer'],
+    ]) {
+      const no = await h.as('admin').post('/assignments', {
+        weekStartDate: week,
+        eventType,
+        partKey,
+        publisherId: sister,
+      });
+      expect(no.status).toBe(400);
+      expect(no.body.code).toBe('PART_NEEDS_BROTHER');
+      const ok = await h.as('admin').post('/assignments', {
+        weekStartDate: week,
+        eventType,
+        partKey,
+        publisherId: brother,
+      });
+      expect(ok.status).toBe(201);
+    }
+  });
+
   it('«Развивайте интерес»: the assistant of the other gender is refused', async () => {
     const week = monday();
     const r = await post({

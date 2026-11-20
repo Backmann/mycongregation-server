@@ -54,5 +54,16 @@
     ["Local Needs", true],
     ["Тестовый пункт христианской жизни 1", false],
     ["Отчёт о служении за год", false]
+  ],
+  "brotherOnly": [
+    "midweek_opening_prayer",
+    "midweek_closing_prayer",
+    "cbs_reader",
+    "weekend_chairman",
+    "weekend_opening_prayer",
+    "weekend_closing_prayer",
+    "public_talk_speaker",
+    "watchtower_conductor",
+    "watchtower_reader"
   ]
 }

@@ -36,6 +36,17 @@ describe('meeting guidelines — kind of a ministry part', () => {
 });
 
 describe('meeting guidelines — who may take a part', () => {
+  it.each(fixtures.brotherOnly as string[])(
+    '%s: a brother only — the capability said so, nothing held to it',
+    (key) => {
+      expect(guidelineRefusal(key, null, sister(), null)).toBe(
+        'PART_NEEDS_BROTHER',
+      );
+      expect(
+        guidelineRefusal(key, null, { ...sister(), gender: 'brother' }, null),
+      ).toBeNull();
+    },
+  );
   it('Bible reading: a brother only (п. 5)', () => {
     expect(guidelineRefusal('bible_reading', null, sister(), null)).toBe(
       'PART_NEEDS_BROTHER',
@@ -226,10 +237,8 @@ describe('meeting guidelines — who may take a part', () => {
       ),
     ).toBeNull();
   });
-  it('the weekend and other parts are left alone', () => {
-    expect(
-      guidelineRefusal('watchtower_reader', null, sister(), null),
-    ).toBeNull();
+  it("hospitality and songs are anyone's", () => {
+    expect(guidelineRefusal('weekend_song', null, sister(), null)).toBeNull();
     expect(
       guidelineRefusal('weekend_hospitality', null, sister(), null),
     ).toBeNull();
