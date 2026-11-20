@@ -170,9 +170,11 @@ describe('inactive publishers stay out of everybody else’s lists (real databas
       congregation_id: string;
     }>(`SELECT congregation_id FROM publishers WHERE id = $1`, [ids.away]);
     await h.sql(
-      `INSERT INTO assignments (congregation_id, event_type, week_start_date, part_key, publisher_id, assistant_publisher_id)
-       VALUES ($1, 'midweek', current_date - 14 - extract(isodow from current_date)::int + 1, 'bible_reading', $2, NULL),
-              ($1, 'midweek', current_date - 21 - extract(isodow from current_date)::int + 1, 'bible_reading', $3, NULL)`,
+      // Published, as a past programme is: a reader who may not see drafts
+      // sees the sent-out programme only (20 November 2026).
+      `INSERT INTO assignments (congregation_id, event_type, week_start_date, part_key, publisher_id, assistant_publisher_id, status)
+       VALUES ($1, 'midweek', current_date - 14 - extract(isodow from current_date)::int + 1, 'bible_reading', $2, NULL, 'published'),
+              ($1, 'midweek', current_date - 21 - extract(isodow from current_date)::int + 1, 'bible_reading', $3, NULL, 'published')`,
       [tenantId, ids.away, ids.helper],
     );
     const monday = new Date();

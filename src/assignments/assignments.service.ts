@@ -61,6 +61,7 @@ import { ProgrammeFreezeService } from './programme-freeze.service';
 import type { AuthenticatedUser as FreezeUser } from '../auth/decorators/current-user.decorator';
 import { assertAssignable } from '../common/inactive';
 import { assertGuidelines } from './meeting-guidelines';
+import { canSeeProgrammeDrafts } from './programme-drafts';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { refusal } from '../common/errors/refusal';
 import { OPENING_SONG_PART_KEY, songNumber } from '../talk-exchange/week-songs';
@@ -183,19 +184,7 @@ export class AssignmentsService {
    * programme. No user context (internal module-to-module call) is trusted.
    */
   private async canSeeDrafts(user?: AuthenticatedUser): Promise<boolean> {
-    if (!user) return true;
-    if (user.role === UserRole.ADMIN) return true;
-    const held = await this.responsibilitiesRepo.count({
-      where: {
-        congregationId: user.congregationId,
-        userId: user.id,
-        type: In([
-          'life_ministry_overseer',
-          'body_coordinator',
-        ] as ResponsibilityType[]),
-      },
-    });
-    return held > 0;
+    return canSeeProgrammeDrafts(this.responsibilitiesRepo, user);
   }
 
   async list(
