@@ -37,4 +37,25 @@ describe('countProgramme', () => {
       missing: ['midweek_chairman'],
     });
   });
+
+  it('in the overseer’s visit the closing prayer is his, not to assign (п. 21)', () => {
+    expect(
+      countProgramme([
+        row('midweek_chairman', 'p1'),
+        row('co_service_talk'),
+        row('midweek_closing_prayer'),
+      ]),
+    ).toEqual({ loaded: true, assigned: 1, total: 1, missing: [] });
+    // A brother named for it all the same still counts.
+    expect(
+      countProgramme([
+        row('co_service_talk'),
+        row('midweek_closing_prayer', 'p2'),
+      ]),
+    ).toEqual({ loaded: true, assigned: 1, total: 1, missing: [] });
+    // Any other week: the prayer is a part like the others.
+    expect(countProgramme([row('midweek_closing_prayer')]).missing).toEqual([
+      'midweek_closing_prayer',
+    ]);
+  });
 });

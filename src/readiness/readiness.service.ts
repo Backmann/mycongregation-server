@@ -223,9 +223,25 @@ export function countProgramme(
   let assigned = 0;
   let total = 0;
   const missing: string[] = [];
+  // The circuit overseer's visit (guidelines п. 21): he closes the midweek
+  // meeting himself — the song is his choice, and he prays or asks a
+  // brother. The closing prayer is then nobody's to assign beforehand; a
+  // brother named for it still counts.
+  const visit = rows.some(
+    (a) =>
+      a.partKey === 'co_service_talk' &&
+      a.status !== AssignmentStatus.CANCELLED,
+  );
   for (const a of rows) {
     if (SONG_KEYS.has(a.partKey)) continue;
     if (NOT_OURS_TO_ASSIGN.has(a.partKey)) continue;
+    if (
+      visit &&
+      a.partKey === 'midweek_closing_prayer' &&
+      !a.publisherId &&
+      !a.speakerName?.trim()
+    )
+      continue;
     if (a.status === AssignmentStatus.CANCELLED) continue;
     total += 1;
     // A guest speaker from another congregation — and the circuit overseer

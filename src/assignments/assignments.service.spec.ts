@@ -505,6 +505,8 @@ describe('AssignmentsService treasures <-> opening-prayer link', () => {
     publishersRepo.findOne.mockResolvedValue({
       id: 'p2',
       displayName: 'Brother B',
+      // The Treasures talk is an elder's or a servant's (guidelines п. 3).
+      appointment: 'ministerial_servant',
       capabilities: { treasures_talk: true },
     });
 

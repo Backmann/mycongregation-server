@@ -9,6 +9,8 @@ import { Harness, startHarness } from './harness';
 describe('a part added to a published meeting (real database)', () => {
   let h: Harness;
   let sister = '';
+  // A Christian-life part goes to an elder or a servant (guidelines п. 16).
+  let elder = '';
   let n = 0;
 
   const monday = (): string => {
@@ -34,6 +36,12 @@ describe('a part added to a published meeting (real database)', () => {
       lastName: 'Тест',
       gender: 'sister',
       baptismDate: '2001-01-01',
+    });
+    elder = await h.addPublisher({
+      firstName: 'Борис',
+      lastName: 'Тест',
+      baptismDate: '1990-01-01',
+      appointment: 'elder',
     });
   });
   afterAll(async () => {
@@ -107,7 +115,7 @@ describe('a part added to a published meeting (real database)', () => {
       eventType: 'midweek',
       partKey: 'living_christians_extra',
       status: 'draft',
-      publisherId: sister,
+      publisherId: elder,
     });
     expect(await row(r.body.id)).toEqual({ status: 'draft', changed: false });
   });
@@ -129,7 +137,7 @@ describe('a part added to a published meeting (real database)', () => {
       eventType: 'midweek',
       partKey: 'living_christians_extra',
       status: 'published',
-      publisherId: sister,
+      publisherId: elder,
     });
     expect(await row(r.body.id)).toEqual({
       status: 'published',
