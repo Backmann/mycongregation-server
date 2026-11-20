@@ -113,4 +113,22 @@ describe('publisher activity for the pickers (real database)', () => {
       r.body.find((x: { publisherId: string }) => x.publisherId === sister),
     ).toBeUndefined();
   });
+
+  it('the suggestions follow the same rule on drafts', async () => {
+    const q = `/publisher-activity/suggestions?weekStart=${ahead(5)}&partKeys=apply_yourself_1`;
+    const editor = await h.as('admin').get(q);
+    expect(editor.status).toBe(200);
+    expect(
+      editor.body.some(
+        (x: { publisherId: string }) => x.publisherId === sister,
+      ),
+    ).toBe(true);
+    const reader = await h.as('reader.tst').get(q);
+    expect(reader.status).toBe(200);
+    expect(
+      reader.body.some(
+        (x: { publisherId: string }) => x.publisherId === sister,
+      ),
+    ).toBe(false);
+  });
 });

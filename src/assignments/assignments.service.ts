@@ -184,26 +184,7 @@ export class AssignmentsService {
    * programme. No user context (internal module-to-module call) is trusted.
    */
   private async canSeeDrafts(user?: AuthenticatedUser): Promise<boolean> {
-    // Specs give a repository without a manager; a real one always has it.
-    if (typeof this.repo.manager?.getRepository !== 'function')
-      return this.canSeeDraftsByRepo(user);
-    return canSeeProgrammeDrafts(this.repo.manager, user);
-  }
-
-  private async canSeeDraftsByRepo(user?: AuthenticatedUser): Promise<boolean> {
-    if (!user) return true;
-    if (user.role === UserRole.ADMIN) return true;
-    const held = await this.responsibilitiesRepo.count({
-      where: {
-        congregationId: user.congregationId,
-        userId: user.id,
-        type: In([
-          'life_ministry_overseer',
-          'body_coordinator',
-        ] as ResponsibilityType[]),
-      },
-    });
-    return held > 0;
+    return canSeeProgrammeDrafts(this.responsibilitiesRepo, user);
   }
 
   async list(

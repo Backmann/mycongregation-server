@@ -10,6 +10,7 @@ import {
   type AuthenticatedUser,
 } from '../auth/decorators/current-user.decorator';
 import { canSeeProgrammeDrafts } from '../assignments/programme-drafts';
+import { Responsibility } from '../entities/responsibility.entity';
 
 /**
  * Read-only activity feed used to give context when assigning publishers
@@ -33,14 +34,18 @@ export class PublisherActivityController {
       query.weekStart,
       query.weeks ?? 4,
       query.ahead ?? 0,
-      await canSeeProgrammeDrafts(this.manager, user),
+      await canSeeProgrammeDrafts(
+        this.manager.getRepository(Responsibility),
+        user,
+      ),
     );
   }
 
   @Get('suggestions')
-  getSuggestions(
+  async getSuggestions(
     @TenantId() congregationId: string,
     @Query() query: QuerySuggestionsDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     const partKeys = query.partKeys
       .split(',')
@@ -51,6 +56,12 @@ export class PublisherActivityController {
       query.weekStart,
       partKeys,
       query.weeks ?? 26,
+      // The same rule as the history: drafts for those who build the
+      // programme only (review, 20 November 2026).
+      await canSeeProgrammeDrafts(
+        this.manager.getRepository(Responsibility),
+        user,
+      ),
     );
   }
 }

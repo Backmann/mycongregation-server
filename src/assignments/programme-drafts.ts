@@ -1,5 +1,5 @@
-import { In, type EntityManager } from 'typeorm';
-import { Responsibility } from '../entities/responsibility.entity';
+import { In, type FindOptionsWhere } from 'typeorm';
+import type { Responsibility } from '../entities/responsibility.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -12,12 +12,14 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
  * the planned parts are still drafts).
  */
 export async function canSeeProgrammeDrafts(
-  manager: EntityManager,
+  responsibilities: {
+    count(o: { where: FindOptionsWhere<Responsibility> }): Promise<number>;
+  },
   user?: AuthenticatedUser,
 ): Promise<boolean> {
   if (!user) return true;
   if (user.role === UserRole.ADMIN) return true;
-  const held = await manager.getRepository(Responsibility).count({
+  const held = await responsibilities.count({
     where: {
       congregationId: user.congregationId,
       userId: user.id,

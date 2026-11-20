@@ -148,6 +148,7 @@ export class PublisherActivityService {
     weekStart: string,
     partKeys: string[],
     weeks = 26,
+    drafts = true,
   ): Promise<PartSuggestion[]> {
     if (partKeys.length === 0) return [];
     const start = new Date(`${weekStart}T00:00:00Z`);
@@ -155,7 +156,13 @@ export class PublisherActivityService {
     const from = start.toISOString().slice(0, 10);
 
     const rows = await this.assignmentRepo.find({
-      where: { congregationId, weekStartDate: Between(from, weekStart) },
+      where: {
+        congregationId,
+        weekStartDate: Between(from, weekStart),
+        status: drafts
+          ? Not(AssignmentStatus.CANCELLED)
+          : AssignmentStatus.PUBLISHED,
+      },
     });
 
     const keys = new Set(partKeys);
