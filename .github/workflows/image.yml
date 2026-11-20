@@ -23,13 +23,20 @@ jobs:
       - name: Build the production image
         run: docker build -t mycongregation-server-ci .
 
+      # The expected Node version is read from the Dockerfile, so a version
+      # bump (e.g. from Dependabot) needs no second edit here; both stages
+      # must name the same image, or the build and the runtime differ.
       - name: The image can run what production runs
         run: |
           set -euo pipefail
-          docker run --rm --entrypoint sh mycongregation-server-ci -c '
+          tags=$(sed -n 's/^FROM node:\([0-9][0-9.]*\)-.*/\1/p' Dockerfile | sort -u)
+          [ "$(printf '%s\n' "$tags" | wc -l)" -eq 1 ] && [ -n "$tags" ] || { echo "Dockerfile stages name different Node images: $tags"; exit 1; }
+          expected="v$tags"
+          echo "expected Node $expected (from Dockerfile)"
+          docker run --rm -e EXPECTED="$expected" --entrypoint sh mycongregation-server-ci -c '
             set -e
             echo "node $(node -v)"
-            [ "$(node -v)" = "v24.22.2" ] || { echo "expected Node v24.22.2"; exit 1; }
+            [ "$(node -v)" = "$EXPECTED" ] || { echo "expected Node $EXPECTED"; exit 1; }
             test -f dist/src/main.js && echo "entry point: dist/src/main.js"
             echo "user: $(id -un)"
             node -e "const b=require(\"bcrypt\");const h=b.hashSync(\"check\",4);if(!b.compareSync(\"check\",h)||b.compareSync(\"wrong\",h))process.exit(1);console.log(\"bcrypt: ok\")"
