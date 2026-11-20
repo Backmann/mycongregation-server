@@ -75,6 +75,7 @@ describe('programme files: the weeks summary (real database)', () => {
         await load(W0, [
           ['public_talk_speaker', 1, null],
           ['watchtower_conductor', 2, 'Статья недели'],
+          ['weekend_closing_prayer', 3, 'Песня 5 и молитва'],
         ])
       ).status,
     );
@@ -93,7 +94,29 @@ describe('programme files: the weeks summary (real database)', () => {
       [W0],
     );
 
-    // W1: made by hand, no file.
+    // The visit template empties a closing prayer's title: not «by hand».
+    await h.sql(
+      `UPDATE assignments SET part_title = NULL
+        WHERE week_start_date = $1 AND part_key = 'weekend_closing_prayer'`,
+      [W0],
+    );
+    // One person named, to compare with the readiness badge.
+    const brother = await h.addPublisher({
+      firstName: 'Тест',
+      lastName: 'Докладчик',
+      appointment: 'elder',
+    });
+    const [tt] = await h.sql<{ id: string }>(
+      `SELECT id FROM assignments
+        WHERE week_start_date = $1 AND part_key = 'treasures_talk'`,
+      [W0],
+    );
+    await h.sql(`UPDATE assignments SET publisher_id = $1 WHERE id = $2`, [
+      brother,
+      tt.id,
+    ]);
+
+    // W1: single parts added by hand — not a programme.
     for (const [eventType, partKey] of [
       ['midweek', 'treasures_talk'],
       ['weekend', 'public_talk_speaker'],
@@ -125,32 +148,68 @@ describe('programme files: the weeks summary (real database)', () => {
 
     expect(w0.midweek).toMatchObject({
       held: true,
+      programme: true,
       parts: 2,
       fromFile: true,
       byHand: 1,
     });
-    expect(w0.weekend).toMatchObject({ held: true, parts: 2, fromFile: true });
+    expect(w0.weekend).toMatchObject({
+      held: true,
+      programme: true,
+      parts: 3,
+      fromFile: true,
+      byHand: 0,
+    });
 
-    expect(w1.midweek).toMatchObject({ held: true, parts: 1, fromFile: false });
-    expect(w1.weekend).toMatchObject({ held: true, parts: 1, fromFile: false });
+    // A lone part is not the week's programme (review, 20 November 2026).
+    expect(w1.midweek).toMatchObject({
+      held: true,
+      programme: false,
+      parts: 1,
+      fromFile: false,
+    });
+    expect(w1.weekend).toMatchObject({
+      held: true,
+      programme: false,
+      parts: 1,
+    });
 
     expect(w2.midweek).toMatchObject({ held: false, parts: 0 });
     expect(w2.weekend).toMatchObject({ held: false, parts: 0 });
 
-    expect(w3.midweek).toMatchObject({ held: true, parts: 0, fromFile: false });
+    expect(w3.midweek).toMatchObject({
+      held: true,
+      programme: false,
+      parts: 0,
+      fromFile: false,
+    });
   });
 
   it('counts named people the same way as the readiness badge', async () => {
     const s = await summary();
+    const r = await h
+      .as('admin')
+      .get(`/readiness?weekStart=${W0}&weekEnd=${W1}`);
+    expect(r.status).toBe(200);
+    const week = (r.body as Array<Record<string, any>>).find(
+      (w) => String(w.weekStart).slice(0, 10) === W0,
+    );
+    const badge = week?.meetings?.find(
+      (m: Record<string, any>) => m.kind === 'midweek',
+    )?.programme;
     const m = s.weeks[0].midweek;
-    expect(m.assigned).toBe(0);
-    expect(m.total).toBeGreaterThan(0);
+    expect(m.assigned).toBe(1);
+    expect({ assigned: m.assigned, total: m.total }).toEqual({
+      assigned: badge?.assigned,
+      total: badge?.total,
+    });
   });
 
   it('skips a week without meetings when naming the next one to load', async () => {
     const s = await summary();
-    expect(s.loadedUntil).toEqual({ midweek: W1, weekend: W1 });
-    expect(s.nextMissing).toEqual({ midweek: W3, weekend: W3 });
+    expect(s.loadedUntil).toEqual({ midweek: W0, weekend: W0 });
+    // W1 holds single parts only: it is still missing its programme.
+    expect(s.nextMissing).toEqual({ midweek: W1, weekend: W1 });
   });
 
   it('takes up to 30 weeks and refuses a malformed request', async () => {
@@ -162,6 +221,32 @@ describe('programme files: the weeks summary (real database)', () => {
     expect(
       (await h.as('admin').get('/mwb-import/weeks?count=500')).status,
     ).toBe(400);
+    for (const bad of ['2026-13-45', '2026-02-31']) {
+      expect(
+        (await h.as('admin').get(`/mwb-import/weeks?from=${bad}`)).status,
+      ).toBe(400);
+    }
+  });
+
+  it("starts two weeks before the congregation's own current week", async () => {
+    const r = await h.as('admin').get('/mwb-import/weeks');
+    expect(r.status).toBe(200);
+    const { thisWeek, weeks } = r.body as {
+      thisWeek: string;
+      weeks: { weekStart: string }[];
+    };
+    expect(new Date(`${thisWeek}T00:00:00Z`).getUTCDay()).toBe(1);
+    // Within a day of UTC's Monday — the congregation's zone may differ.
+    const utc = new Date();
+    utc.setUTCDate(utc.getUTCDate() - ((utc.getUTCDay() + 6) % 7));
+    const days =
+      Math.abs(
+        Date.parse(`${thisWeek}T00:00:00Z`) -
+          Date.parse(`${utc.toISOString().slice(0, 10)}T00:00:00Z`),
+      ) / 86_400_000;
+    expect(days === 0 || days === 7).toBe(true);
+    expect(weeks).toHaveLength(18);
+    expect(weeks[0].weekStart).toBe(plus(thisWeek, -14));
   });
 
   it('is for admins and elders only', async () => {

@@ -10,20 +10,37 @@ import { mondayOf } from '../common/week';
 import { Congregation } from '../entities/congregation.entity';
 import { todayIn } from '../common/congregation-clock';
 
+/**
+ * The part that IS the file's programme: the «Treasures» talk of the
+ * workbook, the study article of The Watchtower. A week has its programme
+ * when that part is there with its title — one part added by hand, or the
+ * empty skeleton of a week, is not a programme (independent review, 20
+ * November 2026: a lone public-talk row made the weekend «ready»).
+ */
+export const KEY_PART: Record<MeetingKind, string> = {
+  midweek: 'treasures_talk',
+  weekend: 'watchtower_conductor',
+};
+
 /** One meeting of a week, as «Файлы программы» shows it. */
 export interface FileWeekSide {
   /** False: the meeting is not held that week (convention, Memorial…). */
   held: boolean;
+  /** The key part is there with its title. */
+  programme: boolean;
   /** Parts on the record, cancelled ones aside. */
   parts: number;
   /**
-   * Came from an EPUB: a part the import wrote (the workbook for the
-   * midweek; for the weekend only the study article carries a title). Parts loaded before the
-   * import began to remember its titles (24 October 2026) read false: the
-   * screen says «есть программа» then, never «вручную».
+   * The key part was written by the import. Weeks loaded before the import
+   * began to remember its titles (24 October 2026) read false: the screen
+   * says «есть» then, never «вручную».
    */
   fromFile: boolean;
-  /** Titles changed by hand after the import (a second import keeps them). */
+  /**
+   * Titles changed after the import wrote them — the importer's own rule: a
+   * title is there and differs from what the import wrote. A title the
+   * visit template emptied is not «by hand».
+   */
   byHand: number;
   /** The same count as the «N из M» badge. */
   assigned: number;
@@ -38,10 +55,12 @@ export interface FileWeek {
 }
 
 export interface ProgrammeFiles {
+  /** Monday of the congregation's own current week. */
+  thisWeek: string;
   weeks: FileWeek[];
-  /** The last week in the window with the meeting's programme, or null. */
+  /** The last held week in the window with the meeting's programme, or null. */
   loadedUntil: { midweek: string | null; weekend: string | null };
-  /** The first held week from this one on without any programme, or null. */
+  /** The first held week from this one on without its programme, or null. */
   nextMissing: { midweek: string | null; weekend: string | null };
 }
 
@@ -103,13 +122,20 @@ export class ProgrammeFilesService {
           r.status !== AssignmentStatus.CANCELLED,
       );
       const held = !!rules.get(week)?.meetings.some((m) => m.kind === kind);
-      const fromFile = mine.some((r) => r.importedTitle != null);
+      const key = mine.find(
+        (r) => r.partKey === KEY_PART[kind] && !!r.partTitle?.trim(),
+      );
+      const fromFile = key?.importedTitle != null;
       const byHand = mine.filter(
-        (r) => r.importedTitle != null && r.partTitle !== r.importedTitle,
+        (r) =>
+          r.importedTitle != null &&
+          !!r.partTitle?.trim() &&
+          r.partTitle !== r.importedTitle,
       ).length;
       const count = countProgramme(mine);
       return {
         held,
+        programme: !!key,
         parts: mine.length,
         fromFile,
         byHand,
@@ -125,12 +151,13 @@ export class ProgrammeFilesService {
       weekend: side(w, 'weekend'),
     }));
     const lastWith = (k: MeetingKind) =>
-      [...weeks].reverse().find((w) => w[k].parts > 0)?.weekStart ?? null;
+      [...weeks].reverse().find((w) => w[k].held && w[k].programme)
+        ?.weekStart ?? null;
     const firstMissing = (k: MeetingKind) =>
-      weeks.find(
-        (w) => w.weekStart >= thisWeek && w[k].held && w[k].parts === 0,
-      )?.weekStart ?? null;
+      weeks.find((w) => w.weekStart >= thisWeek && w[k].held && !w[k].programme)
+        ?.weekStart ?? null;
     return {
+      thisWeek,
       weeks,
       loadedUntil: {
         midweek: lastWith('midweek'),
