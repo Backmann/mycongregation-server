@@ -136,6 +136,25 @@ const ELDER_OR_SERVANT_PARTS = new Set([
 ]);
 
 /**
+ * Parts only a brother takes, beyond those above: the weekend chairman, the
+ * prayers, the readers, the Watchtower study and the public talk. Their capabilities
+ * were marked «brotherOnly» (lib/capabilities.ts), and nothing held to it —
+ * with no capability marked in the congregation, the picker offered sisters
+ * as «the best fit» for the weekend chairman (stand, 20 November 2026).
+ */
+export const BROTHER_ONLY_PARTS = new Set([
+  'midweek_opening_prayer',
+  'midweek_closing_prayer',
+  'cbs_reader',
+  'weekend_chairman',
+  'weekend_opening_prayer',
+  'weekend_closing_prayer',
+  'public_talk_speaker',
+  'watchtower_conductor',
+  'watchtower_reader',
+]);
+
+/**
  * What the guidelines say against putting these people on this part, or null.
  *
  * `checkLead` / `checkAssistant` say who is NEW on the record: a save that
@@ -156,7 +175,7 @@ export function guidelineRefusal(
   const brother = (p: GuidelinePerson) => p.gender !== Gender.SISTER;
   const appt = (p: GuidelinePerson) => String(p.appointment ?? '');
 
-  if (partKey === 'bible_reading') {
+  if (partKey === 'bible_reading' || BROTHER_ONLY_PARTS.has(partKey)) {
     if (lead && checkLead && !brother(lead)) return 'PART_NEEDS_BROTHER';
   }
   if (ELDER_OR_SERVANT_PARTS.has(partKey)) {
