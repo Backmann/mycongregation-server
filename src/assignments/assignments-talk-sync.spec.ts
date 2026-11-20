@@ -46,6 +46,8 @@ describe('AssignmentsService — journal sync coverage and public-talk swap', ()
       findOne: jest.fn(),
       softDelete: jest.fn(),
       restore: jest.fn(),
+      // No published part yet: a new part stays as it was sent.
+      count: jest.fn().mockResolvedValue(0),
     };
     sync = jest.fn();
     const moduleRef = await Test.createTestingModule({
