@@ -1,0 +1,44 @@
+{
+  "note": "The SAME file lives in the server (src/assignments/meeting-guidelines.fixtures.json) and here (app/lib/meeting-guidelines.fixtures.json); the app gate fails when the two differ. Titles as the workbook import writes them: «<heading>: <first note>».",
+  "kinds": [
+    ["Начинайте разговор", "start"],
+    ["Начинайте разговор: Служение по домам. (lmd урок 1 пункт 3)", "start"],
+    ["Развивайте интерес", "follow"],
+    [
+      "Развивайте интерес: Неформальное служение. (lmd урок 7 пункт 4)",
+      "follow"
+    ],
+    ["Подготавливайте учеников", "disciples"],
+    ["Подготавливайте учеников: (lff урок 12 пункт 5)", "disciples"],
+    ["Объясняйте свои взгляды", "explain"],
+    ["Объясняйте свои взгляды: Демонстрация. ijwbq статья 46", "explain"],
+    ["Объясняйте свои взгляды: Речь. ijwfq статья 19 — Тема", "talk"],
+    ["Речь", "talk"],
+    ["Речь: (th урок 13) lmd приложение А пункт 4", "talk"],
+    ["Что бы вы сказали?: Обсуждение.", "discussion"],
+    ["Начинайте разговор: Обсуждение. Посмотрите видео", "discussion"],
+    ["Ein Gespräch beginnen", "start"],
+    ["Interesse fördern", "follow"],
+    ["Jünger machen", "disciples"],
+    ["Unsere Glaubensansichten erklären", "explain"],
+    ["Vortrag", "talk"],
+    ["Besprechung", "discussion"],
+    ["Starting a Conversation", "start"],
+    ["Following Up", "follow"],
+    ["Making Disciples", "disciples"],
+    ["Explaining Your Beliefs", "explain"],
+    ["Explaining Your Beliefs: Talk.", "talk"],
+    ["Talk", "talk"],
+    ["Discussion", "discussion"],
+    ["Тестовый пункт", "unknown"],
+    ["", "unknown"]
+  ],
+  "localNeeds": [
+    ["Местные потребности", true],
+    ["Местные потребности: Тема по выбору старейшин", true],
+    ["Örtliche Bedürfnisse", true],
+    ["Local Needs", true],
+    ["Тестовый пункт христианской жизни 1", false],
+    ["Отчёт о служении за год", false]
+  ]
+}

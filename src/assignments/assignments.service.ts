@@ -60,6 +60,7 @@ import { CoVisitTemplateService } from '../special-events/co-visit-template.serv
 import { ProgrammeFreezeService } from './programme-freeze.service';
 import type { AuthenticatedUser as FreezeUser } from '../auth/decorators/current-user.decorator';
 import { assertAssignable } from '../common/inactive';
+import { assertGuidelines } from './meeting-guidelines';
 import { refusal } from '../common/errors/refusal';
 import { OPENING_SONG_PART_KEY, songNumber } from '../talk-exchange/week-songs';
 
@@ -428,6 +429,8 @@ export class AssignmentsService {
         fields.publisherId,
         fields.assistantPublisherId,
       ]);
+    if (!retroactive)
+      await assertGuidelines(this.repo.manager, congregationId, [fields]);
     /**
      * A part added to a meeting already published takes the meeting's state
      * (programme audit, 20 November 2026). The app makes it as a draft — the
@@ -564,6 +567,8 @@ export class AssignmentsService {
         congregationId,
         dtos.flatMap((d) => [d.publisherId, d.assistantPublisherId]),
       );
+    if (!retroactive)
+      await assertGuidelines(this.repo.manager, congregationId, dtos);
     const entities = dtos.map(({ retroactive: _r, ...dto }) =>
       this.repo.create({ ...dto, congregationId }),
     );
@@ -665,6 +670,26 @@ export class AssignmentsService {
         [dto.publisherId, dto.assistantPublisherId],
         [existing.publisherId, existing.assistantPublisherId],
       );
+    // The guidelines, for whoever is NEW on the part (п. 5–17): a save that
+    // keeps its people — a time, a note, a title — is never refused.
+    if (!retroactive)
+      await assertGuidelines(this.repo.manager, congregationId, [
+        {
+          partKey: dto.partKey ?? existing.partKey,
+          partTitle:
+            dto.partTitle !== undefined ? dto.partTitle : existing.partTitle,
+          publisherId:
+            dto.publisherId !== undefined
+              ? dto.publisherId
+              : existing.publisherId,
+          assistantPublisherId:
+            dto.assistantPublisherId !== undefined
+              ? dto.assistantPublisherId
+              : existing.assistantPublisherId,
+          prevPublisherId: existing.publisherId,
+          prevAssistantPublisherId: existing.assistantPublisherId,
+        },
+      ]);
     const lock = await this.freeze.lockOf(congregationId, to);
     const prevPublisherId = existing.publisherId;
     // If a published assignment's assignee / partner / invited speaker changes,

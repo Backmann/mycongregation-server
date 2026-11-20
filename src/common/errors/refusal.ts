@@ -33,6 +33,13 @@ export const REFUSAL_CODES = [
   'NO_SUCH_PUBLISHER',
   // An inactive publisher is given no task; the words name no standing.
   'PERSON_NOT_ASSIGNABLE',
+  // ---- the midweek meeting guidelines (assignments/meeting-guidelines.ts) ----
+  'PART_NEEDS_BROTHER',
+  'PART_NEEDS_ELDER',
+  'PART_NEEDS_ELDER_OR_SERVANT',
+  'PART_NO_ASSISTANT',
+  'ASSISTANT_SAME_GENDER',
+  'STUDENT_NOT_APPROVED',
   'SIGNUP_UNAVAILABLE',
   // The standing comes from the reports only; no status by hand.
   'STATUS_BY_REPORTS_ONLY',
