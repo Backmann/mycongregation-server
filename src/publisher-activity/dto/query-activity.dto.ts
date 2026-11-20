@@ -13,4 +13,12 @@ export class QueryActivityDto {
   @Min(1)
   @Max(26)
   weeks?: number;
+
+  /** Weeks after the current one to include as well (default 0). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(16)
+  ahead?: number;
 }

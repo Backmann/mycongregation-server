@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, Repository } from 'typeorm';
+import { Between, Not, Repository } from 'typeorm';
+import { AssignmentStatus } from '../common/enums/assignment-status.enum';
 import { Assignment } from '../entities/assignment.entity';
 import { Duty } from '../entities/duty.entity';
 import { Publisher } from '../entities/publisher.entity';
@@ -14,6 +15,10 @@ export interface ActivityItem {
   partKey?: string;
   partTitle?: string | null;
   role?: 'primary' | 'assistant';
+  /** The part itself — so a picker can tell «this part» from «another one». */
+  assignmentId?: string;
+  /** Who was on the part with him (the other side of the pair), if anyone. */
+  partnerId?: string | null;
   // duty
   dutyType?: string;
   slotIndex?: number;
@@ -55,17 +60,34 @@ export class PublisherActivityService {
     congregationId: string,
     weekStart: string,
     weeks = 4,
+    ahead = 0,
+    /** False: the reader sees the published programme only, as everywhere. */
+    drafts = true,
   ): Promise<PublisherActivity[]> {
     const start = new Date(`${weekStart}T00:00:00Z`);
     start.setUTCDate(start.getUTCDate() - weeks * 7);
     const from = start.toISOString().slice(0, 10);
+    // The weeks already planned count too (programme picker, 20 November
+    // 2026): the live programme is filled 11 weeks ahead, and a brother with
+    // a part in three weeks is no free brother.
+    const end = new Date(`${weekStart}T00:00:00Z`);
+    end.setUTCDate(end.getUTCDate() + ahead * 7);
+    const to = end.toISOString().slice(0, 10);
 
     const [assignments, duties] = await Promise.all([
       this.assignmentRepo.find({
-        where: { congregationId, weekStartDate: Between(from, weekStart) },
+        where: {
+          congregationId,
+          weekStartDate: Between(from, to),
+          // A cancelled part was never given: it is nobody's history. A
+          // reader who may not see drafts sees what was sent out only.
+          status: drafts
+            ? Not(AssignmentStatus.CANCELLED)
+            : AssignmentStatus.PUBLISHED,
+        },
       }),
       this.dutyRepo.find({
-        where: { congregationId, weekStartDate: Between(from, weekStart) },
+        where: { congregationId, weekStartDate: Between(from, to) },
       }),
     ]);
 
@@ -84,9 +106,18 @@ export class PublisherActivityService {
         kind: 'part' as const,
         partKey: a.partKey,
         partTitle: a.partTitle,
+        assignmentId: a.id,
       };
-      push(a.publisherId, { ...base, role: 'primary' });
-      push(a.assistantPublisherId, { ...base, role: 'assistant' });
+      push(a.publisherId, {
+        ...base,
+        role: 'primary',
+        partnerId: a.assistantPublisherId ?? null,
+      });
+      push(a.assistantPublisherId, {
+        ...base,
+        role: 'assistant',
+        partnerId: a.publisherId ?? null,
+      });
     }
     for (const d of duties) {
       push(d.publisherId, {

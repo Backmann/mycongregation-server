@@ -80,4 +80,16 @@ describe('PublisherActivityService', () => {
     expect(from).toBe('2026-04-20');
     expect(to).toBe('2026-05-18');
   });
+
+  it('reaches ahead when asked, and leaves cancelled parts out', async () => {
+    await service.getActivity('c1', '2026-05-18', 26, 12);
+    const where = assignmentRepo.find.mock.calls[0][0].where;
+    const [from, to] = (where.weekStartDate as { value: [string, string] })
+      .value;
+    expect(from).toBe('2025-11-17');
+    expect(to).toBe('2026-08-10');
+    // Not(cancelled): a part never given is nobody's history.
+    expect(JSON.stringify(where.status)).toContain('cancelled');
+    expect((where.status as { type?: string })?.type).toBe('not');
+  });
 });

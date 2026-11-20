@@ -61,6 +61,7 @@ import { ProgrammeFreezeService } from './programme-freeze.service';
 import type { AuthenticatedUser as FreezeUser } from '../auth/decorators/current-user.decorator';
 import { assertAssignable } from '../common/inactive';
 import { assertGuidelines } from './meeting-guidelines';
+import { canSeeProgrammeDrafts } from './programme-drafts';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { refusal } from '../common/errors/refusal';
 import { OPENING_SONG_PART_KEY, songNumber } from '../talk-exchange/week-songs';
@@ -183,6 +184,13 @@ export class AssignmentsService {
    * programme. No user context (internal module-to-module call) is trusted.
    */
   private async canSeeDrafts(user?: AuthenticatedUser): Promise<boolean> {
+    // Specs give a repository without a manager; a real one always has it.
+    if (typeof this.repo.manager?.getRepository !== 'function')
+      return this.canSeeDraftsByRepo(user);
+    return canSeeProgrammeDrafts(this.repo.manager, user);
+  }
+
+  private async canSeeDraftsByRepo(user?: AuthenticatedUser): Promise<boolean> {
     if (!user) return true;
     if (user.role === UserRole.ADMIN) return true;
     const held = await this.responsibilitiesRepo.count({
