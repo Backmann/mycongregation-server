@@ -428,9 +428,46 @@ export class AssignmentsService {
         fields.publisherId,
         fields.assistantPublisherId,
       ]);
+    /**
+     * A part added to a meeting already published takes the meeting's state
+     * (programme audit, 20 November 2026). The app makes it as a draft — the
+     * hospitality sister, an extra Christian-life part — and a draft in a
+     * published meeting is seen by nobody: its person had no notice and no
+     * reminder until somebody published the meeting again. Now it is
+     * published at once, and one with a person in it is news, as a
+     * replacement is — not for a meeting already held.
+     */
+    let changedSincePublish = false;
+    const status = fields.status ?? AssignmentStatus.DRAFT;
+    if (
+      (status === AssignmentStatus.DRAFT ||
+        status === AssignmentStatus.PUBLISHED) &&
+      (await this.repo.count({
+        where: {
+          congregationId,
+          weekStartDate: fields.weekStartDate,
+          eventType: fields.eventType,
+          status: AssignmentStatus.PUBLISHED,
+        },
+      })) > 0
+    ) {
+      fields.status = AssignmentStatus.PUBLISHED;
+      // News for its person — also when the caller published it itself (a
+      // topic placed from «Местные потребности», review 20 November) — but
+      // not for a correction after the fact, nor a meeting already held.
+      if (!retroactive) {
+        const lock = await this.freeze.lockOf(congregationId, {
+          weekStartDate: fields.weekStartDate,
+          eventType: fields.eventType,
+        });
+        changedSincePublish =
+          !lock.held && !!(fields.publisherId || fields.assistantPublisherId);
+      }
+    }
     const assignment = this.repo.create({
       ...fields,
       congregationId,
+      ...(changedSincePublish ? { changedSincePublish: true } : {}),
     });
     const saved = await this.repo.save(assignment);
     await this.auditLog.logCreate({
