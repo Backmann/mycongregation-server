@@ -13,6 +13,7 @@ import { AssignmentsService } from '../../assignments/assignments.service';
 import type { AuthenticatedUser } from '../../auth/decorators/current-user.decorator';
 import { mondayOf } from '../../common/week';
 import { refusal } from '../../common/errors/refusal';
+import { assertLocalNeedsSpeaker } from '../../assignments/meeting-guidelines';
 import { LocalNeedsService } from '../local-needs.service';
 import { PlaceLocalNeedsTopicDto } from '../dto/place-local-needs-topic.dto';
 
@@ -81,6 +82,15 @@ export class LocalNeedsPlacementService {
           ),
         );
       }
+      // Only an elder gives «Местные потребности» (guidelines п. 16): the
+      // one who will stand on the part — its own brother, else the topic's
+      // speaker — is asked here, since the part then carries the topic's
+      // title and no longer says what it is (review, 20 November 2026).
+      await assertLocalNeedsSpeaker(
+        this.parts.manager,
+        tenantId,
+        part.publisherId ?? topic.speakerPublisherId,
+      );
       const speak =
         !part.publisherId && topic.speakerPublisherId
           ? { publisherId: topic.speakerPublisherId }
@@ -133,6 +143,11 @@ export class LocalNeedsPlacementService {
     }
     const published = midweek.some(
       (a) => a.status === AssignmentStatus.PUBLISHED,
+    );
+    await assertLocalNeedsSpeaker(
+      this.parts.manager,
+      tenantId,
+      topic.speakerPublisherId,
     );
     const created = await this.assignments.create(
       tenantId,

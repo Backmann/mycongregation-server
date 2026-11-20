@@ -184,4 +184,105 @@ describe('midweek guidelines on saving a part (real database)', () => {
     expect(r.status).toBe(400);
     expect(r.body.code).toBe('PART_NEEDS_ELDER');
   });
+
+  it('a part that becomes another part is asked about its people', async () => {
+    const week = monday();
+    const made = await post({
+      weekStartDate: week,
+      partKey: 'apply_yourself_1',
+      partTitle: 'Начинайте разговор',
+      publisherId: sister,
+    });
+    expect(made.status).toBe(201);
+    const r = await h
+      .as('admin')
+      .patch(`/assignments/${made.body.id}`, { partKey: 'bible_reading' });
+    expect(r.status).toBe(400);
+    expect(r.body.code).toBe('PART_NEEDS_BROTHER');
+  });
+
+  it('a part holding a local-needs topic: an elder only, also after it is placed', async () => {
+    const elder = await h.addPublisher({
+      firstName: 'Борис',
+      lastName: 'Тест',
+      baptismDate: '1990-01-01',
+      appointment: 'elder',
+    });
+    const week = monday();
+    const part = await post({
+      weekStartDate: week,
+      partKey: 'living_christians_1',
+      partTitle: 'Тема',
+    });
+    expect(part.status).toBe(201);
+    const topic = await h.as('admin').post('/local-needs', {
+      title: 'Местная тема',
+      speakerPublisherId: elder,
+    });
+    expect(topic.status).toBe(201);
+    const placed = await h
+      .as('admin')
+      .post(`/local-needs/${topic.body.id}/place`, {
+        weekStartDate: week,
+        assignmentId: part.body.id,
+      });
+    expect([200, 201]).toContain(placed.status);
+    // The part now carries the topic's title — the binding still tells it.
+    const swap = await h
+      .as('admin')
+      .patch(`/assignments/${part.body.id}`, { publisherId: servant });
+    expect(swap.status).toBe(400);
+    expect(swap.body.code).toBe('PART_NEEDS_ELDER');
+  });
+
+  it('a topic is not placed on a part a servant already holds', async () => {
+    const week = monday();
+    const part = await post({
+      weekStartDate: week,
+      partKey: 'living_christians_1',
+      partTitle: 'Тема',
+      publisherId: servant,
+    });
+    expect(part.status).toBe(201);
+    const topic = await h
+      .as('admin')
+      .post('/local-needs', { title: 'Ещё тема' });
+    expect(topic.status).toBe(201);
+    const placed = await h
+      .as('admin')
+      .post(`/local-needs/${topic.body.id}/place`, {
+        weekStartDate: week,
+        assignmentId: part.body.id,
+      });
+    expect(placed.status).toBe(400);
+    expect(placed.body.code).toBe('PART_NEEDS_ELDER');
+  });
+
+  it('the opening prayer does not mirror a publisher onto the Treasures talk', async () => {
+    const week = monday();
+    // The link is the congregation's own choice; it is on here.
+    await h.sql(
+      `UPDATE congregations SET assignment_automation_enabled = true`,
+    );
+    const treasures = await post({
+      weekStartDate: week,
+      partKey: 'treasures_talk',
+    });
+    expect(treasures.status).toBe(201);
+    await h.sql(
+      `UPDATE publishers SET capabilities = '{"treasures_talk": true, "midweek_opening_prayer": true}' WHERE id = $1`,
+      [brother],
+    );
+    const prayer = await post({
+      weekStartDate: week,
+      partKey: 'midweek_opening_prayer',
+      publisherId: brother,
+    });
+    expect(prayer.status).toBe(201);
+    const row = await h.sql<{ p: string | null }>(
+      `SELECT publisher_id AS p FROM assignments WHERE id = $1`,
+      [treasures.body.id],
+    );
+    expect(row[0].p).toBeNull();
+  });
 });

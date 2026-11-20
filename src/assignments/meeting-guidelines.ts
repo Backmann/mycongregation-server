@@ -34,31 +34,44 @@ const has = (t: string, re: RegExp) => re.test(t);
 /**
  * The kind of a ministry part from its title. Russian, German and English
  * headings: a rule that read Russian only would fall silent on any other
- * workbook. The import writes «<heading>: <first note>», and the note decides
- * the delivery — «Речь.» makes «Объясняйте свои взгляды» a talk, «Обсуждение.»
- * makes any heading a discussion.
+ * workbook. The import writes «<heading>: <first note>», and the FIRST
+ * sentence of the note decides the delivery — «Речь.» makes «Объясняйте свои
+ * взгляды» a talk, «Обсуждение.» makes any heading a discussion. Only that
+ * sentence is read: «… О чём идёт речь в Библии» further on is no talk
+ * (review of 20 November 2026), and quotes, brackets and dashes around the
+ * word do not hide it.
  */
 export function ministryKind(title: string | null | undefined): MinistryKind {
   const t = (title ?? '').trim().toLowerCase();
   if (!t) return 'unknown';
-  if (
-    has(
-      t,
-      /(?:^|[\s:.,;!?])(?:обсуждение|besprechung|discussion)(?=[\s.,:;!?]|$)/u,
-    )
-  )
+  // «<heading>: <note>» as the import writes it; an older hand-typed
+  // «<heading>. <note>» is read the same way.
+  const colonAt = t.indexOf(':');
+  const colon = colonAt >= 0 ? colonAt : t.indexOf('.');
+  const heading = (colon < 0 ? t : t.slice(0, colon)).trim();
+  const note = colon < 0 ? '' : t.slice(colon + 1).trim();
+  const bare = (x: string) =>
+    x
+      .replace(/[«»"„“”()[\]—–-]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  const first = bare(note.split(/[.!?;]/u)[0] ?? '');
+  const head = bare(heading);
+  const is = (re: RegExp) => re.test(first) || re.test(head);
+  if (is(/^(?:обсуждение|besprechung|discussion)(?:\s|$)/u))
     return 'discussion';
-  if (has(t, /(?:^|[\s:.,;!?])(?:речь|vortrag|talk)(?=[\s.,:;!?]|$)/u))
-    return 'talk';
-  if (has(t, /начина\S* разговор|gespräch beginnen|starting a conversation/u))
+  if (is(/^(?:речь|vortrag|talk)(?:\s|$)/u)) return 'talk';
+  if (
+    has(head, /начина\S* разговор|gespräch beginnen|starting a conversation/u)
+  )
     return 'start';
-  if (has(t, /развива\S* интерес|interesse fördern|following up/u))
+  if (has(head, /развива\S* интерес|interesse fördern|following up/u))
     return 'follow';
-  if (has(t, /подготавлива\S* учеников|jünger machen|making disciples/u))
+  if (has(head, /подготавлива\S* учеников|jünger machen|making disciples/u))
     return 'disciples';
   if (
     has(
-      t,
+      head,
       /объясня\S* свои взгляды|glaubensansichten erklären|explaining your beliefs/u,
     )
   )

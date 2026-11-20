@@ -61,6 +61,7 @@ import { ProgrammeFreezeService } from './programme-freeze.service';
 import type { AuthenticatedUser as FreezeUser } from '../auth/decorators/current-user.decorator';
 import { assertAssignable } from '../common/inactive';
 import { assertGuidelines } from './meeting-guidelines';
+import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { refusal } from '../common/errors/refusal';
 import { OPENING_SONG_PART_KEY, songNumber } from '../talk-exchange/week-songs';
 
@@ -672,6 +673,8 @@ export class AssignmentsService {
       );
     // The guidelines, for whoever is NEW on the part (п. 5–17): a save that
     // keeps its people — a time, a note, a title — is never refused.
+    const newPart =
+      moves || (dto.partKey !== undefined && dto.partKey !== existing.partKey);
     if (!retroactive)
       await assertGuidelines(this.repo.manager, congregationId, [
         {
@@ -686,8 +689,13 @@ export class AssignmentsService {
             dto.assistantPublisherId !== undefined
               ? dto.assistantPublisherId
               : existing.assistantPublisherId,
-          prevPublisherId: existing.publisherId,
-          prevAssistantPublisherId: existing.assistantPublisherId,
+          // A part that becomes another part, or goes to another meeting,
+          // is asked about all its people (review, 20 November 2026).
+          prevPublisherId: newPart ? null : existing.publisherId,
+          prevAssistantPublisherId: newPart
+            ? null
+            : existing.assistantPublisherId,
+          id: existing.id,
         },
       ]);
     const lock = await this.freeze.lockOf(congregationId, to);
@@ -1008,7 +1016,14 @@ export class AssignmentsService {
             where: { id: edited.publisherId, congregationId },
           });
           const capability = otherKey; // part key doubles as capability key
-          const hasCapability = pub?.capabilities?.[capability] === true;
+          // The mark alone is not enough for the Treasures talk: it goes to
+          // an elder or a ministerial servant (guidelines п. 3; review of
+          // 20 November 2026 — the mirror wrote past the check).
+          const hasCapability =
+            pub?.capabilities?.[capability] === true &&
+            (otherKey !== 'treasures_talk' ||
+              pub.appointment === PublisherAppointment.ELDER ||
+              pub.appointment === PublisherAppointment.MINISTERIAL_SERVANT);
           if (!hasCapability) {
             warnings.push({
               code:
