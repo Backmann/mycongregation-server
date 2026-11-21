@@ -62,6 +62,7 @@ import type { AuthenticatedUser as FreezeUser } from '../auth/decorators/current
 import { assertAssignable } from '../common/inactive';
 import { assertGuidelines } from './meeting-guidelines';
 import { canSeeProgrammeDrafts } from './programme-drafts';
+import { assertPartInItsMeeting } from './part-meeting';
 import { PublisherAppointment } from '../common/enums/publisher-appointment.enum';
 import { refusal } from '../common/errors/refusal';
 import { OPENING_SONG_PART_KEY, songNumber } from '../talk-exchange/week-songs';
@@ -409,6 +410,7 @@ export class AssignmentsService {
     user?: FreezeUser,
   ): Promise<Assignment> {
     const { retroactive: askedRetro, ...fields } = dto;
+    assertPartInItsMeeting([fields]);
     const { retroactive } = await this.freeze.assertWritable(
       congregationId,
       [{ weekStartDate: fields.weekStartDate, eventType: fields.eventType }],
@@ -541,6 +543,7 @@ export class AssignmentsService {
     dtos: CreateAssignmentDto[],
     opts: { retroactive?: boolean; user?: FreezeUser } = {},
   ): Promise<Assignment[]> {
+    assertPartInItsMeeting(dtos);
     // Every meeting of the batch is asked BEFORE anything is written: a
     // batch over an open week and a frozen one writes nothing, not half.
     const { retroactive } = await this.freeze.assertWritable(
@@ -642,6 +645,10 @@ export class AssignmentsService {
       weekStartDate: dto.weekStartDate ?? existing.weekStartDate,
       eventType: dto.eventType ?? existing.eventType,
     };
+    if (dto.partKey !== undefined || dto.eventType !== undefined)
+      assertPartInItsMeeting([
+        { partKey: dto.partKey ?? existing.partKey, eventType: to.eventType },
+      ]);
     // A correction after the fact puts a row right where it stands; moving
     // it to another week or meeting is a new plan, not a correction — so a
     // move touching a frozen meeting is refused even when asked as a fix.
@@ -1117,6 +1124,7 @@ export class AssignmentsService {
         where: {
           congregationId,
           weekStartDate: week,
+          eventType: EventType.WEEKEND,
           partKey: PUBLIC_TALK_PART_KEY,
         },
       });

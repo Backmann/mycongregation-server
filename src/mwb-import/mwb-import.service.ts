@@ -159,6 +159,18 @@ export class MwbImportService {
    * programme is imported: the upload flow it once shared the per-week
    * upsert with was removed on 5 October 2026 (see part-title.ts).
    */
+  /**
+   * The meetings a load writes, as applyParsed decides them week by week —
+   * asked before anything is written, for the rights (21 November 2026).
+   */
+  sectionsOf(dto: ApplyParsedDto): EventType[] {
+    return dto.weeks.map((w) =>
+      w.parts.some((p) => isWeekendPartKey(p.partKey))
+        ? EventType.WEEKEND
+        : EventType.MIDWEEK,
+    );
+  }
+
   async applyParsed(
     congregationId: string,
     dto: ApplyParsedDto,

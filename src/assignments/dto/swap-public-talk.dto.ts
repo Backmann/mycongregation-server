@@ -1,4 +1,4 @@
-import { IsEnum, IsISO8601, IsIn } from 'class-validator';
+import { IsISO8601, IsIn } from 'class-validator';
 import { EventType } from '../../common/enums/event-type.enum';
 
 /**
@@ -8,7 +8,12 @@ import { EventType } from '../../common/enums/event-type.enum';
  * must be 'weekend'.
  */
 export class SwapPublicTalkDto {
-  @IsEnum(EventType)
+  /**
+   * Always the weekend: the public talk is its part. The section guard reads
+   * this field, and any other value let the midweek overseer swap the
+   * weekend's talks (rights review, 21 November 2026).
+   */
+  @IsIn([EventType.WEEKEND])
   eventType!: EventType;
 
   @IsISO8601()

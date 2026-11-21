@@ -527,7 +527,14 @@ export class MeetingMovesService {
     user: AuthenticatedUser,
   ): Promise<void> {
     if (user.role === UserRole.ADMIN) return;
-    if (await this.holds(user, [ResponsibilityType.BODY_COORDINATOR])) return;
+    if (
+      await this.holds(user, [
+        ResponsibilityType.BODY_COORDINATOR,
+        // Stands in for him (21 November 2026).
+        ResponsibilityType.BODY_COORDINATOR_ASSISTANT,
+      ])
+    )
+      return;
     throw new ForbiddenException(
       refusal(
         'MOVE_PAST_NEEDS_COORDINATOR',
