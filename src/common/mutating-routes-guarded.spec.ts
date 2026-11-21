@@ -28,8 +28,6 @@ const CHECKED_IN_SERVICE: Record<string, string> = {
   'external-congregations': 'service: talk coordinators',
   journal: 'service: assertMayAsk (admin)',
   'local-needs': 'service: life-and-ministry overseer',
-  'mwb-import':
-    'apply: the controller asks assertMayWriteSections — the workbook the midweek editors, The Watchtower the weekend editors, admin (21 November 2026); the reads carry @Roles',
   me: 'the caller\u2019s own data',
   'me/calendar-feed': 'the caller\u2019s own calendar link',
   'not-held':

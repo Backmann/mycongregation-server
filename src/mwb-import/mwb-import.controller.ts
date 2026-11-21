@@ -11,6 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Responsibility } from '../entities/responsibility.entity';
 import { assertMayWriteSections } from '../common/guards/assignment-section.guard';
+import { assertPartInItsMeeting } from '../assignments/part-meeting';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
@@ -60,15 +61,21 @@ export class MwbImportController {
    * administrator either. Until then any elder loaded both.
    */
   @Post('apply')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.ELDER)
   async apply(
     @TenantId() congregationId: string,
     @Body() dto: ApplyParsedDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    await assertMayWriteSections(
-      this.responsibilities,
-      user,
-      this.service.sectionsOf(dto),
+    const sections = this.service.sectionsOf(dto);
+    await assertMayWriteSections(this.responsibilities, user, sections);
+    // A week is one meeting: a key of the other one in it is refused, or a
+    // weekend load wrote midweek parts (review, 21 November 2026).
+    assertPartInItsMeeting(
+      dto.weeks.flatMap((w, i) =>
+        w.parts.map((p) => ({ partKey: p.partKey, eventType: sections[i] })),
+      ),
     );
     return this.service.applyParsed(congregationId, dto);
   }

@@ -192,6 +192,56 @@ describe('the programme: who may do what (real database)', () => {
     expect(moved.body.code).toBe('PART_NOT_IN_MEETING');
   });
 
+  it('removes and restores a part: the rights of its meeting', async () => {
+    const w = week();
+    const del = await row(async (as) =>
+      as.delete(`/assignments/${await mk(w, 'weekend', 'weekend_song')}`),
+    );
+    expect(del).toEqual(ok(WEEKEND, 204));
+    // Each person brings back a part of his own, removed by the admin.
+    const back = await row(async (as) => {
+      const id = await mk(w, 'midweek', 'midweek_song');
+      expect((await h.as('admin').delete(`/assignments/${id}`)).status).toBe(
+        204,
+      );
+      return as.post(`/assignments/${id}/restore`);
+    });
+    expect(back).toEqual(ok(MIDWEEK, back.admin));
+    expect(back.admin).toBeLessThan(300);
+  });
+
+  it('a batch over both meetings needs both', async () => {
+    const w = week();
+    const batch = {
+      assignments: [
+        { weekStartDate: w, eventType: 'midweek', partKey: 'other_part' },
+        { weekStartDate: w, eventType: 'weekend', partKey: 'other_part' },
+      ],
+    };
+    expect(await row((as) => as.post('/assignments/bulk', batch))).toEqual(
+      ok(['admin'], 201),
+    );
+  });
+
+  it('the overseer cannot turn his part into a weekend one', async () => {
+    const id = await mk(week(), 'midweek', 'other_part');
+    const r = await h.as(login('lmo')).patch(`/assignments/${id}`, {
+      eventType: 'weekend',
+      partKey: 'watchtower_conductor',
+    });
+    expect(r.status).toBe(403);
+  });
+
+  it('a request naming no meeting at all is refused, not a crash', async () => {
+    const id = await mk(week(), 'midweek', 'other_part');
+    for (const eventType of ['constructor', '__proto__', 'nonsense']) {
+      const r = await h
+        .as(login('lmo'))
+        .patch(`/assignments/${id}`, { eventType });
+      expect([400, 403]).toContain(r.status);
+    }
+  });
+
   it('publishes a meeting', async () => {
     const w = week();
     await mk(w, 'midweek', 'midweek_song');
@@ -240,6 +290,16 @@ describe('the programme: who may do what (real database)', () => {
         as.post('/mwb-import/apply', load('watchtower_conductor', 'Статья')),
       ),
     ).toEqual(ok(WEEKEND, 201));
+    // A week is one meeting: a weekend key in a workbook week is refused.
+    const mixed = load('treasures_talk', 'Тема');
+    mixed.weeks[0].parts.push({
+      partKey: 'public_talk_speaker',
+      partOrder: 2,
+      partTitle: 'Речь',
+    });
+    const r = await h.as('admin').post('/mwb-import/apply', mixed);
+    expect(r.status).toBe(400);
+    expect(r.body.code).toBe('PART_NOT_IN_MEETING');
     // What is loaded, the elders read.
     expect(await row((as) => as.get('/mwb-import/weeks'))).toEqual(
       ok(['admin', 'lmo', 'bc', 'bca', 'elder'], 200),
@@ -258,8 +318,37 @@ describe('the programme: who may do what (real database)', () => {
       // prepare fills an EMPTY Memorial: once filled, it says so, not 403.
       expect.objectContaining({ lmo: 403, elder: 403, ms: 403, pub: 403 }),
     );
+    const published = await row((as) =>
+      as.post(`/memorial/${memorialId}/publish`),
+    );
+    expect([
+      published.lmo,
+      published.elder,
+      published.ms,
+      published.pub,
+    ]).toEqual([403, 403, 403, 403]);
+    expect(
+      [published.admin, published.bc, published.bca].every((s) => s < 300),
+    ).toBe(true);
     const sheet = await row((as) => as.get(`/memorial/${memorialId}`));
     expect(sheet).toEqual(ok(WHO, 200));
+  });
+
+  it('the responsibilities that carry these rights go to elders only', async () => {
+    const [ms] = await h.sql<{ id: string }>(
+      `SELECT id FROM users WHERE login_name = $1`,
+      [login('ms')],
+    );
+    for (const type of [
+      'life_ministry_overseer',
+      'body_coordinator_assistant',
+    ]) {
+      const r = await h
+        .as('admin')
+        .post('/responsibilities', { type, userId: ms.id });
+      expect(r.status).toBe(403);
+      expect(r.body.code).toBe('RESPONSIBILITY_ELDERS_ONLY');
+    }
   });
 
   it('drafts and readiness: those who build the programme', async () => {

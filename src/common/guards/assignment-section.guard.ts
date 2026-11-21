@@ -54,6 +54,8 @@ export const EVENT_TYPE_RESPONSIBILITY: Record<
   [EventType.PUBLIC_WITNESSING]: [ResponsibilityType.PUBLIC_WITNESSING],
 };
 
+const KNOWN_SECTIONS = new Set<unknown>(Object.values(EventType));
+
 /**
  * May this person write the given meetings? The same rule as the guard below,
  * for a write that finds out its meetings only from what it carries — a
@@ -136,6 +138,12 @@ export class AssignmentSectionGuard implements CanActivate {
       user.congregationId,
     );
 
+    // The body is not validated yet: a value that is no meeting at all
+    // («constructor», an array) is refused here, not looked up in the map
+    // (review, 21 November 2026: it answered 500).
+    if (eventTypes.some((t) => !KNOWN_SECTIONS.has(t))) {
+      throw new ForbiddenException('Cannot determine schedule section');
+    }
     if (eventTypes.length === 0) {
       throw new ForbiddenException('Cannot determine schedule section');
     }

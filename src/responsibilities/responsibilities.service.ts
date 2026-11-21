@@ -75,13 +75,20 @@ const MULTI_HOLDER: ResponsibilityType[] = [
 ];
 
 /**
- * Responsibilities that open the service records (S-21): elders only
- * (31 October 2026).
+ * Elders only, a refusal and not a warning:
+ *  - those that open the service records (S-21) — 31 October 2026;
+ *  - those that carry an elder's rights over the programme: editing it,
+ *    its drafts with names, correcting a week already held, moving a
+ *    meeting — the Life and Ministry overseer and the coordinator's
+ *    assistant, who stands in for him (Lionel, 21 November 2026; until then
+ *    the app only warned).
  */
 export const ELDERS_ONLY_RESPONSIBILITIES: readonly ResponsibilityType[] = [
   ResponsibilityType.SECRETARY,
   ResponsibilityType.BODY_COORDINATOR,
   ResponsibilityType.SERVICE_OVERSEER,
+  ResponsibilityType.LIFE_MINISTRY_OVERSEER,
+  ResponsibilityType.BODY_COORDINATOR_ASSISTANT,
 ];
 
 @Injectable()
