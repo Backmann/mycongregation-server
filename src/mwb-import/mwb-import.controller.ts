@@ -7,12 +7,20 @@ import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UserRole } from '../common/enums/user-role.enum';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Responsibility } from '../entities/responsibility.entity';
+import { assertMayWriteSections } from '../common/guards/assignment-section.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
 @Controller('mwb-import')
 export class MwbImportController {
   constructor(
     private readonly service: MwbImportService,
     private readonly files: ProgrammeFilesService,
+    @InjectRepository(Responsibility)
+    private readonly responsibilities: Repository<Responsibility>,
   ) {}
 
   /**
@@ -45,10 +53,23 @@ export class MwbImportController {
    * uploaded — the payload contains only derived schedule metadata
    * (part keys, titles, durations).
    */
+  /**
+   * Loading a file writes a meeting's programme, so it takes the right to
+   * that meeting (Lionel, 21 November 2026): the workbook — whoever edits
+   * the midweek; The Watchtower — whoever edits the weekend; the
+   * administrator either. Until then any elder loaded both.
+   */
   @Post('apply')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
-  apply(@TenantId() congregationId: string, @Body() dto: ApplyParsedDto) {
+  async apply(
+    @TenantId() congregationId: string,
+    @Body() dto: ApplyParsedDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await assertMayWriteSections(
+      this.responsibilities,
+      user,
+      this.service.sectionsOf(dto),
+    );
     return this.service.applyParsed(congregationId, dto);
   }
 }

@@ -46,6 +46,7 @@ export class ReadinessController {
   @RequireResponsibility(
     ResponsibilityType.LIFE_MINISTRY_OVERSEER,
     ResponsibilityType.BODY_COORDINATOR,
+    ResponsibilityType.BODY_COORDINATOR_ASSISTANT,
     ResponsibilityType.DUTIES_COORDINATOR,
   )
   async list(

@@ -61,9 +61,15 @@ function freezeWith(
       new Map(weeks.map((w) => [w, rulesFor(w, opts.events)])),
   };
   const responsibilities = {
-    count: jest.fn(async ({ where }: any) =>
-      (opts.responsibilities ?? []).includes(where.type) ? 1 : 0,
-    ),
+    // `type` is one type, or In([...]) — a FindOperator holding the list.
+    count: jest.fn(async ({ where }: any) => {
+      const asked: string[] = Array.isArray(where.type?.value)
+        ? where.type.value
+        : [where.type];
+      return asked.some((t) => (opts.responsibilities ?? []).includes(t as any))
+        ? 1
+        : 0;
+    }),
   };
   const freeze = new ProgrammeFreezeService(
     weekRulesSvc as any,
@@ -218,6 +224,12 @@ describe('the door — ProgrammeFreezeService', () => {
     await expect(
       freezeWith({
         responsibilities: [ResponsibilityType.BODY_COORDINATOR],
+      }).freeze.assertWritable(C, m, { retroactive: true, user: user() }),
+    ).resolves.toEqual({ retroactive: true });
+    // His assistant stands in for him (21 November 2026).
+    await expect(
+      freezeWith({
+        responsibilities: [ResponsibilityType.BODY_COORDINATOR_ASSISTANT],
       }).freeze.assertWritable(C, m, { retroactive: true, user: user() }),
     ).resolves.toEqual({ retroactive: true });
     // The midweek overseer edits the midweek programme — but not the record.

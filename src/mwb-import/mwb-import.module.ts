@@ -10,11 +10,12 @@ import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
 import { ProgrammeFreezeModule } from '../assignments/programme-freeze.module';
 import { WeekRulesModule } from '../common/week-rules.module';
 import { Congregation } from '../entities/congregation.entity';
+import { Responsibility } from '../entities/responsibility.entity';
 import { ProgrammeFilesService } from './programme-files.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Assignment, Congregation]),
+    TypeOrmModule.forFeature([Assignment, Congregation, Responsibility]),
     AuditLogModule,
     MeetingAttendanceModule,
     CoVisitTemplateModule,

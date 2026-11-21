@@ -4,7 +4,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Responsibility } from '../entities/responsibility.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -88,7 +88,12 @@ export class ProgrammeFreezeService {
       where: {
         congregationId: user.congregationId,
         userId: user.id,
-        type: ResponsibilityType.BODY_COORDINATOR,
+        // The coordinator — and his assistant, who stands in for him
+        // (21 November 2026).
+        type: In([
+          ResponsibilityType.BODY_COORDINATOR,
+          ResponsibilityType.BODY_COORDINATOR_ASSISTANT,
+        ]),
       },
     });
     return held > 0;

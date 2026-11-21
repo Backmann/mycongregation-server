@@ -38,6 +38,8 @@ export const REFUSAL_CODES = [
   'PART_NEEDS_ELDER',
   'PART_NEEDS_ELDER_OR_SERVANT',
   'PART_NO_ASSISTANT',
+  // A part of one meeting put into another (rights review, 21 November 2026).
+  'PART_NOT_IN_MEETING',
   'ASSISTANT_SAME_GENDER',
   'STUDENT_NOT_APPROVED',
   'SIGNUP_UNAVAILABLE',

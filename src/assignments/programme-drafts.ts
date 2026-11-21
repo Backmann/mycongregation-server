@@ -26,6 +26,8 @@ export async function canSeeProgrammeDrafts(
       type: In([
         'life_ministry_overseer',
         'body_coordinator',
+        // Stands in for the coordinator (21 November 2026).
+        'body_coordinator_assistant',
       ] as ResponsibilityType[]),
     },
   });

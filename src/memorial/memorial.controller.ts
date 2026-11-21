@@ -13,8 +13,10 @@ import {
 } from '@nestjs/common';
 import { MemorialService } from './memorial.service';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
-import { Roles } from '../common/decorators/roles.decorator';
-import { RolesGuard } from '../common/guards/roles.guard';
+import { RequireResponsibility } from '../common/decorators/require-responsibility.decorator';
+import { ResponsibilityGuard } from '../common/guards/responsibility.guard';
+import { EVENT_TYPE_RESPONSIBILITY } from '../common/guards/assignment-section.guard';
+import { EventType } from '../common/enums/event-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -30,10 +32,13 @@ import { SetMemorialThemeDto } from './dto/set-memorial-theme.dto';
  * on the evening everybody attends, and a publisher looking for his own line
  * should not have to ask an elder for it.
  *
- * WRITING is for the body of elders and the admins — the decision of
- * 29 August. No separate responsibility: the programme is settled by the body
- * together, not by one appointed brother, so a role is the honest test here.
+ * WRITING is for whoever edits the Memorial's parts — the coordinator of the
+ * body of elders, his assistant and the administrator (Lionel, 21 November
+ * 2026). Until then any elder wrote and published the programme while only
+ * the coordinator could edit its parts: two rules for one evening. Every
+ * elder still READS the draft.
  */
+const MEMORIAL_WRITERS = EVENT_TYPE_RESPONSIBILITY[EventType.MEMORIAL];
 @Controller('memorial')
 export class MemorialController {
   constructor(private readonly service: MemorialService) {}
@@ -44,7 +49,7 @@ export class MemorialController {
     return this.service.list(tenantId);
   }
 
-  /** A draft goes only to those who may write it — the same two roles. */
+  /** A draft goes to the elders and the admins: they plan it together. */
   @Get(':id')
   sheet(
     @TenantId() tenantId: string,
@@ -58,8 +63,8 @@ export class MemorialController {
 
   /** Fill an empty Memorial from last year's, or from the template. */
   @Post(':id/prepare')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(...MEMORIAL_WRITERS)
   prepare(
     @TenantId() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -68,8 +73,8 @@ export class MemorialController {
   }
 
   @Post(':id/lines')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(...MEMORIAL_WRITERS)
   addLine(
     @TenantId() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -80,8 +85,8 @@ export class MemorialController {
   }
 
   @Patch('lines/:lineId')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(...MEMORIAL_WRITERS)
   updateLine(
     @TenantId() tenantId: string,
     @Param('lineId', ParseUUIDPipe) lineId: string,
@@ -92,8 +97,8 @@ export class MemorialController {
   }
 
   @Post(':id/reorder')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(...MEMORIAL_WRITERS)
   reorder(
     @TenantId() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -104,8 +109,8 @@ export class MemorialController {
 
   @Delete('lines/:lineId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(...MEMORIAL_WRITERS)
   removeLine(
     @TenantId() tenantId: string,
     @Param('lineId', ParseUUIDPipe) lineId: string,
@@ -116,8 +121,8 @@ export class MemorialController {
 
   @Post('lines/:lineId/restore')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(...MEMORIAL_WRITERS)
   restoreLine(
     @TenantId() tenantId: string,
     @Param('lineId', ParseUUIDPipe) lineId: string,
@@ -126,8 +131,8 @@ export class MemorialController {
   }
 
   @Patch(':id/theme')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(...MEMORIAL_WRITERS)
   setTheme(
     @TenantId() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -142,8 +147,8 @@ export class MemorialController {
   }
 
   @Post(':id/publish')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.ELDER)
+  @UseGuards(ResponsibilityGuard)
+  @RequireResponsibility(...MEMORIAL_WRITERS)
   publish(
     @TenantId() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,

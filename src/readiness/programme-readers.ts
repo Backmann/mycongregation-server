@@ -16,6 +16,8 @@ import type { WeekReadiness } from './readiness.service';
 export const PROGRAMME_READINESS_READERS: readonly ResponsibilityType[] = [
   ResponsibilityType.LIFE_MINISTRY_OVERSEER,
   ResponsibilityType.BODY_COORDINATOR,
+  // Stands in for the coordinator (21 November 2026).
+  ResponsibilityType.BODY_COORDINATOR_ASSISTANT,
 ];
 
 /**

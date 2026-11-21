@@ -36,8 +36,16 @@ export const EVENT_TYPE_RESPONSIBILITY: Record<
   ResponsibilityType[]
 > = {
   [EventType.MIDWEEK]: [ResponsibilityType.LIFE_MINISTRY_OVERSEER],
-  [EventType.WEEKEND]: [ResponsibilityType.BODY_COORDINATOR],
-  [EventType.MEMORIAL]: [ResponsibilityType.BODY_COORDINATOR],
+  // His assistant stands in for him (Lionel, 21 November 2026): with the
+  // coordinator away, the weekend and the Memorial must not wait.
+  [EventType.WEEKEND]: [
+    ResponsibilityType.BODY_COORDINATOR,
+    ResponsibilityType.BODY_COORDINATOR_ASSISTANT,
+  ],
+  [EventType.MEMORIAL]: [
+    ResponsibilityType.BODY_COORDINATOR,
+    ResponsibilityType.BODY_COORDINATOR_ASSISTANT,
+  ],
   [EventType.CLEANING]: [ResponsibilityType.CLEANING_COORDINATOR],
   [EventType.AV_DUTY]: [
     ResponsibilityType.DUTIES_COORDINATOR,
@@ -45,6 +53,40 @@ export const EVENT_TYPE_RESPONSIBILITY: Record<
   ],
   [EventType.PUBLIC_WITNESSING]: [ResponsibilityType.PUBLIC_WITNESSING],
 };
+
+/**
+ * May this person write the given meetings? The same rule as the guard below,
+ * for a write that finds out its meetings only from what it carries — a
+ * workbook writes the midweek, a Watchtower the weekend (rights review,
+ * 21 November 2026: any elder loaded both and so wrote programmes he could
+ * not edit by hand).
+ */
+export async function assertMayWriteSections(
+  responsibilities: Repository<Responsibility>,
+  user: AuthenticatedUser,
+  eventTypes: EventType[],
+): Promise<void> {
+  if (user.role === UserRole.ADMIN) return;
+  const held = new Set(
+    (
+      await responsibilities.find({
+        where: { congregationId: user.congregationId, userId: user.id },
+        select: ['type'],
+      })
+    ).map((r) => r.type),
+  );
+  for (const eventType of new Set(eventTypes)) {
+    const allowed = EVENT_TYPE_RESPONSIBILITY[eventType] ?? [];
+    if (!allowed.some((t) => held.has(t)))
+      throw new ForbiddenException(
+        refusal(
+          'NEEDS_RESPONSIBILITY',
+          `Requires one of [${allowed.join(', ')}] for section ${eventType}`,
+          { responsibilities: allowed },
+        ),
+      );
+  }
+}
 
 /**
  * Section-scoped authorization for schedule (assignment) writes.
@@ -158,7 +200,15 @@ export class AssignmentSectionGuard implements CanActivate {
       if (!record) {
         throw new NotFoundException('Assignment not found');
       }
-      return [record.eventType];
+      // A row moved to another meeting (PATCH with eventType) needs the
+      // right to the meeting it goes to as well: the midweek overseer put
+      // a part into the weekend, the coordinator the other way round
+      // (rights review, 21 November 2026).
+      const to = (request.body as { eventType?: EventType } | undefined)
+        ?.eventType;
+      return to && to !== record.eventType
+        ? [record.eventType, to]
+        : [record.eventType];
     }
 
     const body = request.body as
