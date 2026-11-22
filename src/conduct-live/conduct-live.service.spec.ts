@@ -49,7 +49,14 @@ type Row = Record<string, unknown> & {
 };
 
 function build(
-  opts: { row?: Partial<Row> | null; keeper?: boolean; over?: boolean } = {},
+  opts: {
+    row?: Partial<Row> | null;
+    keeper?: boolean;
+    over?: boolean;
+    before?: boolean;
+    /** A meeting of today with its run on the server (the stage's first). */
+    realToday?: boolean;
+  } = {},
 ) {
   let row: Row | null = opts.row
     ? ({
@@ -67,13 +74,25 @@ function build(
       } as Row)
     : null;
   const live = {
-    findOne: jest.fn(async () => (row ? { ...row } : null)),
+    // A rehearsal and the meeting are separate rows (R-73): asked for one,
+    // the other is not found.
+    findOne: jest.fn(
+      async (q?: { where?: { practice?: boolean } }): Promise<Row | null> => {
+        if (!row) return null;
+        const want = q?.where?.practice;
+        if (want !== undefined && (row.practice ?? false) !== want) return null;
+        return { ...row };
+      },
+    ),
     create: jest.fn((x: Record<string, unknown>) => ({ ...x })),
     save: jest.fn(async (x: Record<string, unknown>) => {
       row = { id: 'live-1', updatedAt: NOW, ...x } as Row;
       return { ...row };
     }),
     update: jest.fn(async () => ({ affected: 1 })),
+    find: jest.fn(async () =>
+      opts.realToday ? [{ weekStartDate: WEEK, eventType: 'midweek' }] : [],
+    ),
     delete: jest.fn(async () => ({ affected: 2 })),
   };
   const assignments = {
@@ -126,7 +145,11 @@ function build(
     assignments as never,
     publishers as never,
     duties as never,
-    { isOver: jest.fn(async () => opts.over === true) } as never,
+    {
+      isOver: jest.fn(async () => opts.over === true),
+      isBefore: jest.fn(async () => opts.before === true),
+      isToday: jest.fn(async () => opts.realToday === true),
+    } as never,
   );
   return {
     service,
@@ -425,10 +448,13 @@ describe("after the meeting's day (16 October 2026)", () => {
 });
 
 describe('a day later it is gone', () => {
-  it('deletes the rows older than a day', async () => {
+  it('deletes the rows older than a day, and rehearsals older than two hours', async () => {
     const { service, live } = build();
-    expect(await service.deleteExpired(NOW)).toBe(2);
-    expect(live.delete).toHaveBeenCalled();
+    expect(await service.deleteExpired(NOW)).toBe(4);
+    expect(live.delete).toHaveBeenCalledTimes(2);
+    expect(live.delete).toHaveBeenLastCalledWith(
+      expect.objectContaining({ practice: true }),
+    );
   });
 });
 
@@ -712,5 +738,143 @@ describe('ConductLiveService.programmeStamp', () => {
     expect(
       await service.programmeStamp('c1', '2026-10-19', 'weekend' as never),
     ).toBeNull();
+  });
+});
+
+describe('a rehearsal (R-73, 22 November 2026)', () => {
+  const chair = () => user(UserRole.ELDER, CHAIR_USER);
+
+  it('THE CASE: the meeting itself is not started before its day', async () => {
+    const { service, live } = build({ row: null, before: true });
+    const M = 'midweek' as never;
+    await expect(
+      service.write(chair(), WEEK, 0, STATE, NOW, M, null, false),
+    ).rejects.toMatchObject({
+      response: { code: 'CONDUCT_NOT_TODAY' },
+    });
+    await expect(
+      service.take(chair(), WEEK, STATE, NOW, M, null, false),
+    ).rejects.toMatchObject({ response: { code: 'CONDUCT_NOT_TODAY' } });
+    expect(live.save).not.toHaveBeenCalled();
+  });
+
+  it('an app from before R-73 (sends no practice) is kept as it was — no refusal to loop on', async () => {
+    const { service, live } = build({ row: null, before: true });
+    await service.write(chair(), WEEK, 0, STATE, NOW);
+    expect(live.save).toHaveBeenCalledWith(
+      expect.objectContaining({ practice: false }),
+    );
+  });
+
+  it('the stage gets no rehearsal while a meeting of today runs', async () => {
+    const { service } = build({ row: { practice: true }, realToday: true });
+    expect(
+      await service.stagePractice(user(UserRole.STAGE, 'user-stage'), NOW),
+    ).toBeNull();
+  });
+
+  it("on the stage nobody's taps are «mine» — not even an admin's rehearsal", async () => {
+    const admin = user(UserRole.ADMIN, KEEPER_USER);
+    const { service } = build({ row: { practice: true } });
+    const got = await service.stagePractice(admin, NOW);
+    expect(got?.live.mine).toBe(false);
+    expect(got?.live.mineElsewhere).toBe(false);
+  });
+
+  it('before its day a rehearsal runs — its own row, marked practice', async () => {
+    const { service, live } = build({ row: null, before: true });
+    const v = await service.write(
+      chair(),
+      WEEK,
+      0,
+      STATE,
+      NOW,
+      'midweek' as never,
+      null,
+      true,
+    );
+    expect(v.mine).toBe(true);
+    expect(live.save).toHaveBeenCalledWith(
+      expect.objectContaining({ practice: true }),
+    );
+  });
+
+  it('on the day, once the meeting runs, no rehearsal of it', async () => {
+    const { service } = build({ row: { practice: false } });
+    await expect(
+      service.write(
+        chair(),
+        WEEK,
+        1,
+        STATE,
+        NOW,
+        'midweek' as never,
+        null,
+        true,
+      ),
+    ).rejects.toMatchObject({
+      response: { code: 'CONDUCT_PRACTICE_AFTER_START' },
+    });
+  });
+
+  it('the meeting starting ends the rehearsal of the day', async () => {
+    const { service, live } = build({ row: null });
+    await service.write(chair(), WEEK, 0, STATE, NOW);
+    expect(live.delete).toHaveBeenCalledWith(
+      expect.objectContaining({ weekStartDate: WEEK, practice: true }),
+    );
+    expect(live.save).toHaveBeenCalledWith(
+      expect.objectContaining({ practice: false }),
+    );
+  });
+
+  it('a rehearsal is not shown to those who only watch — an elder', async () => {
+    const { service } = build({ row: { practice: true } });
+    await expect(
+      service.find(
+        user(UserRole.ELDER, ELDER_USER),
+        WEEK,
+        NOW,
+        'midweek' as never,
+        null,
+        true,
+      ),
+    ).rejects.toMatchObject({ response: { code: 'CONDUCT_LIVE_FORBIDDEN' } });
+  });
+
+  it('the meeting as it runs never answers with the rehearsal', async () => {
+    const { service } = build({ row: { practice: true } });
+    const { live } = await service.find(chair(), WEEK, NOW);
+    expect(live).toBeNull();
+  });
+
+  it('the stage screen gets the latest rehearsal, whatever its week', async () => {
+    const { service } = build({
+      row: { practice: true, weekStartDate: '2026-10-26' },
+    });
+    const got = await service.stagePractice(
+      user(UserRole.STAGE, 'user-stage'),
+      NOW,
+    );
+    expect(got).toMatchObject({ weekStartDate: '2026-10-26', kind: 'midweek' });
+  });
+
+  it('a rehearsal left alone two hours is not shown any more', async () => {
+    const { service } = build({
+      row: {
+        practice: true,
+        updatedAt: new Date(NOW.getTime() - 2 * 60 * 60 * 1000 - 1000),
+      },
+    });
+    expect(
+      await service.stagePractice(user(UserRole.STAGE, 'user-stage'), NOW),
+    ).toBeNull();
+  });
+
+  it('nobody but the stage screen and an admin asks for it', async () => {
+    const { service } = build({ row: { practice: true } });
+    await expect(service.stagePractice(chair(), NOW)).rejects.toMatchObject({
+      response: { code: 'CONDUCT_LIVE_FORBIDDEN' },
+    });
   });
 });

@@ -36,6 +36,19 @@ function deviceOf(value: string | undefined): string | null {
 export class ConductLiveController {
   constructor(private readonly service: ConductLiveService) {}
 
+  /**
+   * The rehearsal the stage screen shows when no meeting runs today (R-73),
+   * with the week and meeting it rehearses — or null.
+   */
+  @StageAllowed()
+  @Get('stage-practice')
+  async stagePractice(@CurrentUser() user: AuthenticatedUser) {
+    return {
+      practice: await this.service.stagePractice(user, new Date()),
+      serverNow: new Date().toISOString(),
+    };
+  }
+
   // The stage screen reads this (common/stage.ts).
   @StageAllowed()
   @Get()
@@ -44,6 +57,7 @@ export class ConductLiveController {
     @Query('week') week: string,
     @Query('kind') kind?: string,
     @Query('device') device?: string,
+    @Query('practice') practice?: string,
   ) {
     const { live, roles } = await this.service.find(
       user,
@@ -51,6 +65,7 @@ export class ConductLiveController {
       new Date(),
       conductKind(kind),
       deviceOf(device),
+      practice === '1' || practice === 'true',
     );
     // Asked only once find has let the asker in.
     const programmeStamp = await this.service.programmeStamp(
@@ -79,6 +94,7 @@ export class ConductLiveController {
       new Date(),
       conductKind(dto.eventType),
       dto.deviceId ?? null,
+      dto.practice,
     );
     return { live, serverNow: new Date().toISOString() };
   }
@@ -95,6 +111,7 @@ export class ConductLiveController {
       new Date(),
       conductKind(dto.eventType),
       dto.deviceId ?? null,
+      dto.practice,
     );
     return { live, serverNow: new Date().toISOString() };
   }

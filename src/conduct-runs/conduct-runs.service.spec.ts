@@ -55,6 +55,7 @@ function build(
     keeper?: string | null;
     stored?: Record<string, unknown> | null;
     over?: boolean;
+    before?: boolean;
     noDay?: boolean;
   } = {},
 ) {
@@ -98,6 +99,7 @@ function build(
       duties as never,
       {
         isOver: jest.fn(async () => opts.over === true),
+        isBefore: jest.fn(async () => opts.before === true),
         // The Wednesday of the week, as the week rules would say.
         meetingDate: jest.fn(async (_c: string, week: string) =>
           opts.noDay ? null : addDaysISO(week, 2),
@@ -356,5 +358,15 @@ describe('the nightly deletion', () => {
       0,
     );
     expect(runs.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe("before the meeting's day (R-73, 22 November 2026)", () => {
+  it("THE CASE: a run before the day is not kept as the meeting's result", async () => {
+    const { service, runs } = build({ before: true });
+    await expect(
+      service.save(user(UserRole.ELDER, CHAIR_USER), dto as never),
+    ).rejects.toMatchObject({ response: { code: 'CONDUCT_RESULT_EARLY' } });
+    expect(runs.save).not.toHaveBeenCalled();
   });
 });

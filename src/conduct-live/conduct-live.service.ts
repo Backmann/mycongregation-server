@@ -5,7 +5,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, LessThan, Repository } from 'typeorm';
+import { IsNull, LessThan, MoreThan, Repository } from 'typeorm';
 import { ConductLive } from '../entities/conduct-live.entity';
 import { MAIN_ROOM } from '../entities/conduct-room';
 import { Assignment } from '../entities/assignment.entity';
@@ -20,11 +20,20 @@ import {
   isCongregationElder,
   isConductOverseer,
 } from '../common/conduct-overseer';
-import { CHAIRMAN_PART_KEY, type ConductKind } from '../common/conduct-kind';
+import {
+  CHAIRMAN_PART_KEY,
+  conductKind,
+  type ConductKind,
+} from '../common/conduct-kind';
 import { MeetingDayService } from '../conduct-runs/meeting-day.service';
 
 /** How long a live row is kept — a day; the meeting is long over by then. */
 export const CONDUCT_LIVE_KEEP_MS = 24 * 60 * 60 * 1000;
+/**
+ * A rehearsal (R-73) left alone this long is over: the stage screen stops
+ * showing it and the nightly clean-up removes it.
+ */
+export const CONDUCT_PRACTICE_KEEP_MS = 2 * 60 * 60 * 1000;
 /** The largest state the screen may store (a run is a few hundred bytes). */
 const MAX_STATE_CHARS = 32_000;
 
@@ -225,6 +234,68 @@ export class ConductLiveService {
     }
   }
 
+  /**
+   * The meeting itself is run only on its day (R-73, 22 November 2026: a run
+   * started days before showed on no stage screen and could leave a result
+   * for a meeting not yet held). Before it, the screen offers a rehearsal.
+   */
+  private async refuseIfBefore(
+    congregationId: string,
+    week: string,
+    kind: ConductKind,
+  ) {
+    if (await this.meetingDay.isBefore(congregationId, week, kind)) {
+      throw new ConflictException(
+        refusal(
+          'CONDUCT_NOT_TODAY',
+          'The meeting is run on its day; before it, run a rehearsal.',
+        ),
+      );
+    }
+  }
+
+  /**
+   * Before the meeting, or on its day before the meeting starts (R-14): once
+   * the meeting runs, no rehearsal of it.
+   */
+  private async refusePracticeAfterStart(
+    congregationId: string,
+    week: string,
+    kind: ConductKind,
+  ) {
+    if (await this.findRow(congregationId, week, kind, false)) {
+      throw new ConflictException(
+        refusal(
+          'CONDUCT_PRACTICE_AFTER_START',
+          'This meeting runs now; a rehearsal is for before it starts.',
+        ),
+      );
+    }
+  }
+
+  /**
+   * The checks before a tap: the meeting on its day, a rehearsal before it
+   * starts. `practice` is what the app SENT: `true` a rehearsal, `false` the
+   * meeting itself — and absent from an app installed before R-73, which
+   * knows neither and would ask again after every refusal (independent
+   * review, 22 November 2026: a request loop into the rate limit). Such an
+   * app is kept as it was until the phones have the update; its result
+   * before the day is refused all the same (conduct-runs), and a refused
+   * result is dropped, not resent (app lib/conduct-resend.ts).
+   */
+  private async refuseOutOfTime(
+    congregationId: string,
+    week: string,
+    kind: ConductKind,
+    practice: boolean | undefined,
+  ) {
+    await this.refuseIfOver(congregationId, week, kind);
+    if (practice === true)
+      await this.refusePracticeAfterStart(congregationId, week, kind);
+    else if (practice === false)
+      await this.refuseIfBefore(congregationId, week, kind);
+  }
+
   private forbidden(): ForbiddenException {
     return new ForbiddenException(
       refusal(
@@ -287,15 +358,26 @@ export class ConductLiveService {
     };
   }
 
-  private findRow(congregationId: string, week: string, kind: ConductKind) {
+  private findRow(
+    congregationId: string,
+    week: string,
+    kind: ConductKind,
+    practice = false,
+  ) {
     return this.live.findOne({
       where: {
         congregationId,
         weekStartDate: week,
         eventType: kind,
         room: MAIN_ROOM,
+        practice,
       },
     });
+  }
+
+  /** How long a row is shown: a day for the meeting, two hours for a rehearsal. */
+  private keepMs(row: ConductLive): number {
+    return row.practice ? CONDUCT_PRACTICE_KEEP_MS : CONDUCT_LIVE_KEEP_MS;
   }
 
   /**
@@ -310,6 +392,7 @@ export class ConductLiveService {
     now = new Date(),
     kind: ConductKind = EventType.MIDWEEK,
     deviceId: string | null = null,
+    practice = false,
   ): Promise<{ live: ConductLiveView | null; roles: ConductLiveRoles }> {
     const week = this.monday(weekStartDate);
     const [chair, keeperDuty] = await Promise.all([
@@ -330,6 +413,9 @@ export class ConductLiveService {
     const isChairman = !!chair && chair === user.id;
     const isTimekeeper = !!keeper && keeper === user.id;
     const mayRun = user.role === UserRole.ADMIN || isChairman || isTimekeeper;
+    // A rehearsal is its runner's and the stage screen's — nobody watches it.
+    if (practice && !mayRun && user.role !== UserRole.STAGE)
+      throw this.forbidden();
     // The screen on the stage watches (common/stage.ts); it never runs.
     if (
       !mayRun &&
@@ -354,10 +440,10 @@ export class ConductLiveService {
     if (await this.meetingDay.isOver(user.congregationId, week, kind)) {
       return { live: null, roles };
     }
-    const row = await this.findRow(user.congregationId, week, kind);
+    const row = await this.findRow(user.congregationId, week, kind, practice);
     if (
       !row ||
-      now.getTime() - new Date(row.updatedAt).getTime() > CONDUCT_LIVE_KEEP_MS
+      now.getTime() - new Date(row.updatedAt).getTime() > this.keepMs(row)
     ) {
       return { live: null, roles };
     }
@@ -411,19 +497,37 @@ export class ConductLiveService {
     now = new Date(),
     kind: ConductKind = EventType.MIDWEEK,
     deviceId: string | null = null,
+    practice?: boolean,
   ): Promise<ConductLiveView> {
     const week = this.monday(weekStartDate);
     const state = this.checkState(stateIn);
     if (!(await this.mayRun(user, week, kind))) throw this.forbidden();
-    await this.refuseIfOver(user.congregationId, week, kind);
-    const row = await this.findRow(user.congregationId, week, kind);
+    await this.refuseOutOfTime(user.congregationId, week, kind, practice);
+    const row = await this.findRow(
+      user.congregationId,
+      week,
+      kind,
+      practice === true,
+    );
     if (!row) {
+      // The meeting starts: its rehearsal of the day ends, and the stage
+      // screen shows the meeting.
+      if (practice !== true) {
+        await this.live.delete({
+          congregationId: user.congregationId,
+          weekStartDate: week,
+          eventType: kind,
+          room: MAIN_ROOM,
+          practice: true,
+        });
+      }
       const created = await this.live.save(
         this.live.create({
           congregationId: user.congregationId,
           weekStartDate: week,
           eventType: kind,
           room: MAIN_ROOM,
+          practice: practice === true,
           state,
           epoch: 1,
           controllerUserId: user.id,
@@ -470,13 +574,28 @@ export class ConductLiveService {
     now = new Date(),
     kind: ConductKind = EventType.MIDWEEK,
     deviceId: string | null = null,
+    practice?: boolean,
   ): Promise<ConductLiveView> {
     const week = this.monday(weekStartDate);
     if (!(await this.mayRun(user, week, kind))) throw this.forbidden();
-    await this.refuseIfOver(user.congregationId, week, kind);
-    const row = await this.findRow(user.congregationId, week, kind);
+    await this.refuseOutOfTime(user.congregationId, week, kind, practice);
+    const row = await this.findRow(
+      user.congregationId,
+      week,
+      kind,
+      practice === true,
+    );
     if (!row) {
-      return this.write(user, week, 0, stateIn ?? {}, now, kind, deviceId);
+      return this.write(
+        user,
+        week,
+        0,
+        stateIn ?? {},
+        now,
+        kind,
+        deviceId,
+        practice,
+      );
     }
     row.epoch += 1;
     row.controllerUserId = user.id;
@@ -493,6 +612,67 @@ export class ConductLiveService {
     const res = await this.live.delete({
       updatedAt: LessThan(new Date(now.getTime() - CONDUCT_LIVE_KEEP_MS)),
     });
-    return res.affected ?? 0;
+    const rehearsals = await this.live.delete({
+      practice: true,
+      updatedAt: LessThan(new Date(now.getTime() - CONDUCT_PRACTICE_KEEP_MS)),
+    });
+    return (res.affected ?? 0) + (rehearsals.affected ?? 0);
+  }
+
+  /**
+   * The rehearsal the stage screen shows when no meeting runs today (R-73):
+   * the congregation's latest, if it is younger than two hours — whatever
+   * week it rehearses.
+   */
+  async stagePractice(
+    user: AuthenticatedUser,
+    now = new Date(),
+  ): Promise<{
+    weekStartDate: string;
+    kind: ConductKind;
+    live: ConductLiveView;
+  } | null> {
+    if (user.role !== UserRole.STAGE && user.role !== UserRole.ADMIN)
+      throw this.forbidden();
+    const row = await this.live.findOne({
+      where: { congregationId: user.congregationId, practice: true },
+      order: { updatedAt: 'DESC' },
+    });
+    if (
+      !row ||
+      now.getTime() - new Date(row.updatedAt).getTime() >
+        CONDUCT_PRACTICE_KEEP_MS
+    )
+      return null;
+    // A meeting running today comes first, whichever week the rehearsal is
+    // of: a rehearsal at home never takes the hall's screen from it.
+    if (await this.realMeetingToday(user.congregationId, now)) return null;
+    const view = await this.view(row, user, null);
+    return {
+      weekStartDate: row.weekStartDate,
+      kind: conductKind(row.eventType),
+      // The stage only watches: nobody's taps are «mine» here.
+      live: { ...view, mine: false, mineElsewhere: false },
+    };
+  }
+
+  /** Whether a meeting held today has its run on the server now. */
+  private async realMeetingToday(
+    congregationId: string,
+    now: Date,
+  ): Promise<boolean> {
+    const rows = await this.live.find({
+      where: {
+        congregationId,
+        practice: false,
+        updatedAt: MoreThan(new Date(now.getTime() - CONDUCT_LIVE_KEEP_MS)),
+      },
+    });
+    for (const r of rows) {
+      const kind = conductKind(r.eventType);
+      if (await this.meetingDay.isToday(congregationId, r.weekStartDate, kind))
+        return true;
+    }
+    return false;
   }
 }
