@@ -1392,6 +1392,7 @@ export class AssignmentsService {
     weekStartDate: string,
     eventType: EventType,
     notify = true,
+    emptySeats?: number,
   ): Promise<{ published: number }> {
     const kind = String(eventType);
     // A meeting already held is published for the record, quietly: telling
@@ -1442,6 +1443,30 @@ export class AssignmentsService {
       .andWhere('deletedAt IS NULL')
       .execute();
     const published = result.affected ?? 0;
+    // EVERY PUBLISH IN THE JOURNAL (R-16, 22 November 2026): who made the
+    // meeting visible to all, how many parts it made known, whether people
+    // were told, and how many places were still empty (as the screen counted
+    // them). A press that published nothing is not written.
+    if (published > 0) {
+      const one = await this.repo.findOne({
+        where: { congregationId, weekStartDate, eventType },
+        order: { partOrder: 'ASC' },
+        select: { id: true },
+      });
+      if (one) {
+        await this.auditLog.logEvent({
+          tenantId: congregationId,
+          entityType: 'assignment',
+          entityId: one.id,
+          action: 'PUBLISH',
+          detail: {
+            publishedParts: published,
+            notified: notify,
+            ...(typeof emptySeats === 'number' ? { emptySeats } : {}),
+          },
+        });
+      }
+    }
     // Publishing covers any pending "changed since publish" flags on this
     // meeting — they are announced below, or deliberately not («не сейчас»).
     await this.repo

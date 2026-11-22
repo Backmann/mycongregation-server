@@ -236,4 +236,49 @@ describe('AssignmentsService — telling each assignee their own parts', () => {
 
     expect(parts.notify.notify).not.toHaveBeenCalled();
   });
+
+  describe('every publish in the journal (R-16, 22 November 2026)', () => {
+    const row = {
+      partKey: 'bible_reading',
+      partTitle: null,
+      publisherId: 'p1',
+      assistantPublisherId: null,
+    } as Partial<Assignment>;
+
+    it('THE CASE: who published, how many parts, told or not, places left empty', async () => {
+      const parts = build([row, row], [], []);
+      parts.repo.findOne.mockResolvedValue({ id: 'a-first' });
+      const service = await makeService(parts);
+      await service.publishMeeting('c1', WEEK, 'midweek' as never, false, 7);
+      expect((service as any).auditLog.logEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: 'c1',
+          entityType: 'assignment',
+          entityId: 'a-first',
+          action: 'PUBLISH',
+          detail: { publishedParts: 2, notified: false, emptySeats: 7 },
+        }),
+      );
+    });
+
+    it('a press that published nothing is not written', async () => {
+      const parts = build([], [], []);
+      parts.repo.findOne.mockResolvedValue({ id: 'a-first' });
+      const service = await makeService(parts);
+      await service.publishMeeting('c1', WEEK, 'midweek' as never, true);
+      expect((service as any).auditLog.logEvent).not.toHaveBeenCalled();
+    });
+
+    it("without the screen's count, the entry says nothing of empty places", async () => {
+      const parts = build([row], [], []);
+      parts.repo.findOne.mockResolvedValue({ id: 'a-first' });
+      const service = await makeService(parts);
+      await service.publishMeeting('c1', WEEK, 'weekend' as never, true);
+      expect((service as any).auditLog.logEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          detail: { publishedParts: 1, notified: true },
+        }),
+      );
+    });
+  });
 });

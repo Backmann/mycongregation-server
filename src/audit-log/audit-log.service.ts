@@ -23,6 +23,8 @@ export type AuditAction =
   | 'DELETE'
   /** Undoing a delete. Deleting was journalled; undoing it has to be too. */
   | 'RESTORE'
+  /** A meeting made visible to all (R-16, 22 November 2026). */
+  | 'PUBLISH'
   | 'VIEW'
   | 'DOWNLOAD'
   | 'DENY';
