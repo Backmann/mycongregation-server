@@ -5,7 +5,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, LessThan, Repository } from 'typeorm';
+import { IsNull, LessThan, MoreThan, Repository } from 'typeorm';
 import { ConductLive } from '../entities/conduct-live.entity';
 import { MAIN_ROOM } from '../entities/conduct-room';
 import { Assignment } from '../entities/assignment.entity';
@@ -273,17 +273,27 @@ export class ConductLiveService {
     }
   }
 
-  /** The checks before a tap: the meeting on its day, a rehearsal before it starts. */
+  /**
+   * The checks before a tap: the meeting on its day, a rehearsal before it
+   * starts. `practice` is what the app SENT: `true` a rehearsal, `false` the
+   * meeting itself — and absent from an app installed before R-73, which
+   * knows neither and would ask again after every refusal (independent
+   * review, 22 November 2026: a request loop into the rate limit). Such an
+   * app is kept as it was until the phones have the update; its result
+   * before the day is refused all the same (conduct-runs), and a refused
+   * result is dropped, not resent (app lib/conduct-resend.ts).
+   */
   private async refuseOutOfTime(
     congregationId: string,
     week: string,
     kind: ConductKind,
-    practice: boolean,
+    practice: boolean | undefined,
   ) {
     await this.refuseIfOver(congregationId, week, kind);
-    if (practice)
+    if (practice === true)
       await this.refusePracticeAfterStart(congregationId, week, kind);
-    else await this.refuseIfBefore(congregationId, week, kind);
+    else if (practice === false)
+      await this.refuseIfBefore(congregationId, week, kind);
   }
 
   private forbidden(): ForbiddenException {
@@ -487,17 +497,22 @@ export class ConductLiveService {
     now = new Date(),
     kind: ConductKind = EventType.MIDWEEK,
     deviceId: string | null = null,
-    practice = false,
+    practice?: boolean,
   ): Promise<ConductLiveView> {
     const week = this.monday(weekStartDate);
     const state = this.checkState(stateIn);
     if (!(await this.mayRun(user, week, kind))) throw this.forbidden();
     await this.refuseOutOfTime(user.congregationId, week, kind, practice);
-    const row = await this.findRow(user.congregationId, week, kind, practice);
+    const row = await this.findRow(
+      user.congregationId,
+      week,
+      kind,
+      practice === true,
+    );
     if (!row) {
       // The meeting starts: its rehearsal of the day ends, and the stage
       // screen shows the meeting.
-      if (!practice) {
+      if (practice !== true) {
         await this.live.delete({
           congregationId: user.congregationId,
           weekStartDate: week,
@@ -512,7 +527,7 @@ export class ConductLiveService {
           weekStartDate: week,
           eventType: kind,
           room: MAIN_ROOM,
-          practice,
+          practice: practice === true,
           state,
           epoch: 1,
           controllerUserId: user.id,
@@ -559,12 +574,17 @@ export class ConductLiveService {
     now = new Date(),
     kind: ConductKind = EventType.MIDWEEK,
     deviceId: string | null = null,
-    practice = false,
+    practice?: boolean,
   ): Promise<ConductLiveView> {
     const week = this.monday(weekStartDate);
     if (!(await this.mayRun(user, week, kind))) throw this.forbidden();
     await this.refuseOutOfTime(user.congregationId, week, kind, practice);
-    const row = await this.findRow(user.congregationId, week, kind, practice);
+    const row = await this.findRow(
+      user.congregationId,
+      week,
+      kind,
+      practice === true,
+    );
     if (!row) {
       return this.write(
         user,
@@ -624,10 +644,35 @@ export class ConductLiveService {
         CONDUCT_PRACTICE_KEEP_MS
     )
       return null;
+    // A meeting running today comes first, whichever week the rehearsal is
+    // of: a rehearsal at home never takes the hall's screen from it.
+    if (await this.realMeetingToday(user.congregationId, now)) return null;
+    const view = await this.view(row, user, null);
     return {
       weekStartDate: row.weekStartDate,
       kind: conductKind(row.eventType),
-      live: await this.view(row, user, null),
+      // The stage only watches: nobody's taps are «mine» here.
+      live: { ...view, mine: false, mineElsewhere: false },
     };
+  }
+
+  /** Whether a meeting held today has its run on the server now. */
+  private async realMeetingToday(
+    congregationId: string,
+    now: Date,
+  ): Promise<boolean> {
+    const rows = await this.live.find({
+      where: {
+        congregationId,
+        practice: false,
+        updatedAt: MoreThan(new Date(now.getTime() - CONDUCT_LIVE_KEEP_MS)),
+      },
+    });
+    for (const r of rows) {
+      const kind = conductKind(r.eventType);
+      if (await this.meetingDay.isToday(congregationId, r.weekStartDate, kind))
+        return true;
+    }
+    return false;
   }
 }

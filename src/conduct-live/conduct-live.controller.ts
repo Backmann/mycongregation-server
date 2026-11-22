@@ -94,7 +94,7 @@ export class ConductLiveController {
       new Date(),
       conductKind(dto.eventType),
       dto.deviceId ?? null,
-      dto.practice === true,
+      dto.practice,
     );
     return { live, serverNow: new Date().toISOString() };
   }
@@ -111,7 +111,7 @@ export class ConductLiveController {
       new Date(),
       conductKind(dto.eventType),
       dto.deviceId ?? null,
-      dto.practice === true,
+      dto.practice,
     );
     return { live, serverNow: new Date().toISOString() };
   }

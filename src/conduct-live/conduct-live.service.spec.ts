@@ -54,6 +54,8 @@ function build(
     keeper?: boolean;
     over?: boolean;
     before?: boolean;
+    /** A meeting of today with its run on the server (the stage's first). */
+    realToday?: boolean;
   } = {},
 ) {
   let row: Row | null = opts.row
@@ -88,6 +90,9 @@ function build(
       return { ...row };
     }),
     update: jest.fn(async () => ({ affected: 1 })),
+    find: jest.fn(async () =>
+      opts.realToday ? [{ weekStartDate: WEEK, eventType: 'midweek' }] : [],
+    ),
     delete: jest.fn(async () => ({ affected: 2 })),
   };
   const assignments = {
@@ -143,6 +148,7 @@ function build(
     {
       isOver: jest.fn(async () => opts.over === true),
       isBefore: jest.fn(async () => opts.before === true),
+      isToday: jest.fn(async () => opts.realToday === true),
     } as never,
   );
   return {
@@ -740,15 +746,39 @@ describe('a rehearsal (R-73, 22 November 2026)', () => {
 
   it('THE CASE: the meeting itself is not started before its day', async () => {
     const { service, live } = build({ row: null, before: true });
+    const M = 'midweek' as never;
     await expect(
-      service.write(chair(), WEEK, 0, STATE, NOW),
+      service.write(chair(), WEEK, 0, STATE, NOW, M, null, false),
     ).rejects.toMatchObject({
       response: { code: 'CONDUCT_NOT_TODAY' },
     });
-    await expect(service.take(chair(), WEEK, STATE, NOW)).rejects.toMatchObject(
-      { response: { code: 'CONDUCT_NOT_TODAY' } },
-    );
+    await expect(
+      service.take(chair(), WEEK, STATE, NOW, M, null, false),
+    ).rejects.toMatchObject({ response: { code: 'CONDUCT_NOT_TODAY' } });
     expect(live.save).not.toHaveBeenCalled();
+  });
+
+  it('an app from before R-73 (sends no practice) is kept as it was — no refusal to loop on', async () => {
+    const { service, live } = build({ row: null, before: true });
+    await service.write(chair(), WEEK, 0, STATE, NOW);
+    expect(live.save).toHaveBeenCalledWith(
+      expect.objectContaining({ practice: false }),
+    );
+  });
+
+  it('the stage gets no rehearsal while a meeting of today runs', async () => {
+    const { service } = build({ row: { practice: true }, realToday: true });
+    expect(
+      await service.stagePractice(user(UserRole.STAGE, 'user-stage'), NOW),
+    ).toBeNull();
+  });
+
+  it("on the stage nobody's taps are «mine» — not even an admin's rehearsal", async () => {
+    const admin = user(UserRole.ADMIN, KEEPER_USER);
+    const { service } = build({ row: { practice: true } });
+    const got = await service.stagePractice(admin, NOW);
+    expect(got?.live.mine).toBe(false);
+    expect(got?.live.mineElsewhere).toBe(false);
   });
 
   it('before its day a rehearsal runs — its own row, marked practice', async () => {
