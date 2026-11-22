@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsIn,
   Matches,
   IsInt,
@@ -36,6 +37,11 @@ export class WriteConductLiveDto {
   @IsOptional()
   @Matches(DEVICE_ID_RE)
   deviceId?: string;
+
+  /** A rehearsal (R-73): its own row, never the meeting's. */
+  @IsOptional()
+  @IsBoolean()
+  practice?: boolean;
 }
 
 /** Take the meeting over — optionally with the taker's own run. */
@@ -56,4 +62,9 @@ export class TakeConductLiveDto {
   @IsOptional()
   @Matches(DEVICE_ID_RE)
   deviceId?: string;
+
+  /** A rehearsal (R-73): its own row, never the meeting's. */
+  @IsOptional()
+  @IsBoolean()
+  practice?: boolean;
 }

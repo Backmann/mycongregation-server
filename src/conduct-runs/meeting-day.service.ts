@@ -48,6 +48,20 @@ export class MeetingDayService {
     );
   }
 
+  /**
+   * True while the day of that week's meeting is still ahead (R-73: the
+   * meeting itself is run, and its result kept, only on its day).
+   */
+  async isBefore(
+    congregationId: string,
+    week: string,
+    kind: ConductKind = EventType.MIDWEEK,
+  ): Promise<boolean> {
+    const date = await this.meetingDate(congregationId, week, kind);
+    if (!date) return false;
+    return date > (await this.clock.todayFor(congregationId));
+  }
+
   /** True once the day of that week's meeting (midweek unless said) has passed. */
   async isOver(
     congregationId: string,

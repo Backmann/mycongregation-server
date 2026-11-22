@@ -160,6 +160,16 @@ export class ConductRunsService {
       counselSec: s.counselSec ?? null,
       startSec: s.startSec ?? null,
     }));
+    // BEFORE THE MEETING'S DAY THERE IS NO RESULT (R-73, 22 November 2026):
+    // a run then is a rehearsal, and a rehearsal is never kept.
+    if (await this.meetingDay.isBefore(user.congregationId, week, kind)) {
+      throw new ConflictException(
+        refusal(
+          'CONDUCT_RESULT_EARLY',
+          'The meeting is not held yet; a run before its day is not kept.',
+        ),
+      );
+    }
     const existing = await this.runs.findOne({
       where: {
         congregationId: user.congregationId,

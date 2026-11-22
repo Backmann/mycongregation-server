@@ -30,7 +30,7 @@ import { Congregation } from './congregation.entity';
  * corrects its clock by the `serverNow` each answer carries.
  */
 @Entity('conduct_live')
-@Unique(['congregationId', 'weekStartDate', 'eventType', 'room'])
+@Unique(['congregationId', 'weekStartDate', 'eventType', 'room', 'practice'])
 @Index(['updatedAt'])
 export class ConductLive {
   @PrimaryGeneratedColumn('uuid')
@@ -58,6 +58,15 @@ export class ConductLive {
   /** The room: «main» — see entities/conduct-room.ts. */
   @Column({ type: 'varchar', length: 16, default: 'main' })
   room!: string;
+
+  /**
+   * A REHEARSAL (R-73, 22 November 2026): run before the meeting — or on its
+   * day before it starts — as if it ran now, shown on the stage screen and
+   * never kept as the meeting's result. Its own row: it can never overwrite
+   * the meeting as it runs.
+   */
+  @Column({ type: 'boolean', default: false })
+  practice!: boolean;
 
   @Column({ type: 'jsonb' })
   state!: Record<string, unknown>;
