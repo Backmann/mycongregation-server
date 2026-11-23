@@ -3,8 +3,10 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ConductAveragesService } from './conduct-averages.service';
 import { IsNull, Repository } from 'typeorm';
 import { todayIn } from '../common/congregation-clock';
 import { ConductRun } from '../entities/conduct-run.entity';
@@ -71,6 +73,9 @@ export class ConductRunsService {
     @InjectRepository(ConductLive)
     private readonly live: Repository<ConductLive>,
     private readonly clock: CongregationClock,
+    // What finished meetings teach the forecast (R-76); optional so the
+    // narrow tests that build this service by hand need not know it.
+    @Optional() private readonly averages?: ConductAveragesService,
   ) {}
 
   /** Whether this account is the timekeeper named for that week's midweek meeting. */
@@ -207,7 +212,9 @@ export class ConductRunsService {
     row.startedAt = dto.startedAt ? new Date(dto.startedAt) : null;
     row.savedBy = user.id;
     row.savedAt = now;
-    return this.runs.save(row);
+    const saved = await this.runs.save(row);
+    await this.averages?.record(user.congregationId, week, kind, segments);
+    return saved;
   }
 
   /**
@@ -263,6 +270,8 @@ export class ConductRunsService {
     };
     const result = await this.runs.delete(where);
     const run = await this.live.delete(where);
+    // «Это была проба»: what that week taught the forecast goes too.
+    await this.averages?.forget(user.congregationId, week, kind);
     return { result: (result.affected ?? 0) > 0, run: (run.affected ?? 0) > 0 };
   }
 

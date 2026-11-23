@@ -19,6 +19,13 @@ export class Song {
   @Column({ type: 'varchar', length: 300 })
   title!: string;
 
+  /**
+   * The song's length in seconds, from the official list of meeting
+   * recordings (R-77, 22 November 2026); null — counted by the median.
+   */
+  @Column({ type: 'integer', name: 'duration_sec', nullable: true })
+  durationSec!: number | null;
+
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;
 

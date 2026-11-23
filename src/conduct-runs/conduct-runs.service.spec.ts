@@ -91,6 +91,10 @@ function build(
       .fn()
       .mockResolvedValue(opts.keeper ? { publisherId: opts.keeper } : null),
   };
+  const averages = {
+    record: jest.fn(async () => undefined),
+    forget: jest.fn(async () => undefined),
+  };
   return {
     service: new ConductRunsService(
       runs as never,
@@ -110,8 +114,10 @@ function build(
         todayFor: jest.fn(async () => '2026-10-21'),
         timezoneOf: jest.fn(async () => 'Europe/Berlin'),
       } as never,
+      averages as never,
     ),
     runs,
+    averages,
   };
 }
 
@@ -368,5 +374,29 @@ describe("before the meeting's day (R-73, 22 November 2026)", () => {
       service.save(user(UserRole.ELDER, CHAIR_USER), dto as never),
     ).rejects.toMatchObject({ response: { code: 'CONDUCT_RESULT_EARLY' } });
     expect(runs.save).not.toHaveBeenCalled();
+  });
+});
+
+describe('what the result teaches the forecast (R-76)', () => {
+  it('a saved meeting is handed to the averages; «Это была проба» takes it back', async () => {
+    const { service, averages } = build({ keeper: KEEPER_PUB });
+    await service.save(user(UserRole.PUBLISHER, KEEPER_USER), dto as never);
+    expect(averages.record).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      'midweek',
+      expect.any(Array),
+    );
+    // The week of «today» (21.10) — a wipe is allowed until its day is over.
+    await service.drop(user(UserRole.ADMIN, 'admin'), '2026-10-19');
+    expect(averages.forget).toHaveBeenCalled();
+  });
+
+  it('a refused result teaches nothing', async () => {
+    const { service, averages } = build({ before: true });
+    await expect(
+      service.save(user(UserRole.ELDER, CHAIR_USER), dto as never),
+    ).rejects.toBeTruthy();
+    expect(averages.record).not.toHaveBeenCalled();
   });
 });

@@ -147,6 +147,7 @@ export class SongsService {
       number: dto.number,
       title: dto.title,
       isActive: dto.isActive ?? true,
+      durationSec: dto.durationSec ?? null,
     });
     return this.repo.save(song);
   }
@@ -156,6 +157,7 @@ export class SongsService {
     if (dto.number !== undefined) song.number = dto.number;
     if (dto.title !== undefined) song.title = dto.title;
     if (dto.isActive !== undefined) song.isActive = dto.isActive;
+    if (dto.durationSec !== undefined) song.durationSec = dto.durationSec;
     return this.repo.save(song);
   }
 

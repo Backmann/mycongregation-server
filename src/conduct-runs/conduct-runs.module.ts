@@ -8,6 +8,9 @@ import { ConductLive } from '../entities/conduct-live.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { Duty } from '../entities/duty.entity';
+import { ConductAverage } from '../entities/conduct-average.entity';
+import { Song } from '../entities/song.entity';
+import { ConductAveragesService } from './conduct-averages.service';
 import { ConductRunsController } from './conduct-runs.controller';
 import { ConductRunsService } from './conduct-runs.service';
 
@@ -19,12 +22,14 @@ import { ConductRunsService } from './conduct-runs.service';
       Assignment,
       Publisher,
       Duty,
+      ConductAverage,
+      Song,
     ]),
     WeekRulesModule,
     CongregationClockModule,
   ],
   controllers: [ConductRunsController],
-  providers: [ConductRunsService, MeetingDayService],
+  providers: [ConductRunsService, MeetingDayService, ConductAveragesService],
   exports: [ConductRunsService],
 })
 export class ConductRunsModule {}
