@@ -223,6 +223,43 @@ describe('AssignmentsService — telling each assignee their own parts', () => {
       expect(body).toContain('Иса 60:1–22');
     });
 
+    it('a part without a title, or with a short one of its own, still hears its setting', async () => {
+      const [none] = await notifyBody({
+        partKey: 'apply_yourself_1',
+        partTitle: null,
+        publisherId: 'p1',
+        assistantPublisherId: null,
+        lesson: 'lmd урок 3, пункт 3',
+        setting: 'house',
+      });
+      expect(none).toContain('— lmd урок 3, пункт 3, по домам');
+      const pair = await notifyBody({
+        partKey: 'apply_yourself_2',
+        partTitle: 'Начинайте разговор',
+        publisherId: 'p1',
+        assistantPublisherId: 'p2',
+        lesson: 'lmd урок 4, пункт 3',
+        setting: 'informal',
+      });
+      expect(
+        pair.every((b) => b.includes('— lmd урок 4, пункт 3, неформально')),
+      ).toBe(true);
+    });
+
+    it('an old title cut in an open bracket loses the stub before the lesson is said', async () => {
+      const [body] = await notifyBody({
+        partKey: 'apply_yourself_1',
+        partTitle: 'Начинайте разговор: ПРОПОВЕДЬ ПО ДОМАМ. Текст (lmd ур',
+        publisherId: 'p1',
+        assistantPublisherId: null,
+        lesson: 'lmd урок 2, пункт 3',
+        setting: 'house',
+      });
+      expect(body).toContain('Текст — lmd урок 2, пункт 3');
+      expect(body).not.toContain('(lmd ур');
+      expect(body).not.toContain('по домам');
+    });
+
     it('a title cut before its lesson gets the lesson, not the setting it already opens with', async () => {
       const [body] = await notifyBody({
         partKey: 'apply_yourself_3',

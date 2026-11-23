@@ -236,7 +236,7 @@ describe('the digest as it is read', () => {
         [{ ...talk, item: { ...talk.item, setting: 'informal' } }],
         'de',
       )!.body,
-    ).toMatch(/ — th lesson 7, informell$/);
+    ).toMatch(/ — th lesson 7, informelles Zeugnisgeben$/);
   });
 
   it('nothing is added to a part without them, to a duty, or to a cancellation', () => {
@@ -253,6 +253,45 @@ describe('the digest as it is read', () => {
     expect(writeDigest([duty], 'ru')!.body).toMatch(/Микрофон 1$/);
     const gone = line('cancelled', 7, { lesson: 'th урок 10' });
     expect(writeDigest([gone], 'ru')!.body).not.toContain('урок');
+  });
+
+  it('a lesson has commas of its own: with one said, the things of a meeting are parted by «; »', () => {
+    const t = writeDigest(
+      [
+        line('reminder', 7, {
+          labelKey: 'apply_yourself_1',
+          labelTitle: 'Начинайте разговор: x',
+          lesson: 'lmd урок 3, пункт 3',
+          setting: 'house',
+          order: 6,
+        }),
+        line('reminder', 7, {
+          type: 'duty',
+          id: 'd1',
+          labelKey: 'microphone',
+          slot: 1,
+          order: 99,
+        }),
+      ],
+      'ru',
+    )!;
+    expect(t.body).toMatch(
+      /Начинайте разговор — lmd урок 3, пункт 3, по домам; Микрофон 1$/,
+    );
+    // Without a lesson: commas, as always.
+    const plain = writeDigest(
+      [
+        line('reminder', 7),
+        line('reminder', 7, {
+          type: 'duty',
+          id: 'd1',
+          labelKey: 'microphone',
+          slot: 1,
+        }),
+      ],
+      'ru',
+    )!;
+    expect(plain.body).toMatch(/Чтение Библии, Микрофон 1$/);
   });
 
   it('an unknown setting is not spelled out', () => {

@@ -563,8 +563,8 @@ const WORDS: Record<SupportedLanguage, Words> = {
     together: (n) => `mit ${n}`,
     setting: {
       house: 'von Haus zu Haus',
-      informal: 'informell',
-      public: 'öffentlich',
+      informal: 'informelles Zeugnisgeben',
+      public: 'öffentliches Zeugnisgeben',
     },
     pair: {
       helper: (n) => `Partner: ${n}`,
@@ -684,6 +684,16 @@ export function studyOf(
       : null;
   const what = [x.lesson?.trim() || null, setting].filter(Boolean).join(', ');
   return what ? ` — ${what}` : '';
+}
+
+/**
+ * The things of one meeting, one after another. A lesson has commas of its
+ * own («lmd урок 3, пункт 3, по домам»), so where one is said the things are
+ * parted by «; » — or «Микрофон 1» would read as the end of the lesson (the
+ * reviewer's point, 23 November 2026).
+ */
+export function joinParts(names: string[]): string {
+  return names.join(names.some((n) => n.includes(' — ')) ? '; ' : ', ');
 }
 
 /**
@@ -867,7 +877,7 @@ export function writeDigest(
             ? labelOf(l.item, lang)
             : `${labelOf(l.item, lang)}${studyOf(l.item as ReminderItem, lang)}`,
         );
-      return `${g.head}${names.join(', ')}${g.tail}`;
+      return `${g.head}${joinParts(names)}${g.tail}`;
     })
     .join('\n');
 
