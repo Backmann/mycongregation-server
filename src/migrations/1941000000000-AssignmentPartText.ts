@@ -3,7 +3,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 /**
  * A part's whole text from the workbook (23 November 2026). The title kept
  * only the first 120 characters of it, cut mid-word: in the workbooks of
- * January and March 2027, 33 of 185 parts were longer, up to 688. Nothing to
+ * January and March 2027, as the app reads them, 16 of 216 parts were longer
+ * (the longest 264 characters). Nothing to
  * fill here — the whole text exists only in the file; a new load of the
  * workbook writes it. Old rows stay as they are, with null.
  */

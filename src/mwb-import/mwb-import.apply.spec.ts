@@ -373,6 +373,7 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
         id: 'h-1',
         lesson: 'lmd урок 2, пункт 3',
         setting: 'house',
+        importedTitle: saved('apply_yourself_1').partTitle,
       });
     });
 
@@ -445,6 +446,102 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
           partKey: 'apply_yourself_1',
           publisherId: 'pub-1',
           partTitle: 'Своё название',
+          importedTitle: CUT,
+          partText: null,
+        },
+      ]);
+      await service.applyParsed('cong-1', withText());
+      const [, fields] = repo.update.mock.calls[0] as [
+        unknown,
+        Record<string, unknown>,
+      ];
+      expect(fields).toMatchObject({ partText: FULL });
+      expect(fields).not.toHaveProperty('partTitle');
+    });
+
+    it('a row loaded before titles were remembered: its cut title is known by its old shape', async () => {
+      // As the import made it then: the name, «: » and 120 characters, trimmed.
+      const OLD = `Начинайте разговор: ${FULL.slice(0, 120)}`.trim();
+      repo.find.mockResolvedValue([
+        {
+          id: 'a-6',
+          partKey: 'apply_yourself_1',
+          publisherId: 'pub-1',
+          partTitle: OLD,
+          importedTitle: null,
+          partText: null,
+        },
+      ]);
+      await service.applyParsed('cong-1', withText());
+      const [, fields] = repo.update.mock.calls[0] as [
+        unknown,
+        Record<string, unknown>,
+      ];
+      expect(fields).toMatchObject({
+        partTitle: SHORT,
+        importedTitle: SHORT,
+        partText: FULL,
+      });
+    });
+
+    it('…and one that reads otherwise was written by hand: it stays', async () => {
+      repo.find.mockResolvedValue([
+        {
+          id: 'a-6',
+          partKey: 'apply_yourself_1',
+          publisherId: 'pub-1',
+          partTitle: 'Своё название',
+          importedTitle: null,
+          partText: null,
+        },
+      ]);
+      await service.applyParsed('cong-1', withText());
+      const [, fields] = repo.update.mock.calls[0] as [
+        unknown,
+        Record<string, unknown>,
+      ];
+      expect(fields).not.toHaveProperty('partTitle');
+    });
+
+    it("a title the overseer's visit holds stays", async () => {
+      heldNow = {
+        ...nothingHeld(),
+        fields: new Map([['a-6', new Set(['partTitle'])]]),
+      };
+      repo.find.mockResolvedValue([
+        {
+          id: 'a-6',
+          partKey: 'apply_yourself_1',
+          publisherId: 'pub-1',
+          partTitle: CUT,
+          importedTitle: CUT,
+          partText: null,
+        },
+      ]);
+      await service.applyParsed('cong-1', withText());
+      const [, fields] = repo.update.mock.calls[0] as [
+        unknown,
+        Record<string, unknown>,
+      ];
+      expect(fields).toMatchObject({ partText: FULL });
+      expect(fields).not.toHaveProperty('partTitle');
+    });
+
+    it('a meeting already held keeps the title it was held under', async () => {
+      (
+        service as unknown as { freeze: { lockOf: () => Promise<unknown> } }
+      ).freeze.lockOf = async () => ({
+        meetingDate: '2026-05-06',
+        editableUntil: '2026-05-13',
+        held: true,
+        frozen: false,
+      });
+      repo.find.mockResolvedValue([
+        {
+          id: 'a-6',
+          partKey: 'apply_yourself_1',
+          publisherId: 'pub-1',
+          partTitle: CUT,
           importedTitle: CUT,
           partText: null,
         },

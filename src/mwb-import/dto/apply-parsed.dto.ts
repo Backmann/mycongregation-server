@@ -47,8 +47,9 @@ export class ApplyParsedPartDto {
   lesson?: string | null;
 
   /**
-   * The part's whole text (the title keeps its beginning). Up to 688
-   * characters in the workbooks of 2027; 2000 is the room left.
+   * The part's whole text (the title keeps its beginning). Up to 264
+   * characters in the workbooks of January and March 2027 (as the app reads
+   * them); 2000 is the room left.
    */
   @IsOptional()
   @IsString()

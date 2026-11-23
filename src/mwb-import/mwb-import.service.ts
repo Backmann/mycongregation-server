@@ -430,6 +430,9 @@ export class MwbImportService {
         if (isEmptyTemplate(hiddenForPart)) {
           hiddenForPart.partOrder = part.partOrder;
           hiddenForPart.partTitle = partTitle;
+          // Remembered, or the part looks changed by hand once the visit is
+          // undone (the reviewer's point, 23 November 2026).
+          hiddenForPart.importedTitle = partTitle;
           hiddenForPart.partDurationMin = part.durationMin ?? null;
           fromFile(hiddenForPart, part);
           await this.assignmentsRepo.save(hiddenForPart);
@@ -497,7 +500,11 @@ export class MwbImportService {
         // Written as they are, without touching updated_at: a programme
         // notice waits for the last real change (programme-notice), and a
         // lesson nobody chose is none.
-        const change = assignedChange(existingForPart, part, partTitle);
+        const change = assignedChange(existingForPart, part, partTitle, {
+          titleHeld: !!ofVisit.fields.get(existingForPart.id)?.has('partTitle'),
+          // A meeting already held keeps the title it was held under.
+          meetingHeld: lock.held,
+        });
         if (change) {
           await this.assignmentsRepo.update(
             { id: existingForPart.id },
@@ -621,25 +628,51 @@ function textChange(
 }
 
 /**
+ * Whether a stored title is still the one the import wrote. Since 24 October
+ * the import remembers it (importedTitle); a row loaded before has none, and
+ * its title is the import's when it reads exactly as the import then made it —
+ * the part's name, «: » and the first 120 characters of its text, trimmed
+ * (the reviewer's point, 23 November 2026: three assigned parts of the week of
+ * 23 November on the live programme are such rows).
+ */
+export function titleIsImports(
+  row: Pick<Assignment, 'partTitle' | 'importedTitle'>,
+  newTitle: string,
+  text: string,
+): boolean {
+  if (!row.partTitle) return false;
+  if (row.importedTitle != null) return row.partTitle === row.importedTitle;
+  const idx = newTitle.indexOf(': ');
+  if (idx <= 0) return false;
+  return (
+    row.partTitle === `${newTitle.slice(0, idx)}: ${text.slice(0, 120)}`.trim()
+  );
+}
+
+/**
  * On a part already assigned: the lesson, the setting, the whole text — and
- * the title, only while it is still the import's own.
+ * the title, only while it is still the import's own, the circuit overseer's
+ * visit does not hold it, and its meeting has not been held yet.
  */
 function assignedChange(
   row: Assignment,
   part: ParsedPart,
   partTitle: string | null,
+  opts: { titleHeld: boolean; meetingHeld: boolean },
 ): Partial<
   Pick<
     Assignment,
     'lesson' | 'setting' | 'partText' | 'partTitle' | 'importedTitle'
   >
 > | null {
+  const text = part.text?.trim();
   const title =
-    part.text !== undefined &&
+    text &&
     partTitle &&
-    row.importedTitle != null &&
-    row.partTitle === row.importedTitle &&
-    row.partTitle !== partTitle
+    !opts.titleHeld &&
+    !opts.meetingHeld &&
+    row.partTitle !== partTitle &&
+    titleIsImports(row, partTitle, text)
       ? { partTitle, importedTitle: partTitle }
       : null;
   const change = {
