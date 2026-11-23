@@ -25,6 +25,13 @@ export interface ParsedPart {
   partOrder: number;
   classifierConfidence: 'high' | 'medium' | 'low' | 'synthetic' | 'unknown';
   synthetic?: boolean;
+  /**
+   * A student part's lesson and setting (student-part.ts). Undefined when the
+   * app that read the file did not send them (before 23 November 2026): the
+   * stored ones are left as they are then.
+   */
+  lesson?: string | null;
+  setting?: string | null;
 }
 
 /**

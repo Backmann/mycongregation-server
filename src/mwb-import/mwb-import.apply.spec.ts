@@ -36,6 +36,7 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
     find: jest.Mock;
     create: jest.Mock;
     save: jest.Mock;
+    update: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -47,6 +48,7 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
       find: jest.fn().mockResolvedValue([]),
       create: jest.fn((x) => x),
       save: jest.fn(async (x) => x),
+      update: jest.fn(async () => ({ affected: 1 })),
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -205,6 +207,181 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
       .map((c) => c[0])
       .find((a) => a.partKey === 'cbs_conductor');
     expect(savedCbs).toBeUndefined();
+  });
+
+  describe('the lesson and the setting of a student part (23 November 2026)', () => {
+    const withLesson = (): ApplyParsedDto => {
+      const dto = weekDto();
+      dto.weeks[0].parts[1] = {
+        ...dto.weeks[0].parts[1],
+        lesson: 'th урок 10',
+        setting: null,
+      };
+      dto.weeks[0].parts.push({
+        partKey: 'apply_yourself_1',
+        partOrder: 6,
+        partTitle: 'Начинайте разговор: ПРОПОВЕДЬ ПО ДОМАМ. Текст задания…',
+        partDurationMin: 3,
+        lesson: 'lmd урок 2, пункт 3',
+        setting: 'house',
+      });
+      return dto;
+    };
+    const saved = (key: string) =>
+      repo.save.mock.calls.map((c) => c[0]).find((a) => a.partKey === key);
+
+    it('THE CASE: a new part gets them from the file', async () => {
+      await service.applyParsed('cong-1', withLesson());
+      expect(saved('apply_yourself_1')).toMatchObject({
+        lesson: 'lmd урок 2, пункт 3',
+        setting: 'house',
+      });
+      expect(saved('bible_reading')).toMatchObject({ lesson: 'th урок 10' });
+    });
+
+    it('an assigned part keeps its people and title, and takes the lesson its cut title had lost', async () => {
+      const assigned = {
+        id: 'a-6',
+        partKey: 'apply_yourself_1',
+        publisherId: 'pub-1',
+        assistantPublisherId: 'pub-2',
+        partTitle:
+          'Начинайте разговор: ПРОПОВЕДЬ ПО ДОМАМ. Текст, обрезанный на 120 знаках',
+        partOrder: 6,
+        partDurationMin: 3,
+        lesson: null,
+        setting: 'house',
+      };
+      repo.find.mockResolvedValue([assigned]);
+      const result = await service.applyParsed('cong-1', withLesson());
+      // Only the two fields, and updated_at left where it was.
+      expect(repo.update).toHaveBeenCalledTimes(1);
+      const [where, fields] = repo.update.mock.calls[0] as [
+        { id: string },
+        Record<string, unknown>,
+      ];
+      expect(where).toEqual({ id: 'a-6' });
+      expect(Object.keys(fields).sort()).toEqual([
+        'lesson',
+        'setting',
+        'updatedAt',
+      ]);
+      expect(fields).toMatchObject({
+        lesson: 'lmd урок 2, пункт 3',
+        setting: 'house',
+      });
+      expect((fields.updatedAt as () => string)()).toBe('"updated_at"');
+      expect(saved('apply_yourself_1')).toBeUndefined();
+      // Still reported as left alone — and counted on their own.
+      expect(result.partsSkipped).toBe(1);
+      expect(result.lessonsSet).toBe(1);
+      expect(result.weeks[0].lessonsSet).toBe(1);
+    });
+
+    it('an assigned part with the same lesson is not written again', async () => {
+      repo.find.mockResolvedValue([
+        {
+          id: 'a-6',
+          partKey: 'apply_yourself_1',
+          publisherId: 'pub-1',
+          partTitle: 'x',
+          lesson: 'lmd урок 2, пункт 3',
+          setting: 'house',
+        },
+      ]);
+      const result = await service.applyParsed('cong-1', withLesson());
+      expect(repo.update).not.toHaveBeenCalled();
+      expect(result.lessonsSet).toBeUndefined();
+    });
+
+    it('a file that no longer gives one does not wipe a stored lesson or setting', async () => {
+      repo.find.mockResolvedValue([
+        {
+          id: 'a-6',
+          partKey: 'apply_yourself_1',
+          publisherId: 'pub-1',
+          partTitle: 'x',
+          lesson: 'lmd урок 2, пункт 3',
+          setting: 'house',
+        },
+      ]);
+      const dto = withLesson();
+      const p = dto.weeks[0].parts.find(
+        (x) => x.partKey === 'apply_yourself_1',
+      );
+      Object.assign(p!, { lesson: '', setting: null });
+      await service.applyParsed('cong-1', dto);
+      expect(repo.update).not.toHaveBeenCalled();
+    });
+
+    it('an app that does not send them leaves the stored ones', async () => {
+      repo.find.mockResolvedValue([
+        {
+          id: 'a-5',
+          partKey: 'bible_reading',
+          publisherId: 'pub-1',
+          partTitle: 'x',
+          lesson: 'th урок 10',
+          setting: null,
+        },
+      ]);
+      await service.applyParsed('cong-1', weekDto());
+      expect(saved('bible_reading')).toBeUndefined();
+      expect(repo.update).not.toHaveBeenCalled();
+    });
+
+    it('an empty template takes them with the rest of the file', async () => {
+      repo.find.mockResolvedValue([
+        {
+          id: 'a-1',
+          partKey: 'apply_yourself_1',
+          publisherId: null,
+          assistantPublisherId: null,
+          partTitle: null,
+          partOrder: 6,
+          partDurationMin: null,
+        },
+      ]);
+      await service.applyParsed('cong-1', withLesson());
+      expect(saved('apply_yourself_1')).toMatchObject({
+        id: 'a-1',
+        lesson: 'lmd урок 2, пункт 3',
+        setting: 'house',
+      });
+    });
+
+    it("a part hidden by the overseer's visit takes them too", async () => {
+      const hidden = {
+        id: 'h-1',
+        congregationId: 'cong-1',
+        weekStartDate: '2026-05-04',
+        eventType: EventType.MIDWEEK,
+        partKey: 'apply_yourself_1',
+        publisherId: null,
+        assistantPublisherId: null,
+        partTitle: null,
+        partOrder: 6,
+        partDurationMin: null,
+        deletedAt: new Date('2026-05-01'),
+      };
+      heldNow = { ...nothingHeld(), hidden: new Set(['h-1']) };
+      repo.find.mockImplementation(async (q: { withDeleted?: boolean }) =>
+        q?.withDeleted ? [hidden] : [],
+      );
+      await service.applyParsed('cong-1', withLesson());
+      expect(saved('apply_yourself_1')).toMatchObject({
+        id: 'h-1',
+        lesson: 'lmd урок 2, пункт 3',
+        setting: 'house',
+      });
+    });
+
+    it('not a student part: nothing is set, whatever the payload says', async () => {
+      const dto = weekDto();
+      dto.weeks[0].parts[2] = { ...dto.weeks[0].parts[2], lesson: 'th урок 1' };
+      await service.applyParsed('cong-1', dto);
+      expect(saved('cbs_conductor')?.lesson).toBeUndefined();
+    });
   });
 
   describe('MwbImportService.applyParsed — a meeting the week does not hold', () => {

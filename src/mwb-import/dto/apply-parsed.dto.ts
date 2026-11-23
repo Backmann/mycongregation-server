@@ -4,6 +4,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsDateString,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -12,6 +13,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { SETTINGS } from '../student-part';
 
 /**
  * Payload of POST /…/apply — a Meeting Workbook parsed on the CLIENT.
@@ -37,6 +39,17 @@ export class ApplyParsedPartDto {
   @IsInt()
   @Min(1)
   partDurationMin?: number | null;
+
+  /** A student part's lesson, read from the whole text of the part. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  lesson?: string | null;
+
+  /** A student part's setting (student-part.ts SETTINGS). */
+  @IsOptional()
+  @IsIn([...SETTINGS])
+  setting?: string | null;
 }
 
 export class ApplyParsedWeekDto {

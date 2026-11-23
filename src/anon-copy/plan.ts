@@ -185,7 +185,7 @@ export const PLAN: Record<string, TablePlan> = {
     copy(`id congregation_id week_start_date event_type part_key part_order
       part_duration_min publisher_id assistant_publisher_id status created_at
       updated_at deleted_at public_talk_id changed_since_publish
-      visiting_speaker_id special_talk talk_exchange_id`),
+      visiting_speaker_id special_talk talk_exchange_id lesson setting`),
     {
       part_title: 'scrub',
       imported_title: 'scrub',
