@@ -6,6 +6,11 @@ export interface WeekImportSummary {
   updated: number;
   skipped: number;
   /**
+   * Of the skipped (already assigned) parts, those that took their lesson or
+   * setting from the file — people and title untouched (23 November 2026).
+   */
+  lessonsSet?: number;
+  /**
    * Set when the congregation holds no such meeting that week, so nothing of
    * the week was applied. `skipped` then counts every part that came in.
    */
@@ -85,6 +90,8 @@ export interface ImportResultDto {
   partsUpdated: number;
   /** Parts left as they were: already filled, or of a meeting not held. */
   partsSkipped: number;
+  /** All weeks' lessonsSet: a field of its own, so an older app shows nothing odd. */
+  lessonsSet?: number;
   unclassifiedParts: number;
   weeks: WeekImportSummary[];
   errors: string[];

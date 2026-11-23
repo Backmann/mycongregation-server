@@ -7,7 +7,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * src/mwb-import/student-part.ts, copied here so the migration stays as it
  * ran. On the live programme 142 of 175 student parts kept their lesson in
  * the title; the 30 cut at 120 characters get it when their workbook is
- * loaded again. Old rows in old shapes are fine: a title without a lesson or
+ * loaded again. Held to the same answers as student-part.ts by
+ * student-part.spec.ts, which runs this migration on a fake database. Old rows in old shapes are fine: a title without a lesson or
  * a setting gives null, and nothing else is touched.
  */
 const lessonOf = (text: string): string | null => {
@@ -16,8 +17,11 @@ const lessonOf = (text: string): string | null => {
   return last || null;
 };
 const settingOf = (text: string): string | null => {
-  const body = text.includes(': ') ? text.slice(text.indexOf(': ') + 2) : text;
-  const caps = /^\s*([A-ZА-ЯЁÄÖÜ][A-ZА-ЯЁÄÖÜ ,-]{2,60})\./u.exec(body)?.[1];
+  const capsAt = (t: string) =>
+    /^\s*([A-ZА-ЯЁÄÖÜ][A-ZА-ЯЁÄÖÜ ,-]{2,60})\./u.exec(t)?.[1] ?? null;
+  const caps =
+    capsAt(text) ??
+    (text.includes(': ') ? capsAt(text.slice(text.indexOf(': ') + 2)) : null);
   if (!caps) return null;
   if (/ДОМАМ/u.test(caps)) return 'house';
   if (/НЕФОРМАЛЬН/u.test(caps)) return 'informal';

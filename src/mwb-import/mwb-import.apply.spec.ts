@@ -36,6 +36,7 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
     find: jest.Mock;
     create: jest.Mock;
     save: jest.Mock;
+    update: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -47,6 +48,7 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
       find: jest.fn().mockResolvedValue([]),
       create: jest.fn((x) => x),
       save: jest.fn(async (x) => x),
+      update: jest.fn(async () => ({ affected: 1 })),
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -252,16 +254,28 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
       };
       repo.find.mockResolvedValue([assigned]);
       const result = await service.applyParsed('cong-1', withLesson());
-      const row = saved('apply_yourself_1');
-      expect(row.id).toBe('a-6');
-      expect(row).toMatchObject({
-        publisherId: 'pub-1',
-        assistantPublisherId: 'pub-2',
-        partTitle: assigned.partTitle,
+      // Only the two fields, and updated_at left where it was.
+      expect(repo.update).toHaveBeenCalledTimes(1);
+      const [where, fields] = repo.update.mock.calls[0] as [
+        { id: string },
+        Record<string, unknown>,
+      ];
+      expect(where).toEqual({ id: 'a-6' });
+      expect(Object.keys(fields).sort()).toEqual([
+        'lesson',
+        'setting',
+        'updatedAt',
+      ]);
+      expect(fields).toMatchObject({
         lesson: 'lmd урок 2, пункт 3',
+        setting: 'house',
       });
-      // Still reported as left alone: nobody's part changed.
+      expect((fields.updatedAt as () => string)()).toBe('"updated_at"');
+      expect(saved('apply_yourself_1')).toBeUndefined();
+      // Still reported as left alone — and counted on their own.
       expect(result.partsSkipped).toBe(1);
+      expect(result.lessonsSet).toBe(1);
+      expect(result.weeks[0].lessonsSet).toBe(1);
     });
 
     it('an assigned part with the same lesson is not written again', async () => {
@@ -275,8 +289,29 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
           setting: 'house',
         },
       ]);
-      await service.applyParsed('cong-1', withLesson());
-      expect(saved('apply_yourself_1')).toBeUndefined();
+      const result = await service.applyParsed('cong-1', withLesson());
+      expect(repo.update).not.toHaveBeenCalled();
+      expect(result.lessonsSet).toBeUndefined();
+    });
+
+    it('a file that no longer gives one does not wipe a stored lesson or setting', async () => {
+      repo.find.mockResolvedValue([
+        {
+          id: 'a-6',
+          partKey: 'apply_yourself_1',
+          publisherId: 'pub-1',
+          partTitle: 'x',
+          lesson: 'lmd урок 2, пункт 3',
+          setting: 'house',
+        },
+      ]);
+      const dto = withLesson();
+      const p = dto.weeks[0].parts.find(
+        (x) => x.partKey === 'apply_yourself_1',
+      );
+      Object.assign(p!, { lesson: '', setting: null });
+      await service.applyParsed('cong-1', dto);
+      expect(repo.update).not.toHaveBeenCalled();
     });
 
     it('an app that does not send them leaves the stored ones', async () => {
@@ -292,6 +327,53 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
       ]);
       await service.applyParsed('cong-1', weekDto());
       expect(saved('bible_reading')).toBeUndefined();
+      expect(repo.update).not.toHaveBeenCalled();
+    });
+
+    it('an empty template takes them with the rest of the file', async () => {
+      repo.find.mockResolvedValue([
+        {
+          id: 'a-1',
+          partKey: 'apply_yourself_1',
+          publisherId: null,
+          assistantPublisherId: null,
+          partTitle: null,
+          partOrder: 6,
+          partDurationMin: null,
+        },
+      ]);
+      await service.applyParsed('cong-1', withLesson());
+      expect(saved('apply_yourself_1')).toMatchObject({
+        id: 'a-1',
+        lesson: 'lmd урок 2, пункт 3',
+        setting: 'house',
+      });
+    });
+
+    it("a part hidden by the overseer's visit takes them too", async () => {
+      const hidden = {
+        id: 'h-1',
+        congregationId: 'cong-1',
+        weekStartDate: '2026-05-04',
+        eventType: EventType.MIDWEEK,
+        partKey: 'apply_yourself_1',
+        publisherId: null,
+        assistantPublisherId: null,
+        partTitle: null,
+        partOrder: 6,
+        partDurationMin: null,
+        deletedAt: new Date('2026-05-01'),
+      };
+      heldNow = { ...nothingHeld(), hidden: new Set(['h-1']) };
+      repo.find.mockImplementation(async (q: { withDeleted?: boolean }) =>
+        q?.withDeleted ? [hidden] : [],
+      );
+      await service.applyParsed('cong-1', withLesson());
+      expect(saved('apply_yourself_1')).toMatchObject({
+        id: 'h-1',
+        lesson: 'lmd урок 2, пункт 3',
+        setting: 'house',
+      });
     });
 
     it('not a student part: nothing is set, whatever the payload says', async () => {

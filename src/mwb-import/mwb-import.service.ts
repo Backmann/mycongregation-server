@@ -192,6 +192,7 @@ export class MwbImportService {
     };
 
     const touched: string[] = [];
+    const lessonRows: string[] = [];
     for (const week of dto.weeks) {
       const parts: ParsedPart[] = week.parts.map((p) => ({
         rawTitle: p.partTitle ?? null,
@@ -215,6 +216,7 @@ export class MwbImportService {
         parts,
         result,
         touched,
+        lessonRows,
       );
       result.weeks.push(summary);
       if (!summary.notHeld && !summary.frozen) result.weeksImported++;
@@ -222,15 +224,17 @@ export class MwbImportService {
 
     // One line in the journal of changes for the whole load (sync audit M3):
     // it used to write none, so a load could be neither seen nor traced.
-    if (touched.length > 0) {
+    if (touched.length > 0 || lessonRows.length > 0) {
       await this.auditLog?.logEvent({
         tenantId: congregationId,
         entityType: 'assignment',
-        entityId: touched[0],
+        entityId: touched[0] ?? lessonRows[0],
         action: 'CREATE' as never,
         detail: {
           bulk: true,
           count: touched.length,
+          // Assigned parts that took only their lesson or setting (23.11.2026).
+          ...(lessonRows.length > 0 ? { lessonsSet: lessonRows.length } : {}),
           weeks: result.weeks
             .filter((w) => !w.notHeld && !w.frozen)
             .map((w) => w.weekStartDate),
@@ -256,6 +260,8 @@ export class MwbImportService {
     overall: ImportResultDto,
     /** The rows this load created or filled, for its journal line. */
     touched: string[],
+    /** Assigned rows that took only their lesson or setting from the file. */
+    lessonRows: string[] = [],
   ): Promise<WeekImportSummary> {
     const summary: WeekImportSummary = {
       weekStartDate,
@@ -486,8 +492,19 @@ export class MwbImportService {
         // Already filled — skip; only the lesson and the setting follow the
         // file: nobody types them, and the first import may have lost the
         // lesson with the end of a title cut at 120 characters.
-        if (fromFile(existingForPart, part)) {
-          await this.assignmentsRepo.save(existingForPart);
+        // Written as they are, without touching updated_at: a programme
+        // notice waits for the last real change (programme-notice), and a
+        // lesson nobody chose is none.
+        const change = lessonChange(existingForPart, part);
+        if (change) {
+          await this.assignmentsRepo.update(
+            { id: existingForPart.id },
+            { ...change, updatedAt: () => '"updated_at"' },
+          );
+          Object.assign(existingForPart, change);
+          summary.lessonsSet = (summary.lessonsSet ?? 0) + 1;
+          overall.lessonsSet = (overall.lessonsSet ?? 0) + 1;
+          lessonRows.push(existingForPart.id);
         }
         summary.skipped++;
         overall.partsSkipped++;
@@ -562,19 +579,37 @@ export class MwbImportService {
 }
 
 /**
- * The workbook's lesson and setting onto a student part's row. Returns
- * whether anything changed. Nothing when the app did not send them.
+ * The workbook's lesson and setting onto a student part's row. Returns what
+ * to write, or null when nothing changes. Nothing when the app did not send
+ * them; a value the file now lacks does not wipe one already stored — a part
+ * the reader could not make out should not lose what it had (the reviewer's
+ * point, 23 November 2026).
  */
-function fromFile(row: Assignment, part: ParsedPart): boolean {
-  if (!isStudentPart(part.partKey)) return false;
-  let changed = false;
-  if (part.lesson !== undefined && (row.lesson ?? null) !== part.lesson) {
-    row.lesson = part.lesson;
-    changed = true;
-  }
-  if (part.setting !== undefined && (row.setting ?? null) !== part.setting) {
-    row.setting = part.setting;
-    changed = true;
-  }
-  return changed;
+function lessonChange(
+  row: Assignment,
+  part: ParsedPart,
+): Pick<Assignment, 'lesson' | 'setting'> | null {
+  if (!isStudentPart(part.partKey)) return null;
+  const lesson = part.lesson?.trim() || null;
+  const setting = part.setting || null;
+  const next = {
+    lesson:
+      part.lesson === undefined || lesson === null
+        ? (row.lesson ?? null)
+        : lesson,
+    setting:
+      part.setting === undefined || setting === null
+        ? (row.setting ?? null)
+        : setting,
+  };
+  return next.lesson === (row.lesson ?? null) &&
+    next.setting === (row.setting ?? null)
+    ? null
+    : next;
+}
+
+/** The same onto a row about to be saved anyway. */
+function fromFile(row: Assignment, part: ParsedPart): void {
+  const change = lessonChange(row, part);
+  if (change) Object.assign(row, change);
 }
