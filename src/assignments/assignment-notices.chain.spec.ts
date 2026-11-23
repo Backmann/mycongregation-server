@@ -174,7 +174,8 @@ function world(
     {} as any,
     notifications,
     {} as any,
-    {} as any,
+    // The journal: every publish is written there (R-16).
+    { logEvent: async () => undefined } as any,
     {} as any,
     {} as any,
     clockStub('Europe/Berlin'),

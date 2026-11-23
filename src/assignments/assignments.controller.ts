@@ -111,6 +111,7 @@ export class AssignmentsController {
       dto.weekStartDate,
       dto.eventType,
       dto.notify,
+      dto.emptySeats,
     );
   }
 
