@@ -627,3 +627,105 @@ describe('MeService.myWeeks (the Memorial)', () => {
     expect(week?.midweekParts).toBe(false);
   });
 });
+
+describe("MeService.myAssignments (a part's whole text, 23 November 2026)", () => {
+  const makeQb = (rows: unknown[]) => {
+    const qb: Record<string, unknown> = {};
+    for (const m of [
+      'where',
+      'andWhere',
+      'orderBy',
+      'leftJoin',
+      'leftJoinAndSelect',
+      'innerJoin',
+      'innerJoinAndSelect',
+      'select',
+      'addSelect',
+    ]) {
+      qb[m] = () => qb;
+    }
+    qb.getMany = async () => rows;
+    return qb;
+  };
+  const emptyRepo = () => ({
+    createQueryBuilder: () => makeQb([]),
+    findOne: async () => null,
+    find: async () => [],
+  });
+  const FULL =
+    'ПРОПОВЕДЬ ПО ДОМАМ. Придуманное задание целиком (lmd урок 3, пункт 3)';
+  const SHORT = 'Начинайте разговор: ПРОПОВЕДЬ ПО ДОМАМ. Придуманное…';
+  const serviceWith = async (row: Record<string, unknown>) => {
+    const parts = {
+      ...emptyRepo(),
+      createQueryBuilder: () =>
+        makeQb([
+          {
+            id: 'a-1',
+            weekStartDate: '2030-01-07',
+            eventType: 'midweek',
+            partKey: 'apply_yourself_1',
+            partOrder: 6,
+            publisherId: 'pub-1',
+            assistantPublisherId: null,
+            partTitle: SHORT,
+            importedTitle: SHORT,
+            partText: FULL,
+            ...row,
+          },
+        ]),
+    };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        { provide: CongregationClock, useValue: clockStub() },
+        MeService,
+        {
+          provide: getRepositoryToken(Publisher),
+          useValue: {
+            findOne: jest.fn().mockResolvedValue({ id: 'pub-1' }),
+            find: async () => [],
+          },
+        },
+        { provide: getRepositoryToken(ServiceGroup), useValue: emptyRepo() },
+        { provide: getRepositoryToken(Assignment), useValue: parts },
+        { provide: getRepositoryToken(Duty), useValue: emptyRepo() },
+        {
+          provide: getRepositoryToken(CleaningAssignment),
+          useValue: emptyRepo(),
+        },
+        {
+          provide: getRepositoryToken(FieldServiceMeeting),
+          useValue: emptyRepo(),
+        },
+        { provide: getRepositoryToken(TalkExchange), useValue: emptyRepo() },
+        {
+          provide: getRepositoryToken(ExternalCongregation),
+          useValue: emptyRepo(),
+        },
+        { provide: getRepositoryToken(PublicTalk), useValue: emptyRepo() },
+        { provide: getRepositoryToken(CartAssignment), useValue: emptyRepo() },
+        { provide: getRepositoryToken(CoVisitItem), useValue: emptyRepo() },
+        { provide: getRepositoryToken(MemorialItem), useValue: emptyRepo() },
+        { provide: getRepositoryToken(SpecialEvent), useValue: emptyRepo() },
+        {
+          provide: AuditLogService,
+          useValue: { logUpdate: jest.fn(), logCreate: jest.fn() },
+        },
+      ],
+    }).compile();
+    return moduleRef.get(MeService);
+  };
+
+  it('THE CASE: his own part comes with its whole text beside the short title', async () => {
+    const res = await (await serviceWith({})).myAssignments('cong-1', 'user-1');
+    const part = res.items.find((i) => i.kind === 'meeting');
+    expect(part).toMatchObject({ label: SHORT, text: FULL });
+  });
+
+  it('a title changed by hand is shown as it is, without the file’s text', async () => {
+    const res = await (
+      await serviceWith({ partTitle: 'Своё название' })
+    ).myAssignments('cong-1', 'user-1');
+    expect(res.items.find((i) => i.kind === 'meeting')?.text).toBeUndefined();
+  });
+});
