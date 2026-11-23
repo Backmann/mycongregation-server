@@ -374,6 +374,8 @@ export class AssignmentRemindersService {
         labelTitle: a.partTitle,
         slot: null,
         order: a.partOrder,
+        lesson: a.lesson ?? null,
+        setting: a.setting ?? null,
       };
       add(a.publisherId, {
         ...base,

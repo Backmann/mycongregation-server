@@ -46,8 +46,11 @@ import {
   partnerChangeOf,
   SOON_DAYS,
   whenWord,
+  joinParts,
+  studyOf,
   withPair,
 } from '../assignment-reminders/digest';
+import { settingOf } from '../mwb-import/student-part';
 import {
   coerceLanguage,
   DEFAULT_LANGUAGE,
@@ -1756,16 +1759,38 @@ export class AssignmentsService {
               otherId || change || assisting
                 ? title.split(': ')[0].trim()
                 : title;
-            const plain = head || PART_NAMES[lang][m.partKey] || '';
+            // A title cut at 120 characters before 23 November may end in an
+            // open bracket («(lmd ур»): it goes before anything is said after it.
+            const plain = (head || PART_NAMES[lang][m.partKey] || '').replace(
+              /\s*\([^)]*$/u,
+              '',
+            );
             if (!plain) return '';
-            return withPair(
-              plain,
+            // What a student part is given to work on (23 November 2026). Said
+            // only where the words before it do not say it already: a lesson
+            // the title ends with, a setting the title opens with — read from
+            // the title itself, not guessed from its shape (the reviewer's
+            // point: a part without a title, or with a short one, lost it).
+            const shown = head === title ? title : '';
+            const lesson = m.lesson?.trim();
+            const study = studyOf(
               {
-                assistant: assisting,
-                with: other ? [other] : [],
-                partnerChange: change,
+                type: 'part',
+                lesson: lesson && shown.includes(lesson) ? null : m.lesson,
+                setting: settingOf(shown) === m.setting ? null : m.setting,
               },
               lang,
+            );
+            return (
+              withPair(
+                plain,
+                {
+                  assistant: assisting,
+                  with: other ? [other] : [],
+                  partnerChange: change,
+                },
+                lang,
+              ) + study
             );
           })
           .filter((n): n is string => !!n);
@@ -1775,7 +1800,7 @@ export class AssignmentsService {
             : '';
         const body =
           (names.length > 0
-            ? strings.body({ meeting, range, parts: names.join(', ') })
+            ? strings.body({ meeting, range, parts: joinParts(names) })
             : strings.count({ meeting, range, n: mine.length })) + soon;
 
         await this.notifications.notify({

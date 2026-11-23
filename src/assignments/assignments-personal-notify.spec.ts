@@ -175,6 +175,105 @@ describe('AssignmentsService — telling each assignee their own parts', () => {
     );
   });
 
+  describe("a student part's lesson and setting (23 November 2026)", () => {
+    const notifyBody = async (
+      a: Partial<Assignment>,
+      users = [
+        { id: 'p1', userId: 'u1' },
+        { id: 'p2', userId: 'u2' },
+      ],
+    ) => {
+      const parts = build(
+        [a],
+        users,
+        users.map((u) => ({ id: u.userId, uiLanguage: 'ru' })),
+      );
+      const service = await makeService(parts);
+      await service.publishMeeting('c1', WEEK, 'midweek' as never);
+      await new Promise((r) => setImmediate(r));
+      return parts.notify.notify.mock.calls.map(
+        (c: any[]) => c[0].body as string,
+      );
+    };
+
+    it('THE CASE: a pair, named by the part only, hears its lesson and setting', async () => {
+      const bodies = await notifyBody({
+        partKey: 'apply_yourself_1',
+        partTitle: 'Начинайте разговор: ПРОПОВЕДЬ ПО ДОМАМ. Текст…',
+        publisherId: 'p1',
+        assistantPublisherId: 'p2',
+        lesson: 'lmd урок 3, пункт 3',
+        setting: 'house',
+      });
+      expect(
+        bodies.every((b) => b.includes('— lmd урок 3, пункт 3, по домам')),
+      ).toBe(true);
+      expect(bodies.some((b) => b.includes('ПРОПОВЕДЬ'))).toBe(false);
+    });
+
+    it('a whole title that ends with its lesson says it once', async () => {
+      const [body] = await notifyBody({
+        partKey: 'bible_reading',
+        partTitle: 'Чтение Библии: Иса 60:1–22 (th урок 10)',
+        publisherId: 'p1',
+        assistantPublisherId: null,
+        lesson: 'th урок 10',
+      });
+      expect(body.split('th урок 10')).toHaveLength(2);
+      expect(body).toContain('Иса 60:1–22');
+    });
+
+    it('a part without a title, or with a short one of its own, still hears its setting', async () => {
+      const [none] = await notifyBody({
+        partKey: 'apply_yourself_1',
+        partTitle: null,
+        publisherId: 'p1',
+        assistantPublisherId: null,
+        lesson: 'lmd урок 3, пункт 3',
+        setting: 'house',
+      });
+      expect(none).toContain('— lmd урок 3, пункт 3, по домам');
+      const pair = await notifyBody({
+        partKey: 'apply_yourself_2',
+        partTitle: 'Начинайте разговор',
+        publisherId: 'p1',
+        assistantPublisherId: 'p2',
+        lesson: 'lmd урок 4, пункт 3',
+        setting: 'informal',
+      });
+      expect(
+        pair.every((b) => b.includes('— lmd урок 4, пункт 3, неформально')),
+      ).toBe(true);
+    });
+
+    it('an old title cut in an open bracket loses the stub before the lesson is said', async () => {
+      const [body] = await notifyBody({
+        partKey: 'apply_yourself_1',
+        partTitle: 'Начинайте разговор: ПРОПОВЕДЬ ПО ДОМАМ. Текст (lmd ур',
+        publisherId: 'p1',
+        assistantPublisherId: null,
+        lesson: 'lmd урок 2, пункт 3',
+        setting: 'house',
+      });
+      expect(body).toContain('Текст — lmd урок 2, пункт 3');
+      expect(body).not.toContain('(lmd ур');
+      expect(body).not.toContain('по домам');
+    });
+
+    it('a title cut before its lesson gets the lesson, not the setting it already opens with', async () => {
+      const [body] = await notifyBody({
+        partKey: 'apply_yourself_3',
+        partTitle: 'Речь: ПРОПОВЕДЬ ПО ДОМАМ. Тема речи, длинная…',
+        publisherId: 'p1',
+        assistantPublisherId: null,
+        lesson: 'th урок 7',
+        setting: 'house',
+      });
+      expect(body).toContain('длинная… — th урок 7');
+      expect(body).not.toContain('по домам');
+    });
+  });
+
   // The reason for the whole change: silence for those it does not concern.
   it('tells nobody when nobody is assigned', async () => {
     const parts = build([], [], []);

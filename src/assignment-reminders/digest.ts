@@ -159,6 +159,13 @@ export interface ReminderItem {
    * things of one meeting are named; a duty comes after the parts.
    */
   order?: number;
+  /**
+   * A student part's lesson and setting, as the workbook gives them
+   * (assignments.lesson / .setting, 23 November 2026): what he prepares, said
+   * in the weeks he prepares it in.
+   */
+  lesson?: string | null;
+  setting?: string | null;
 }
 
 /** What the person has already been told about. */
@@ -390,6 +397,8 @@ interface Words {
   cart: (kind: string | null | undefined, place: string) => string;
   /** «вместе: Хоффман Феликс» */
   together: (names: string) => string;
+  /** A student part's setting in a few words: «по домам». */
+  setting: Record<'house' | 'informal' | 'public', string>;
   /**
    * A part done by two, as the person of each half reads it — names in the
    * nominative, as the programme writes them: declining a name by rule
@@ -461,6 +470,11 @@ const WORDS: Record<SupportedLanguage, Words> = {
       `на изучении «Сторожевой башни» ${n} — для вступления их не выбирайте`,
     cart: (k, place) => `${cartKind('ru', k)}${place ? ` ${place}` : ''}`,
     together: (n) => `вместе: ${n}`,
+    setting: {
+      house: 'по домам',
+      informal: 'неформально',
+      public: 'в общественных местах',
+    },
     pair: {
       helper: (n) => `помощник: ${n}`,
       helping: (n) => `помощник, в паре: ${n}`,
@@ -501,6 +515,11 @@ const WORDS: Record<SupportedLanguage, Words> = {
       `the Watchtower study sings ${n} — do not choose them to open`,
     cart: (k, place) => `${cartKind('en', k)}${place ? ` at ${place}` : ''}`,
     together: (n) => `with ${n}`,
+    setting: {
+      house: 'house to house',
+      informal: 'informal witnessing',
+      public: 'public witnessing',
+    },
     pair: {
       helper: (n) => `assistant: ${n}`,
       helping: (n) => `assistant to ${n}`,
@@ -542,6 +561,11 @@ const WORDS: Record<SupportedLanguage, Words> = {
       `beim Wachtturm-Studium: ${n} — bitte nicht als Anfangslied wählen`,
     cart: (k, place) => `${cartKind('de', k)}${place ? ` ${place}` : ''}`,
     together: (n) => `mit ${n}`,
+    setting: {
+      house: 'von Haus zu Haus',
+      informal: 'informelles Zeugnisgeben',
+      public: 'öffentliches Zeugnisgeben',
+    },
     pair: {
       helper: (n) => `Partner: ${n}`,
       helping: (n) => `Partner von ${n}`,
@@ -643,6 +667,33 @@ export function withPair(
   if (x.partnerChange === 'none') return `${name} (${p.noHelper})`;
   if (!other) return name;
   return `${name} (${x.partnerChange === 'new' ? p.newHelper(other) : p.helper(other)})`;
+}
+
+/**
+ * What a student part is given to work on, after its name: « — lmd урок 3,
+ * пункт 3, по домам» (23 November 2026). Nothing when the part has neither.
+ */
+export function studyOf(
+  x: Pick<ReminderItem, 'type' | 'lesson' | 'setting'>,
+  lang: SupportedLanguage,
+): string {
+  if (x.type !== 'part') return '';
+  const setting =
+    x.setting === 'house' || x.setting === 'informal' || x.setting === 'public'
+      ? WORDS[lang].setting[x.setting]
+      : null;
+  const what = [x.lesson?.trim() || null, setting].filter(Boolean).join(', ');
+  return what ? ` — ${what}` : '';
+}
+
+/**
+ * The things of one meeting, one after another. A lesson has commas of its
+ * own («lmd урок 3, пункт 3, по домам»), so where one is said the things are
+ * parted by «; » — or «Микрофон 1» would read as the end of the lesson (the
+ * reviewer's point, 23 November 2026).
+ */
+export function joinParts(names: string[]): string {
+  return names.join(names.some((n) => n.includes(' — ')) ? '; ' : ', ');
 }
 
 /**
@@ -821,8 +872,12 @@ export function writeDigest(
     .map((g) => {
       const names = [...g.lines]
         .sort((a, b) => orderOf(a) - orderOf(b))
-        .map((l) => labelOf(l.item, lang));
-      return `${g.head}${names.join(', ')}${g.tail}`;
+        .map((l) =>
+          l.tone === 'cancelled'
+            ? labelOf(l.item, lang)
+            : `${labelOf(l.item, lang)}${studyOf(l.item as ReminderItem, lang)}`,
+        );
+      return `${g.head}${joinParts(names)}${g.tail}`;
     })
     .join('\n');
 
