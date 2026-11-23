@@ -157,6 +157,19 @@ export class Assignment {
   @Column({ type: 'text', nullable: true })
   importedTitle!: string | null;
 
+  /**
+   * A student part's lesson for the counsel, as the workbook gives it —
+   * «lmd урок 2, пункт 3», «th урок 10» (23 November 2026). From the file
+   * only: a new import of the workbook writes it again, even on a part that is
+   * already assigned (mwb-import).
+   */
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  lesson!: string | null;
+
+  /** A student part's setting: house | informal | public (student-part.ts). */
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  setting!: string | null;
+
   // ---- State ----
   @Column({
     type: 'enum',

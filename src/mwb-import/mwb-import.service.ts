@@ -27,6 +27,7 @@ import {
   WATCHTOWER_VISIT_DURATION_MIN,
 } from '../special-events/co-visit-template.service';
 import { mendPlan } from '../special-events/co-visit-held';
+import { isStudentPart } from './student-part';
 import { TalkExchangeService } from '../talk-exchange/talk-exchange.service';
 import { ProgrammeFreezeService } from '../assignments/programme-freeze.service';
 
@@ -203,6 +204,8 @@ export class MwbImportService {
         partOrder: p.partOrder,
         classifierConfidence: 'high' as const,
         synthetic: p.partTitle == null,
+        lesson: p.lesson,
+        setting: p.setting,
       }));
       const summary = await this.importWeek(
         congregationId,
@@ -421,6 +424,7 @@ export class MwbImportService {
           hiddenForPart.partOrder = part.partOrder;
           hiddenForPart.partTitle = partTitle;
           hiddenForPart.partDurationMin = part.durationMin ?? null;
+          fromFile(hiddenForPart, part);
           await this.assignmentsRepo.save(hiddenForPart);
           summary.updated++;
           overall.partsUpdated++;
@@ -444,6 +448,7 @@ export class MwbImportService {
           partDurationMin: part.durationMin ?? null,
           status: AssignmentStatus.DRAFT,
         });
+        fromFile(newAssignment, part);
         await this.assignmentsRepo.save(newAssignment);
         touched.push(newAssignment.id);
         summary.created++;
@@ -472,12 +477,18 @@ export class MwbImportService {
         if (!kept?.has('partDurationMin')) {
           existingForPart.partDurationMin = part.durationMin ?? null;
         }
+        fromFile(existingForPart, part);
         await this.assignmentsRepo.save(existingForPart);
         touched.push(existingForPart.id);
         summary.updated++;
         overall.partsUpdated++;
       } else {
-        // Already filled — skip
+        // Already filled — skip; only the lesson and the setting follow the
+        // file: nobody types them, and the first import may have lost the
+        // lesson with the end of a title cut at 120 characters.
+        if (fromFile(existingForPart, part)) {
+          await this.assignmentsRepo.save(existingForPart);
+        }
         summary.skipped++;
         overall.partsSkipped++;
       }
@@ -548,4 +559,22 @@ export class MwbImportService {
 
     return summary;
   }
+}
+
+/**
+ * The workbook's lesson and setting onto a student part's row. Returns
+ * whether anything changed. Nothing when the app did not send them.
+ */
+function fromFile(row: Assignment, part: ParsedPart): boolean {
+  if (!isStudentPart(part.partKey)) return false;
+  let changed = false;
+  if (part.lesson !== undefined && (row.lesson ?? null) !== part.lesson) {
+    row.lesson = part.lesson;
+    changed = true;
+  }
+  if (part.setting !== undefined && (row.setting ?? null) !== part.setting) {
+    row.setting = part.setting;
+    changed = true;
+  }
+  return changed;
 }
