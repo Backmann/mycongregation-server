@@ -94,6 +94,9 @@ export const PLAN: Record<string, TablePlan> = {
   push_receipts: 'skip',
   /** How a meeting ran: kept seven days, a view of people against the clock. */
   conduct_runs: 'skip',
+  // The forecast's numbers (R-76): seconds by week, no names — but they are
+  // of a congregation's meetings, and the copy needs none of them.
+  conduct_averages: 'skip',
   /** The meeting while it runs: lives a day, of no use to a test. */
   conduct_live: 'skip',
   web_push_subscriptions: 'skip',
@@ -544,7 +547,7 @@ export const PLAN: Record<string, TablePlan> = {
   reminder_log: copy('id congregation_id kind key sent_at'),
 
   // ── catalogues ───────────────────────────────────────────────────────
-  songs: copy('id number title is_active created_at updated_at'),
+  songs: copy('id number title is_active duration_sec created_at updated_at'),
   public_talks: table(
     copy(`id number title is_active created_at updated_at retired_from
       retired_until`),

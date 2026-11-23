@@ -21,4 +21,11 @@ export class CreateSongDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  /** Its length in seconds (R-77); null clears it. */
+  @IsOptional()
+  @IsInt()
+  @Min(30)
+  @Max(600)
+  durationSec?: number | null;
 }

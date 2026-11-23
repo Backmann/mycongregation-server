@@ -11,6 +11,8 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { ConductRunsService } from './conduct-runs.service';
+import { ConductAveragesService } from './conduct-averages.service';
+import { StageAllowed } from '../common/stage';
 import { SaveConductRunDto } from './dto/save-conduct-run.dto';
 import { conductKind } from '../common/conduct-kind';
 
@@ -25,7 +27,29 @@ import { conductKind } from '../common/conduct-kind';
 @Controller('conduct-runs')
 @UseGuards(RolesGuard)
 export class ConductRunsController {
-  constructor(private readonly service: ConductRunsService) {}
+  constructor(
+    private readonly service: ConductRunsService,
+    private readonly averagesService: ConductAveragesService,
+  ) {}
+
+  /**
+   * What finished meetings taught the forecast (R-76): four middle numbers
+   * in seconds and how many meetings stand behind them — no names, no
+   * results. Read by the screens that run or show a meeting, the stage's too.
+   */
+  @StageAllowed()
+  @Get('averages')
+  async averages(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('kind') kind?: string,
+  ) {
+    return {
+      averages: await this.averagesService.read(
+        user.congregationId,
+        conductKind(kind),
+      ),
+    };
+  }
 
   @Get()
   async find(

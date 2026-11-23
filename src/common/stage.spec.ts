@@ -32,6 +32,8 @@ const ALLOWED = [
   'ConductLiveController.find',
   // The rehearsal it shows when no meeting runs today (R-73, 22 November 2026).
   'ConductLiveController.stagePractice',
+  // The forecast's numbers from finished meetings, no names (R-76).
+  'ConductRunsController.averages',
   'MeController.myPublisher',
   // Which day a moved meeting is held: the hall screen shows that day's.
   'MeetingMovesController.list',
