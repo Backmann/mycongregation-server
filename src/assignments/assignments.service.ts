@@ -46,6 +46,7 @@ import {
   partnerChangeOf,
   SOON_DAYS,
   whenWord,
+  studyOf,
   withPair,
 } from '../assignment-reminders/digest';
 import {
@@ -1758,14 +1759,31 @@ export class AssignmentsService {
                 : title;
             const plain = head || PART_NAMES[lang][m.partKey] || '';
             if (!plain) return '';
-            return withPair(
-              plain,
-              {
-                assistant: assisting,
-                with: other ? [other] : [],
-                partnerChange: change,
-              },
-              lang,
+            // What a student part is given to work on (23 November 2026): a
+            // title that already ends with its lesson keeps it said once.
+            const lesson = m.lesson?.trim();
+            const study =
+              head === title && lesson && title.includes(lesson)
+                ? ''
+                : studyOf(
+                    {
+                      type: 'part',
+                      lesson: m.lesson,
+                      // A whole title already opens with its setting.
+                      setting: head === title ? null : m.setting,
+                    },
+                    lang,
+                  );
+            return (
+              withPair(
+                plain,
+                {
+                  assistant: assisting,
+                  with: other ? [other] : [],
+                  partnerChange: change,
+                },
+                lang,
+              ) + study
             );
           })
           .filter((n): n is string => !!n);

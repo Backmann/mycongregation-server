@@ -182,6 +182,85 @@ describe('the digest as it is read', () => {
     );
   });
 
+  it('THE CASE: a student part says what he prepares — its lesson and setting (23 November 2026)', () => {
+    const t = writeDigest(
+      [
+        line('reminder', 14, {
+          labelKey: 'apply_yourself_1',
+          labelTitle: 'Начинайте разговор: ПРОПОВЕДЬ ПО ДОМАМ. Текст…',
+          with: ['Кох Виктория'],
+          lesson: 'lmd урок 3, пункт 3',
+          setting: 'house',
+        }),
+      ],
+      'ru',
+    )!;
+    expect(t.body).toBe(
+      'Чт 22 октября (через 2 недели), встреча среди недели: Начинайте разговор (помощник: Кох Виктория) — lmd урок 3, пункт 3, по домам',
+    );
+  });
+
+  it('a lesson without a setting, and the other languages', () => {
+    const reading = line('reminder', 7, { lesson: 'th урок 10' });
+    const informal = line('reminder', 7, {
+      labelKey: 'apply_yourself_2',
+      labelTitle: 'Развивайте интерес: x',
+      lesson: 'lmd урок 7, пункт 4',
+      setting: 'informal',
+    });
+    expect(writeDigest([informal], 'ru')!.body).toMatch(
+      /Развивайте интерес — lmd урок 7, пункт 4, неформально$/,
+    );
+    const pub = line('reminder', 7, {
+      labelKey: 'apply_yourself_3',
+      labelTitle: 'Начинайте разговор: x',
+      setting: 'public',
+    });
+    expect(writeDigest([pub], 'ru')!.body).toMatch(
+      /Начинайте разговор — в общественных местах$/,
+    );
+    expect(writeDigest([reading], 'ru')!.body).toMatch(
+      /Чтение Библии — th урок 10$/,
+    );
+    const talk = line('reminder', 7, {
+      labelKey: 'apply_yourself_2',
+      labelTitle: 'Talk: x',
+      lesson: 'th lesson 7',
+      setting: 'public',
+    });
+    expect(writeDigest([talk], 'en')!.body).toMatch(
+      / — th lesson 7, public witnessing$/,
+    );
+    expect(
+      writeDigest(
+        [{ ...talk, item: { ...talk.item, setting: 'informal' } }],
+        'de',
+      )!.body,
+    ).toMatch(/ — th lesson 7, informell$/);
+  });
+
+  it('nothing is added to a part without them, to a duty, or to a cancellation', () => {
+    expect(writeDigest([line('reminder', 7)], 'ru')!.body).toMatch(
+      /Чтение Библии$/,
+    );
+    const duty = line('reminder', 7, {
+      type: 'duty',
+      id: 'd1',
+      labelKey: 'microphone',
+      slot: 1,
+      lesson: 'th урок 1',
+    });
+    expect(writeDigest([duty], 'ru')!.body).toMatch(/Микрофон 1$/);
+    const gone = line('cancelled', 7, { lesson: 'th урок 10' });
+    expect(writeDigest([gone], 'ru')!.body).not.toContain('урок');
+  });
+
+  it('an unknown setting is not spelled out', () => {
+    expect(
+      writeDigest([line('reminder', 7, { setting: 'video' })], 'ru')!.body,
+    ).toMatch(/Чтение Библии$/);
+  });
+
   it('the evening before is headed «Завтра у вас»', () => {
     const t = writeDigest(
       [

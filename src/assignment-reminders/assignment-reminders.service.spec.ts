@@ -225,6 +225,33 @@ describe('the evening digest', () => {
     expect(sent[0].body).toContain('Микрофон 1');
   });
 
+  it("a student part's lesson and setting travel from the programme to the evening's word", async () => {
+    const { svc, sent } = build({
+      parts: [
+        {
+          id: 'a1',
+          weekStartDate: MON,
+          eventType: 'midweek',
+          partKey: 'apply_yourself_1',
+          partTitle: 'Начинайте разговор: ПРОПОВЕДЬ ПО ДОМАМ. Текст…',
+          publisherId: 'p1',
+          assistantPublisherId: null,
+          status: 'published',
+          deletedAt: null,
+          changedSincePublish: false,
+          lesson: 'lmd урок 3, пункт 3',
+          setting: 'house',
+        },
+      ],
+    });
+
+    await svc.sendDigests('cong-1', '2026-10-21');
+
+    expect(sent[0].body).toContain(
+      'Начинайте разговор — lmd урок 3, пункт 3, по домам',
+    );
+  });
+
   it('drops marks of meetings that have passed, without a word', async () => {
     const { svc, sent, marks } = build({
       marks: [mark({ itemId: 'old', meetingDate: '2026-10-01' })],
