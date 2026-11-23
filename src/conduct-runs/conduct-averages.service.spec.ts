@@ -28,6 +28,34 @@ function build() {
       return x;
     }),
   };
+  // The transaction: the same rows, locked — the race itself is checked on a
+  // real database (see the pull request).
+  const manager = {
+    query: jest.fn(
+      async (_sql: string, [congregationId, eventType, measure]: string[]) => {
+        if (
+          !rows.some(
+            (r) =>
+              r.congregationId === congregationId &&
+              r.eventType === eventType &&
+              r.measure === measure,
+          )
+        )
+          rows.push({
+            congregationId,
+            eventType,
+            measure,
+            values: [],
+          } as unknown as ConductAverage);
+      },
+    ),
+    getRepository: () => averages,
+  };
+  Object.assign(averages, {
+    manager: {
+      transaction: async (fn: (m: unknown) => unknown) => fn(manager),
+    },
+  });
   const assignments = {
     find: jest.fn(async () => [
       { id: 'a-close', partTitle: 'Песня 141 и молитва' },
@@ -41,7 +69,7 @@ function build() {
     assignments as never,
     songs as never,
   );
-  return { service, rows };
+  return { service, rows, assignments };
 }
 
 const closing = {
@@ -89,5 +117,25 @@ describe("the forecast's numbers, kept per congregation (R-76)", () => {
         r.values.every((v) => Object.keys(v).join() === 'week,v'),
       ),
     ).toBe(true);
+  });
+
+  it('a song is looked up only among the congregation’s own programme rows', async () => {
+    const { service, assignments } = build();
+    await service.record('c1', '2026-11-23', 'midweek' as never, [closing]);
+    expect(assignments.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ congregationId: 'c1' }),
+      }),
+    );
+  });
+
+  it('sealed: the week is gone from every measure, the number stays', async () => {
+    const { service, rows } = build();
+    await service.record('c1', '2026-11-23', 'midweek' as never, [closing]);
+    await service.seal('c1', '2026-11-23', 'midweek' as never);
+    expect(JSON.stringify(rows.map((r) => r.values))).not.toContain(
+      '2026-11-23',
+    );
+    expect((await service.read('c1', 'midweek' as never)).prayer).toBe(90);
   });
 });

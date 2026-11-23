@@ -3,8 +3,11 @@ import {
   KEEP_MEETINGS,
   measuresOf,
   median,
+  sealWeek,
   withWeek,
 } from './conduct-averages';
+import type { ConductAverageValue } from '../entities/conduct-average.entity';
+import { songNumber } from '../talk-exchange/week-songs';
 
 const seg = (
   key: string,
@@ -53,9 +56,9 @@ describe('what a finished meeting teaches the forecast (R-76, R-77)', () => {
     expect(measuresOf(onlyOpening, songSec).prayer).toBeUndefined();
   });
 
-  it("walks and counsels are the meeting's means", () => {
+  it("walks and counsels are the meeting's middle ones", () => {
     const m = measuresOf(run, songSec);
-    expect(m.walk).toBe(Math.round((16 + 17 + 15 + 18) / 4)); // 17
+    expect(m.walk).toBe(Math.round((16 + 17) / 2)); // 15 16 17 18 → 17
     expect(m.counsel).toBe(Math.round((75 + 87) / 2));
   });
 
@@ -78,7 +81,7 @@ describe('what a finished meeting teaches the forecast (R-76, R-77)', () => {
   });
 
   it('twelve meetings are kept, the same week replaced, a forgotten week removed', () => {
-    let v = [] as { week: string; v: number }[];
+    let v: ConductAverageValue[] = [];
     for (let i = 1; i <= 14; i++)
       v = withWeek(v, `2026-${String(i).padStart(2, '0')}-05`, i);
     expect(v).toHaveLength(KEEP_MEETINGS);
@@ -89,6 +92,83 @@ describe('what a finished meeting teaches the forecast (R-76, R-77)', () => {
     ]);
     v = withWeek(v, '2026-14-05', null);
     expect(v.find((x) => x.week === '2026-14-05')).toBeUndefined();
+  });
+
+  it('nobody walked: gaps of 0–2 s from seconds rounded one by one are not walks', () => {
+    // The same brother carrying on, the song after the chairman's words: the
+    // app rounds start, part and counsel apart, so «no gap» reads 0, 1 or 2.
+    const m = measuresOf(
+      [
+        seg('treasures_talk', 0, 600), // walk 15
+        seg('spiritual_gems', 615, 600), // walk 15
+        seg('bible_reading', 1216, 240, 74), // gap 1
+        seg('apply_yourself_1', 1532, 200, 87), // gap 2
+        seg('apply_yourself_2', 1821, 200), // gap 2
+        seg('living_christians_1', 2022, 300), // gap 1
+      ],
+      songSec,
+    );
+    expect(m.walk).toBe(15);
+  });
+
+  it('a pause is not a walk: over 90 s dropped, a short one does not move the middle', () => {
+    const m = measuresOf(
+      [
+        seg('treasures_talk', 0, 600),
+        seg('spiritual_gems', 616, 600), // walk 16
+        seg('bible_reading', 1300, 240), // 84 s: a pause
+        seg('apply_yourself_1', 1556, 200), // walk 16
+        seg('apply_yourself_2', 1774, 200), // walk 18
+        seg('living_christians_1', 2200, 300), // 226 s: a pause, dropped
+      ],
+      songSec,
+    );
+    // 16 16 18 84 → 17; their mean would be 34.
+    expect(m.walk).toBe(17);
+  });
+
+  it('a part with no start leaves no end: the next gap is not measured from an older part', () => {
+    const m = measuresOf(
+      [
+        seg('treasures_talk', 0, 600),
+        { ...seg('spiritual_gems', 0, 600), startSec: null },
+        seg('bible_reading', 650, 240), // 50 s after treasures_talk, not a walk
+      ],
+      songSec,
+    );
+    expect(m.walk).toBeUndefined();
+  });
+
+  it("the overseer's week teaches no prayer: he chooses the closing song", () => {
+    const visit = [
+      seg('midweek_closing_words', 2400, 180),
+      seg('co_service_talk', 2595, 1800),
+      seg('midweek_closing_prayer', 4410, 233),
+    ];
+    expect(measuresOf(visit, songSec).prayer).toBeUndefined();
+    const weekend = [
+      seg('weekend_song', 2000, 193),
+      seg('co_concluding_talk', 4000, 1800),
+      seg('weekend_closing_prayer', 5800, 300),
+    ];
+    const m = measuresOf(weekend, () => 173);
+    expect(m.prayer).toBeUndefined();
+    expect(m.songLead).toBe(20); // the song before the study is still his own
+  });
+
+  it("the midweek closing row's title gives its song", () => {
+    expect(songNumber('Заключительные слова | Песня 141 и молитва')).toBe(141);
+  });
+
+  it('after its result is gone a number keeps no week, and stays in the middle', () => {
+    let v: ConductAverageValue[] = [];
+    v = withWeek(v, '2026-11-16', 80);
+    v = withWeek(v, '2026-11-23', 90);
+    v = sealWeek(v, '2026-11-16');
+    expect(v).toEqual([{ v: 80 }, { week: '2026-11-23', v: 90 }]);
+    // A sealed number cannot be taken back by a week any more.
+    expect(withWeek(v, '2026-11-16', null)).toHaveLength(2);
+    expect(median(v)).toBe(85);
   });
 
   it('the middle number: one odd meeting does not move it', () => {

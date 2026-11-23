@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -60,6 +61,8 @@ export const CONDUCT_RUN_KEEP_DAYS = 4;
  */
 @Injectable()
 export class ConductRunsService {
+  private readonly logger = new Logger(ConductRunsService.name);
+
   constructor(
     @InjectRepository(ConductRun)
     private readonly runs: Repository<ConductRun>,
@@ -213,7 +216,9 @@ export class ConductRunsService {
     row.savedBy = user.id;
     row.savedAt = now;
     const saved = await this.runs.save(row);
-    await this.averages?.record(user.congregationId, week, kind, segments);
+    await this.teach(() =>
+      this.averages?.record(user.congregationId, week, kind, segments),
+    );
     return saved;
   }
 
@@ -271,7 +276,9 @@ export class ConductRunsService {
     const result = await this.runs.delete(where);
     const run = await this.live.delete(where);
     // «Это была проба»: what that week taught the forecast goes too.
-    await this.averages?.forget(user.congregationId, week, kind);
+    await this.teach(() =>
+      this.averages?.forget(user.congregationId, week, kind),
+    );
     return { result: (result.affected ?? 0) > 0, run: (run.affected ?? 0) > 0 };
   }
 
@@ -335,6 +342,20 @@ export class ConductRunsService {
     return Object.assign(run, { keepUntil });
   }
 
+  /**
+   * The forecast's numbers are a side matter: when they cannot be written, the
+   * result itself is saved (or wiped) all the same, and the failure is logged.
+   */
+  private async teach(write: () => Promise<void> | undefined): Promise<void> {
+    try {
+      await write();
+    } catch (e) {
+      this.logger.error(
+        `conduct averages not updated: ${(e as Error).message}`,
+      );
+    }
+  }
+
   /** Every run whose days are over, in every congregation. Returns how many. */
   async deleteExpired(now = new Date()): Promise<number> {
     const all = await this.runs.find({
@@ -347,17 +368,26 @@ export class ConductRunsService {
       },
     });
     const today = new Map<string, string>();
-    const expired: string[] = [];
+    const expired: ConductRun[] = [];
     for (const run of all) {
       let t = today.get(run.congregationId);
       if (!t) {
         t = todayIn(now, await this.clock.timezoneOf(run.congregationId));
         today.set(run.congregationId, t);
       }
-      if (t > (await this.keepUntil(run))) expired.push(run.id);
+      if (t > (await this.keepUntil(run))) expired.push(run);
     }
     if (expired.length === 0) return 0;
-    const res = await this.runs.delete(expired);
+    const res = await this.runs.delete(expired.map((r) => r.id));
+    for (const run of expired) {
+      await this.teach(() =>
+        this.averages?.seal(
+          run.congregationId,
+          run.weekStartDate,
+          run.eventType as ConductKind,
+        ),
+      );
+    }
     return res.affected ?? 0;
   }
 }

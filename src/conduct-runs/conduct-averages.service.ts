@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { Assignment } from '../entities/assignment.entity';
 import { ConductAverage } from '../entities/conduct-average.entity';
 import type { ConductRunSegment } from '../entities/conduct-run.entity';
@@ -12,6 +12,7 @@ import {
   type Measure,
   measuresOf,
   median,
+  sealWeek,
   withWeek,
 } from './conduct-averages';
 
@@ -37,6 +38,7 @@ export class ConductAveragesService {
 
   /** The recording's length of each segment's song, by its programme row. */
   private async songSecOf(
+    congregationId: string,
     segments: ConductRunSegment[],
   ): Promise<(s: ConductRunSegment) => number | null> {
     const ids = segments
@@ -44,7 +46,7 @@ export class ConductAveragesService {
       .filter((x): x is string => !!x);
     const rows = ids.length
       ? await this.assignments.find({
-          where: { id: In(ids) },
+          where: { id: In(ids), congregationId },
           select: { id: true, partTitle: true },
         })
       : [];
@@ -72,10 +74,13 @@ export class ConductAveragesService {
     kind: ConductKind,
     segments: ConductRunSegment[],
   ): Promise<void> {
-    const got = measuresOf(segments, await this.songSecOf(segments));
-    for (const measure of MEASURES) {
-      await this.put(congregationId, kind, measure, week, got[measure] ?? null);
-    }
+    const got = measuresOf(
+      segments,
+      await this.songSecOf(congregationId, segments),
+    );
+    await this.change(congregationId, kind, true, (values, measure) =>
+      withWeek(values, week, got[measure] ?? null),
+    );
   }
 
   /** «Это была проба»: that week teaches nothing. */
@@ -84,35 +89,58 @@ export class ConductAveragesService {
     week: string,
     kind: ConductKind,
   ): Promise<void> {
-    for (const measure of MEASURES) {
-      await this.put(congregationId, kind, measure, week, null);
-    }
+    await this.change(congregationId, kind, false, (values) =>
+      withWeek(values, week, null),
+    );
   }
 
-  private async put(
+  /** The meeting's result is gone (its 4th day): its numbers lose their week. */
+  async seal(
+    congregationId: string,
+    week: string,
+    kind: ConductKind,
+  ): Promise<void> {
+    await this.change(congregationId, kind, false, (values) =>
+      sealWeek(values, week),
+    );
+  }
+
+  /**
+   * Every measure changed in one transaction, each row locked while it is read
+   * and written: a result and its resend arriving together (conduct-resend)
+   * must neither collide on the unique key nor lose one another's numbers.
+   */
+  private async change(
     congregationId: string,
     kind: ConductKind,
-    measure: Measure,
-    week: string,
-    v: number | null,
+    create: boolean,
+    next: (
+      values: ConductAverage['values'],
+      m: Measure,
+    ) => ConductAverage['values'],
   ): Promise<void> {
-    const row = await this.averages.findOne({
-      where: { congregationId, eventType: kind, measure },
+    await this.averages.manager.transaction(async (m: EntityManager) => {
+      const repo = m.getRepository(ConductAverage);
+      for (const measure of MEASURES) {
+        if (create) {
+          await m.query(
+            `INSERT INTO conduct_averages (congregation_id, event_type, measure, "values")
+             VALUES ($1, $2, $3, '[]'::jsonb)
+             ON CONFLICT (congregation_id, event_type, measure) DO NOTHING`,
+            [congregationId, kind, measure],
+          );
+        }
+        const row = await repo.findOne({
+          where: { congregationId, eventType: kind, measure },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!row) continue;
+        const values = next(row.values, measure);
+        if (JSON.stringify(values) === JSON.stringify(row.values)) continue;
+        row.values = values;
+        await repo.save(row);
+      }
     });
-    const values = withWeek(row?.values ?? [], week, v);
-    if (row) {
-      row.values = values;
-      await this.averages.save(row);
-    } else if (values.length) {
-      await this.averages.save(
-        this.averages.create({
-          congregationId,
-          eventType: kind,
-          measure,
-          values,
-        }),
-      );
-    }
   }
 
   /** The middle number of each measure, and how many meetings stand behind. */

@@ -9,9 +9,12 @@ import {
 } from 'typeorm';
 import { Congregation } from './congregation.entity';
 
-/** One meeting's number for a measure, by the week it belongs to. */
+/**
+ * One meeting's number for a measure. `week` only while that meeting's result
+ * may still be replaced or taken back; after that it is dropped (sealWeek).
+ */
 export interface ConductAverageValue {
-  week: string;
+  week?: string;
   v: number;
 }
 

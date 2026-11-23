@@ -94,6 +94,7 @@ function build(
   const averages = {
     record: jest.fn(async () => undefined),
     forget: jest.fn(async () => undefined),
+    seal: jest.fn(async () => undefined),
   };
   return {
     service: new ConductRunsService(
@@ -349,6 +350,29 @@ describe('the nightly deletion', () => {
     expect(runs.delete).toHaveBeenCalledWith(['old']);
   });
 
+  it("a deleted result's numbers lose their week; a kept one's keep it", async () => {
+    const { service, runs, averages } = build();
+    runs.find.mockResolvedValue([
+      {
+        id: 'old',
+        congregationId: 'c1',
+        weekStartDate: WEEK,
+        eventType: 'midweek',
+        savedAt: new Date('2026-10-14T19:45:00Z'),
+      },
+      {
+        id: 'new',
+        congregationId: 'c1',
+        weekStartDate: '2026-10-19',
+        eventType: 'midweek',
+        savedAt: new Date('2026-10-21T19:45:00Z'),
+      },
+    ]);
+    await service.deleteExpired(new Date('2026-10-19T03:50:00Z'));
+    expect(averages.seal).toHaveBeenCalledTimes(1);
+    expect(averages.seal).toHaveBeenCalledWith('c1', WEEK, 'midweek');
+  });
+
   it('deletes nothing while every run is within its days', async () => {
     const { service, runs } = build();
     runs.find.mockResolvedValue([
@@ -390,6 +414,15 @@ describe('what the result teaches the forecast (R-76)', () => {
     // The week of «today» (21.10) — a wipe is allowed until its day is over.
     await service.drop(user(UserRole.ADMIN, 'admin'), '2026-10-19');
     expect(averages.forget).toHaveBeenCalled();
+  });
+
+  it('the averages failing does not fail a result already saved', async () => {
+    const { service, averages, runs } = build({ keeper: KEEPER_PUB });
+    averages.record.mockRejectedValueOnce(new Error('duplicate key'));
+    await expect(
+      service.save(user(UserRole.PUBLISHER, KEEPER_USER), dto as never),
+    ).resolves.toBeTruthy();
+    expect(runs.save).toHaveBeenCalled();
   });
 
   it('a refused result teaches nothing', async () => {
