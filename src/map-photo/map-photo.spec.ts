@@ -139,6 +139,8 @@ describe('GET /map-photo/:z/:x/:y.jpg', () => {
     expect(r.status).toBe(200);
     expect(r.headers['content-type']).toBe('image/jpeg');
     expect(r.headers['cache-control']).toBe('public, max-age=604800');
+    expect(r.headers['access-control-allow-origin']).toBe('*');
+    expect(r.headers['access-control-allow-credentials']).toBeUndefined();
     expect(Buffer.from(r.body).equals(jpeg(10))).toBe(true);
   });
 
@@ -157,5 +159,58 @@ describe('GET /map-photo/:z/:x/:y.jpg', () => {
     );
     expect(r.status).toBe(502);
     expect(r.headers['cache-control']).toBe('no-store');
+  });
+});
+
+describe('MapPhotoService — the Land kept from harm', () => {
+  it('asks the Land at most 12 times at once, however many wait', async () => {
+    const s = new MapPhotoService();
+    let now = 0,
+      most = 0;
+    s.fetcher = (async () => {
+      now++;
+      most = Math.max(most, now);
+      await new Promise((r) => setTimeout(r, 5));
+      now--;
+      return answer(jpeg());
+    }) as Fetcher;
+    await Promise.all(
+      Array.from({ length: 40 }, (_, i) =>
+        s.tile({ z: 16, x: 34000 + i, y: 21712 }),
+      ),
+    );
+    expect(most).toBe(12);
+  });
+
+  it('after five failures in a row it stops asking for a minute, then asks again', async () => {
+    const s = new MapPhotoService();
+    let clock = 1_000_000;
+    s.now = () => clock;
+    let calls = 0;
+    s.fetcher = (async () => {
+      calls++;
+      return answer(Buffer.from('x'), 'text/xml');
+    }) as Fetcher;
+    for (let i = 0; i < 5; i++) await s.tile({ z: 16, x: 34000 + i, y: 21712 });
+    expect(calls).toBe(5);
+    expect(await s.tile({ z: 16, x: 34100, y: 21712 })).toBeNull();
+    expect(calls).toBe(5);
+    clock += 61_000;
+    s.fetcher = (async () => {
+      calls++;
+      return answer(jpeg());
+    }) as Fetcher;
+    expect(await s.tile({ z: 16, x: 34101, y: 21712 })).not.toBeNull();
+    expect(calls).toBe(6);
+  });
+
+  it('a body announced too large is not read', async () => {
+    const s = new MapPhotoService();
+    s.fetcher = (async () =>
+      new Response(new Uint8Array(jpeg()), {
+        status: 200,
+        headers: { 'content-type': 'image/jpeg', 'content-length': '9000000' },
+      })) as Fetcher;
+    expect(await s.tile({ z: 16, x: 34191, y: 21712 })).toBeNull();
   });
 });

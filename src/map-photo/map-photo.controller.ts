@@ -36,8 +36,13 @@ export class MapPhotoController {
       return;
     }
     // A photograph of the Land changes once in a few years: let browsers and
-    // the edge keep it a week.
+    // the edge keep it a week. The same answer for every page that asks — a
+    // copy kept by the edge from a request without Origin would otherwise
+    // lack the CORS header and blank the map for a week (review, 23 Nov 2026).
     res.setHeader('Cache-Control', 'public, max-age=604800');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.removeHeader('Access-Control-Allow-Credentials');
+    res.removeHeader('Vary');
     res.setHeader('Content-Type', 'image/jpeg');
     res.setHeader('X-Robots-Tag', 'noindex');
     res.status(200).end(body);
