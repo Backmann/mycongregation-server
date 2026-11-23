@@ -207,6 +207,7 @@ export class MwbImportService {
         synthetic: p.partTitle == null,
         lesson: p.lesson,
         setting: p.setting,
+        text: p.partText,
       }));
       const summary = await this.importWeek(
         congregationId,
@@ -489,13 +490,14 @@ export class MwbImportService {
         summary.updated++;
         overall.partsUpdated++;
       } else {
-        // Already filled — skip; only the lesson and the setting follow the
-        // file: nobody types them, and the first import may have lost the
-        // lesson with the end of a title cut at 120 characters.
+        // Already filled — skip; only what nobody types follows the file: the
+        // lesson, the setting and the part's whole text — and the title, while
+        // it is still the one the import wrote (a title cut at 120 characters
+        // mid-word becomes the one cut at a word, 23 November 2026).
         // Written as they are, without touching updated_at: a programme
         // notice waits for the last real change (programme-notice), and a
         // lesson nobody chose is none.
-        const change = lessonChange(existingForPart, part);
+        const change = assignedChange(existingForPart, part, partTitle);
         if (change) {
           await this.assignmentsRepo.update(
             { id: existingForPart.id },
@@ -608,8 +610,51 @@ function lessonChange(
     : next;
 }
 
-/** The same onto a row about to be saved anyway. */
+/** The part's whole text (23 November 2026): a new one in, never wiped. */
+function textChange(
+  row: Assignment,
+  part: ParsedPart,
+): Pick<Assignment, 'partText'> | null {
+  const text = part.text?.trim() || null;
+  if (part.text === undefined || text === null) return null;
+  return text === (row.partText ?? null) ? null : { partText: text };
+}
+
+/**
+ * On a part already assigned: the lesson, the setting, the whole text — and
+ * the title, only while it is still the import's own.
+ */
+function assignedChange(
+  row: Assignment,
+  part: ParsedPart,
+  partTitle: string | null,
+): Partial<
+  Pick<
+    Assignment,
+    'lesson' | 'setting' | 'partText' | 'partTitle' | 'importedTitle'
+  >
+> | null {
+  const title =
+    part.text !== undefined &&
+    partTitle &&
+    row.importedTitle != null &&
+    row.partTitle === row.importedTitle &&
+    row.partTitle !== partTitle
+      ? { partTitle, importedTitle: partTitle }
+      : null;
+  const change = {
+    ...(lessonChange(row, part) ?? {}),
+    ...(textChange(row, part) ?? {}),
+    ...(title ?? {}),
+  };
+  return Object.keys(change).length > 0 ? change : null;
+}
+
+/** The same onto a row about to be saved anyway (its title is the caller's). */
 function fromFile(row: Assignment, part: ParsedPart): void {
-  const change = lessonChange(row, part);
-  if (change) Object.assign(row, change);
+  const change = {
+    ...(lessonChange(row, part) ?? {}),
+    ...(textChange(row, part) ?? {}),
+  };
+  Object.assign(row, change);
 }

@@ -166,6 +166,14 @@ export class Assignment {
   @Column({ type: 'varchar', length: 80, nullable: true })
   lesson!: string | null;
 
+  /**
+   * The part's whole text from the workbook (23 November 2026): the title
+   * keeps its beginning, cut at a word; this keeps all of it. From the file
+   * only, like the lesson.
+   */
+  @Column({ type: 'text', nullable: true })
+  partText!: string | null;
+
   /** A student part's setting: house | informal | public (student-part.ts). */
   @Column({ type: 'varchar', length: 16, nullable: true })
   setting!: string | null;

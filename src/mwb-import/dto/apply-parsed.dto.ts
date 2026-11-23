@@ -46,6 +46,15 @@ export class ApplyParsedPartDto {
   @MaxLength(80)
   lesson?: string | null;
 
+  /**
+   * The part's whole text (the title keeps its beginning). Up to 688
+   * characters in the workbooks of 2027; 2000 is the room left.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  partText?: string | null;
+
   /** A student part's setting (student-part.ts SETTINGS). */
   @IsOptional()
   @IsIn([...SETTINGS])

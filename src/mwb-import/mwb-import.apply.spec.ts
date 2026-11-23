@@ -384,6 +384,116 @@ describe('MwbImportService.applyParsed (client-parsed workbook)', () => {
     });
   });
 
+  describe("a part's whole text (23 November 2026)", () => {
+    const FULL =
+      'ПРОПОВЕДЬ ПО ДОМАМ. Придуманное задание, длиннее ста двадцати знаков: предложи человеку вымышленную статью и спроси, что он думает о придуманном вопросе. (lmd урок 3, пункт 3)';
+    const SHORT =
+      'Начинайте разговор: ПРОПОВЕДЬ ПО ДОМАМ. Придуманное задание, длиннее ста двадцати знаков: предложи человеку вымышленную…';
+    const CUT =
+      'Начинайте разговор: ПРОПОВЕДЬ ПО ДОМАМ. Придуманное задание, длиннее ста двадцати знаков: предложи человеку вымышленную стать';
+    const withText = (): ApplyParsedDto => {
+      const dto = weekDto();
+      dto.weeks[0].parts.push({
+        partKey: 'apply_yourself_1',
+        partOrder: 6,
+        partTitle: SHORT,
+        partDurationMin: 3,
+        partText: FULL,
+      });
+      return dto;
+    };
+    const saved = (key: string) =>
+      repo.save.mock.calls.map((c) => c[0]).find((a) => a.partKey === key);
+
+    it('THE CASE: a new part keeps all of it beside its short title', async () => {
+      await service.applyParsed('cong-1', withText());
+      expect(saved('apply_yourself_1')).toMatchObject({
+        partTitle: SHORT,
+        partText: FULL,
+      });
+    });
+
+    it('an assigned part takes the whole text, and its cut title becomes the short one', async () => {
+      repo.find.mockResolvedValue([
+        {
+          id: 'a-6',
+          partKey: 'apply_yourself_1',
+          publisherId: 'pub-1',
+          partTitle: CUT,
+          importedTitle: CUT,
+          partText: null,
+        },
+      ]);
+      const result = await service.applyParsed('cong-1', withText());
+      const [, fields] = repo.update.mock.calls[0] as [
+        unknown,
+        Record<string, unknown>,
+      ];
+      expect(fields).toMatchObject({
+        partText: FULL,
+        partTitle: SHORT,
+        importedTitle: SHORT,
+      });
+      expect(fields).not.toHaveProperty('publisherId');
+      expect(result.lessonsSet).toBe(1);
+    });
+
+    it('a title someone changed stays; the whole text still comes', async () => {
+      repo.find.mockResolvedValue([
+        {
+          id: 'a-6',
+          partKey: 'apply_yourself_1',
+          publisherId: 'pub-1',
+          partTitle: 'Своё название',
+          importedTitle: CUT,
+          partText: null,
+        },
+      ]);
+      await service.applyParsed('cong-1', withText());
+      const [, fields] = repo.update.mock.calls[0] as [
+        unknown,
+        Record<string, unknown>,
+      ];
+      expect(fields).toMatchObject({ partText: FULL });
+      expect(fields).not.toHaveProperty('partTitle');
+    });
+
+    it('an app that sends no text changes neither text nor title', async () => {
+      const dto = withText();
+      delete dto.weeks[0].parts.at(-1)!.partText;
+      repo.find.mockResolvedValue([
+        {
+          id: 'a-6',
+          partKey: 'apply_yourself_1',
+          publisherId: 'pub-1',
+          partTitle: CUT,
+          importedTitle: CUT,
+          partText: 'было',
+        },
+      ]);
+      await service.applyParsed('cong-1', dto);
+      expect(repo.update).not.toHaveBeenCalled();
+    });
+
+    it('an empty text does not wipe the one stored', async () => {
+      const dto = withText();
+      dto.weeks[0].parts.at(-1)!.partText = '';
+      dto.weeks[0].parts.at(-1)!.partTitle = CUT;
+      repo.find.mockResolvedValue([
+        {
+          id: 'a-6',
+          partKey: 'apply_yourself_1',
+          publisherId: 'pub-1',
+          partTitle: CUT,
+          importedTitle: CUT,
+          partText: FULL,
+        },
+      ]);
+      await service.applyParsed('cong-1', dto);
+      expect(repo.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe('MwbImportService.applyParsed — a meeting the week does not hold', () => {
     /**
      * The Memorial takes a meeting away, and so does a convention or an event

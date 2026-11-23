@@ -189,6 +189,7 @@ export const PLAN: Record<string, TablePlan> = {
     {
       part_title: 'scrub',
       imported_title: 'scrub',
+      part_text: 'scrub',
       speaker_name: 'full',
       speaker_congregation: 'label:Собрание',
     },
