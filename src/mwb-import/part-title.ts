@@ -32,6 +32,11 @@ export interface ParsedPart {
    */
   lesson?: string | null;
   setting?: string | null;
+  /**
+   * The part's whole text, as the workbook gives it — the title keeps only
+   * its beginning (23 November 2026). Undefined from an app before that day.
+   */
+  text?: string | null;
 }
 
 /**

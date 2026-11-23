@@ -69,6 +69,11 @@ export interface MyAssignmentItem {
   slotIndex?: number;
   /** Part key for meeting items (lets the client tailor display). */
   partKey?: string;
+  /**
+   * The part's whole text from the workbook, when its title is the import's
+   * own and keeps only the beginning of it (23 November 2026).
+   */
+  text?: string;
   /** Program order of the part within the meeting (for sorting). */
   partOrder?: number;
   location?: string;
@@ -569,6 +574,10 @@ export class MeService {
         eventType: a.eventType,
         label: a.partTitle || a.partKey,
         partKey: a.partKey,
+        // A title someone changed by hand is his: the file's text is not shown over it.
+        ...(a.partText && a.partTitle && a.partTitle === a.importedTitle
+          ? { text: a.partText }
+          : {}),
         partOrder: a.partOrder,
         asAssistant: a.assistantPublisherId === pid,
         partnerName: otherId ? partnerName.get(otherId) : undefined,
