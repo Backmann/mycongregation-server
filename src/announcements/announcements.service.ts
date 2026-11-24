@@ -26,6 +26,7 @@ import {
   AnnouncementKind,
   chairmanPart,
   isWriter,
+  keptFromWeek,
 } from './announcement-rights';
 
 /** One announcement as a route answers it. */
@@ -87,6 +88,15 @@ const UNREAD_BACK_DAYS = 21;
 const MINE_AHEAD_DAYS = 14;
 const MAX_WEEKS = 8;
 
+/**
+ * The day a meeting is actually held, or null: a convention week, the
+ * Memorial or an event standing in its place leave it without a day, even
+ * where the settings would name one (week-rules `meetings`).
+ */
+export function heldOn(r: WeekRules, kind: string): string | null {
+  return r.meetings.find((m) => m.kind === kind)?.date ?? null;
+}
+
 function isKind(k: string): k is AnnouncementKind {
   return (ANNOUNCEMENT_KINDS as readonly string[]).includes(k);
 }
@@ -112,7 +122,14 @@ function byPosition(a: MeetingAnnouncement, b: MeetingAnnouncement): number {
 
 /** Monday of a week asked for: refuses anything that is not a Monday. */
 export function assertMonday(week: string): string {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(week ?? '') || mondayOf(week) !== week) {
+  let monday: string | null = null;
+  try {
+    monday = /^\d{4}-\d{2}-\d{2}$/.test(week ?? '') ? mondayOf(week) : null;
+  } catch {
+    // «2026-13-01»: no such day.
+    monday = null;
+  }
+  if (monday === null || monday !== week) {
     throw new BadRequestException(
       refusal('WEEK_NOT_MONDAY', 'weekStartDate must be a Monday.'),
     );
@@ -179,6 +196,7 @@ export class AnnouncementsService {
         status: In([AssignmentStatus.DRAFT, AssignmentStatus.PUBLISHED]),
       },
       select: {
+        id: true,
         weekStartDate: true,
         eventType: true,
         partKey: true,
@@ -201,13 +219,22 @@ export class AnnouncementsService {
     for (const p of parts) {
       const kind: AnnouncementKind =
         p.partKey === chairmanPart('weekend') ? 'weekend' : 'midweek';
+      // The chairman's part of THIS meeting only — the same filter the
+      // conduct mode uses.
+      if (p.eventType !== kind) continue;
       const c = p.publisherId ? card.get(p.publisherId) : undefined;
       if (!c) continue;
-      out.set(`${p.weekStartDate}|${kind}`, {
+      const key = `${p.weekStartDate}|${kind}`;
+      const seen = out.get(key);
+      const published = p.status === AssignmentStatus.PUBLISHED;
+      // Two rows for one meeting (nothing in the schema forbids it): the
+      // published one is the one people know of, so it wins.
+      if (seen && (seen.published || !published)) continue;
+      out.set(key, {
         userId: c.userId ?? null,
         firstName: c.firstName,
         lastName: c.lastName,
-        published: p.status === AssignmentStatus.PUBLISHED,
+        published,
       });
     }
     return out;
@@ -283,7 +310,8 @@ export class AnnouncementsService {
     const unread: UnreadPast[] = [];
     for (const a of rows) {
       if (a.readAt || a.dismissedAt || !isKind(a.eventType)) continue;
-      const date = rules.get(a.weekStartDate)?.dateOf(a.eventType) ?? null;
+      const r = rules.get(a.weekStartDate);
+      const date = r ? heldOn(r, a.eventType) : null;
       if (!date || date >= today) continue;
       if (date < addDaysISO(today, -UNREAD_BACK_DAYS)) continue;
       unread.push({
@@ -357,8 +385,8 @@ export class AnnouncementsService {
     return {
       weekStartDate: week,
       kind,
-      date: r.dateOf(kind),
-      time: r.timeOf(kind),
+      date: heldOn(r, kind),
+      time: heldOn(r, kind) ? r.timeOf(kind) : null,
       chairman: null,
       items: rows.sort(byPosition).map(view),
     };
@@ -388,9 +416,11 @@ export class AnnouncementsService {
         ),
         status: AssignmentStatus.PUBLISHED,
       },
-      select: { weekStartDate: true, partKey: true },
+      select: { weekStartDate: true, partKey: true, eventType: true },
     });
     if (!parts.length) return [];
+    const until = addDaysISO(today, MINE_AHEAD_DAYS);
+    const seenMeeting = new Set<string>();
     const weeks = [...new Set(parts.map((p) => p.weekStartDate))];
     const rules = await this.weekRules.forWeeks(congregationId, weeks);
     const rows = await this.repo.find({
@@ -400,10 +430,12 @@ export class AnnouncementsService {
     for (const p of parts) {
       const kind: AnnouncementKind =
         p.partKey === chairmanPart('weekend') ? 'weekend' : 'midweek';
+      if (p.eventType !== kind) continue;
+      if (seenMeeting.has(`${p.weekStartDate}|${kind}`)) continue;
+      seenMeeting.add(`${p.weekStartDate}|${kind}`);
       const r = rules.get(p.weekStartDate)!;
-      const date = r.dateOf(kind);
-      if (!date || date < today) continue;
-      if (!r.meetings.some((m) => m.kind === kind)) continue;
+      const date = heldOn(r, kind);
+      if (!date || date < today || date > until) continue;
       out.push({
         weekStartDate: p.weekStartDate,
         kind,
@@ -443,7 +475,7 @@ export class AnnouncementsService {
     user: AuthenticatedUser,
     a: MeetingAnnouncement,
     action: 'CREATE' | 'UPDATE' | 'DELETE',
-    what: string,
+    extra: Record<string, true> = {},
   ): Promise<void> {
     try {
       // Facts only: the words stay in the announcement, which is gone after
@@ -455,10 +487,10 @@ export class AnnouncementsService {
         action,
         actorUserId: user.id,
         detail: {
-          what,
           weekStartDate: a.weekStartDate,
           eventType: a.eventType,
           ...(a.isLetter ? { letter: true } : {}),
+          ...extra,
         },
       });
     } catch {
@@ -504,6 +536,14 @@ export class AnnouncementsService {
         refusal('INVALID_FIELD', 'Text is empty.', { field: 'text' }),
       );
     const congregationId = user.congregationId;
+    if (week < keptFromWeek(await this.clock.todayFor(congregationId))) {
+      throw new BadRequestException(
+        refusal(
+          'ANNOUNCEMENT_WEEK_GONE',
+          'That week is past the time announcements are kept.',
+        ),
+      );
+    }
     const position = await this.nextPosition(
       congregationId,
       week,
@@ -535,7 +575,7 @@ export class AnnouncementsService {
       }
       throw e;
     }
-    await this.journal(user, saved, 'CREATE', 'created');
+    await this.journal(user, saved, 'CREATE');
     return view(saved);
   }
 
@@ -556,7 +596,7 @@ export class AnnouncementsService {
     }
     if (dto.isLetter !== undefined) a.isLetter = dto.isLetter;
     const saved = await this.repo.save(a);
-    await this.journal(user, saved, 'UPDATE', 'edited');
+    await this.journal(user, saved, 'UPDATE');
     return view(saved);
   }
 
@@ -597,7 +637,7 @@ export class AnnouncementsService {
     await this.assertWriter(user);
     const a = await this.own(user, id);
     await this.repo.remove({ ...a });
-    await this.journal(user, a, 'DELETE', 'deleted');
+    await this.journal(user, a, 'DELETE');
   }
 
   /** Ticked as read aloud — by the chairman of that meeting, or a writer. */
@@ -607,11 +647,19 @@ export class AnnouncementsService {
     read: boolean,
   ): Promise<AnnouncementView> {
     const a = await this.own(user, id);
-    if (!isKind(a.eventType))
+    // Whoever may not read it is told it is not there — the same answer as
+    // for an id that does not exist, so an id gives nothing away.
+    if (
+      !isKind(a.eventType) ||
+      !(
+        (await this.mayWrite(user)) ||
+        (await this.isChairmanOf(user, a.weekStartDate, a.eventType))
+      )
+    ) {
       throw new NotFoundException(
         refusal('ANNOUNCEMENT_NOT_FOUND', 'Announcement not found.'),
       );
-    await this.assertReader(user, a.weekStartDate, a.eventType);
+    }
     a.readAt = read ? new Date() : null;
     a.readByUserId = read ? user.id : null;
     return view(await this.repo.save(a));
@@ -634,12 +682,23 @@ export class AnnouncementsService {
       );
     }
     const a = await this.own(user, id);
+    const today = await this.clock.todayFor(user.congregationId);
+    const target = await this.weekRules.forWeek(user.congregationId, week);
+    const targetDate = heldOn(target, dto.eventType);
+    if (!targetDate || targetDate < today) {
+      throw new BadRequestException(
+        refusal(
+          'ANNOUNCEMENT_MEETING_NOT_AHEAD',
+          'Announcements move on to a meeting still to come.',
+        ),
+      );
+    }
     if (!a.carriedFrom && isKind(a.eventType)) {
       const r = await this.weekRules.forWeek(
         user.congregationId,
         a.weekStartDate,
       );
-      a.carriedFrom = r.dateOf(a.eventType);
+      a.carriedFrom = heldOn(r, a.eventType);
     }
     a.position = await this.nextPosition(
       user.congregationId,
@@ -652,7 +711,7 @@ export class AnnouncementsService {
     a.readByUserId = null;
     a.dismissedAt = null;
     const saved = await this.repo.save(a);
-    await this.journal(user, saved, 'UPDATE', 'carried');
+    await this.journal(user, saved, 'UPDATE', { carried: true });
     return view(saved);
   }
 

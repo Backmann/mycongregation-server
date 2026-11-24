@@ -123,6 +123,19 @@ export interface CountedRule {
 
 export type RetentionRule = DatedRule | SoftDeletedRule | CountedRule;
 
+/** Announcements of weeks before `before` — the removal, not yet switched on. */
+export async function deleteAnnouncementsBefore(
+  ds: DataSource,
+  congregationId: string,
+  before: string,
+): Promise<number> {
+  const res = (await ds.query(
+    `DELETE FROM meeting_announcements WHERE congregation_id = $1 AND week_start_date < $2::date`,
+    [congregationId, before],
+  )) as [unknown, number];
+  return res[1] ?? 0;
+}
+
 const SCHEDULE =
   '§19: «Расписание встреч и список назначений — хранить не следует»; ' +
   'решение 31.10.2026 — 12 месяцев, ради очерёдности';
@@ -342,14 +355,9 @@ export const RETENTION_RULES: RetentionRule[] = [
           )
         )[0]?.n ?? 0,
       ),
-    apply: async (ds, congregationId, before) => {
-      const r = await ds.query(
-        `DELETE FROM meeting_announcements WHERE congregation_id = $1 AND week_start_date < $2::date`,
-        [congregationId, before],
-      );
-      // pg returns [rows, count] for a DELETE through TypeORM's query().
-      return Array.isArray(r) && typeof r[1] === 'number' ? r[1] : 0;
-    },
+    // Counting only, as every new rule begins (retention.service.ts): the
+    // removal, deleteAnnouncementsBefore above, is switched on here once the
+    // counts have been seen on the live data.
   },
 
   // «Deleted» rows stay in the table so a deletion can be undone. After

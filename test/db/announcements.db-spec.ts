@@ -1,5 +1,8 @@
 import { Harness, startHarness } from './harness';
-import { RETENTION_RULES } from '../../src/retention/retention-rules';
+import {
+  RETENTION_RULES,
+  deleteAnnouncementsBefore,
+} from '../../src/retention/retention-rules';
 import { AuditLog } from '../../src/entities/audit-log.entity';
 
 /**
@@ -163,7 +166,8 @@ describe('announcements (real database)', () => {
       await row((as) =>
         as.post(`/announcements/${a.body.id}/read`, { read: true }),
       ),
-    ).toEqual(ok([...WRITERS, 'chair'], 200));
+      // Not 403: an id says nothing to whoever may not read it.
+    ).toEqual(ok([...WRITERS, 'chair'], 200, 404));
     // Changing it stays with the writers.
     expect(
       await row((as) =>
@@ -318,20 +322,118 @@ describe('announcements (real database)', () => {
 
   it('gone 30 days after its week, and not a day before', async () => {
     const rule = RETENTION_RULES.find((r) => r.key === 'announcements');
-    if (!rule || rule.kind !== 'counted' || !rule.apply) {
+    if (!rule || rule.kind !== 'counted') {
       throw new Error('announcements rule missing');
     }
-    const old = await write('2020-01-06', 'midweek', 'Старое');
-    const kept = await write('2020-02-03', 'midweek', 'Ещё хранится');
+    // Weeks long gone cannot be written through the app; put in directly.
+    const put = async (week: string) =>
+      (
+        await h.sql<{ id: string }>(
+          `INSERT INTO meeting_announcements (congregation_id, week_start_date, event_type, text)
+           VALUES ($1, $2, 'midweek', 'старое') RETURNING id`,
+          [tenant, week],
+        )
+      )[0].id;
+    const old = await put('2020-01-06');
+    const kept = await put('2020-02-03');
     // Seen from 2020-03-08: Sunday 2020-02-09 is 28 days back — kept; the
     // week of 2020-01-06 ended 2020-01-12 — gone.
     const before = rule.keptFrom('2020-03-08');
     expect(await rule.count(h.db, tenant, before)).toBe(1);
-    expect(await rule.apply(h.db, tenant, before)).toBe(1);
+    // Counting only until switched on (retention.service.ts).
+    expect(rule.apply).toBeUndefined();
+    expect(await deleteAnnouncementsBefore(h.db, tenant, before)).toBe(1);
     const left = await h.sql<{ id: string }>(
       `SELECT id FROM meeting_announcements WHERE id = ANY($1)`,
-      [[old.body.id, kept.body.id]],
+      [[old, kept]],
     );
-    expect(left.map((r) => r.id)).toEqual([kept.body.id]);
+    expect(left.map((r) => r.id)).toEqual([kept]);
+  });
+
+  it('the rest of the writers\u2019 routes: nobody else', async () => {
+    const week = addDays(FAR, 42);
+    const mk = async () => (await write(week)).body.id as string;
+    const ids = Object.fromEntries(
+      await Promise.all(WHO.map(async (w) => [w, await mk()] as const)),
+    );
+    expect(
+      await row((as, w) =>
+        as.post(`/announcements/${ids[w]}/carry`, {
+          weekStartDate: WEEK,
+          eventType: 'midweek',
+        }),
+      ),
+    ).toEqual(ok(WRITERS, 200));
+    expect(
+      await row((as, w) => as.post(`/announcements/${ids[w]}/dismiss`)),
+    ).toEqual(ok(WRITERS, 204));
+    expect(await row((as, w) => as.delete(`/announcements/${ids[w]}`))).toEqual(
+      ok(WRITERS, 204),
+    );
+    const all = (
+      await h
+        .as('admin')
+        .get(`/announcements/meeting?week=${week}&kind=midweek`)
+    ).body.items.map((i: { id: string }) => i.id) as string[];
+    expect(
+      await row((as) =>
+        as.post('/announcements/order', {
+          weekStartDate: week,
+          eventType: 'midweek',
+          ids: all,
+        }),
+      ),
+    ).toEqual(ok(WRITERS, 200));
+  });
+
+  it('ticking one is not for anyone else, and does not tell whether it exists', async () => {
+    const a = await write(addDays(FAR, 49));
+    const r = await h
+      .as(login('pub'))
+      .post(`/announcements/${a.body.id}/read`, {
+        read: true,
+      });
+    expect(r.status).toBe(404);
+    expect(r.body.code).toBe('ANNOUNCEMENT_NOT_FOUND');
+  });
+
+  it('another congregation\u2019s announcement is not there for anybody here', async () => {
+    const [other] = await h.sql<{ id: string }>(
+      `INSERT INTO congregations (name, country, language, timezone) SELECT 'Другое собрание', country, language, timezone FROM congregations LIMIT 1 RETURNING id`,
+    );
+    const [foreign] = await h.sql<{ id: string }>(
+      `INSERT INTO meeting_announcements (congregation_id, week_start_date, event_type, text)
+       VALUES ($1, $2, 'midweek', 'чужое') RETURNING id`,
+      [other.id, FAR],
+    );
+    const as = h.as('admin');
+    expect(
+      (await as.patch(`/announcements/${foreign.id}`, { text: 'x' })).status,
+    ).toBe(404);
+    expect(
+      (await as.post(`/announcements/${foreign.id}/read`, { read: true }))
+        .status,
+    ).toBe(404);
+    expect((await as.delete(`/announcements/${foreign.id}`)).status).toBe(404);
+    const w = await as.get(`/announcements/weeks?from=${FAR}&count=1`);
+    expect(JSON.stringify(w.body)).not.toContain(foreign.id);
+  });
+
+  it('a day that does not exist, or a meeting already past, is refused plainly', async () => {
+    expect(
+      (await h.as('admin').get('/announcements/weeks?from=2026-13-01')).status,
+    ).toBe(400);
+    expect((await write('2026-13-01')).status).toBe(400);
+    const a = await write(FAR);
+    const past = await h.as('admin').post(`/announcements/${a.body.id}/carry`, {
+      weekStartDate: '2026-01-05',
+      eventType: 'midweek',
+    });
+    expect(past.status).toBe(400);
+    expect(past.body.code).toBe('ANNOUNCEMENT_MEETING_NOT_AHEAD');
+    // A week whose time is over is not written to.
+    const gone = await write('2020-01-06');
+    expect(gone.status).toBe(400);
+    expect(gone.body.code).toBe('ANNOUNCEMENT_WEEK_GONE');
   });
 });
