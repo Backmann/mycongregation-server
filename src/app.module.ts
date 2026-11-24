@@ -75,6 +75,7 @@ import { DevInfoModule } from './dev-info/dev-info.module';
 import { PublisherActivityModule } from './publisher-activity/publisher-activity.module';
 
 import { ClientErrorsModule } from './client-errors/client-errors.module';
+import { MapPhotoModule } from './map-photo/map-photo.module';
 @Module({
   imports: [
     ActivityFeedModule,
@@ -177,6 +178,8 @@ import { ClientErrorsModule } from './client-errors/client-errors.module';
     // script running flat out is stopped within the minute.
     // Failures met in the app, for the administrator (10 November 2026).
     ClientErrorsModule,
+    // The aerial photograph behind the map's «Фото» (R-67, 23 November 2026).
+    MapPhotoModule,
     ThrottlerModule.forRoot([
       { name: 'short', ttl: 10_000, limit: 60 },
       { name: 'long', ttl: 60_000, limit: 300 },
