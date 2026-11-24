@@ -8,6 +8,7 @@ import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 import { ExternalCongregation } from '../entities/external-congregation.entity';
 import { Territory } from '../entities/territory.entity';
 import { TerritoryNoCall } from '../entities/territory-no-call.entity';
+import { MeetingAnnouncement } from '../entities/meeting-announcement.entity';
 
 /**
  * Regression-protection for data-protection.md Phase 1.
@@ -157,5 +158,18 @@ describe('Encryption wiring — territories', () => {
 
   it('covers exactly the 3 territory fields', () => {
     expect(TERRITORY_FIELDS).toHaveLength(3);
+  });
+});
+
+// Announcements (R-03, 24 November 2026): kept whole, the council's delicate
+// ones included — so the text is never at rest in the clear.
+describe('Encryption wiring — announcements', () => {
+  it('MeetingAnnouncement.text uses encryptedTransformer', () => {
+    const column = getMetadataArgsStorage().columns.find(
+      (c) => c.target === MeetingAnnouncement && c.propertyName === 'text',
+    );
+    expect(column).toBeDefined();
+    const t = column?.options.transformer as ValueTransformer | undefined;
+    expect(t).toBe(encryptedTransformer);
   });
 });

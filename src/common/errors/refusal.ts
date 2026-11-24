@@ -403,6 +403,11 @@ export const REFUSAL_CODES = [
   'FOLDER_ANSWER_INVALID',
   'FOLDER_ANSWERS_ERASED',
   'FOLDER_PAGE2_INCOMPLETE',
+  // ---- announcements read at the meetings (24 November 2026) ----
+  'ANNOUNCEMENT_NOT_FOUND',
+  'ANNOUNCEMENT_CHAIRMAN_ONLY',
+  'ANNOUNCEMENT_ALREADY_ADDED',
+  'ANNOUNCEMENT_ORDER_INCOMPLETE',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];
