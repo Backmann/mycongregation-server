@@ -489,11 +489,43 @@ describe('CleaningRemindersService.forCongregation', () => {
     expect(general).toHaveLength(1);
     expect(general[0].users).toEqual(['u1', 'u2', 'u3']);
     expect(general[0].data.eventId).toBe('ev1');
+    // Asked of the events of that kind only, and not of removed ones.
+    const where = eventRepo.find.mock.calls[0][0].where as Record<
+      string,
+      unknown
+    >;
+    expect(where.type).toBe('general_cleaning');
+    expect(where.deletedAt).toBeDefined();
     // A second tick in the same window does not repeat it.
     await svc['forCongregation'](cong, new Date('2026-05-23T06:10:00Z'));
     expect(
       sends.filter((s) => s.data.type === 'cleaning_general_planned'),
     ).toHaveLength(1);
+  });
+
+  it('a general cleaning without an hour gets no «in two hours»', async () => {
+    const eventRepo = {
+      find: jest.fn(async () => [
+        { id: 'ev2', type: 'general_cleaning', date: '2026-05-23', time: null },
+      ]),
+    };
+    const { svc, sends } = makeSvc({
+      meetingSettingsRepo: {
+        find: jest.fn(async () => (settings ? [settings] : [])),
+      } as any,
+      cleaningRepo: cleaningRepoWith([]),
+      eventRepo,
+    });
+    for (const at of [
+      '2026-05-23T05:00:00Z',
+      '2026-05-23T06:00:00Z',
+      '2026-05-23T08:00:00Z',
+    ]) {
+      await svc['forCongregation'](cong, new Date(at));
+    }
+    expect(
+      sends.filter((s) => s.data.type === 'cleaning_general_planned'),
+    ).toHaveLength(0);
   });
 
   it('an old general slot in the cleaning says nothing any more', async () => {

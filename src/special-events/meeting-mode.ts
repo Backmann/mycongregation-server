@@ -19,6 +19,10 @@ const OWN_RULE_TYPES = new Set([
   'kingdom_ministry_school_elders',
   'kingdom_ministry_school_servants',
   'pioneer_special_meeting',
+  // The general cleaning changes no meeting (25 November 2026, R-09) — and
+  // its keeper, the cleaning coordinator, must not be able to call one off
+  // through it.
+  'general_cleaning',
 ]);
 
 /** Whether an event of this kind carries the three-way meeting answer. */

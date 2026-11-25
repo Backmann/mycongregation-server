@@ -136,6 +136,22 @@ describe('the general cleaning as an event (real database)', () => {
     expect(
       (await cleaner.delete(`/special-events/${theirs.body.id}`)).status,
     ).toBe(403);
+    // Nothing without a kind, and nobody else's brought back.
+    expect(
+      (
+        await cleaner.post('/special-events', {
+          title: 'Без вида',
+          date: '2033-04-23',
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (await h.as(login('bc')).delete(`/special-events/${theirs.body.id}`))
+        .status,
+    ).toBe(204);
+    expect(
+      (await cleaner.post(`/special-events/${theirs.body.id}/restore`)).status,
+    ).toBe(403);
     // His own goes, and comes back.
     expect(
       (await cleaner.delete(`/special-events/${mine.body.id}`)).status,
@@ -143,6 +159,34 @@ describe('the general cleaning as an event (real database)', () => {
     expect(
       (await cleaner.post(`/special-events/${mine.body.id}/restore`)).status,
     ).toBe(201);
+  });
+
+  it('a general cleaning never calls off or changes a meeting', async () => {
+    const r = await h.as(login('cleaner')).post('/special-events', {
+      ...event('general_cleaning', '2033-05-14'),
+      replacesMeeting: true,
+    });
+    expect(r.status).toBe(201);
+    const [saved] = await h.sql<{
+      meeting_mode: string;
+      replaces_meeting: boolean;
+    }>(
+      `SELECT meeting_mode, replaces_meeting FROM special_events WHERE id = $1`,
+      [r.body.id],
+    );
+    expect(saved).toEqual({ meeting_mode: 'usual', replaces_meeting: false });
+    const p = await h
+      .as(login('cleaner'))
+      .patch(`/special-events/${r.body.id}`, {
+        meetingMode: 'changed',
+        meetingTime: '12:00',
+      });
+    expect([200, 400]).toContain(p.status);
+    const [after] = await h.sql<{ meeting_mode: string }>(
+      `SELECT meeting_mode FROM special_events WHERE id = $1`,
+      [r.body.id],
+    );
+    expect(after.meeting_mode).toBe('usual');
   });
 
   it('the old general slot of the cleaning says where it went', async () => {
