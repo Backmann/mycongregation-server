@@ -36,6 +36,8 @@ import {
   namesKeptFrom,
 } from '../territories/territory-retention';
 import { User } from '../entities/user.entity';
+import { MeetingAnnouncement } from '../entities/meeting-announcement.entity';
+import { keptFromWeek } from '../announcements/announcement-rights';
 import { VisitingSpeaker } from '../entities/visiting-speaker.entity';
 
 /**
@@ -120,6 +122,19 @@ export interface CountedRule {
 }
 
 export type RetentionRule = DatedRule | SoftDeletedRule | CountedRule;
+
+/** Announcements of weeks before `before` — the removal, not yet switched on. */
+export async function deleteAnnouncementsBefore(
+  ds: DataSource,
+  congregationId: string,
+  before: string,
+): Promise<number> {
+  const res = (await ds.query(
+    `DELETE FROM meeting_announcements WHERE congregation_id = $1 AND week_start_date < $2::date`,
+    [congregationId, before],
+  )) as [unknown, number];
+  return res[1] ?? 0;
+}
 
 const SCHEDULE =
   '§19: «Расписание встреч и список назначений — хранить не следует»; ' +
@@ -318,6 +333,31 @@ export const RETENTION_RULES: RetentionRule[] = [
     keptFrom: requestsKeptFrom,
     count: countClosedRequestsBefore,
     apply: deleteClosedRequestsBefore,
+  },
+  // Announcements (R-03, 24 November 2026): kept whole and encrypted, then
+  // gone 30 days after their week — what was said aloud needs no archive.
+  {
+    kind: 'counted',
+    key: 'announcements',
+    what: 'Объявления на встречах старше 30 дней',
+    basis:
+      'Решение 24.11.2026 (R-03) — объявление удаляется через 30 дней ' +
+      'после недели встречи',
+    entity: MeetingAnnouncement,
+    does: 'delete',
+    keptFrom: keptFromWeek,
+    count: async (ds, congregationId, before) =>
+      Number(
+        (
+          await ds.query(
+            `SELECT COUNT(*)::int AS n FROM meeting_announcements WHERE congregation_id = $1 AND week_start_date < $2::date`,
+            [congregationId, before],
+          )
+        )[0]?.n ?? 0,
+      ),
+    // Counting only, as every new rule begins (retention.service.ts): the
+    // removal, deleteAnnouncementsBefore above, is switched on here once the
+    // counts have been seen on the live data.
   },
 
   // «Deleted» rows stay in the table so a deletion can be undone. After

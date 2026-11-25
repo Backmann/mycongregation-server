@@ -431,6 +431,11 @@ export const PLAN: Record<string, TablePlan> = {
   ),
   /** Addresses of householders who asked not to be called on. */
   territory_no_calls: 'skip',
+  /**
+   * Announcements read at the meetings (24 November 2026): the council's own
+   * words among them, encrypted, and gone after 30 days anyway — not copied.
+   */
+  meeting_announcements: 'skip',
   territory_settings: copy(
     'congregation_id verified_at verified_by_user_id map_built_at houses_built_at updated_at',
   ),
