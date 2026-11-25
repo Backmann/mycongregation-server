@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { SpecialEvent } from '../entities/special-event.entity';
 import { CleaningController } from './cleaning.controller';
 import { CleaningService } from './cleaning.service';
 import { CleaningRemindersService } from './cleaning-reminders.service';
@@ -21,6 +22,7 @@ import { MeetingAttendanceModule } from '../meeting-attendance/meeting-attendanc
     MeetingAttendanceModule,
     AuditLogModule,
     TypeOrmModule.forFeature([
+      SpecialEvent,
       CleaningAssignment,
       ServiceGroup,
       Publisher,

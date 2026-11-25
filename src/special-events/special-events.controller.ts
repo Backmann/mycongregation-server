@@ -73,22 +73,35 @@ export class SpecialEventsController {
     return this.service.findOneFor(tenantId, id, user);
   }
 
+  // The cleaning coordinator passes the guard for the general cleaning; the
+  // service lets him keep that kind only (assertKeeps, R-09).
   @Post()
   @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(ResponsibilityType.BODY_COORDINATOR)
-  create(@TenantId() tenantId: string, @Body() dto: CreateSpecialEventDto) {
-    return this.service.create(tenantId, dto);
+  @RequireResponsibility(
+    ResponsibilityType.BODY_COORDINATOR,
+    ResponsibilityType.CLEANING_COORDINATOR,
+  )
+  create(
+    @TenantId() tenantId: string,
+    @Body() dto: CreateSpecialEventDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.create(tenantId, dto, user);
   }
 
   @Patch(':id')
   @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(ResponsibilityType.BODY_COORDINATOR)
+  @RequireResponsibility(
+    ResponsibilityType.BODY_COORDINATOR,
+    ResponsibilityType.CLEANING_COORDINATOR,
+  )
   update(
     @TenantId() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateSpecialEventDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.update(tenantId, id, dto);
+    return this.service.update(tenantId, id, dto, user);
   }
 
   /**
@@ -113,7 +126,10 @@ export class SpecialEventsController {
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(ResponsibilityType.BODY_COORDINATOR)
+  @RequireResponsibility(
+    ResponsibilityType.BODY_COORDINATOR,
+    ResponsibilityType.CLEANING_COORDINATOR,
+  )
   remove(
     @TenantId() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -124,11 +140,15 @@ export class SpecialEventsController {
 
   @Post(':id/restore')
   @UseGuards(ResponsibilityGuard)
-  @RequireResponsibility(ResponsibilityType.BODY_COORDINATOR)
+  @RequireResponsibility(
+    ResponsibilityType.BODY_COORDINATOR,
+    ResponsibilityType.CLEANING_COORDINATOR,
+  )
   restore(
     @TenantId() tenantId: string,
     @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.restore(tenantId, id);
+    return this.service.restore(tenantId, id, user);
   }
 }

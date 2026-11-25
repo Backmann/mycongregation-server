@@ -133,6 +133,7 @@ function makeSvc(over: Partial<Record<string, any>> = {}) {
         );
       }),
     }) as any,
+    (over.eventRepo ?? { find: jest.fn(async () => []) }) as any,
   );
   return { svc, sends, inserted, push, logRepo, notifications };
 }
@@ -448,39 +449,71 @@ describe('CleaningRemindersService.forCongregation', () => {
     });
   });
 
-  it('pushes the WHOLE congregation 2h before the planned general cleaning', async () => {
-    // Планируем генеральную на сб 2026-05-23 10:00 Berlin; 2h до = 08:00 = 06:00Z.
-    const rows = [
-      {
-        slotType: CleaningSlotType.GENERAL,
-        serviceGroupId: null,
-        thoroughPlannedAt: '2026-05-23T08:00:00.000Z', // 10:00 Berlin
-      },
-    ];
+  it('pushes the WHOLE congregation 2h before the general cleaning event', async () => {
+    // The general cleaning is an event now (25 November 2026): Saturday
+    // 2026-05-23 at 10:00 Berlin; 2h before = 08:00 = 06:00Z.
+    const event = {
+      id: 'ev1',
+      type: 'general_cleaning',
+      date: '2026-05-23',
+      time: '10:00',
+      deletedAt: null,
+    };
     const everyone = [
       { userId: 'u1' },
       { userId: 'u2' },
       { userId: null },
       { userId: 'u3' },
     ];
+    const eventRepo = {
+      find: jest.fn(async ({ where }: { where: { date: string } }) =>
+        where.date === event.date ? [event] : [],
+      ),
+    };
     const { svc, sends } = makeSvc({
       meetingSettingsRepo: {
         find: jest.fn(async () => (settings ? [settings] : [])),
       } as any,
-      cleaningRepo: cleaningRepoWith(rows),
+      cleaningRepo: cleaningRepoWith([]),
       publisherRepo: { find: jest.fn(async () => everyone) } as any,
+      eventRepo,
     });
+    await svc['forCongregation'](cong, new Date('2026-05-23T05:30:00Z'));
+    expect(
+      sends.filter((s) => s.data.type === 'cleaning_general_planned'),
+    ).toHaveLength(0);
     await svc['forCongregation'](cong, new Date('2026-05-23T06:00:00Z'));
     const general = sends.filter(
       (s) => s.data.type === 'cleaning_general_planned',
     );
     expect(general).toHaveLength(1);
     expect(general[0].users).toEqual(['u1', 'u2', 'u3']);
-    // повторный тик в том же окне не дублирует
+    expect(general[0].data.eventId).toBe('ev1');
+    // A second tick in the same window does not repeat it.
     await svc['forCongregation'](cong, new Date('2026-05-23T06:10:00Z'));
     expect(
       sends.filter((s) => s.data.type === 'cleaning_general_planned'),
     ).toHaveLength(1);
+  });
+
+  it('an old general slot in the cleaning says nothing any more', async () => {
+    const rows = [
+      {
+        slotType: CleaningSlotType.GENERAL,
+        serviceGroupId: null,
+        thoroughPlannedAt: '2026-05-23T08:00:00.000Z',
+      },
+    ];
+    const { svc, sends } = makeSvc({
+      meetingSettingsRepo: {
+        find: jest.fn(async () => (settings ? [settings] : [])),
+      } as any,
+      cleaningRepo: cleaningRepoWith(rows),
+    });
+    await svc['forCongregation'](cong, new Date('2026-05-23T06:00:00Z'));
+    expect(
+      sends.filter((s) => s.data.type === 'cleaning_general_planned'),
+    ).toHaveLength(0);
   });
 
   it('does nothing when no group is assigned', async () => {

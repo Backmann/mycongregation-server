@@ -702,29 +702,9 @@ export class MeService {
       }
     }
 
-    // ---- General (annual) cleaning: whole congregation ----
-    const generalCleanings = await this.cleaningRepo
-      .createQueryBuilder('c')
-      .where('c.congregation_id = :tenantId', { tenantId })
-      .andWhere("c.slot_type = 'general'")
-      .andWhere('c.week_start_date BETWEEN :ws AND :we', {
-        ws: weekFloor,
-        we: horizon,
-      })
-      .orderBy('c.week_start_date', 'ASC')
-      .getMany();
-    for (const c of generalCleanings) {
-      items.push({
-        agendaId: `cleaning:${c.id}`,
-        kind: 'cleaning',
-        sortDate: c.weekStartDate,
-        weekStartDate: c.weekStartDate,
-        label: c.slotType,
-        ...(c.thoroughPlannedAt
-          ? { thoroughPlannedAt: c.thoroughPlannedAt.toISOString() }
-          : {}),
-      });
-    }
+    // The general cleaning was listed here for everybody until 25 November
+    // 2026; it is an event since (special-events R-09), shown with the
+    // congregation's events.
 
     // ---- Field service meetings (as conductor) ----
     // ---- Public witnessing (cart) assignments ----

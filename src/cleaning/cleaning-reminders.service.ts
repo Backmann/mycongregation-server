@@ -1,13 +1,15 @@
 import { versionForWeek } from '../common/week-rules';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { Congregation } from '../entities/congregation.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ReminderLog } from '../entities/reminder-log.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
+import { GENERAL_CLEANING_TYPE } from '../special-events/event-shape';
 import { CleaningSlotType } from '../common/enums/cleaning-slot-type.enum';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import {
@@ -116,6 +118,8 @@ export class CleaningRemindersService {
     private readonly push: PushNotificationsService,
     private readonly notifications: NotificationsService,
     private readonly meetingAttendance: MeetingAttendanceService,
+    @InjectRepository(SpecialEvent)
+    private readonly eventRepo: Repository<SpecialEvent>,
   ) {}
 
   /** Wall-clock parts for `now` in the given IANA timezone. */
@@ -262,9 +266,6 @@ export class CleaningRemindersService {
     const thoroughSlot = assignments.find(
       (a) => a.slotType === CleaningSlotType.THOROUGH,
     );
-    const generalSlot = assignments.find(
-      (a) => a.slotType === CleaningSlotType.GENERAL,
-    );
 
     // 1. After-meeting group: 2h before each meeting today.
     if (settings && afterSlot?.serviceGroupId) {
@@ -394,40 +395,49 @@ export class CleaningRemindersService {
       }
     }
 
-    // 4. General (annual) cleaning: 2h-before push to the WHOLE congregation
-    // once the coordinator has set a date and time for it.
-    if (generalSlot?.thoroughPlannedAt) {
-      const planned = CleaningRemindersService.localParts(
-        new Date(generalSlot.thoroughPlannedAt),
-        tz,
-      );
-      if (planned.date === p.date) {
-        const target = planned.minutesOfDay - LEAD_MINUTES;
-        if (
-          CleaningRemindersService.hits(target, p.minutesOfDay) &&
-          CleaningRemindersService.arrivesInTime(p, planned.minutesOfDay)
-        ) {
-          const key = `${weekStart}:general:${planned.date}`;
-          if (await this.claim(cong.id, 'cleaning_general_planned', key)) {
-            const everyone = await this.publisherRepo.find({
-              where: { congregationId: cong.id },
-            });
-            const users = everyone
-              .map((m) => m.userId)
-              .filter((id): id is string => Boolean(id));
-            await this.notifications.notify({
-              tenantId: cong.id,
-              userIds: users,
-              text: (l) => ({
-                title: STR[l].generalTitle,
-                body: STR[l].generalBody,
-              }),
-              kind: 'cleaning_general_planned',
-              data: { type: 'cleaning_general_planned', weekStart },
-            });
-          }
-        }
+    // 4. The general cleaning: 2h-before push to the WHOLE congregation.
+    // An event since 25 November 2026 (special-events R-09): its day and
+    // hour are the event's own, written as the congregation's wall clock.
+    const generals = await this.eventRepo.find({
+      where: {
+        congregationId: cong.id,
+        type: GENERAL_CLEANING_TYPE,
+        date: p.date,
+        deletedAt: IsNull(),
+      },
+    });
+    for (const e of generals) {
+      const hm = /^(\d{2}):(\d{2})$/.exec(e.time?.trim() ?? '');
+      // No hour, no «in two hours»: the evening-before notice still goes.
+      if (!hm) continue;
+      const startMin = Number(hm[1]) * 60 + Number(hm[2]);
+      const target = startMin - LEAD_MINUTES;
+      if (
+        !CleaningRemindersService.hits(target, p.minutesOfDay) ||
+        !CleaningRemindersService.arrivesInTime(p, startMin)
+      ) {
+        continue;
       }
+      const key = `event:${e.id}:${p.date}:${e.time}`;
+      if (!(await this.claim(cong.id, 'cleaning_general_planned', key))) {
+        continue;
+      }
+      const everyone = await this.publisherRepo.find({
+        where: { congregationId: cong.id },
+      });
+      const users = everyone
+        .map((m) => m.userId)
+        .filter((id): id is string => Boolean(id));
+      await this.notifications.notify({
+        tenantId: cong.id,
+        userIds: users,
+        text: (l) => ({
+          title: STR[l].generalTitle,
+          body: STR[l].generalBody,
+        }),
+        kind: 'cleaning_general_planned',
+        data: { type: 'cleaning_general_planned', eventId: e.id },
+      });
     }
   }
 

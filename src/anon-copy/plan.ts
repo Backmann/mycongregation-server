@@ -566,6 +566,7 @@ export const EVENT_TITLES: Record<string, string> = {
   circuit_overseer_visit: 'Визит районного старейшины',
   branch_representative_visit: 'Визит представителя филиала',
   circuit_assembly: 'Районный конгресс',
+  general_cleaning: 'Генеральная уборка',
   regional_convention: 'Региональный конгресс',
   memorial: 'Вечеря воспоминания',
   special_talk: 'Специальная речь',

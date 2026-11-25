@@ -529,24 +529,18 @@ export class AgendaService {
 
     // ── Cleaning: after a meeting that is held; the thorough one on its day
     const tz = await this.clock.timezoneOf(congregationId);
-    const cleanings = await this.ds.getRepository(CleaningAssignment).find({
-      where: [
-        ...(me.serviceGroupId
-          ? [
-              {
-                congregationId,
-                serviceGroupId: me.serviceGroupId,
-                weekStartDate: Between(firstWeek, to),
-              },
-            ]
-          : []),
-        {
-          congregationId,
-          slotType: CleaningSlotType.GENERAL,
-          weekStartDate: Between(firstWeek, to),
-        },
-      ],
-    });
+    // Only his group's: the general cleaning is an event since 25 November
+    // 2026 (R-09) and comes with the big events below. No group, no query —
+    // an empty `where` list would match every row of every congregation.
+    const cleanings = me.serviceGroupId
+      ? await this.ds.getRepository(CleaningAssignment).find({
+          where: {
+            congregationId,
+            serviceGroupId: me.serviceGroupId,
+            weekStartDate: Between(firstWeek, to),
+          },
+        })
+      : [];
     for (const c of cleanings) {
       const week = day(c.weekStartDate);
       if (c.slotType === CleaningSlotType.AFTER_MEETING) {
