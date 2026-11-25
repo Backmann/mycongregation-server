@@ -52,6 +52,7 @@ import {
 } from '../cart-weeks/cart-time';
 import { DUTY_NAMES, labelOf } from '../assignment-reminders/digest';
 import { AGENDA_WORDS, BIG_EVENT_TYPES } from './agenda-words';
+import { GENERAL_CLEANING_TYPE } from '../special-events/event-shape';
 import {
   INVITE_ONLY_TYPES,
   inviteesOf,
@@ -529,24 +530,18 @@ export class AgendaService {
 
     // ── Cleaning: after a meeting that is held; the thorough one on its day
     const tz = await this.clock.timezoneOf(congregationId);
-    const cleanings = await this.ds.getRepository(CleaningAssignment).find({
-      where: [
-        ...(me.serviceGroupId
-          ? [
-              {
-                congregationId,
-                serviceGroupId: me.serviceGroupId,
-                weekStartDate: Between(firstWeek, to),
-              },
-            ]
-          : []),
-        {
-          congregationId,
-          slotType: CleaningSlotType.GENERAL,
-          weekStartDate: Between(firstWeek, to),
-        },
-      ],
-    });
+    // Only his group's: the general cleaning is an event since 25 November
+    // 2026 (R-09) and comes with the big events below. No group, no query —
+    // an empty `where` list would match every row of every congregation.
+    const cleanings = me.serviceGroupId
+      ? await this.ds.getRepository(CleaningAssignment).find({
+          where: {
+            congregationId,
+            serviceGroupId: me.serviceGroupId,
+            weekStartDate: Between(firstWeek, to),
+          },
+        })
+      : [];
     for (const c of cleanings) {
       const week = day(c.weekStartDate);
       if (c.slotType === CleaningSlotType.AFTER_MEETING) {
@@ -570,7 +565,7 @@ export class AgendaService {
         }
         continue;
       }
-      // Thorough or general: only once a day is set for it.
+      // The thorough one: only once a day is set for it.
       if (!c.thoroughPlannedAt) continue;
       const at = new Date(c.thoroughPlannedAt);
       const p = localDateParts(at, tz);
@@ -584,10 +579,7 @@ export class AgendaService {
           date,
           start,
           end: plusMinutes(start, 120),
-          title:
-            c.slotType === CleaningSlotType.GENERAL
-              ? words.cleaningGeneral
-              : words.cleaningThorough,
+          title: words.cleaningThorough,
           place: rulesOf(mondayOf(date)).version?.address?.trim() || null,
         }),
       );
@@ -1002,7 +994,10 @@ export class AgendaService {
         base({
           id: `event:${e.id}`,
           kind: 'event',
-          scope: host ? 'mine' : 'event',
+          // The general cleaning is everybody's own work (25 November 2026):
+          // it stays in the calendar with the big events switched off, as
+          // the cleaning slot it was before did.
+          scope: host || e.type === GENERAL_CLEANING_TYPE ? 'mine' : 'event',
           date,
           endDate: many ? endDate : null,
           start,

@@ -410,6 +410,9 @@ export const REFUSAL_CODES = [
   'ANNOUNCEMENT_ORDER_INCOMPLETE',
   'ANNOUNCEMENT_MEETING_NOT_AHEAD',
   'ANNOUNCEMENT_WEEK_GONE',
+  // ---- the general cleaning is an event (25 November 2026) ----
+  'CLEANING_GENERAL_IS_EVENT',
+  'EVENT_GENERAL_CLEANING_ONLY',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];

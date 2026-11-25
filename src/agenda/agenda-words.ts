@@ -61,6 +61,7 @@ export const AGENDA_WORDS: Record<SupportedLanguage, AgendaWords> = {
     events: {
       regional_convention: 'Региональный конгресс',
       circuit_assembly: 'Районный конгресс',
+      general_cleaning: 'Генеральная уборка',
       circuit_overseer_visit: 'Посещение районного старейшины',
       branch_representative_visit: 'Посещение представителя филиала',
       memorial: 'Вечеря воспоминания',
@@ -97,6 +98,7 @@ export const AGENDA_WORDS: Record<SupportedLanguage, AgendaWords> = {
     events: {
       regional_convention: 'Regional convention',
       circuit_assembly: 'Circuit assembly',
+      general_cleaning: 'General cleaning',
       circuit_overseer_visit: 'Circuit overseer visit',
       branch_representative_visit: 'Branch representative visit',
       memorial: 'Memorial',
@@ -135,6 +137,7 @@ export const AGENDA_WORDS: Record<SupportedLanguage, AgendaWords> = {
     events: {
       regional_convention: 'Regionaler Kongress',
       circuit_assembly: 'Kreiskongress',
+      general_cleaning: 'Grundreinigung',
       circuit_overseer_visit: 'Besuch des Kreisaufsehers',
       branch_representative_visit: 'Besuch des Zweigvertreters',
       memorial: 'Gedächtnismahl',
@@ -154,4 +157,6 @@ export const BIG_EVENT_TYPES = [
   'circuit_overseer_visit',
   'branch_representative_visit',
   'memorial',
+  // The whole congregation cleans the hall (25 November 2026).
+  'general_cleaning',
 ] as const;

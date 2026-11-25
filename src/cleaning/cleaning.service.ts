@@ -129,11 +129,18 @@ export class CleaningService {
     congregationId: string,
     dto: SetCleaningSlotDto,
   ): Promise<CleaningAssignment> {
+    // The general cleaning is an event now (25 November 2026, special-events
+    // R-09): an app not yet updated is told where it went.
+    if (dto.slotType === CleaningSlotType.GENERAL) {
+      throw new BadRequestException(
+        refusal(
+          'CLEANING_GENERAL_IS_EVENT',
+          'The general cleaning is kept in the events now.',
+        ),
+      );
+    }
     const isThorough = dto.slotType === CleaningSlotType.THOROUGH;
-    const serviceGroupId =
-      dto.slotType === CleaningSlotType.GENERAL
-        ? null
-        : (dto.serviceGroupId ?? null);
+    const serviceGroupId = dto.serviceGroupId ?? null;
     const windows = isThorough
       ? CleaningService.normalizeWindows(dto.windows)
       : null;
@@ -240,39 +247,23 @@ export class CleaningService {
    * THOROUGH — the group-agreed day, for GENERAL — the congregation-wide
    * date/time driving the 2h-before push to everyone).
    */
+  /**
+   * The date and time of the general cleaning were set here until 25
+   * November 2026; it is an event since (special-events R-09). The route
+   * stays only to tell an app not yet updated where it went.
+   */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async planGeneral(
-    congregationId: string,
-    dto: PlanThoroughDto,
-    user: AuthenticatedUser,
+    _congregationId: string,
+    _dto: PlanThoroughDto,
+    _user: AuthenticatedUser,
   ): Promise<CleaningAssignment> {
-    const slot = await this.repo.findOne({
-      where: {
-        congregationId,
-        weekStartDate: dto.weekStartDate,
-        slotType: CleaningSlotType.GENERAL,
-      },
-    });
-    if (!slot) {
-      throw new NotFoundException(
-        'No general cleaning is scheduled for this week',
-      );
-    }
-
-    const plannedAt = dto.plannedAt ? new Date(dto.plannedAt) : null;
-    CleaningService.assertInsideWeek(plannedAt, dto.weekStartDate);
-
-    const allowed = await this.isCoordinatorOrAdmin(congregationId, user);
-    if (!allowed) {
-      throw new ForbiddenException(
-        refusal(
-          'CLEANING_GENERAL_FORBIDDEN',
-          'Only the cleaning coordinator can plan the general cleaning',
-        ),
-      );
-    }
-
-    slot.thoroughPlannedAt = plannedAt;
-    return this.repo.save(slot);
+    throw new BadRequestException(
+      refusal(
+        'CLEANING_GENERAL_IS_EVENT',
+        'The general cleaning is kept in the events now.',
+      ),
+    );
   }
 
   /** Throws if the planned datetime falls outside the assignment week. */
@@ -297,21 +288,6 @@ export class CleaningService {
         ),
       );
     }
-  }
-
-  private async isCoordinatorOrAdmin(
-    congregationId: string,
-    user: AuthenticatedUser,
-  ): Promise<boolean> {
-    if (user.role === UserRole.ADMIN) return true;
-    const holds = await this.responsibilityRepo.count({
-      where: {
-        congregationId,
-        userId: user.id,
-        type: ResponsibilityType.CLEANING_COORDINATOR,
-      },
-    });
-    return holds > 0;
   }
 
   private async canPlanThorough(

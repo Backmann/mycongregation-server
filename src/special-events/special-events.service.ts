@@ -35,7 +35,12 @@ import { settleMeeting } from './meeting-mode';
 import { inviteesOf } from './invitations';
 import { InvitationsService } from './invitations.service';
 import { SchoolAbsencesService } from './school-absences.service';
-import { assertEventShape, serviceYearOf } from './event-shape';
+import {
+  GENERAL_CLEANING_TYPE,
+  assertEventShape,
+  serviceYearOf,
+} from './event-shape';
+import { refusal } from '../common/errors/refusal';
 
 /** The fields the journal records for an event — the ones a reader can follow. */
 const JOURNAL_FIELDS = [
@@ -202,6 +207,35 @@ export class SpecialEventsService {
     if (!this.invitations || !(await this.plans(user))) return [];
     if (to < from) return [];
     return this.invitations.busy(tenantId, from.slice(0, 10), to.slice(0, 10));
+  }
+
+  /**
+   * WHO KEEPS AN EVENT OF THIS KIND (25 November 2026, R-09): the
+   * administrators and the coordinator of the body of elders every kind; the
+   * cleaning coordinator the general cleaning and nothing else. `before` is
+   * the kind the event has now (null for a new one), `after` the kind it will
+   * have: neither may be another's — so he cannot turn a cleaning into a
+   * convention, nor a convention into his cleaning to delete it.
+   */
+  async assertKeeps(
+    user: AuthenticatedUser,
+    before: string | null | undefined,
+    after: string | null | undefined,
+  ): Promise<void> {
+    if (await this.canManage(user)) return;
+    const own = (t: string | null | undefined) => t === GENERAL_CLEANING_TYPE;
+    const cleaner = await this.holds(user, [
+      ResponsibilityType.CLEANING_COORDINATOR,
+    ]);
+    if (cleaner && own(after) && (before === undefined || own(before))) {
+      return;
+    }
+    throw new ForbiddenException(
+      refusal(
+        'EVENT_GENERAL_CLEANING_ONLY',
+        'The cleaning coordinator keeps the general cleaning only.',
+      ),
+    );
   }
 
   /** Keeps the events — the controller's own guard, asked here for reads. */
@@ -480,7 +514,9 @@ export class SpecialEventsService {
   async create(
     tenantId: string,
     dto: CreateSpecialEventDto,
+    user?: AuthenticatedUser,
   ): Promise<SpecialEvent> {
+    if (user) await this.assertKeeps(user, undefined, dto.type ?? null);
     this.assertDates(dto.date, dto.endDate);
     assertEventShape(dto, null);
     await this.assertMemorial(tenantId, dto);
@@ -559,10 +595,18 @@ export class SpecialEventsService {
     tenantId: string,
     id: string,
     dto: UpdateSpecialEventDto,
+    user?: AuthenticatedUser,
   ): Promise<SpecialEvent> {
     const event = await this.findOne(tenantId, id);
     if (event.deletedAt) {
       throw new NotFoundException('Special event not found');
+    }
+    if (user) {
+      await this.assertKeeps(
+        user,
+        event.type ?? null,
+        dto.type !== undefined ? dto.type : event.type,
+      );
     }
     await assertAssignable(
       this.specialEventsRepo.manager,
@@ -801,6 +845,7 @@ export class SpecialEventsService {
     user: AuthenticatedUser,
   ): Promise<void> {
     const event = await this.findOne(tenantId, id);
+    await this.assertKeeps(user, event.type ?? null, event.type ?? null);
     const today = await this.clock.todayFor(tenantId);
     const over = lastDay(event) < today;
     if (over && user.role !== UserRole.ADMIN) {
@@ -834,8 +879,15 @@ export class SpecialEventsService {
     await this.absencesFollow(id);
   }
 
-  async restore(tenantId: string, id: string): Promise<SpecialEvent> {
+  async restore(
+    tenantId: string,
+    id: string,
+    user?: AuthenticatedUser,
+  ): Promise<SpecialEvent> {
     const found = await this.findOne(tenantId, id);
+    if (user) {
+      await this.assertKeeps(user, found.type ?? null, found.type ?? null);
+    }
     if (found.type === CIRCUIT_OVERSEER_VISIT_TYPE && found.deletedAt) {
       await this.assertVisitWeekFree(tenantId, found.date, found.id);
     }

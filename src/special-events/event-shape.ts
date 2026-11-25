@@ -24,8 +24,15 @@ export const EVENT_TYPES = [
   'kingdom_ministry_school_elders',
   'kingdom_ministry_school_servants',
   'pioneer_special_meeting',
+  // The general cleaning of the hall (25 November 2026, special-events R-09):
+  // the whole congregation's, so an event — kept by the cleaning coordinator
+  // too, and nowhere else since.
+  'general_cleaning',
   'other',
 ] as const;
+
+/** The general cleaning — the one kind the cleaning coordinator keeps. */
+export const GENERAL_CLEANING_TYPE = 'general_cleaning';
 
 const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const LINK = /^https?:\/\/\S+$/i;

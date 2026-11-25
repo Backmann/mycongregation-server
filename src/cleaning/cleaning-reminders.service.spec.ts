@@ -448,8 +448,9 @@ describe('CleaningRemindersService.forCongregation', () => {
     });
   });
 
-  it('pushes the WHOLE congregation 2h before the planned general cleaning', async () => {
-    // Планируем генеральную на сб 2026-05-23 10:00 Berlin; 2h до = 08:00 = 06:00Z.
+  it('never pushes about the general cleaning, even an old planned row (R-10)', async () => {
+    // The general cleaning is an event (R-09) and gets no «in 2 hours» push
+    // (R-10): the event's own notice and evening-before reminder are enough.
     const rows = [
       {
         slotType: CleaningSlotType.GENERAL,
@@ -457,30 +458,20 @@ describe('CleaningRemindersService.forCongregation', () => {
         thoroughPlannedAt: '2026-05-23T08:00:00.000Z', // 10:00 Berlin
       },
     ];
-    const everyone = [
-      { userId: 'u1' },
-      { userId: 'u2' },
-      { userId: null },
-      { userId: 'u3' },
-    ];
     const { svc, sends } = makeSvc({
       meetingSettingsRepo: {
         find: jest.fn(async () => (settings ? [settings] : [])),
       } as any,
       cleaningRepo: cleaningRepoWith(rows),
-      publisherRepo: { find: jest.fn(async () => everyone) } as any,
+      publisherRepo: {
+        find: jest.fn(async () => [{ userId: 'u1' }, { userId: 'u2' }]),
+      } as any,
     });
+    // 08:00 Berlin — exactly 2 hours before the planned start.
     await svc['forCongregation'](cong, new Date('2026-05-23T06:00:00Z'));
-    const general = sends.filter(
-      (s) => s.data.type === 'cleaning_general_planned',
-    );
-    expect(general).toHaveLength(1);
-    expect(general[0].users).toEqual(['u1', 'u2', 'u3']);
-    // повторный тик в том же окне не дублирует
-    await svc['forCongregation'](cong, new Date('2026-05-23T06:10:00Z'));
     expect(
       sends.filter((s) => s.data.type === 'cleaning_general_planned'),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
 
   it('does nothing when no group is assigned', async () => {
