@@ -1,15 +1,13 @@
 import { versionForWeek } from '../common/week-rules';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Congregation } from '../entities/congregation.entity';
 import { MeetingSettings } from '../entities/meeting-settings.entity';
 import { CleaningAssignment } from '../entities/cleaning-assignment.entity';
 import { ServiceGroup } from '../entities/service-group.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { ReminderLog } from '../entities/reminder-log.entity';
-import { SpecialEvent } from '../entities/special-event.entity';
-import { GENERAL_CLEANING_TYPE } from '../special-events/event-shape';
 import { CleaningSlotType } from '../common/enums/cleaning-slot-type.enum';
 import { PushNotificationsService } from '../push-notifications/push-notifications.service';
 import {
@@ -47,8 +45,6 @@ const STR: Record<
     weeklyBodyNoWindows: string;
     plannedTitle: string;
     plannedBody: string;
-    generalTitle: string;
-    generalBody: string;
   }
 > = {
   ru: {
@@ -62,9 +58,6 @@ const STR: Record<
       'На этой неделе ваша группа проводит еженедельную уборку. Договоритесь о дне.',
     plannedTitle: 'Еженедельная уборка сегодня',
     plannedBody: 'Через 2 часа ваша группа проводит еженедельную уборку зала.',
-    generalTitle: 'Генеральная уборка сегодня',
-    generalBody:
-      'Через 2 часа — генеральная уборка зала. Приглашается всё собрание!',
   },
   en: {
     afterTitle: 'Cleaning after the meeting',
@@ -77,9 +70,6 @@ const STR: Record<
       'Your group does the weekly cleaning this week. Please agree on a day.',
     plannedTitle: 'Weekly cleaning today',
     plannedBody: 'Your group does the weekly hall cleaning in 2 hours.',
-    generalTitle: 'General cleaning today',
-    generalBody:
-      'The general hall cleaning starts in 2 hours. The whole congregation is invited!',
   },
   de: {
     afterTitle: 'Reinigung nach der Zusammenkunft',
@@ -92,9 +82,6 @@ const STR: Record<
       'Ihre Gruppe macht diese Woche die wöchentliche Reinigung. Bitte stimmen Sie einen Tag ab.',
     plannedTitle: 'Wöchentliche Reinigung heute',
     plannedBody: 'Ihre Gruppe reinigt in 2 Stunden den Saal.',
-    generalTitle: 'Grundreinigung heute',
-    generalBody:
-      'In 2 Stunden beginnt die Grundreinigung des Saals. Die ganze Versammlung ist eingeladen!',
   },
 };
 
@@ -118,8 +105,6 @@ export class CleaningRemindersService {
     private readonly push: PushNotificationsService,
     private readonly notifications: NotificationsService,
     private readonly meetingAttendance: MeetingAttendanceService,
-    @InjectRepository(SpecialEvent)
-    private readonly eventRepo: Repository<SpecialEvent>,
   ) {}
 
   /** Wall-clock parts for `now` in the given IANA timezone. */
@@ -294,10 +279,10 @@ export class CleaningRemindersService {
           }
         : null;
       // A Memorial with no hour recorded cannot be reminded about — two hours
-      // before nothing is nothing. Skipped rather than RETURNED: the thorough,
-      // weekly and general reminders below are separate slots and must still
+      // before nothing is nothing. Skipped rather than RETURNED: the thorough and
+      // weekly reminders below are separate slots and must still
       // run. (A `return` here was my first attempt and would have silenced
-      // all three.)
+      // them.)
       if (meetingToday?.time) {
         const start = CleaningRemindersService.parseHm(meetingToday.time);
         const target = start - LEAD_MINUTES;
@@ -393,51 +378,6 @@ export class CleaningRemindersService {
           }
         }
       }
-    }
-
-    // 4. The general cleaning: 2h-before push to the WHOLE congregation.
-    // An event since 25 November 2026 (special-events R-09): its day and
-    // hour are the event's own, written as the congregation's wall clock.
-    const generals = await this.eventRepo.find({
-      where: {
-        congregationId: cong.id,
-        type: GENERAL_CLEANING_TYPE,
-        date: p.date,
-        deletedAt: IsNull(),
-      },
-    });
-    for (const e of generals) {
-      const hm = /^(\d{2}):(\d{2})$/.exec(e.time?.trim() ?? '');
-      // No hour, no «in two hours»: the evening-before notice still goes.
-      if (!hm) continue;
-      const startMin = Number(hm[1]) * 60 + Number(hm[2]);
-      const target = startMin - LEAD_MINUTES;
-      if (
-        !CleaningRemindersService.hits(target, p.minutesOfDay) ||
-        !CleaningRemindersService.arrivesInTime(p, startMin)
-      ) {
-        continue;
-      }
-      const key = `event:${e.id}:${p.date}:${e.time}`;
-      if (!(await this.claim(cong.id, 'cleaning_general_planned', key))) {
-        continue;
-      }
-      const everyone = await this.publisherRepo.find({
-        where: { congregationId: cong.id },
-      });
-      const users = everyone
-        .map((m) => m.userId)
-        .filter((id): id is string => Boolean(id));
-      await this.notifications.notify({
-        tenantId: cong.id,
-        userIds: users,
-        text: (l) => ({
-          title: STR[l].generalTitle,
-          body: STR[l].generalBody,
-        }),
-        kind: 'cleaning_general_planned',
-        data: { type: 'cleaning_general_planned', eventId: e.id },
-      });
     }
   }
 

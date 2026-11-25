@@ -385,7 +385,6 @@ describe('the cleaning reminder', () => {
       {} as any,
       w.notifications,
       { gatheringsForWeek: async () => [] } as any,
-      memRepo<any>([]) as any, // events: no general cleaning
     );
 
     await service.runTick(new Date());
