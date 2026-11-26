@@ -35,6 +35,7 @@ function service(opts: {
   events?: object[];
   tasks?: object[];
   rows?: object[];
+  dismissals?: object;
 }) {
   const writer = { assertWriter: jest.fn(async () => undefined) };
   const svc = new AnnouncementSuggestionsService(
@@ -57,7 +58,7 @@ function service(opts: {
       timezoneOf: async () => 'Europe/Berlin',
     } as never,
     { find: async () => opts.rows ?? [] } as never,
-    { find: async () => [] } as never,
+    (opts.dismissals ?? { find: async () => [] }) as never,
     { find: async () => opts.events ?? [] } as never,
     { find: async () => [] } as never,
     { find: async () => opts.tasks ?? [] } as never,
@@ -119,6 +120,33 @@ describe('an audit ticked done late last week', () => {
       ],
     }).forWeek(user, '2026-11-23');
     expect(got.items.map((s) => s.key)).toContain('accounts_audit:2026-Q1');
+  });
+});
+
+describe('«not needed»', () => {
+  it('is kept until the week of the event, not only its own week', async () => {
+    // A cleaning on a Monday: the last meeting before it is the Sunday of
+    // the week before, so the suggestion's week is earlier than the event's.
+    const monday = { ...CLEANING, date: '2026-12-07' };
+    let stored: { weekStartDate?: string } = {};
+    const dismissals = {
+      find: async () => [],
+      createQueryBuilder: () => ({
+        insert: () => ({
+          values: (v: { weekStartDate: string }) => {
+            stored = v;
+            return { orIgnore: () => ({ execute: async () => undefined }) };
+          },
+        }),
+      }),
+    };
+    const svc = service({ today: '2026-11-23', events: [monday], dismissals });
+    const s = (await svc.compute('c')).all.find(
+      (x) => x.topic === 'general_cleaning',
+    )!;
+    expect(s.targetWeek).toBe('2026-11-30');
+    await svc.dismiss(user, s.key);
+    expect(stored.weekStartDate).toBe('2026-12-07');
   });
 });
 
