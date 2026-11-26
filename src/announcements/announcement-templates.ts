@@ -52,7 +52,8 @@ export const TEMPLATE_WEEKS: Partial<Record<TemplateKey, number>> = {
   'memorial.ahead': 5,
   'convention.ahead': 10,
 };
-export const WEEKS_MIN = 1;
+/** One week ahead is the week before — the «next» suggestion; two is the least that differs. */
+export const WEEKS_MIN = 2;
 export const WEEKS_MAX = 16;
 export const WORDS_MAX = 2000;
 
@@ -74,7 +75,9 @@ export function isTemplateKey(k: string): k is TemplateKey {
 
 /** Every «{token}» in the words. */
 export function tokensIn(words: string): string[] {
-  return [...words.matchAll(/\{([^{}\s]*)\}/g)].map((m) => m[1]);
+  // Anything in braces on one line — «{ when }» included, so a typo is
+  // refused rather than read aloud.
+  return [...words.matchAll(/\{([^{}\n]*)\}/g)].map((m) => m[1]);
 }
 
 /** The tokens the words use that this template does not know. */
@@ -92,16 +95,35 @@ export function fill(
   words: string,
   values: Record<string, string | null | undefined>,
 ): string {
-  return (
-    words
-      .replace(/\{([^{}\s]*)\}/g, (_, t: string) => values[t] ?? '')
-      // A dash or colon left before the end of a sentence: «будни — .»
-      .replace(/[ \t]*[—–:][ \t]*([.,;]|$)/gm, '$1')
-      .replace(/[ \t]+([.,;:])/g, '$1')
-      .replace(/[ \t]{2,}/g, ' ')
-      .replace(/^[ \t—–-]+|[ \t—–-]+$/gm, '')
-      .trim()
-  );
+  // Only what an EMPTY placeholder leaves behind is tidied; the rest of the
+  // words stay exactly as written — colons, dashes, lists, links (found by
+  // the independent check: a global tidy cut «Внимание:» and list dashes).
+  const GAP = '\u0000';
+  let s = words.replace(/\{([^{}\n]*)\}/g, (_, t: string) => {
+    const v = values[t];
+    return v == null || v === '' ? GAP : v;
+  });
+  if (!s.includes(GAP)) return s.trim();
+  const lines = s.split('\n').flatMap((line) => {
+    if (!line.includes(GAP)) return [line];
+    const rest = line.replace(new RegExp(GAP, 'g'), '').trim();
+    // A label left with nothing after it — «Программа:» — goes whole.
+    if (!rest || /[:—–]$/.test(rest)) return [];
+    let out = line
+      // «будни — {x}.» → «будни.»
+      .replace(
+        new RegExp(`[ \\t]*[—–:]?[ \\t]*${GAP}(?=[ \\t]*([.,;!?]|$))`, 'g'),
+        '',
+      )
+      // «{x} — встреча» → «Встреча»
+      .replace(new RegExp(`^[ \\t]*${GAP}[ \\t]*[—–:]?[ \\t]*`), '')
+      .replace(new RegExp(`[ \\t]*${GAP}[ \\t]*`, 'g'), ' ');
+    if (/^\s*$/.test(out)) return [];
+    if (line.trimStart().startsWith(GAP))
+      out = out.charAt(0).toUpperCase() + out.slice(1);
+    return [out];
+  });
+  return lines.join('\n').trim();
 }
 
 /** The app's own words for a template, with its placeholders in place. */
@@ -132,10 +154,7 @@ export function defaultWords(
     case 'convention.ahead':
       return w.conventionAhead({ name: '{name}', dates: '{dates}' });
     case 'convention.next':
-      // The default lowers the name inside the sentence; the token keeps it.
-      return w
-        .conventionNext({ name: '{name}', dates: '{dates}' })
-        .replace('{name}'.toLowerCase(), '{name}');
+      return w.conventionNext({ name: '{name}', dates: '{dates}' });
     case 'accounts_month':
       return w.accountsMonth({ month: '{month}', report: '{report}' });
     case 'accounts_audit':
@@ -162,5 +181,9 @@ export function say(
   values: Record<string, string | null | undefined>,
 ): string {
   const words = t.get(key)?.words;
-  return words ? fill(words, values) : own();
+  if (!words) return own();
+  // Own words made only of what is missing this time (say a link not given
+  // yet) would leave an empty announcement: the app's words stand in.
+  const text = fill(words, values);
+  return text.trim() ? text : own();
 }

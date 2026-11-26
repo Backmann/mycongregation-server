@@ -1,4 +1,6 @@
 import { Harness, startHarness } from './harness';
+import { DataSource } from 'typeorm';
+import { MeetingAnnouncement } from '../../src/entities/meeting-announcement.entity';
 import { ConventionRulesService } from '../../src/announcements/convention-rules.service';
 
 /**
@@ -165,33 +167,150 @@ describe('announcement templates (real database)', () => {
     await patch('bc', 'general_cleaning', { enabled: true });
   });
 
-  it('the programme on the screens turned off: no item, no task', async () => {
+  it('turned off after one was added: the added one is not «gone»', async () => {
+    const s0 = (await offered()).find((x) =>
+      x.key.startsWith('general_cleaning:'),
+    )!;
+    const took = await h
+      .as(login('bc'))
+      .post('/announcements/suggestions/take', {
+        weekStartDate: WEEK,
+        key: s0.key,
+        kinds: ['midweek'],
+        text: 'Уборка',
+      });
+    expect(took.status).toBe(201);
+    await patch('bc', 'general_cleaning', { enabled: false });
+    const week = (
+      await h.as(login('bc')).get(`/announcements/suggestions?week=${WEEK}`)
+    ).body;
+    expect(week.stale).toEqual([]);
+    const summary = (
+      await h.as(login('bc')).get('/announcements/suggestions/summary')
+    ).body;
+    expect(summary.stale).toBe(0);
+    await patch('bc', 'general_cleaning', { enabled: true });
+  });
+
+  it('refuses «enabled: null» and one week ahead; null weeks bring back the app’s', async () => {
+    expect(
+      (await patch('bc', 'memorial.ahead', { enabled: null })).status,
+    ).toBe(400);
+    expect(
+      (await patch('bc', 'memorial.ahead', { weeksAhead: 1 })).status,
+    ).toBe(400);
+    expect(
+      (await patch('bc', 'memorial.ahead', { weeksAhead: 3 })).body.weeksAhead,
+    ).toBe(3);
+    expect(
+      (await patch('bc', 'memorial.ahead', { weeksAhead: null })).body
+        .weeksAhead,
+    ).toBeNull();
+  });
+
+  it('a change that changes nothing writes nothing in the journal', async () => {
+    const count = async () =>
+      Number(
+        (
+          await h.sql<{ n: string }>(
+            `SELECT count(*) AS n FROM audit_logs WHERE congregation_id = $1 AND entity_type = 'announcement_template'`,
+            [tenant],
+          )
+        )[0].n,
+      );
+    await patch('bc', 'accounts_audit', { enabled: true });
+    const before = await count();
+    await patch('bc', 'accounts_audit', { enabled: true });
+    expect(await count()).toBe(before);
+    await patch('bc', 'accounts_audit', { enabled: false });
+    expect(await count()).toBe(before + 1);
+    await patch('bc', 'accounts_audit', { enabled: true });
+  });
+
+  it('the programme on the screens turned off: what was placed stays, nothing new is placed', async () => {
+    const count = async () => {
+      const [r] = await h.sql<{ items: number; tasks: number }>(
+        `SELECT (SELECT count(*)::int FROM meeting_announcements WHERE congregation_id = $1 AND source = 'assembly_screens') AS items,
+                (SELECT count(*)::int FROM elder_tasks WHERE congregation_id = $1 AND kind = 'assembly_screens') AS tasks`,
+        [tenant],
+      );
+      return [r.items, r.tasks];
+    };
+    const tick = () =>
+      h.app.get(ConventionRulesService).forCongregation(tenant);
+    // What earlier tests placed: switching off keeps it.
+    await tick();
+    const before = await count();
+    expect(before[0]).toBeGreaterThan(0);
     expect(
       (await patch('bc', 'assembly_screens', { enabled: false })).status,
     ).toBe(200);
-    await h.app.get(ConventionRulesService).forCongregation(tenant);
-    const rows = await h.sql(
-      `SELECT 1 FROM meeting_announcements WHERE congregation_id = $1 AND source = 'assembly_screens'`,
+    await tick();
+    expect(await count()).toEqual(before);
+    // A clean slate: with the switch off, nothing at all is placed.
+    await h.sql(
+      `DELETE FROM meeting_announcements WHERE congregation_id = $1 AND source = 'assembly_screens'`,
       [tenant],
     );
-    const tasks = await h.sql(
-      `SELECT 1 FROM elder_tasks WHERE congregation_id = $1 AND kind = 'assembly_screens'`,
+    await h.sql(
+      `DELETE FROM elder_tasks WHERE congregation_id = $1 AND kind = 'assembly_screens'`,
       [tenant],
     );
-    expect([rows, tasks]).toEqual([[], []]);
+    await h.sql(
+      `DELETE FROM elder_task_calendar_log WHERE congregation_id = $1 AND kind = 'assembly_screens'`,
+      [tenant],
+    );
+    await h.sql(
+      `DELETE FROM announcement_dismissals WHERE congregation_id = $1 AND source_key LIKE 'rule:assembly_screens:%'`,
+      [tenant],
+    );
+    await tick();
+    expect(await count()).toEqual([0, 0]);
+    // On again, with own words: placed again, one item and one task per event.
     expect(
       (
         await patch('bc', 'assembly_screens', {
           enabled: true,
-          words: 'Программа на экранах: {program}',
+          words: 'Покажите программу конгресса.\n{program}',
         })
       ).status,
     ).toBe(200);
+    await tick();
+    const after = await count();
+    expect(after[0]).toBeGreaterThan(0);
+    expect(after[1]).toBe(after[0]);
+    const words = await h.app
+      .get(DataSource)
+      .getRepository(MeetingAnnouncement)
+      .findBy({ congregationId: tenant, source: 'assembly_screens' });
+    expect(
+      words.every((w) => w.text.startsWith('Покажите программу конгресса.')),
+    ).toBe(true);
+  });
+
+  it('the campaign part turned off: no task', async () => {
+    await h.as('admin').post('/special-events', {
+      type: 'regional_convention',
+      title: 'regional',
+      date: addDays(today, 40),
+    });
+    expect(
+      (await patch('bc', 'campaign_part', { enabled: false })).status,
+    ).toBe(200);
     await h.app.get(ConventionRulesService).forCongregation(tenant);
-    const text = await h.sql<{ n: number }>(
-      `SELECT count(*)::int AS n FROM meeting_announcements WHERE congregation_id = $1 AND source = 'assembly_screens'`,
-      [tenant],
-    );
-    expect(text[0].n).toBe(1);
+    expect(
+      await h.sql(
+        `SELECT 1 FROM elder_tasks WHERE congregation_id = $1 AND kind = 'campaign_part'`,
+        [tenant],
+      ),
+    ).toEqual([]);
+    await patch('bc', 'campaign_part', { enabled: true });
+    await h.app.get(ConventionRulesService).forCongregation(tenant);
+    expect(
+      await h.sql(
+        `SELECT 1 FROM elder_tasks WHERE congregation_id = $1 AND kind = 'campaign_part'`,
+        [tenant],
+      ),
+    ).toHaveLength(1);
   });
 });

@@ -21,7 +21,7 @@ export class AnnouncementTemplates1945000000000 implements MigrationInterface {
         "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
         CONSTRAINT "PK_announcement_templates" PRIMARY KEY ("id"),
         CONSTRAINT "FK_announcement_templates_congregation" FOREIGN KEY ("congregation_id") REFERENCES "congregations"("id") ON DELETE CASCADE,
-        CONSTRAINT "CHK_announcement_templates_weeks" CHECK ("weeks_ahead" IS NULL OR "weeks_ahead" BETWEEN 1 AND 16)
+        CONSTRAINT "CHK_announcement_templates_weeks" CHECK ("weeks_ahead" IS NULL OR "weeks_ahead" BETWEEN 2 AND 16)
       )`,
     );
     await queryRunner.query(

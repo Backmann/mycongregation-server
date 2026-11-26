@@ -197,7 +197,9 @@ export class AnnouncementSuggestionsService {
         ...s,
         meetings: s.meetings.filter((m) => m.date >= today),
       }))
-      .filter((s) => s.targetWeek >= start && s.meetings.length > 0)
+      .filter(
+        (s) => s.enabled && s.targetWeek >= start && s.meetings.length > 0,
+      )
       .map((s) => {
         const left = new Set(s.meetings.map((m) => m.kind));
         const defaults = s.defaultKinds.filter((k) => left.has(k));

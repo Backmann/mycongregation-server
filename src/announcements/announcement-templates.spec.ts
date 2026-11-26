@@ -4,6 +4,7 @@ import {
   TEMPLATE_TOKENS,
   defaultWords,
   fill,
+  say,
   tokensIn,
   unknownTokens,
   type TemplateKey,
@@ -34,6 +35,27 @@ describe('template words', () => {
       'dtae',
     ]);
     expect(unknownTokens('memorial.ahead', '{when}')).toEqual([]);
+  });
+
+  it('leaves the words exactly as written when every value is there', () => {
+    const words =
+      'Внимание:\n- первое — {when}\n- второе: 19:30\nСсылка: https://a.b/c-';
+    expect(fill(words, { when: '9:00' })).toBe(
+      'Внимание:\n- первое — 9:00\n- второе: 19:30\nСсылка: https://a.b/c-',
+    );
+  });
+
+  it('a label left empty goes whole; an empty value at the start leaves a capital', () => {
+    expect(
+      fill('Покажите программу.\nПрограмма: {program}', { program: null }),
+    ).toBe('Покажите программу.');
+    expect(fill('{midweek} — встреча в будни.', {})).toBe('Встреча в будни.');
+  });
+
+  it('a placeholder with spaces is a placeholder, and unknown', () => {
+    expect(unknownTokens('general_cleaning', '{ when } уборка')).toEqual([
+      ' when ',
+    ]);
   });
 
   it('fills, and tidies what a missing value leaves behind', () => {
@@ -89,7 +111,12 @@ describe('the congregation’s settings in the rules', () => {
         ['memorial.ahead', { enabled: false, words: null, weeksAhead: null }],
       ]),
     );
-    expect(got.map((s) => s.stage)).toEqual(['next']);
+    // Still computed (an announcement taken before must not look «gone»);
+    // the service offers only those on.
+    expect(got.map((s) => [s.stage, s.enabled])).toEqual([
+      ['ahead', false],
+      ['next', true],
+    ]);
   });
 
   it('its own words, filled with the moment’s values', () => {
@@ -123,5 +150,27 @@ describe('the congregation’s settings in the rules', () => {
     const [ahead] = run(new Map());
     expect(ahead.targetWeek).toBe('2027-02-15');
     expect(ahead.text).toContain('Пригласим на неё всех');
+  });
+});
+
+describe('say', () => {
+  const own = () => 'the app’s words';
+  const t = (words: string) =>
+    new Map<TemplateKey, TemplateSetting>([
+      ['assembly_screens', { words, enabled: true, weeksAhead: null }],
+    ]);
+  it('own words that come out empty this time: the app’s words stand in', () => {
+    expect(
+      say(t('Программа: {program}'), 'assembly_screens', own, {
+        program: null,
+      }),
+    ).toBe('the app’s words');
+  });
+  it('own words with the value given are used', () => {
+    expect(
+      say(t('Программа: {program}'), 'assembly_screens', own, {
+        program: 'https://example.invalid/p',
+      }),
+    ).toBe('Программа: https://example.invalid/p');
   });
 });

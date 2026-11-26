@@ -76,6 +76,11 @@ export interface Suggestion {
   template: TemplateKey;
   /** The moment's values for the template's placeholders. */
   values: Record<string, string | null>;
+  /**
+   * Off on the «Templates» screen: not offered, but still computed, so an
+   * announcement taken before is not taken for «gone» (independent check).
+   */
+  enabled: boolean;
 }
 
 export interface SuggestionEvent {
@@ -279,6 +284,7 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
         text: w.generalCleaning({ when: at.text }),
         template: 'general_cleaning',
         values: { when: at.text },
+        enabled: true,
         gaps: at.gap ? ['time'] : [],
         facts: factsOf(e.date, clock(e.time)),
         eventId: e.id,
@@ -323,6 +329,7 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           text: w.coVisitAhead(words),
           template: 'co_visit.ahead',
           values: words,
+          enabled: true,
           gaps: mw?.gap ? ['time'] : [],
           facts,
           eventId: e.id,
@@ -340,6 +347,7 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           text: w.coVisitNext(words),
           template: 'co_visit.next',
           values: words,
+          enabled: true,
           gaps: mw?.gap ? ['time'] : [],
           facts,
           eventId: e.id,
@@ -368,6 +376,7 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           text: w.memorialAhead({ when: inner(lang, at.text) }),
           template: 'memorial.ahead',
           values: { when: inner(lang, at.text) },
+          enabled: true,
           gaps: at.gap ? ['time'] : [],
           facts,
           eventId: e.id,
@@ -385,6 +394,7 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           text: w.memorialNext({ when: inner(lang, at.text) }),
           template: 'memorial.next',
           values: { when: inner(lang, at.text) },
+          enabled: true,
           gaps: at.gap ? ['time'] : [],
           facts,
           eventId: e.id,
@@ -417,6 +427,7 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           text: w.conventionAhead(words),
           template: 'convention.ahead',
           values: words,
+          enabled: true,
           gaps: [],
           facts,
           eventId: e.id,
@@ -433,7 +444,11 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           defaultKinds: kinds(next),
           text: w.conventionNext(words),
           template: 'convention.next',
-          values: words,
+          values: {
+            ...words,
+            name: lang === 'ru' ? name.toLowerCase() : name,
+          },
+          enabled: true,
           gaps: [],
           facts,
           eventId: e.id,
@@ -447,12 +462,23 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
   out.push(...accountsSuggestions(input, w));
   // The congregation's own settings: what is off is not offered, and its own
   // words replace the app's (R-09 step 4).
-  return out
-    .filter((s) => isOn(templates, s.template))
-    .map((s) => ({
+  return out.map((s) => {
+    const own = templates.get(s.template)?.words;
+    // Own words without the placeholder: no gap to warn about.
+    const gaps = own
+      ? s.gaps.filter((g) =>
+          g === 'time'
+            ? /\{(when|midweek)\}/.test(own)
+            : /\{report\}/.test(own),
+        )
+      : s.gaps;
+    return {
       ...s,
+      enabled: isOn(templates, s.template),
+      gaps,
       text: say(templates, s.template, () => s.text, s.values),
-    }));
+    };
+  });
 }
 
 /**
@@ -513,6 +539,7 @@ function fieldServiceSuggestions(
       text: lines.join(' '),
       template: 'field_service',
       values: {},
+      enabled: true,
       gaps: [],
       facts: factsOf(...lines),
       eventId: null,
@@ -567,6 +594,7 @@ function accountsSuggestions(
       }),
       template: 'accounts_month',
       values: { month: monthName(lang, prevM, prevY), report: w.gapReport },
+      enabled: true,
       gaps: ['report'],
       facts: factsOf(prev),
       eventId: null,
@@ -596,6 +624,7 @@ function accountsSuggestions(
       text: w.accountsAudit({ months }),
       template: 'accounts_audit',
       values: { months },
+      enabled: true,
       gaps: [],
       facts: factsOf(a.period),
       eventId: null,

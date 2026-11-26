@@ -13,7 +13,8 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
 class UpdateTemplateDto {
-  @IsOptional()
+  /** null is not «on» or «off»: refused (it was a 500 — independent check). */
+  @ValidateIf((_, v) => v !== undefined)
   @IsBoolean()
   enabled?: boolean;
 

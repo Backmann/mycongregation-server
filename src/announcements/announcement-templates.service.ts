@@ -162,31 +162,48 @@ export class AnnouncementTemplatesService {
     }
 
     const congregationId = user.congregationId;
-    let row = await this.repo.findOne({ where: { congregationId, key } });
-    if (!row) row = this.repo.create({ congregationId, key });
-    if (dto.enabled !== undefined) row.enabled = dto.enabled;
-    if (words !== undefined) row.words = words;
-    if (weeks !== undefined) row.weeksAhead = weeks;
-    row.updatedByUserId = user.id;
-    const saved = await this.repo.save(row);
+    const apply = async () => {
+      let row = await this.repo.findOne({ where: { congregationId, key } });
+      const before = row
+        ? JSON.stringify([row.enabled, row.words, row.weeksAhead])
+        : null;
+      if (!row) row = this.repo.create({ congregationId, key, enabled: true });
+      if (dto.enabled !== undefined) row.enabled = dto.enabled;
+      if (words !== undefined) row.words = words;
+      if (weeks !== undefined) row.weeksAhead = weeks;
+      row.updatedByUserId = user.id;
+      const changed =
+        before !== JSON.stringify([row.enabled, row.words, row.weeksAhead]);
+      return { saved: changed ? await this.repo.save(row) : row, changed };
+    };
+    let result: Awaited<ReturnType<typeof apply>>;
     try {
-      // What changed, not the words: the journal keeps a year.
-      await this.auditLog.logFact({
-        tenantId: congregationId,
-        entityType: 'announcement_template',
-        entityId: saved.id,
-        action: 'UPDATE',
-        actorUserId: user.id,
-        detail: {
-          key,
-          ...(dto.enabled !== undefined ? { enabled: dto.enabled } : {}),
-          ...(words !== undefined ? { ownWords: words !== null } : {}),
-          ...(weeks !== undefined ? { weeksAhead: weeks } : {}),
-        },
-      });
-    } catch {
-      // The journal never stops the change it records.
+      result = await apply();
+    } catch (e) {
+      // Two first changes at once: the other made the row; apply to it.
+      if ((e as { code?: string }).code !== '23505') throw e;
+      result = await apply();
     }
+    const { saved, changed } = result;
+    if (changed)
+      try {
+        // What changed, not the words: the journal keeps a year.
+        await this.auditLog.logFact({
+          tenantId: congregationId,
+          entityType: 'announcement_template',
+          entityId: saved.id,
+          action: 'UPDATE',
+          actorUserId: user.id,
+          detail: {
+            key,
+            ...(dto.enabled !== undefined ? { enabled: dto.enabled } : {}),
+            ...(words !== undefined ? { ownWords: words !== null } : {}),
+            ...(weeks !== undefined ? { weeksAhead: weeks } : {}),
+          },
+        });
+      } catch {
+        // The journal never stops the change it records.
+      }
     return (await this.list(user)).find((v) => v.key === key)!;
   }
 }
