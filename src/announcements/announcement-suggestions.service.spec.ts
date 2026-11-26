@@ -63,6 +63,7 @@ function service(opts: {
     { find: async () => [] } as never,
     { find: async () => opts.tasks ?? [] } as never,
     { findOne: async () => ({ id: 'c', language: 'ru' }) } as never,
+    { load: async () => new Map() } as never,
   );
   return svc;
 }

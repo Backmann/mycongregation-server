@@ -4,6 +4,14 @@ import type { MeetingKind, WeekRules } from '../common/week-rules';
 import { addDaysISO, visitMidweekDowOf } from '../common/week-rules';
 import { mondayOf } from '../common/week';
 import { SUGGESTION_WORDS, type SuggestionWords } from './suggestion-words';
+import {
+  NO_TEMPLATES,
+  isOn,
+  say,
+  weeksOf,
+  type TemplateKey,
+  type Templates,
+} from './announcement-templates';
 
 /**
  * What the app offers the announcement writers, and for which meeting
@@ -64,6 +72,10 @@ export interface Suggestion {
    * suggestion's own week is earlier.
    */
   anchorWeek: string;
+  /** Which template of the «Templates» screen it is (R-09 step 4). */
+  template: TemplateKey;
+  /** The moment's values for the template's placeholders. */
+  values: Record<string, string | null>;
 }
 
 export interface SuggestionEvent {
@@ -98,14 +110,12 @@ export interface SuggestionInput {
   events: SuggestionEvent[];
   fieldService: SuggestionFieldServiceMeeting[];
   audits: SuggestionAudit[];
+  /** The congregation's own settings; none — the app's own. */
+  templates?: Templates;
 }
 
-/** How far ahead each topic is offered (R-09). */
-export const WEEKS_AHEAD = {
-  coVisit: 4,
-  memorial: 5,
-  convention: 10,
-} as const;
+// How far ahead each topic is offered: TEMPLATE_WEEKS (announcement-templates.ts),
+// which a congregation may change on its «Templates» screen.
 
 /** How many weeks back from the target a rule may step to find meetings. */
 const STEP_BACK = 3;
@@ -250,6 +260,7 @@ function midweekFirst(p: Pick): MeetingKind[] {
 
 export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
   const { lang, weeks } = input;
+  const templates = input.templates ?? NO_TEMPLATES;
   const w = SUGGESTION_WORDS[lang];
   const out: Suggestion[] = [];
 
@@ -266,6 +277,8 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
         meetings: p.meetings,
         defaultKinds: kinds(p),
         text: w.generalCleaning({ when: at.text }),
+        template: 'general_cleaning',
+        values: { when: at.text },
         gaps: at.gap ? ['time'] : [],
         facts: factsOf(e.date, clock(e.time)),
         eventId: e.id,
@@ -294,7 +307,11 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
       // Raw values, not words: another language must not look like a change.
       const facts = factsOf(e.date, e.endDate, dow, mwDate, clock(mwTime));
       const next = lastWeekBefore(weeks, visitWeek);
-      const ahead = weeksBefore(weeks, e.date, WEEKS_AHEAD.coVisit);
+      const ahead = weeksBefore(
+        weeks,
+        e.date,
+        weeksOf(templates, 'co_visit.ahead'),
+      );
       if (ahead && (!next || ahead.week < next.week)) {
         out.push({
           key: `co_visit:ahead:${e.id}`,
@@ -304,6 +321,8 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           meetings: ahead.meetings,
           defaultKinds: kinds(ahead),
           text: w.coVisitAhead(words),
+          template: 'co_visit.ahead',
+          values: words,
           gaps: mw?.gap ? ['time'] : [],
           facts,
           eventId: e.id,
@@ -319,6 +338,8 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           meetings: next.meetings,
           defaultKinds: kinds(next),
           text: w.coVisitNext(words),
+          template: 'co_visit.next',
+          values: words,
           gaps: mw?.gap ? ['time'] : [],
           facts,
           eventId: e.id,
@@ -331,7 +352,11 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
       const at = when(lang, w, e.date, e.time);
       const facts = factsOf(e.date, clock(e.time));
       const next = lastWeekBefore(weeks, mondayOf(e.date));
-      const ahead = weeksBefore(weeks, e.date, WEEKS_AHEAD.memorial);
+      const ahead = weeksBefore(
+        weeks,
+        e.date,
+        weeksOf(templates, 'memorial.ahead'),
+      );
       if (ahead && (!next || ahead.week < next.week)) {
         out.push({
           key: `memorial:ahead:${e.id}`,
@@ -341,6 +366,8 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           meetings: ahead.meetings,
           defaultKinds: midweekFirst(ahead),
           text: w.memorialAhead({ when: inner(lang, at.text) }),
+          template: 'memorial.ahead',
+          values: { when: inner(lang, at.text) },
           gaps: at.gap ? ['time'] : [],
           facts,
           eventId: e.id,
@@ -356,6 +383,8 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           meetings: next.meetings,
           defaultKinds: kinds(next),
           text: w.memorialNext({ when: inner(lang, at.text) }),
+          template: 'memorial.next',
+          values: { when: inner(lang, at.text) },
           gaps: at.gap ? ['time'] : [],
           facts,
           eventId: e.id,
@@ -372,7 +401,11 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
       const words = { name, dates: dates(lang, e.date, e.endDate) };
       const facts = factsOf(e.date, e.endDate);
       const next = lastWeekBefore(weeks, e.date);
-      const ahead = weeksBefore(weeks, e.date, WEEKS_AHEAD.convention);
+      const ahead = weeksBefore(
+        weeks,
+        e.date,
+        weeksOf(templates, 'convention.ahead'),
+      );
       if (ahead && (!next || ahead.week < next.week)) {
         out.push({
           key: `convention:ahead:${e.id}`,
@@ -382,6 +415,8 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           meetings: ahead.meetings,
           defaultKinds: midweekFirst(ahead),
           text: w.conventionAhead(words),
+          template: 'convention.ahead',
+          values: words,
           gaps: [],
           facts,
           eventId: e.id,
@@ -397,6 +432,8 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           meetings: next.meetings,
           defaultKinds: kinds(next),
           text: w.conventionNext(words),
+          template: 'convention.next',
+          values: words,
           gaps: [],
           facts,
           eventId: e.id,
@@ -408,7 +445,14 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
 
   out.push(...fieldServiceSuggestions(input, w));
   out.push(...accountsSuggestions(input, w));
-  return out;
+  // The congregation's own settings: what is off is not offered, and its own
+  // words replace the app's (R-09 step 4).
+  return out
+    .filter((s) => isOn(templates, s.template))
+    .map((s) => ({
+      ...s,
+      text: say(templates, s.template, () => s.text, s.values),
+    }));
 }
 
 /**
@@ -467,6 +511,8 @@ function fieldServiceSuggestions(
       meetings,
       defaultKinds: [meetings[0].kind],
       text: lines.join(' '),
+      template: 'field_service',
+      values: {},
       gaps: [],
       facts: factsOf(...lines),
       eventId: null,
@@ -519,6 +565,8 @@ function accountsSuggestions(
         month: monthName(lang, prevM, prevY),
         report: w.gapReport,
       }),
+      template: 'accounts_month',
+      values: { month: monthName(lang, prevM, prevY), report: w.gapReport },
       gaps: ['report'],
       facts: factsOf(prev),
       eventId: null,
@@ -546,6 +594,8 @@ function accountsSuggestions(
       meetings: p.meetings,
       defaultKinds: midweekFirst(p),
       text: w.accountsAudit({ months }),
+      template: 'accounts_audit',
+      values: { months },
       gaps: [],
       facts: factsOf(a.period),
       eventId: null,

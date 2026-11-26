@@ -23,6 +23,8 @@ import { ANNOUNCEMENT_WRITERS } from './announcement-rights';
 /** A unique index said «already there»: someone else just made it. */
 const isDuplicate = (e: unknown) => (e as { code?: string })?.code === '23505';
 import { SUGGESTION_WORDS } from './suggestion-words';
+import { AnnouncementTemplatesService } from './announcement-templates.service';
+import { isOn, say, type Templates } from './announcement-templates';
 
 /** The item for the chairman is put on his list this many days before. */
 export const SCREENS_DAYS_AHEAD = 21;
@@ -84,6 +86,7 @@ export class ConventionRulesService {
     private readonly responsibilities: Repository<Responsibility>,
     @InjectRepository(Publisher)
     private readonly publishers: Repository<Publisher>,
+    private readonly templates: AnnouncementTemplatesService,
   ) {}
 
   /** Every congregation, once a day. */
@@ -127,6 +130,7 @@ export class ConventionRulesService {
     congregationId: string,
   ): Promise<{ placed: number; tasks: number }> {
     const today = await this.clock.todayFor(congregationId);
+    const templates = await this.templates.load(congregationId);
     const events = await this.events.find({
       where: {
         congregationId,
@@ -145,7 +149,10 @@ export class ConventionRulesService {
         const m = await this.screensMeeting(congregationId, e.date);
         if (!m || m.date < today) continue;
         if (addDaysISO(m.date, -SCREENS_DAYS_AHEAD) > today) continue;
-        if (await this.placeScreens(congregationId, e, m)) placed += 1;
+        // Turned off on the «Templates» screen: neither the item nor the task.
+        if (!isOn(templates, 'assembly_screens')) continue;
+        if (await this.placeScreens(congregationId, e, m, templates))
+          placed += 1;
         if (
           await this.ensureTask(
             congregationId,
@@ -157,6 +164,7 @@ export class ConventionRulesService {
           made += 1;
       } else {
         live.add(`campaign_part|${e.date}`);
+        if (!isOn(templates, 'campaign_part')) continue;
         if (addDaysISO(e.date, -CAMPAIGN_TASK_DAYS) > today) continue;
         const due = addDaysISO(e.date, -CAMPAIGN_DUE_DAYS);
         if (await this.ensureTask(congregationId, 'campaign_part', e.date, due))
@@ -173,6 +181,7 @@ export class ConventionRulesService {
     congregationId: string,
     e: SpecialEvent,
     m: { week: string; date: string },
+    templates: Templates,
   ): Promise<boolean> {
     const base = screensKey(e.id);
     const sourceKey = `${base}.midweek`;
@@ -222,7 +231,12 @@ export class ConventionRulesService {
             m.week,
             'midweek',
           ),
-          text: w.assemblyScreens({ programUrl: e.programUrl }),
+          text: say(
+            templates,
+            'assembly_screens',
+            () => w.assemblyScreens({ programUrl: e.programUrl }),
+            { program: e.programUrl },
+          ),
           isLetter: false,
           source: SCREENS_SOURCE,
           sourceKey,

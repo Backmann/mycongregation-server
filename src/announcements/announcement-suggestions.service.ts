@@ -21,6 +21,7 @@ import { coerceLanguage } from '../common/i18n/supported-languages';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
 import { AnnouncementsService, assertMonday } from './announcements.service';
+import { AnnouncementTemplatesService } from './announcement-templates.service';
 import {
   suggestionsFrom,
   type Suggestion,
@@ -113,6 +114,7 @@ export class AnnouncementSuggestionsService {
     private readonly tasks: Repository<ElderTask>,
     @InjectRepository(Congregation)
     private readonly congregations: Repository<Congregation>,
+    private readonly templates: AnnouncementTemplatesService,
   ) {}
 
   /**
@@ -133,7 +135,7 @@ export class AnnouncementSuggestionsService {
     const mondays = Array.from({ length: HORIZON_WEEKS + 1 }, (_, i) =>
       addDaysISO(first, 7 * i),
     );
-    const [rules, cong, events, fs, audits, tz] = await Promise.all([
+    const [rules, cong, events, fs, audits, tz, templates] = await Promise.all([
       this.weekRules.forWeeks(congregationId, mondays),
       this.congregations.findOne({
         where: { id: congregationId },
@@ -160,9 +162,11 @@ export class AnnouncementSuggestionsService {
         },
       }),
       this.clock.timezoneOf(congregationId),
+      this.templates.load(congregationId),
     ]);
     const raw = suggestionsFrom({
       lang: coerceLanguage(cong?.language),
+      templates,
       weeks: rules,
       events: events.map((e) => ({
         id: e.id,

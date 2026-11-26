@@ -17,6 +17,8 @@ const CHECKED_IN_SERVICE: Record<string, string> = {
     'service: the coordinator of the body of elders, his assistant, admins write; the chairman of that meeting ticks his list',
   'announcements/suggestions':
     'service: the same writers as announcements (AnnouncementsService.assertWriter)',
+  'announcements/templates':
+    'service: the writers of announcements (AnnouncementsService.assertWriter)',
   'announcements/screens':
     'service: the writers of announcements and the overseer of the Life and Ministry meeting',
   'aux-applications':
