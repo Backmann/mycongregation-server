@@ -461,13 +461,21 @@ export class ConventionRulesService {
     const congregationId = user.congregationId;
     const e = await this.assemblyOn(congregationId, date);
     if (!e) return;
-    await this.dismissals.delete({
+    const key = `${screensKey(e.id)}.midweek`;
+    const was = await this.repo.findOne({
+      where: { congregationId, sourceKey: key },
+    });
+    const freed = await this.dismissals.delete({
       congregationId,
       sourceKey: screensKey(e.id),
     });
     await this.forCongregation(congregationId);
+    // Journal only what this press did: given back after being taken off,
+    // and put on the list now (independent re-check — a press with nothing
+    // taken off wrote a false «created»).
+    if (!freed.affected || was) return;
     const row = await this.repo.findOne({
-      where: { congregationId, sourceKey: `${screensKey(e.id)}.midweek` },
+      where: { congregationId, sourceKey: key },
     });
     if (row)
       await this.announcements.journal(user, row, 'CREATE', { byRule: true });

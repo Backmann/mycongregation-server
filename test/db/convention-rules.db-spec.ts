@@ -279,6 +279,35 @@ describe('convention rules (real database)', () => {
     await rules.forCongregation(tenant);
   });
 
+  it('an item carried to another midweek meeting stays there', async () => {
+    // As a writer's «carry» leaves it: another week, carried_from set.
+    const id = (
+      await h.sql<{ id: string }>(
+        `SELECT id FROM meeting_announcements WHERE congregation_id = $1 AND source = 'assembly_screens'`,
+        [tenant],
+      )
+    )[0].id;
+    await h.sql(
+      `UPDATE meeting_announcements SET week_start_date = $2, carried_from = $3 WHERE id = $1`,
+      [id, addDays(THIS, 14), WEDNESDAY],
+    );
+    await rules.forCongregation(tenant);
+    expect((await item()).map((r) => r.week)).toEqual([addDays(THIS, 14)]);
+    await h.sql(
+      `UPDATE meeting_announcements SET week_start_date = $2, carried_from = NULL WHERE id = $1`,
+      [id, addDays(THIS, 7)],
+    );
+  });
+
+  it('«give back» with nothing taken off writes nothing in the journal', async () => {
+    const before = await journalCount();
+    const r = await h
+      .as(login('lmm'))
+      .post('/announcements/screens/restore', { date: ASSEMBLY });
+    expect(r.status).toBe(204);
+    expect(await journalCount()).toBe(before);
+  });
+
   it('a run that loses the race for the task does not fail', async () => {
     // What the second of two runs at once sees: the task is there, its log
     // line not yet (independent check: «duplicate key … uq_elder_tasks_kind_period»).
