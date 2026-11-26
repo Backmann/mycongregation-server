@@ -166,7 +166,7 @@ export class AnnouncementsService {
     );
   }
 
-  private async assertWriter(user: AuthenticatedUser): Promise<void> {
+  async assertWriter(user: AuthenticatedUser): Promise<void> {
     if (!(await this.mayWrite(user))) {
       throw new ForbiddenException(
         refusal(
@@ -498,10 +498,7 @@ export class AnnouncementsService {
     }
   }
 
-  private async own(
-    user: AuthenticatedUser,
-    id: string,
-  ): Promise<MeetingAnnouncement> {
+  async own(user: AuthenticatedUser, id: string): Promise<MeetingAnnouncement> {
     const a = await this.repo.findOne({
       where: { id, congregationId: user.congregationId },
     });
@@ -521,6 +518,8 @@ export class AnnouncementsService {
       isLetter?: boolean;
       source?: string | null;
       sourceKey?: string | null;
+      /** Set only by a taken suggestion, never from the request. */
+      sourceFacts?: string | null;
     },
   ): Promise<AnnouncementView> {
     await this.assertWriter(user);
@@ -561,6 +560,7 @@ export class AnnouncementsService {
           isLetter: !!dto.isLetter,
           source: dto.source ?? null,
           sourceKey: dto.sourceKey ?? null,
+          sourceFacts: dto.sourceFacts ?? null,
           createdByUserId: user.id,
         }),
       );
@@ -582,7 +582,12 @@ export class AnnouncementsService {
   async update(
     user: AuthenticatedUser,
     id: string,
-    dto: { text?: string; isLetter?: boolean },
+    dto: {
+      text?: string;
+      isLetter?: boolean;
+      /** Set only when a stale suggestion is refreshed, never from the request. */
+      sourceFacts?: string;
+    },
   ): Promise<AnnouncementView> {
     await this.assertWriter(user);
     const a = await this.own(user, id);
@@ -595,6 +600,7 @@ export class AnnouncementsService {
       a.text = text;
     }
     if (dto.isLetter !== undefined) a.isLetter = dto.isLetter;
+    if (dto.sourceFacts !== undefined) a.sourceFacts = dto.sourceFacts;
     const saved = await this.repo.save(a);
     await this.journal(user, saved, 'UPDATE');
     return view(saved);

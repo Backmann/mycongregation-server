@@ -9,6 +9,13 @@ import { CongregationClockModule } from '../common/congregation-clock.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { AnnouncementsService } from './announcements.service';
 import { AnnouncementsController } from './announcements.controller';
+import { AnnouncementSuggestionsService } from './announcement-suggestions.service';
+import { AnnouncementSuggestionsController } from './announcement-suggestions.controller';
+import { AnnouncementDismissal } from '../entities/announcement-dismissal.entity';
+import { SpecialEvent } from '../entities/special-event.entity';
+import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
+import { ElderTask } from '../entities/elder-task.entity';
+import { Congregation } from '../entities/congregation.entity';
 
 @Module({
   imports: [
@@ -20,10 +27,16 @@ import { AnnouncementsController } from './announcements.controller';
       Responsibility,
       Assignment,
       Publisher,
+      AnnouncementDismissal,
+      SpecialEvent,
+      FieldServiceMeeting,
+      ElderTask,
+      Congregation,
     ]),
   ],
-  controllers: [AnnouncementsController],
-  providers: [AnnouncementsService],
+  // Suggestions first: their fixed paths are matched before «:id/…».
+  controllers: [AnnouncementSuggestionsController, AnnouncementsController],
+  providers: [AnnouncementsService, AnnouncementSuggestionsService],
   exports: [AnnouncementsService],
 })
 export class AnnouncementsModule {}

@@ -133,6 +133,11 @@ export async function deleteAnnouncementsBefore(
     `DELETE FROM meeting_announcements WHERE congregation_id = $1 AND week_start_date < $2::date`,
     [congregationId, before],
   )) as [unknown, number];
+  // The «not needed» marks of suggestions leave with their weeks (R-09).
+  await ds.query(
+    `DELETE FROM announcement_dismissals WHERE congregation_id = $1 AND week_start_date < $2::date`,
+    [congregationId, before],
+  );
   return res[1] ?? 0;
 }
 

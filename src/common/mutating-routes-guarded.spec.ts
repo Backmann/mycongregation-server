@@ -15,6 +15,8 @@ const CHECKED_IN_SERVICE: Record<string, string> = {
   absences: 'service: a person for himself, planners for others',
   announcements:
     'service: the coordinator of the body of elders, his assistant, admins write; the chairman of that meeting ticks his list',
+  'announcements/suggestions':
+    'service: the same writers as announcements (AnnouncementsService.assertWriter)',
   'aux-applications':
     'service: the applicant his own, the committee\u2019s places, an elder in an open one, the secretary for a paper',
   auth: 'sign-in, reset and one\u2019s own account — public or self by design',
