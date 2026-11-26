@@ -742,6 +742,26 @@ export class AnnouncementsService {
     await this.assertWriter(user);
     const a = await this.own(user, id);
     if (a.dismissedAt) return;
+    // «Убрать» lets go of one left unread at a meeting already held. One for
+    // a meeting still to come would vanish from the chairman's count while
+    // still on his list (independent check, R-09 step 5): delete it instead.
+    // A meeting not held at all that week (a convention) has no day: it may go.
+    if (isKind(a.eventType)) {
+      const r = await this.weekRules.forWeek(
+        user.congregationId,
+        a.weekStartDate,
+      );
+      const date = heldOn(r, a.eventType);
+      const today = await this.clock.todayFor(user.congregationId);
+      if (date && date >= today) {
+        throw new BadRequestException(
+          refusal(
+            'ANNOUNCEMENT_MEETING_NOT_HELD',
+            'Only one left unread at a meeting already held is let go.',
+          ),
+        );
+      }
+    }
     a.dismissedAt = new Date();
     await this.repo.save(a);
   }

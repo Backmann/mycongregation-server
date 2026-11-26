@@ -365,6 +365,11 @@ describe('announcements (real database)', () => {
         }),
       ),
     ).toEqual(ok(WRITERS, 200));
+    // «Убрать» is for one left unread at a meeting already held.
+    await h.sql(
+      `UPDATE meeting_announcements SET week_start_date = $2 WHERE id = ANY($1)`,
+      [Object.values(ids), addDays(monday(today), -7)],
+    );
     expect(
       await row((as, w) => as.post(`/announcements/${ids[w]}/dismiss`)),
     ).toEqual(ok(WRITERS, 204));
@@ -443,12 +448,36 @@ describe('announcements (real database)', () => {
       `SELECT user_id AS id FROM publishers WHERE id = $1`,
       [chairCard],
     );
-    expect((await write(WEEK, 'midweek', 'Ещё одно')).status).toBe(201);
-    const [{ n }] = await h.sql<{ n: number }>(
-      `SELECT count(*)::int AS n FROM meeting_announcements WHERE congregation_id = $1 AND week_start_date = $2 AND event_type = 'midweek' AND read_at IS NULL AND dismissed_at IS NULL`,
+    // A clean count: what earlier tests left that week is read already.
+    await h.sql(
+      `UPDATE meeting_announcements SET read_at = now() WHERE congregation_id = $1 AND week_start_date = $2`,
       [tenant, WEEK],
     );
-    expect(n).toBeGreaterThan(0);
+    const ids: string[] = [];
+    for (const text of ['Ждёт', 'Прочитано', 'Отпущено', 'В выходные']) {
+      const r = await write(
+        WEEK,
+        text === 'В выходные' ? 'weekend' : 'midweek',
+        text,
+      );
+      expect(r.status).toBe(201);
+      ids.push(r.body.id);
+    }
+    await h.sql(
+      `UPDATE meeting_announcements SET read_at = now() WHERE id = $1`,
+      [ids[1]],
+    );
+    // «Убрать» is refused for a meeting still to come…
+    const early = await h
+      .as(login('bc'))
+      .post(`/announcements/${ids[2]}/dismiss`);
+    expect(early.status).toBe(400);
+    expect(early.body.code).toBe('ANNOUNCEMENT_MEETING_NOT_HELD');
+    // …so a let-go one is set straight in the database, to test the count.
+    await h.sql(
+      `UPDATE meeting_announcements SET dismissed_at = now() WHERE id = $1`,
+      [ids[2]],
+    );
     await h.app
       .get(AssignmentRemindersService)
       .sendDigests(tenant, addDays(WEEK, 1));
@@ -457,9 +486,12 @@ describe('announcements (real database)', () => {
         `SELECT body FROM notification_outbox WHERE kind = 'assignment_reminder' AND user_id = $1`,
         [uid],
       )
-    ).map((r) => r.body);
-    expect(bodies.join('\n')).toContain(`(объявлений: ${n})`);
+    )
+      .map((r) => r.body)
+      .join('\n');
+    // One waiting at his midweek meeting; the weekend one is not his.
+    expect(bodies).toContain('(объявлений: 1)');
     // The number, never the words.
-    expect(bodies.join('\n')).not.toContain('Ещё одно');
+    expect(bodies).not.toContain('Ждёт');
   });
 });
