@@ -16,6 +16,12 @@ import type { SupportedLanguage } from '../common/i18n/supported-languages';
  */
 export interface SuggestionWords {
   gapReport: string;
+  /**
+   * Said after the congregation's own words when their {when} has no hour
+   * yet — the app's own words carry it already (independent check: the hour
+   * silently vanished from own words).
+   */
+  laterTime: string;
   /** {when} — «Суббота, 13 марта, 9:00». */
   generalCleaning: (p: { when: string; later?: boolean }) => string;
   /**
@@ -71,6 +77,7 @@ export interface SuggestionWords {
 export const SUGGESTION_WORDS: Record<SupportedLanguage, SuggestionWords> = {
   ru: {
     gapReport: '[текст отчёта]',
+    laterTime: 'Время сообщим позже.',
     generalCleaning: ({ when, later }) =>
       `${when} — генеральная уборка Зала царства.${later ? ' Время сообщим позже.' : ''} Приглашаются все.`,
     coVisitAhead: ({ from, to, midweek }) =>
@@ -105,6 +112,7 @@ export const SUGGESTION_WORDS: Record<SupportedLanguage, SuggestionWords> = {
   },
   en: {
     gapReport: '[report text]',
+    laterTime: 'The time will be announced.',
     generalCleaning: ({ when, later }) =>
       `${when}: general cleaning of the Kingdom Hall.${later ? ' The time will be announced.' : ''} Everyone is invited.`,
     coVisitAhead: ({ from, to, midweek }) =>
@@ -139,6 +147,7 @@ export const SUGGESTION_WORDS: Record<SupportedLanguage, SuggestionWords> = {
   },
   de: {
     gapReport: '[Text des Berichts]',
+    laterTime: 'Die Uhrzeit wird noch bekannt gegeben.',
     generalCleaning: ({ when, later }) =>
       `${when}: Grundreinigung des Königreichssaals.${later ? ' Die Uhrzeit wird noch bekannt gegeben.' : ''} Alle sind eingeladen.`,
     coVisitAhead: ({ from, to, midweek }) =>

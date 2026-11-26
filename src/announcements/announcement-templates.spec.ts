@@ -284,3 +284,55 @@ describe('a gap is warned about only where the words have the placeholder', () =
     expect(gapsWith('Вечеря на следующей неделе.')).toEqual([]);
   });
 });
+
+describe('own words when the hour or the address is not known yet (independent check)', () => {
+  const own = (key: TemplateKey, words: string) =>
+    new Map<TemplateKey, TemplateSetting>([
+      [key, { enabled: true, words, weeksAhead: null }],
+    ]);
+  it('the hour does not just vanish: what the app’s words say is said after them', () => {
+    const [ahead] = run(own('memorial.ahead', 'Вечеря — {when}.'));
+    expect(ahead.text).toBe('Вечеря — понедельник, 22 марта, 19:30.');
+    const noHour = suggestionsFrom({
+      lang: 'ru',
+      weeks: weeksFrom('2027-01-18', 12, [{ ...memorial, time: null }]),
+      events: [{ ...memorial, time: null }],
+      fieldService: [],
+      audits: [],
+      templates: own('memorial.ahead', 'Вечеря — {when}.'),
+    }).find((s) => s.key === 'memorial:ahead:m')!;
+    expect(noHour.text).toBe(
+      'Вечеря — понедельник, 22 марта. Время сообщим позже.',
+    );
+  });
+  it('an empty value that starts the line takes its comma with it', () => {
+    expect(
+      fill('{place}, {when} — Вечеря.', { when: 'понедельник', place: null }),
+    ).toBe('Понедельник — Вечеря.');
+  });
+  it('inside own words the weekday is lower case in Russian; a line it starts has its capital', () => {
+    const cleaning: SuggestionEvent = {
+      id: 'c',
+      type: 'general_cleaning',
+      date: '2027-03-13',
+      endDate: null,
+      time: '09:00',
+      coMidweekDow: null,
+    };
+    const text = (words: string) =>
+      suggestionsFrom({
+        lang: 'ru',
+        weeks: weeksFrom('2027-01-18', 12, [cleaning]),
+        events: [cleaning],
+        fieldService: [],
+        audits: [],
+        templates: own('general_cleaning', words),
+      }).find((s) => s.topic === 'general_cleaning')!.text;
+    expect(text('Уборка зала — {when}.')).toBe(
+      'Уборка зала — суббота, 13 марта, 9:00.',
+    );
+    expect(text('{when} — уборка зала.')).toBe(
+      'Суббота, 13 марта, 9:00 — уборка зала.',
+    );
+  });
+});

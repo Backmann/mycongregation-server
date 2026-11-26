@@ -81,6 +81,8 @@ export interface Suggestion {
    * announcement taken before is not taken for «gone» (independent check).
    */
   enabled: boolean;
+  /** Its event has no hour yet: own words with {when} are told so. */
+  later?: boolean;
 }
 
 export interface SuggestionEvent {
@@ -290,7 +292,9 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
         defaultKinds: kinds(p),
         text: w.generalCleaning({ when: at.text, later: at.gap }),
         template: 'general_cleaning',
-        values: { when: at.text },
+        // Lower case inside own words; a line it starts gets its capital.
+        values: { when: inner(lang, at.text) },
+        later: at.gap,
         enabled: true,
         // Its only word, at the last meeting before: the writer is told the
         // hour is still missing.
@@ -398,6 +402,7 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           text: w.memorialAhead(said),
           template: 'memorial.ahead',
           values,
+          later: at.gap,
           enabled: offered,
           // Weeks ahead an hour not known yet is ordinary: no warning.
           gaps: [],
@@ -417,6 +422,7 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           text: w.memorialNext(said),
           template: 'memorial.next',
           values,
+          later: at.gap,
           enabled: true,
           gaps: at.gap ? ['time'] : [],
           facts,
@@ -499,11 +505,16 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
             : /\{report\}/.test(own),
         )
       : s.gaps;
+    let text = say(templates, s.template, () => s.text, s.values);
+    // Own words with {when} and no hour yet: what the app's words say, said
+    // after them — the hour must not just vanish (independent check).
+    if (own && s.later && /\{when\}/.test(own) && !text.includes(w.laterTime))
+      text = `${text.trimEnd()} ${w.laterTime}`;
     return {
       ...s,
       enabled: s.enabled && isOn(templates, s.template),
       gaps,
-      text: say(templates, s.template, () => s.text, s.values),
+      text,
     };
   });
 }

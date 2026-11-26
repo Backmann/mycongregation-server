@@ -116,10 +116,17 @@ export function fill(
   // words stay exactly as written — colons, dashes, lists, links (found by
   // the independent check: a global tidy cut «Внимание:» and list dashes).
   const GAP = '\u0000';
-  let s = words.replace(/\{([^{}\n]*)\}/g, (_, t: string) => {
-    const v = values[t];
-    return v == null || v === '' ? GAP : v;
-  });
+  let s = words.replace(
+    /\{([^{}\n]*)\}/g,
+    (_, t: string, at: number, all: string) => {
+      const v = values[t];
+      if (v == null || v === '') return GAP;
+      // A value that starts a line starts a sentence: «Суббота, …» even
+      // where the value is given in lower case for inside one.
+      const lineStart = /(^|\n)[ \t]*$/.test(all.slice(0, at));
+      return lineStart ? v.charAt(0).toUpperCase() + v.slice(1) : v;
+    },
+  );
   if (!s.includes(GAP)) return s.trim();
   const kept: string[] = [];
   for (const line of s.split('\n')) {
@@ -138,13 +145,13 @@ export function fill(
     let out = line
       // «встреча ({x})» → «встреча»
       .replace(new RegExp(`[ \\t]*\\([ \\t]*${GAP}[ \\t]*\\)`, 'g'), '')
+      // «{x} — встреча» → «Встреча»; «{x}, понедельник» → «Понедельник»
+      .replace(new RegExp(`^[ \\t]*${GAP}[ \\t]*[,—–:]?[ \\t]*`), '')
       // «будни — {x}.» → «будни.»; «марта, {x}.» → «марта.»; «в {x}: приходите» → «в: приходите»
       .replace(
         new RegExp(`[ \\t]*[,—–:]?[ \\t]*${GAP}[ \\t]*(?=([.,;:!?]|$))`, 'g'),
         '',
       )
-      // «{x} — встреча» → «Встреча»
-      .replace(new RegExp(`^[ \\t]*${GAP}[ \\t]*[—–:]?[ \\t]*`), '')
       .replace(new RegExp(`[ \\t]*${GAP}[ \\t]*`, 'g'), ' ');
     if (/^\s*$/.test(out)) continue;
     if (line.trimStart().startsWith(GAP))
