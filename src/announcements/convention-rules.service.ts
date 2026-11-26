@@ -18,6 +18,10 @@ import { coerceLanguage } from '../common/i18n/supported-languages';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { refusal } from '../common/errors/refusal';
 import { AnnouncementsService } from './announcements.service';
+import { ANNOUNCEMENT_WRITERS } from './announcement-rights';
+
+/** A unique index said «already there»: someone else just made it. */
+const isDuplicate = (e: unknown) => (e as { code?: string })?.code === '23505';
 import { SUGGESTION_WORDS } from './suggestion-words';
 
 /** The item for the chairman is put on his list this many days before. */
@@ -182,7 +186,16 @@ export class ConventionRulesService {
     if (have) {
       // The assembly or its last meeting moved: the item goes along, unless
       // the chairman has already ticked it off.
-      if (have.weekStartDate !== m.week && !have.readAt) {
+      // Only an item still as the app left it: a writer who carried it to
+      // another meeting decided, and a ticked one is history (found by the
+      // independent check).
+      if (
+        have.weekStartDate !== m.week &&
+        !have.readAt &&
+        !have.dismissedAt &&
+        !have.carriedFrom &&
+        have.eventType === 'midweek'
+      ) {
         have.weekStartDate = m.week;
         have.position = await this.announcements.nextPosition(
           congregationId,
@@ -198,25 +211,30 @@ export class ConventionRulesService {
       select: { id: true, language: true },
     });
     const w = SUGGESTION_WORDS[coerceLanguage(cong?.language)];
-    await this.repo.save(
-      this.repo.create({
-        congregationId,
-        weekStartDate: m.week,
-        eventType: 'midweek',
-        position: await this.announcements.nextPosition(
+    try {
+      await this.repo.save(
+        this.repo.create({
           congregationId,
-          m.week,
-          'midweek',
-        ),
-        text: w.assemblyScreens({ programUrl: e.programUrl }),
-        isLetter: false,
-        source: SCREENS_SOURCE,
-        sourceKey,
-        sourceFacts: null,
-        byRule: true,
-        createdByUserId: null,
-      }),
-    );
+          weekStartDate: m.week,
+          eventType: 'midweek',
+          position: await this.announcements.nextPosition(
+            congregationId,
+            m.week,
+            'midweek',
+          ),
+          text: w.assemblyScreens({ programUrl: e.programUrl }),
+          isLetter: false,
+          source: SCREENS_SOURCE,
+          sourceKey,
+          sourceFacts: null,
+          byRule: true,
+          createdByUserId: null,
+        }),
+      );
+    } catch (e) {
+      if (isDuplicate(e)) return false;
+      throw e;
+    }
     return true;
   }
 
@@ -258,24 +276,34 @@ export class ConventionRulesService {
           where: { congregationId, userId: In(userIds), removedAt: IsNull() },
         })
       : [];
-    await this.tasks.save(
-      this.tasks.create({
-        congregationId,
-        // A placeholder: the reader's own app writes the words from `kind`.
-        title: kind,
-        details: null,
-        area: 'announcements',
-        assigneeKind: 'people',
-        assignees,
-        assigneePublisherId: assignees[0]?.id ?? null,
-        dueDate: due,
-        kind,
-        kindPeriod: period,
-        status: 'open',
-        createdById: null,
-      }),
-    );
-    await this.log.save(this.log.create({ congregationId, kind, period }));
+    try {
+      await this.tasks.save(
+        this.tasks.create({
+          congregationId,
+          // A placeholder: the reader's own app writes the words from `kind`.
+          title: kind,
+          details: null,
+          area: 'announcements',
+          assigneeKind: 'people',
+          assignees,
+          assigneePublisherId: assignees[0]?.id ?? null,
+          dueDate: due,
+          kind,
+          kindPeriod: period,
+          status: 'open',
+          createdById: null,
+        }),
+      );
+    } catch (e) {
+      if (isDuplicate(e)) return false;
+      throw e;
+    }
+    await this.log
+      .createQueryBuilder()
+      .insert()
+      .values({ congregationId, kind, period })
+      .orIgnore()
+      .execute();
     return true;
   }
 
@@ -312,7 +340,16 @@ export class ConventionRulesService {
     });
     for (const t of open) {
       if (!t.kindPeriod || t.kindPeriod < today) continue;
-      if (!live.has(`${t.kind}|${t.kindPeriod}`)) await this.tasks.remove(t);
+      if (!live.has(`${t.kind}|${t.kindPeriod}`)) {
+        await this.tasks.remove(t);
+        // The app took it away, not a person: its date may come back (an
+        // assembly moved and moved back), and then the task must too.
+        await this.log.delete({
+          congregationId,
+          kind: t.kind!,
+          period: t.kindPeriod,
+        });
+      }
     }
   }
 
@@ -336,7 +373,7 @@ export class ConventionRulesService {
           {
             responsibilities: [
               ResponsibilityType.LIFE_MINISTRY_OVERSEER,
-              ResponsibilityType.BODY_COORDINATOR,
+              ...ANNOUNCEMENT_WRITERS,
             ],
           },
         ),
@@ -402,7 +439,10 @@ export class ConventionRulesService {
     const row = await this.repo.findOne({
       where: { congregationId, sourceKey: `${base}.midweek` },
     });
-    if (row) await this.repo.remove(row);
+    if (row) {
+      await this.repo.remove({ ...row });
+      await this.announcements.journal(user, row, 'DELETE', { byRule: true });
+    }
     await this.dismissals
       .createQueryBuilder()
       .insert()
@@ -426,5 +466,10 @@ export class ConventionRulesService {
       sourceKey: screensKey(e.id),
     });
     await this.forCongregation(congregationId);
+    const row = await this.repo.findOne({
+      where: { congregationId, sourceKey: `${screensKey(e.id)}.midweek` },
+    });
+    if (row)
+      await this.announcements.journal(user, row, 'CREATE', { byRule: true });
   }
 }

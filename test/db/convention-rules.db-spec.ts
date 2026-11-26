@@ -47,6 +47,28 @@ describe('convention rules (real database)', () => {
       [tenant],
     );
 
+  const tasksOf = async (kind: string) =>
+    (
+      await h.sql<{ period: string }>(
+        `SELECT kind_period AS period FROM elder_tasks WHERE congregation_id = $1 AND kind = $2 ORDER BY kind_period`,
+        [tenant, kind],
+      )
+    ).map((r) => r.period);
+  const moveAssembly = (date: string) =>
+    h.sql(
+      `UPDATE special_events SET date = $2 WHERE congregation_id = $1 AND type = 'circuit_assembly'`,
+      [tenant, date],
+    );
+  const journalCount = async () =>
+    Number(
+      (
+        await h.sql<{ n: string }>(
+          `SELECT count(*) AS n FROM audit_logs WHERE congregation_id = $1`,
+          [tenant],
+        )
+      )[0].n,
+    );
+
   beforeAll(async () => {
     h = await startHarness();
     rules = h.app.get(ConventionRulesService);
@@ -165,10 +187,12 @@ describe('convention rules (real database)', () => {
   });
 
   it('taken off by the overseer stays off; put back returns it', async () => {
+    const before = await journalCount();
     const off = await h
       .as(login('lmm'))
       .post('/announcements/screens/remove', { date: ASSEMBLY });
     expect(off.status).toBe(204);
+    expect(await journalCount()).toBe(before + 1);
     expect(await item()).toEqual([]);
     await rules.forCongregation(tenant);
     expect(await item()).toEqual([]);
@@ -179,6 +203,7 @@ describe('convention rules (real database)', () => {
       .post('/announcements/screens/restore', { date: ASSEMBLY });
     expect(back.status).toBe(204);
     expect(await item()).toHaveLength(1);
+    expect(await journalCount()).toBe(before + 2);
   });
 
   it('deleted by a writer from the week, it does not come back either', async () => {
@@ -213,6 +238,66 @@ describe('convention rules (real database)', () => {
     );
     await rules.forCongregation(tenant);
     expect((await item()).map((r) => r.week)).toEqual([addDays(THIS, 7)]);
+    // The task went with the date and came back with it (independent check:
+    // it used to be lost for good).
+    expect(await tasksOf('assembly_screens')).toEqual([ASSEMBLY]);
+  });
+
+  it('an item a writer carried, or the chairman ticked, stays where it is', async () => {
+    const id = (
+      await h.sql<{ id: string }>(
+        `SELECT id FROM meeting_announcements WHERE congregation_id = $1 AND source = 'assembly_screens'`,
+        [tenant],
+      )
+    )[0].id;
+    const carried = await h.as(login('bc')).post(`/announcements/${id}/carry`, {
+      weekStartDate: addDays(THIS, 7),
+      eventType: 'weekend',
+    });
+    expect([200, 201]).toContain(carried.status);
+    await moveAssembly(addDays(ASSEMBLY, 7));
+    await rules.forCongregation(tenant);
+    const rows = await h.sql<{ week: string; kind: string }>(
+      `SELECT to_char(week_start_date, 'YYYY-MM-DD') AS week, event_type AS kind FROM meeting_announcements WHERE congregation_id = $1 AND source = 'assembly_screens'`,
+      [tenant],
+    );
+    expect(rows).toEqual([{ week: addDays(THIS, 7), kind: 'weekend' }]);
+    await moveAssembly(ASSEMBLY);
+    // Ticked off by the chairman: history, not moved either.
+    await h.sql(
+      `UPDATE meeting_announcements SET read_at = now(), event_type = 'midweek', carried_from = NULL WHERE id = $1`,
+      [id],
+    );
+    await moveAssembly(addDays(ASSEMBLY, 7));
+    await rules.forCongregation(tenant);
+    expect((await item()).map((r) => r.week)).toEqual([addDays(THIS, 7)]);
+    await moveAssembly(ASSEMBLY);
+    await h.sql(
+      `UPDATE meeting_announcements SET read_at = NULL WHERE id = $1`,
+      [id],
+    );
+    await rules.forCongregation(tenant);
+  });
+
+  it('a run that loses the race for the task does not fail', async () => {
+    // What the second of two runs at once sees: the task is there, its log
+    // line not yet (independent check: «duplicate key … uq_elder_tasks_kind_period»).
+    await h.sql(
+      `DELETE FROM elder_task_calendar_log WHERE congregation_id = $1 AND kind = 'assembly_screens'`,
+      [tenant],
+    );
+    await expect(rules.forCongregation(tenant)).resolves.toBeDefined();
+    expect(await tasksOf('assembly_screens')).toEqual([ASSEMBLY]);
+  });
+
+  it('two runs at once make one item and one task, and do not fail', async () => {
+    await Promise.all([
+      rules.forCongregation(tenant),
+      rules.forCongregation(tenant),
+      rules.forCongregation(tenant),
+    ]);
+    expect(await item()).toHaveLength(1);
+    expect(await tasksOf('assembly_screens')).toEqual([ASSEMBLY]);
   });
 
   it('an assembly deleted takes its unread item and open task with it', async () => {
@@ -220,6 +305,7 @@ describe('convention rules (real database)', () => {
       .as(login('lmm'))
       .post('/announcements/screens/restore', { date: ASSEMBLY });
     expect(await item()).toHaveLength(1);
+    expect(await tasksOf('assembly_screens')).toEqual([ASSEMBLY]);
     await h.sql(
       `UPDATE special_events SET deleted_at = now() WHERE congregation_id = $1 AND type = 'circuit_assembly'`,
       [tenant],

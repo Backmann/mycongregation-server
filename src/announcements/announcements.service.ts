@@ -472,7 +472,7 @@ export class AnnouncementsService {
     return (raw?.max ?? 0) + 1;
   }
 
-  private async journal(
+  async journal(
     user: AuthenticatedUser,
     a: MeetingAnnouncement,
     action: 'CREATE' | 'UPDATE' | 'DELETE',
