@@ -8,6 +8,7 @@ import { TalkExchange } from '../entities/talk-exchange.entity';
 import { AssignmentNotice } from '../entities/assignment-notice.entity';
 import { Congregation } from '../entities/congregation.entity';
 import { Duty } from '../entities/duty.entity';
+import { MeetingAnnouncement } from '../entities/meeting-announcement.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { Publisher } from '../entities/publisher.entity';
 import { PushToken } from '../entities/push-token.entity';
@@ -30,6 +31,7 @@ import { AssignmentRemindersService } from './assignment-reminders.service';
       ExternalCongregation,
       TalkExchange,
       Duty,
+      MeetingAnnouncement,
       FieldServiceMeeting,
       Publisher,
       PushToken,

@@ -166,6 +166,12 @@ export interface ReminderItem {
    */
   lesson?: string | null;
   setting?: string | null;
+  /**
+   * The chairman's part: how many announcements wait to be read at that
+   * meeting (announcements R-09 step 5). Said the evening before only — a
+   * week ahead the list is still being written. The number, never the words.
+   */
+  announcements?: number;
 }
 
 /** What the person has already been told about. */
@@ -423,6 +429,8 @@ interface Words {
   };
   and: string;
   when: (days: number) => string;
+  /** «объявлений: 3» after the chairman's part, the evening before. */
+  toRead: (n: number) => string;
 }
 
 /** «песни 12 и 34», «песня 12»; «songs 12 and 34»; «Lieder 12 und 34». */
@@ -484,6 +492,7 @@ const WORDS: Record<SupportedLanguage, Words> = {
       prepare: 'Договоритесь с напарником, когда подготовитесь вместе.',
     },
     and: 'и',
+    toRead: (n) => `объявлений: ${n}`,
     when: (d) =>
       d <= 0
         ? 'сегодня'
@@ -529,6 +538,7 @@ const WORDS: Record<SupportedLanguage, Words> = {
       prepare: 'Agree with your partner when to prepare together.',
     },
     and: 'and',
+    toRead: (n) => `announcements: ${n}`,
     when: (d) =>
       d <= 0
         ? 'today'
@@ -575,6 +585,7 @@ const WORDS: Record<SupportedLanguage, Words> = {
       prepare: 'Sprecht ab, wann ihr gemeinsam übt.',
     },
     and: 'und',
+    toRead: (n) => `Bekanntmachungen: ${n}`,
     when: (d) =>
       d <= 0
         ? 'heute'
@@ -684,6 +695,20 @@ export function studyOf(
       : null;
   const what = [x.lesson?.trim() || null, setting].filter(Boolean).join(', ');
   return what ? ` — ${what}` : '';
+}
+
+/**
+ * After the chairman's part, the evening before: how many announcements he
+ * reads — «Председатель (объявлений: 2)». Nothing when there are none, and
+ * nothing earlier: a week ahead the coordinator is still writing.
+ */
+export function toReadOf(
+  x: Pick<ReminderItem, 'type'> & Partial<Pick<ReminderItem, 'announcements'>>,
+  daysLeft: number,
+  lang: SupportedLanguage,
+): string {
+  if (x.type !== 'part' || daysLeft !== 1 || !x.announcements) return '';
+  return ` (${WORDS[lang].toRead(x.announcements)})`;
 }
 
 /**
@@ -875,7 +900,7 @@ export function writeDigest(
         .map((l) =>
           l.tone === 'cancelled'
             ? labelOf(l.item, lang)
-            : `${labelOf(l.item, lang)}${studyOf(l.item as ReminderItem, lang)}`,
+            : `${labelOf(l.item, lang)}${studyOf(l.item as ReminderItem, lang)}${toReadOf(l.item as ReminderItem, l.daysLeft, lang)}`,
         );
       return `${g.head}${joinParts(names)}${g.tail}`;
     })

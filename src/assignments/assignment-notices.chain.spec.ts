@@ -164,6 +164,23 @@ function world(
     memRepo<any>([]) as any, // cleaning weeks
     memRepo<any>([]) as any, // talk exchange
     memRepo<any>([]) as any, // host congregations
+    // announcements waiting to be read, counted by week and meeting
+    {
+      createQueryBuilder: () => {
+        const q: any = {};
+        for (const k of [
+          'select',
+          'addSelect',
+          'where',
+          'andWhere',
+          'groupBy',
+          'addGroupBy',
+        ])
+          q[k] = () => q;
+        q.getRawMany = async () => [];
+        return q;
+      },
+    } as any,
   );
   const service = new AssignmentsService(
     assignments as any,
