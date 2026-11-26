@@ -438,6 +438,8 @@ export const PLAN: Record<string, TablePlan> = {
   meeting_announcements: 'skip',
   /** «Not needed» marks of suggested announcements: no person, no copy needed. */
   announcement_dismissals: 'skip',
+  /** A congregation's wording of its suggested announcements: settings, not people. */
+  announcement_templates: 'skip',
   territory_settings: copy(
     'congregation_id verified_at verified_by_user_id map_built_at houses_built_at updated_at',
   ),

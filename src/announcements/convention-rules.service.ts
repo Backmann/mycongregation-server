@@ -23,6 +23,8 @@ import { ANNOUNCEMENT_WRITERS } from './announcement-rights';
 /** A unique index said «already there»: someone else just made it. */
 const isDuplicate = (e: unknown) => (e as { code?: string })?.code === '23505';
 import { SUGGESTION_WORDS } from './suggestion-words';
+import { AnnouncementTemplatesService } from './announcement-templates.service';
+import { isOn, say, type Templates } from './announcement-templates';
 
 /** The item for the chairman is put on his list this many days before. */
 export const SCREENS_DAYS_AHEAD = 21;
@@ -84,6 +86,7 @@ export class ConventionRulesService {
     private readonly responsibilities: Repository<Responsibility>,
     @InjectRepository(Publisher)
     private readonly publishers: Repository<Publisher>,
+    private readonly templates: AnnouncementTemplatesService,
   ) {}
 
   /** Every congregation, once a day. */
@@ -127,6 +130,7 @@ export class ConventionRulesService {
     congregationId: string,
   ): Promise<{ placed: number; tasks: number }> {
     const today = await this.clock.todayFor(congregationId);
+    const templates = await this.templates.load(congregationId);
     const events = await this.events.find({
       where: {
         congregationId,
@@ -145,13 +149,18 @@ export class ConventionRulesService {
         const m = await this.screensMeeting(congregationId, e.date);
         if (!m || m.date < today) continue;
         if (addDaysISO(m.date, -SCREENS_DAYS_AHEAD) > today) continue;
-        if (await this.placeScreens(congregationId, e, m)) placed += 1;
+        // Turned off on the «Templates» screen: nothing new — what was
+        // already placed still moves with its meeting (independent check).
+        const on = isOn(templates, 'assembly_screens');
+        if (await this.placeScreens(congregationId, e, m, templates, on))
+          placed += 1;
         if (
           await this.ensureTask(
             congregationId,
             'assembly_screens',
             e.date,
             m.date,
+            on,
           )
         )
           made += 1;
@@ -159,7 +168,15 @@ export class ConventionRulesService {
         live.add(`campaign_part|${e.date}`);
         if (addDaysISO(e.date, -CAMPAIGN_TASK_DAYS) > today) continue;
         const due = addDaysISO(e.date, -CAMPAIGN_DUE_DAYS);
-        if (await this.ensureTask(congregationId, 'campaign_part', e.date, due))
+        if (
+          await this.ensureTask(
+            congregationId,
+            'campaign_part',
+            e.date,
+            due,
+            isOn(templates, 'campaign_part'),
+          )
+        )
           made += 1;
       }
     }
@@ -173,6 +190,8 @@ export class ConventionRulesService {
     congregationId: string,
     e: SpecialEvent,
     m: { week: string; date: string },
+    templates: Templates,
+    create: boolean,
   ): Promise<boolean> {
     const base = screensKey(e.id);
     const sourceKey = `${base}.midweek`;
@@ -206,6 +225,7 @@ export class ConventionRulesService {
       }
       return false;
     }
+    if (!create) return false;
     const cong = await this.congregations.findOne({
       where: { id: congregationId },
       select: { id: true, language: true },
@@ -222,7 +242,12 @@ export class ConventionRulesService {
             m.week,
             'midweek',
           ),
-          text: w.assemblyScreens({ programUrl: e.programUrl }),
+          text: say(
+            templates,
+            'assembly_screens',
+            () => w.assemblyScreens({ programUrl: e.programUrl }),
+            { program: e.programUrl },
+          ),
           isLetter: false,
           source: SCREENS_SOURCE,
           sourceKey,
@@ -244,6 +269,7 @@ export class ConventionRulesService {
     kind: TaskKind,
     period: string,
     due: string,
+    create: boolean,
   ): Promise<boolean> {
     const offered = await this.log.findOne({
       where: { congregationId, kind, period },
@@ -264,6 +290,7 @@ export class ConventionRulesService {
       }
       return false;
     }
+    if (!create) return false;
     const held = await this.responsibilities.find({
       where: {
         congregationId,
@@ -398,13 +425,14 @@ export class ConventionRulesService {
   /**
    * For the task's page: where the item stands. `placed` — on the list;
    * `removed` — taken off; `later` — the app puts it three weeks ahead;
+   * `off` — turned off on the «Templates» screen, the app will not put it;
    * `none` — no assembly that day, or no midweek meeting before it.
    */
   async screensState(
     user: AuthenticatedUser,
     date: string,
   ): Promise<{
-    state: 'placed' | 'removed' | 'later' | 'none';
+    state: 'placed' | 'removed' | 'later' | 'off' | 'none';
     meetingDate: string | null;
     read: boolean;
   }> {
@@ -426,6 +454,9 @@ export class ConventionRulesService {
     });
     if (row)
       return { state: 'placed', meetingDate: m.date, read: !!row.readAt };
+    // Turned off on the «Templates» screen: the app will not put it.
+    if (!isOn(await this.templates.load(congregationId), 'assembly_screens'))
+      return { state: 'off', meetingDate: m.date, read: false };
     return { state: 'later', meetingDate: m.date, read: false };
   }
 

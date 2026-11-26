@@ -243,6 +243,29 @@ describe('convention rules (real database)', () => {
     expect(await tasksOf('assembly_screens')).toEqual([ASSEMBLY]);
   });
 
+  it('turned off on the «Templates» screen, a placed item still moves with its assembly', async () => {
+    const off = (enabled: boolean) =>
+      h
+        .as(login('bc'))
+        .patch('/announcements/templates/assembly_screens', { enabled });
+    expect(await item()).toHaveLength(1);
+    expect((await off(false)).status).toBe(200);
+    await h.sql(
+      `UPDATE special_events SET date = $2 WHERE congregation_id = $1 AND type = 'circuit_assembly'`,
+      [tenant, addDays(ASSEMBLY, 7)],
+    );
+    await rules.forCongregation(tenant);
+    expect((await item()).map((r) => r.week)).toEqual([addDays(THIS, 14)]);
+    await h.sql(
+      `UPDATE special_events SET date = $2 WHERE congregation_id = $1 AND type = 'circuit_assembly'`,
+      [tenant, ASSEMBLY],
+    );
+    expect((await off(true)).status).toBe(200);
+    // Turned on again: back where it belongs, and its task is there.
+    expect((await item()).map((r) => r.week)).toEqual([addDays(THIS, 7)]);
+    expect(await tasksOf('assembly_screens')).toEqual([ASSEMBLY]);
+  });
+
   it('an item a writer carried, or the chairman ticked, stays where it is', async () => {
     const id = (
       await h.sql<{ id: string }>(

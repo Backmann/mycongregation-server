@@ -19,6 +19,9 @@ import { Congregation } from '../entities/congregation.entity';
 import { ElderTaskCalendarLog } from '../entities/elder-task-calendar-log.entity';
 import { ConventionRulesService } from './convention-rules.service';
 import { ConventionRulesController } from './convention-rules.controller';
+import { AnnouncementTemplatesService } from './announcement-templates.service';
+import { AnnouncementTemplatesController } from './announcement-templates.controller';
+import { AnnouncementTemplate } from '../entities/announcement-template.entity';
 
 @Module({
   imports: [
@@ -36,18 +39,21 @@ import { ConventionRulesController } from './convention-rules.controller';
       ElderTask,
       Congregation,
       ElderTaskCalendarLog,
+      AnnouncementTemplate,
     ]),
   ],
   // Suggestions first: their fixed paths are matched before «:id/…».
   controllers: [
     AnnouncementSuggestionsController,
     ConventionRulesController,
+    AnnouncementTemplatesController,
     AnnouncementsController,
   ],
   providers: [
     AnnouncementsService,
     AnnouncementSuggestionsService,
     ConventionRulesService,
+    AnnouncementTemplatesService,
   ],
   exports: [AnnouncementsService, ConventionRulesService],
 })
