@@ -170,6 +170,55 @@ it('German keeps the weekday capitalised inside a sentence too', () => {
   expect(en.text).toContain('from February 23 to 28');
 });
 
+describe('a visit and an assembly in the same week', () => {
+  // The week holds no meetings at all: the midweek sentence is left out
+  // rather than naming a meeting that does not happen (independent check).
+  const visit = ev({
+    type: 'circuit_overseer_visit',
+    date: '2027-01-12',
+    endDate: '2027-01-17',
+    coMidweekDow: 2,
+  });
+  const assembly = ev({ type: 'circuit_assembly', date: '2027-01-17' });
+  it('says nothing of a midweek meeting', () => {
+    const got = run([visit, assembly], {}, '2026-12-21', 6).filter(
+      (s) => s.topic === 'co_visit',
+    );
+    expect(got.length).toBeGreaterThan(0);
+    for (const s of got) {
+      expect(s.text).not.toContain('Встреча в будни');
+      expect(s.text).toContain('посещение районного старейшины.');
+    }
+  });
+});
+
+describe('facts', () => {
+  it('do not change with the language', () => {
+    const visit = ev({
+      type: 'circuit_overseer_visit',
+      date: '2027-02-23',
+      endDate: '2027-02-28',
+      coMidweekDow: 2,
+    });
+    const of = (lang: 'ru' | 'de') =>
+      suggestionsFrom({
+        lang,
+        weeks: weeksFrom('2027-02-08', 4, [visit]),
+        events: [visit],
+        fieldService: [],
+        audits: [],
+      })[0].facts;
+    expect(of('de')).toBe(of('ru'));
+  });
+  it('an event suggestion is anchored to the week of the event', () => {
+    const memorial = ev({ type: 'memorial', date: '2027-03-22' });
+    const got = run([memorial], {}, '2027-01-18', 12).filter(
+      (s) => s.topic === 'memorial',
+    );
+    expect(got.map((s) => s.anchorWeek)).toEqual(['2027-03-22', '2027-03-22']);
+  });
+});
+
 describe('the Memorial', () => {
   const memorial = ev({ type: 'memorial', date: '2027-03-22' });
 

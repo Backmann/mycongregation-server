@@ -58,6 +58,12 @@ export interface Suggestion {
   facts: string;
   /** The event it comes from, to open it from the suggestion. */
   eventId: string | null;
+  /**
+   * Monday of the week of the thing itself (the event, the meeting, the
+   * report): a «not needed» is kept at least until then, even when the
+   * suggestion's own week is earlier.
+   */
+  anchorWeek: string;
 }
 
 export interface SuggestionEvent {
@@ -263,22 +269,30 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
         gaps: at.gap ? ['time'] : [],
         facts: factsOf(e.date, clock(e.time)),
         eventId: e.id,
+        anchorWeek: mondayOf(e.date),
       });
     }
 
     if (e.type === 'circuit_overseer_visit') {
       const visitWeek = mondayOf(e.date);
       const rules = weeks.get(visitWeek);
+      if (!rules) continue;
       const dow = visitMidweekDowOf(e);
-      const mwDate = rules?.dateOf('midweek') ?? addDaysISO(visitWeek, dow - 1);
-      const mw = when(lang, w, mwDate, rules?.timeOf('midweek') ?? null);
+      // The week rules alone say whether the midweek meeting is held that week
+      // and when (an assembly in the visit week holds none).
+      // dateOf names a day even for a meeting not held — ask the meetings held.
+      const mwDate =
+        rules.meetings.find((m) => m.kind === 'midweek')?.date ?? null;
+      const mwTime = mwDate ? rules.timeOf('midweek') : null;
+      const mw = mwDate ? when(lang, w, mwDate, mwTime) : null;
       const sp = span(lang, e.date, e.endDate ?? e.date);
       const words = {
         from: sp.from,
         to: sp.to,
-        midweek: inner(lang, mw.text),
+        midweek: mw ? inner(lang, mw.text) : null,
       };
-      const facts = factsOf(e.date, e.endDate, dow, mwDate, mw.text);
+      // Raw values, not words: another language must not look like a change.
+      const facts = factsOf(e.date, e.endDate, dow, mwDate, clock(mwTime));
       const next = lastWeekBefore(weeks, visitWeek);
       const ahead = weeksBefore(weeks, e.date, WEEKS_AHEAD.coVisit);
       if (ahead && (!next || ahead.week < next.week)) {
@@ -290,9 +304,10 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           meetings: ahead.meetings,
           defaultKinds: kinds(ahead),
           text: w.coVisitAhead(words),
-          gaps: mw.gap ? ['time'] : [],
+          gaps: mw?.gap ? ['time'] : [],
           facts,
           eventId: e.id,
+          anchorWeek: mondayOf(e.date),
         });
       }
       if (next) {
@@ -304,9 +319,10 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           meetings: next.meetings,
           defaultKinds: kinds(next),
           text: w.coVisitNext(words),
-          gaps: mw.gap ? ['time'] : [],
+          gaps: mw?.gap ? ['time'] : [],
           facts,
           eventId: e.id,
+          anchorWeek: mondayOf(e.date),
         });
       }
     }
@@ -328,6 +344,7 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           gaps: at.gap ? ['time'] : [],
           facts,
           eventId: e.id,
+          anchorWeek: mondayOf(e.date),
         });
       }
       if (next) {
@@ -342,6 +359,7 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           gaps: at.gap ? ['time'] : [],
           facts,
           eventId: e.id,
+          anchorWeek: mondayOf(e.date),
         });
       }
     }
@@ -367,6 +385,7 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           gaps: [],
           facts,
           eventId: e.id,
+          anchorWeek: mondayOf(e.date),
         });
       }
       if (next) {
@@ -381,6 +400,7 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           gaps: [],
           facts,
           eventId: e.id,
+          anchorWeek: mondayOf(e.date),
         });
       }
     }
@@ -450,6 +470,7 @@ function fieldServiceSuggestions(
       gaps: [],
       facts: factsOf(...lines),
       eventId: null,
+      anchorWeek: week,
     });
   }
   return out;
@@ -501,6 +522,7 @@ function accountsSuggestions(
       gaps: ['report'],
       facts: factsOf(prev),
       eventId: null,
+      anchorWeek: p.week,
     });
   }
 
@@ -527,6 +549,7 @@ function accountsSuggestions(
       gaps: [],
       facts: factsOf(a.period),
       eventId: null,
+      anchorWeek: p.week,
     });
   }
   return out;

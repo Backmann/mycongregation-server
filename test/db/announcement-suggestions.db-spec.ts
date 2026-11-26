@@ -25,7 +25,11 @@ describe('announcement suggestions (real database)', () => {
   let h: Harness;
   let tenant: string;
   const login = (w: Who) => (w === 'admin' ? 'admin' : `sug${w}user`);
-  const today = new Date().toISOString().slice(0, 10);
+  // The congregation's own day (Berlin), never UTC: around midnight on a
+  // Monday the two give different weeks (independent check).
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Berlin',
+  }).format(new Date());
   // Next week: its Wednesday is still ahead whatever day the test runs.
   const WEEK = addDays(monday(today), 7);
   const LATER = addDays(WEEK, 14);
@@ -189,6 +193,27 @@ describe('announcement suggestions (real database)', () => {
     expect(fresh.status).toBe(200);
     expect(fresh.body.text).toContain('8:30');
     expect((await suggestions('bc', WEEK)).body.stale).toEqual([]);
+  });
+
+  it('an event moved to another week: «moved», no refresh, not offered twice', async () => {
+    const moved = await h
+      .as('admin')
+      .patch(`/special-events/${cleaningId}`, { date: addDays(WEEK, 12) });
+    expect(moved.status).toBe(200);
+    const old = await suggestions('bc', WEEK);
+    expect(old.body.stale).toEqual([
+      expect.objectContaining({ reason: 'moved' }),
+    ]);
+    const refresh = await h
+      .as(login('bc'))
+      .post('/announcements/suggestions/refresh', {
+        announcementId: old.body.stale[0].announcementId,
+      });
+    expect(refresh.status).toBe(409);
+    // The key is taken: the new week does not offer it a second time.
+    expect(
+      keysOf((await suggestions('bc', addDays(WEEK, 7))).body),
+    ).not.toContain(`general_cleaning:${cleaningId}`);
   });
 
   it('«not needed» is for every writer, and the route is not taken for an announcement id', async () => {

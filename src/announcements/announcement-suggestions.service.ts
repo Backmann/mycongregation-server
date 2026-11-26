@@ -59,8 +59,26 @@ export interface WeekSuggestions {
     stage: SuggestionStage;
     weekStartDate: string;
   }[];
-  /** Announcements taken from a suggestion whose facts have changed since. */
-  stale: { announcementId: string; reason: 'changed' | 'gone' }[];
+  /**
+   * Announcements taken from a suggestion that no longer matches: its facts
+   * changed («changed» — the words can be refreshed), it now belongs to
+   * another week («moved» — the event moved), or it is no longer there
+   * («gone» — the event was deleted).
+   */
+  stale: { announcementId: string; reason: StaleReason }[];
+}
+
+export type StaleReason = 'changed' | 'moved' | 'gone';
+
+/** Whether a taken announcement still matches what it was taken from. */
+export function staleReason(
+  row: { weekStartDate: string; sourceFacts: string | null },
+  now: Suggestion | undefined,
+): StaleReason | null {
+  if (!now) return 'gone';
+  if (now.targetWeek !== row.weekStartDate) return 'moved';
+  if (now.facts !== row.sourceFacts) return 'changed';
+  return null;
 }
 
 /** «co_visit:ahead:<id>.midweek» → «co_visit:ahead:<id>». */
@@ -97,15 +115,23 @@ export class AnnouncementSuggestionsService {
     private readonly congregations: Repository<Congregation>,
   ) {}
 
-  /** Every suggestion there is now, from this week on. */
+  /**
+   * Every suggestion there is now. `all` — what may still be offered (this
+   * week on, meetings to come); `raw` — every one computed, this week's
+   * meetings already held included, to judge the announcements taken from
+   * them (a taken one must not turn «gone» once its meeting is held).
+   */
   async compute(
     congregationId: string,
-  ): Promise<{ today: string; all: Suggestion[] }> {
+  ): Promise<{ today: string; all: Suggestion[]; raw: Suggestion[] }> {
     const today = await this.clock.todayFor(congregationId);
     const start = mondayOf(today);
     const end = addDaysISO(start, 7 * HORIZON_WEEKS - 1);
-    const mondays = Array.from({ length: HORIZON_WEEKS }, (_, i) =>
-      addDaysISO(start, 7 * i),
+    // One week back as well: an audit ticked done last Saturday is told at
+    // this week's midweek meeting (found by the independent check).
+    const first = addDaysISO(start, -7);
+    const mondays = Array.from({ length: HORIZON_WEEKS + 1 }, (_, i) =>
+      addDaysISO(first, 7 * i),
     );
     const [rules, cong, events, fs, audits, tz] = await Promise.all([
       this.weekRules.forWeeks(congregationId, mondays),
@@ -135,7 +161,7 @@ export class AnnouncementSuggestionsService {
       }),
       this.clock.timezoneOf(congregationId),
     ]);
-    const all = suggestionsFrom({
+    const raw = suggestionsFrom({
       lang: coerceLanguage(cong?.language),
       weeks: rules,
       events: events.map((e) => ({
@@ -162,7 +188,7 @@ export class AnnouncementSuggestionsService {
         })),
     });
     // Nothing for a meeting already held: a past window is not «missed» (R-06).
-    const ahead = all
+    const ahead = raw
       .map((s) => ({
         ...s,
         meetings: s.meetings.filter((m) => m.date >= today),
@@ -176,7 +202,7 @@ export class AnnouncementSuggestionsService {
           defaultKinds: defaults.length ? defaults : [s.meetings[0].kind],
         };
       });
-    return { today, all: ahead };
+    return { today, all: ahead, raw };
   }
 
   /** The keys already taken or let go, for one congregation. */
@@ -204,7 +230,7 @@ export class AnnouncementSuggestionsService {
     await this.announcements.assertWriter(user);
     const w = assertMonday(week);
     const congregationId = user.congregationId;
-    const [{ today, all }, settled, rows] = await Promise.all([
+    const [{ today, all, raw }, settled, rows] = await Promise.all([
       this.compute(congregationId),
       this.settled(congregationId),
       this.repo.find({
@@ -213,12 +239,19 @@ export class AnnouncementSuggestionsService {
           weekStartDate: w,
           sourceFacts: Not(IsNull()),
         },
-        select: { id: true, sourceKey: true, sourceFacts: true },
+        select: {
+          id: true,
+          sourceKey: true,
+          sourceFacts: true,
+          weekStartDate: true,
+        },
       }),
     ]);
     const open = all.filter((s) => !settled.has(s.key));
     const lastUpcoming = addDaysISO(w, 7 * UPCOMING_WEEKS);
-    const byKey = new Map(all.map((s) => [s.key, s]));
+    const byKey = new Map(raw.map((s) => [s.key, s]));
+    // A past week is history: its suggestions are no longer computed.
+    const judged = w >= mondayOf(today);
     return {
       weekStartDate: w,
       today,
@@ -232,13 +265,15 @@ export class AnnouncementSuggestionsService {
           stage: s.stage,
           weekStartDate: s.targetWeek,
         })),
-      stale: rows.flatMap((a): WeekSuggestions['stale'] => {
-        const now = a.sourceKey ? byKey.get(baseKey(a.sourceKey)) : undefined;
-        if (!now) return [{ announcementId: a.id, reason: 'gone' as const }];
-        if (now.facts !== a.sourceFacts)
-          return [{ announcementId: a.id, reason: 'changed' as const }];
-        return [];
-      }),
+      stale: judged
+        ? rows.flatMap((a): WeekSuggestions['stale'] => {
+            const reason = staleReason(
+              a,
+              a.sourceKey ? byKey.get(baseKey(a.sourceKey)) : undefined,
+            );
+            return reason ? [{ announcementId: a.id, reason }] : [];
+          })
+        : [],
     };
   }
 
@@ -250,7 +285,7 @@ export class AnnouncementSuggestionsService {
   }> {
     await this.announcements.assertWriter(user);
     const congregationId = user.congregationId;
-    const { today, all } = await this.compute(congregationId);
+    const { today, all, raw } = await this.compute(congregationId);
     const settled = await this.settled(congregationId);
     const w = mondayOf(today);
     const next = addDaysISO(w, 7);
@@ -264,11 +299,20 @@ export class AnnouncementSuggestionsService {
         weekStartDate: In([w, next]),
         sourceFacts: Not(IsNull()),
       },
-      select: { id: true, sourceKey: true, sourceFacts: true },
+      select: {
+        id: true,
+        sourceKey: true,
+        sourceFacts: true,
+        weekStartDate: true,
+      },
     });
-    const byKey = new Map(all.map((s) => [s.key, s.facts]));
+    const byKey = new Map(raw.map((s) => [s.key, s]));
     const stale = rows.filter(
-      (a) => !a.sourceKey || byKey.get(baseKey(a.sourceKey)) !== a.sourceFacts,
+      (a) =>
+        staleReason(
+          a,
+          a.sourceKey ? byKey.get(baseKey(a.sourceKey)) : undefined,
+        ) !== null,
     ).length;
     return { weekStartDate: w, suggestions, stale };
   }
@@ -331,7 +375,9 @@ export class AnnouncementSuggestionsService {
       .values({
         congregationId: user.congregationId,
         sourceKey: s.key,
-        weekStartDate: s.targetWeek,
+        // Kept until the thing itself has passed, even if it moves later.
+        weekStartDate:
+          s.anchorWeek > s.targetWeek ? s.anchorWeek : s.targetWeek,
       })
       .orIgnore()
       .execute();
@@ -342,9 +388,19 @@ export class AnnouncementSuggestionsService {
     await this.announcements.assertWriter(user);
     const a = await this.announcements.own(user, announcementId);
     if (!a.sourceKey || !a.sourceFacts) throw gone();
-    const { all } = await this.compute(user.congregationId);
-    const s = all.find((x) => x.key === baseKey(a.sourceKey!));
+    const { raw } = await this.compute(user.congregationId);
+    const s = raw.find((x) => x.key === baseKey(a.sourceKey!));
     if (!s) throw gone();
+    // Moved to another week: new words here would say «next week» in the
+    // wrong week. The writer deletes it and takes it again where it now is.
+    if (s.targetWeek !== a.weekStartDate) {
+      throw new ConflictException(
+        refusal(
+          'ANNOUNCEMENT_SUGGESTION_MOVED',
+          'The event now belongs to another week.',
+        ),
+      );
+    }
     return this.announcements.update(user, a.id, {
       text: s.text,
       sourceFacts: s.facts,

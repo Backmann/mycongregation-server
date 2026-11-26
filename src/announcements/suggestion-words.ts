@@ -18,9 +18,20 @@ export interface SuggestionWords {
   gapReport: string;
   /** {when} — «Суббота, 13 марта, 9:00». */
   generalCleaning: (p: { when: string }) => string;
-  /** {from}, {to} — the visit's days; {midweek} — the moved midweek meeting. */
-  coVisitAhead: (p: { from: string; to: string; midweek: string }) => string;
-  coVisitNext: (p: { from: string; to: string; midweek: string }) => string;
+  /**
+   * {from}, {to} — the visit's days; {midweek} — the moved midweek meeting,
+   * null when the week holds none (an assembly in the visit week).
+   */
+  coVisitAhead: (p: {
+    from: string;
+    to: string;
+    midweek: string | null;
+  }) => string;
+  coVisitNext: (p: {
+    from: string;
+    to: string;
+    midweek: string | null;
+  }) => string;
   memorialAhead: (p: { when: string }) => string;
   memorialNext: (p: { when: string }) => string;
   /** {name} — «Районный конгресс»; {dates} — «24 января» or «30 июля – 1 августа». */
@@ -44,9 +55,11 @@ export const SUGGESTION_WORDS: Record<SupportedLanguage, SuggestionWords> = {
     generalCleaning: ({ when }) =>
       `${when} — генеральная уборка Зала царства. Приглашаются все.`,
     coVisitAhead: ({ from, to, midweek }) =>
-      `С ${from} по ${to} — посещение районного старейшины. Встреча в будни на той неделе — ${midweek}.`,
+      `С ${from} по ${to} — посещение районного старейшины.` +
+      (midweek ? ` Встреча в будни на той неделе — ${midweek}.` : ''),
     coVisitNext: ({ from, to, midweek }) =>
-      `На следующей неделе, с ${from} по ${to}, — посещение районного старейшины. Встреча в будни — ${midweek}.`,
+      `На следующей неделе, с ${from} по ${to}, — посещение районного старейшины.` +
+      (midweek ? ` Встреча в будни — ${midweek}.` : ''),
     memorialAhead: ({ when }) =>
       `Вечеря воспоминания — ${when}. Пригласим на неё всех, кого знаем.`,
     memorialNext: ({ when }) =>
@@ -74,9 +87,11 @@ export const SUGGESTION_WORDS: Record<SupportedLanguage, SuggestionWords> = {
     generalCleaning: ({ when }) =>
       `${when}: general cleaning of the Kingdom Hall. Everyone is invited.`,
     coVisitAhead: ({ from, to, midweek }) =>
-      `From ${from} to ${to}: the circuit overseer's visit. The midweek meeting that week: ${midweek}.`,
+      `From ${from} to ${to}: the circuit overseer's visit.` +
+      (midweek ? ` The midweek meeting that week: ${midweek}.` : ''),
     coVisitNext: ({ from, to, midweek }) =>
-      `Next week, from ${from} to ${to}: the circuit overseer's visit. The midweek meeting: ${midweek}.`,
+      `Next week, from ${from} to ${to}: the circuit overseer's visit.` +
+      (midweek ? ` The midweek meeting: ${midweek}.` : ''),
     memorialAhead: ({ when }) =>
       `The Memorial: ${when}. Let us invite everyone we know.`,
     memorialNext: ({ when }) => `Next week: the Memorial, ${when}.`,
@@ -103,9 +118,13 @@ export const SUGGESTION_WORDS: Record<SupportedLanguage, SuggestionWords> = {
     generalCleaning: ({ when }) =>
       `${when}: Grundreinigung des Königreichssaals. Alle sind eingeladen.`,
     coVisitAhead: ({ from, to, midweek }) =>
-      `Vom ${from} bis ${to}: Besuch des Kreisaufsehers. Die Zusammenkunft unter der Woche in dieser Woche: ${midweek}.`,
+      `Vom ${from} bis ${to}: Besuch des Kreisaufsehers.` +
+      (midweek
+        ? ` Die Zusammenkunft unter der Woche in dieser Woche: ${midweek}.`
+        : ''),
     coVisitNext: ({ from, to, midweek }) =>
-      `Nächste Woche, vom ${from} bis ${to}: Besuch des Kreisaufsehers. Die Zusammenkunft unter der Woche: ${midweek}.`,
+      `Nächste Woche, vom ${from} bis ${to}: Besuch des Kreisaufsehers.` +
+      (midweek ? ` Die Zusammenkunft unter der Woche: ${midweek}.` : ''),
     memorialAhead: ({ when }) =>
       `Das Gedächtnismahl: ${when}. Laden wir alle ein, die wir kennen.`,
     memorialNext: ({ when }) => `Nächste Woche: das Gedächtnismahl, ${when}.`,
