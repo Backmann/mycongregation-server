@@ -16,6 +16,9 @@ import { SpecialEvent } from '../entities/special-event.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { ElderTask } from '../entities/elder-task.entity';
 import { Congregation } from '../entities/congregation.entity';
+import { ElderTaskCalendarLog } from '../entities/elder-task-calendar-log.entity';
+import { ConventionRulesService } from './convention-rules.service';
+import { ConventionRulesController } from './convention-rules.controller';
 
 @Module({
   imports: [
@@ -32,11 +35,20 @@ import { Congregation } from '../entities/congregation.entity';
       FieldServiceMeeting,
       ElderTask,
       Congregation,
+      ElderTaskCalendarLog,
     ]),
   ],
   // Suggestions first: their fixed paths are matched before «:id/…».
-  controllers: [AnnouncementSuggestionsController, AnnouncementsController],
-  providers: [AnnouncementsService, AnnouncementSuggestionsService],
-  exports: [AnnouncementsService],
+  controllers: [
+    AnnouncementSuggestionsController,
+    ConventionRulesController,
+    AnnouncementsController,
+  ],
+  providers: [
+    AnnouncementsService,
+    AnnouncementSuggestionsService,
+    ConventionRulesService,
+  ],
+  exports: [AnnouncementsService, ConventionRulesService],
 })
 export class AnnouncementsModule {}

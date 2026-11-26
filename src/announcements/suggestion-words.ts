@@ -46,6 +46,12 @@ export interface SuggestionWords {
   accountsMonth: (p: { month: string; report: string }) => string;
   /** {months} — «сентябрь – ноябрь». */
   accountsAudit: (p: { months: string }) => string;
+  /**
+   * Put on the chairman's list by the guidelines (R-04 (2), R-05): before a
+   * circuit assembly, the programme on the screens. The link when the event
+   * has one.
+   */
+  assemblyScreens: (p: { programUrl: string | null }) => string;
 }
 
 export const SUGGESTION_WORDS: Record<SupportedLanguage, SuggestionWords> = {
@@ -80,6 +86,9 @@ export const SUGGESTION_WORDS: Record<SupportedLanguage, SuggestionWords> = {
       `Отчёт о счетах собрания за ${month}: ${report}`,
     accountsAudit: ({ months }) =>
       `Проверка счетов собрания за ${months} проведена.`,
+    assemblyScreens: ({ programUrl }) =>
+      'Покажите на экранах программу районного конгресса: тему и ключевые речи.' +
+      (programUrl ? `\nПрограмма: ${programUrl}` : ''),
   },
   en: {
     gapTime: '[time]',
@@ -111,6 +120,9 @@ export const SUGGESTION_WORDS: Record<SupportedLanguage, SuggestionWords> = {
       `Congregation accounts report for ${month}: ${report}`,
     accountsAudit: ({ months }) =>
       `The audit of the congregation accounts for ${months} has been done.`,
+    assemblyScreens: ({ programUrl }) =>
+      'Show the circuit assembly program on the screens: the theme and the key talks.' +
+      (programUrl ? `\nProgram: ${programUrl}` : ''),
   },
   de: {
     gapTime: '[Uhrzeit]',
@@ -144,5 +156,8 @@ export const SUGGESTION_WORDS: Record<SupportedLanguage, SuggestionWords> = {
       `Bericht über die Konten der Versammlung für ${month}: ${report}`,
     accountsAudit: ({ months }) =>
       `Die Prüfung der Konten der Versammlung für ${months} ist erfolgt.`,
+    assemblyScreens: ({ programUrl }) =>
+      'Zeigen Sie das Programm des Kreiskongresses auf den Bildschirmen: das Thema und die Hauptvorträge.' +
+      (programUrl ? `\nProgramm: ${programUrl}` : ''),
   },
 };

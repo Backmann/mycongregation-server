@@ -28,6 +28,7 @@ import { AssignmentsModule } from '../assignments/assignments.module';
 import { TalkExchangeModule } from '../talk-exchange/talk-exchange.module';
 import { LocalNeedsModule } from '../local-needs/local-needs.module';
 import { PioneerSchoolModule } from '../pioneer-school/pioneer-school.module';
+import { AnnouncementsModule } from '../announcements/announcements.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { PioneerSchoolModule } from '../pioneer-school/pioneer-school.module';
     CartWeeksModule,
     NotHeldModule,
     TerritoriesModule,
+    AnnouncementsModule,
   ],
   controllers: [AdminController],
   providers: [ScheduledJobsService],
