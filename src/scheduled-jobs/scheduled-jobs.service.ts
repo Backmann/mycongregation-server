@@ -37,6 +37,7 @@ import { CardMergeService } from '../publishers/card-merge.service';
 import { PossibleDuplicateService } from '../tasks/possible-duplicate.service';
 import { CartRemindersService } from '../cart-weeks/cart-reminders.service';
 import { SchoolAbsencesService } from '../special-events/school-absences.service';
+import { ConventionRulesService } from '../announcements/convention-rules.service';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -108,7 +109,32 @@ export class ScheduledJobsService {
     /** The Kingdom Ministry School's absences: appointments change. */
     @Optional()
     private readonly schoolAbsences?: SchoolAbsencesService,
+    /** Before a convention: the chairman's item and the overseer's tasks. */
+    @Optional()
+    private readonly conventionRules?: ConventionRulesService,
   ) {}
+
+  /**
+   * Before a convention (announcements R-05, 26 November 2026): the programme
+   * on the screens on the chairman's list three weeks ahead of the last
+   * midweek meeting before a circuit assembly, and the overseer's tasks.
+   */
+  @Cron('15 8 * * *', {
+    name: 'convention-rules',
+    timeZone: 'Europe/Berlin',
+  })
+  async handleConventionRules(): Promise<void> {
+    try {
+      const r = await this.conventionRules?.tick();
+      if (r && r.placed + r.tasks > 0) {
+        this.logger.log(
+          `convention rules: placed ${r.placed}, tasks ${r.tasks}`,
+        );
+      }
+    } catch (err) {
+      this.logger.error(`convention rules failed: ${String(err)}`);
+    }
+  }
 
   /**
    * The territories (11 November 2026): the holder two weeks before his

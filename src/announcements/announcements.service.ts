@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, Repository } from 'typeorm';
 import { MeetingAnnouncement } from '../entities/meeting-announcement.entity';
+import { AnnouncementDismissal } from '../entities/announcement-dismissal.entity';
 import { Responsibility } from '../entities/responsibility.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Publisher } from '../entities/publisher.entity';
@@ -455,7 +456,7 @@ export class AnnouncementsService {
 
   // ---- Writing -----------------------------------------------------------
 
-  private async nextPosition(
+  async nextPosition(
     congregationId: string,
     week: string,
     kind: string,
@@ -643,6 +644,21 @@ export class AnnouncementsService {
     await this.assertWriter(user);
     const a = await this.own(user, id);
     await this.repo.remove({ ...a });
+    // An item the guidelines put there comes back every day unless its removal
+    // is remembered (R-05): taken off is a decision.
+    if (a.byRule && a.sourceKey) {
+      await this.repo.manager
+        .createQueryBuilder()
+        .insert()
+        .into(AnnouncementDismissal)
+        .values({
+          congregationId: a.congregationId,
+          sourceKey: a.sourceKey.replace(/\.(midweek|weekend)$/, ''),
+          weekStartDate: a.weekStartDate,
+        })
+        .orIgnore()
+        .execute();
+    }
     await this.journal(user, a, 'DELETE');
   }
 

@@ -87,7 +87,16 @@ export type TaskKind =
   // «Возможно, одна и та же карточка» — two cards alike by name, e-mail or
   // phone; closes itself when merged or said to be two people (1 November
   // 2026). Lives in tasks/possible-duplicate.service.ts.
-  | 'possible_duplicate';
+  | 'possible_duplicate'
+  // Before a circuit assembly: the chairman of the last midweek meeting shows
+  // the programme on the screens — the item is on his list by itself; the
+  // overseer of the Life and Ministry meeting sees it done or takes it off.
+  // Period: the assembly's date. Lives in announcements/convention-rules.
+  | 'assembly_screens'
+  // Six weeks before a regional convention: plan the 15-minute part before
+  // the invitation campaign; due when the campaign begins. Period: the
+  // convention's first day. Lives in announcements/convention-rules.
+  | 'campaign_part';
 
 @Entity('elder_tasks')
 @Index(['congregationId', 'status'])
