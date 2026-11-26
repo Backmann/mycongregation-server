@@ -23,6 +23,7 @@ function build(over: {
   cleaningOff?: boolean;
   talks?: any[];
   hosts?: any[];
+  toRead?: any[];
 }) {
   const marks: any[] = [...(over.marks ?? [])];
   const parts = over.parts ?? [
@@ -132,6 +133,23 @@ function build(over: {
     { find: jest.fn(async () => over.cleaning ?? []) } as any,
     { find: jest.fn(async () => over.talks ?? []) } as any,
     { find: jest.fn(async () => over.hosts ?? []) } as any,
+    // announcements waiting to be read, counted by week and meeting
+    {
+      createQueryBuilder: () => {
+        const q: any = {};
+        for (const k of [
+          'select',
+          'addSelect',
+          'where',
+          'andWhere',
+          'groupBy',
+          'addGroupBy',
+        ])
+          q[k] = () => q;
+        q.getRawMany = async () => over.toRead ?? [];
+        return q;
+      },
+    } as any,
   );
   return { svc, marks, sent, noticeRepo };
 }
@@ -262,6 +280,58 @@ describe('the evening digest', () => {
 
     expect(sent).toEqual([]);
     expect(marks).toEqual([]);
+  });
+});
+
+describe('the chairman’s announcements (R-09 step 5)', () => {
+  const chair = (partKey = 'midweek_chairman') => [
+    {
+      id: 'a1',
+      weekStartDate: MON,
+      eventType: 'midweek',
+      partKey,
+      partTitle: null,
+      publisherId: 'p1',
+      assistantPublisherId: null,
+      status: 'published',
+      deletedAt: null,
+      changedSincePublish: false,
+    },
+  ];
+  const waiting = (n: number, kind = 'midweek') => [{ week: MON, kind, n }];
+
+  it('the evening before, he is told how many he reads', async () => {
+    const { svc, sent } = build({
+      parts: chair(),
+      marks: [mark()],
+      toRead: waiting(3),
+    });
+    await svc.sendDigests('cong-1', '2026-10-21');
+    expect(sent[0].body).toContain('Председатель встречи (объявлений: 3)');
+  });
+
+  it('not a week ahead: the list is still being written', async () => {
+    const { svc, sent } = build({ parts: chair(), toRead: waiting(3) });
+    await svc.sendDigests('cong-1', '2026-10-15');
+    expect(sent[0].body).not.toContain('объявлений');
+  });
+
+  it('none waiting, or another meeting’s: nothing is said', async () => {
+    for (const toRead of [waiting(0), waiting(2, 'weekend'), []]) {
+      const { svc, sent } = build({ parts: chair(), marks: [mark()], toRead });
+      await svc.sendDigests('cong-1', '2026-10-21');
+      expect(sent[0].body).not.toContain('объявлений');
+    }
+  });
+
+  it('only the chairman: another part of that meeting says nothing', async () => {
+    const { svc, sent } = build({
+      parts: chair('bible_reading'),
+      marks: [mark()],
+      toRead: waiting(3),
+    });
+    await svc.sendDigests('cong-1', '2026-10-21');
+    expect(sent[0].body).not.toContain('объявлений');
   });
 });
 

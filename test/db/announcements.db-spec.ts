@@ -4,6 +4,7 @@ import {
   deleteAnnouncementsBefore,
 } from '../../src/retention/retention-rules';
 import { AuditLog } from '../../src/entities/audit-log.entity';
+import { AssignmentRemindersService } from '../../src/assignment-reminders/assignment-reminders.service';
 
 /**
  * ANNOUNCEMENTS (R-01…R-03, 24 November 2026) — who may do what, held whole,
@@ -435,5 +436,30 @@ describe('announcements (real database)', () => {
     const gone = await write('2020-01-06');
     expect(gone.status).toBe(400);
     expect(gone.body.code).toBe('ANNOUNCEMENT_WEEK_GONE');
+  });
+
+  it('the evening before, the chairman’s reminder says how many he reads (R-09 step 5)', async () => {
+    const [{ id: uid }] = await h.sql<{ id: string }>(
+      `SELECT user_id AS id FROM publishers WHERE id = $1`,
+      [chairCard],
+    );
+    expect((await write(WEEK, 'midweek', 'Ещё одно')).status).toBe(201);
+    const [{ n }] = await h.sql<{ n: number }>(
+      `SELECT count(*)::int AS n FROM meeting_announcements WHERE congregation_id = $1 AND week_start_date = $2 AND event_type = 'midweek' AND read_at IS NULL AND dismissed_at IS NULL`,
+      [tenant, WEEK],
+    );
+    expect(n).toBeGreaterThan(0);
+    await h.app
+      .get(AssignmentRemindersService)
+      .sendDigests(tenant, addDays(WEEK, 1));
+    const bodies = (
+      await h.sql<{ body: string }>(
+        `SELECT body FROM notification_outbox WHERE kind = 'assignment_reminder' AND user_id = $1`,
+        [uid],
+      )
+    ).map((r) => r.body);
+    expect(bodies.join('\n')).toContain(`(объявлений: ${n})`);
+    // The number, never the words.
+    expect(bodies.join('\n')).not.toContain('Ещё одно');
   });
 });

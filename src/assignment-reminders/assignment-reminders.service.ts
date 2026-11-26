@@ -40,6 +40,8 @@ import {
 } from '../common/enums/talk-exchange.enum';
 import { AssignmentNotice } from '../entities/assignment-notice.entity';
 import { Congregation } from '../entities/congregation.entity';
+import { MeetingAnnouncement } from '../entities/meeting-announcement.entity';
+import { chairmanPart } from '../announcements/announcement-rights';
 import { Duty } from '../entities/duty.entity';
 import { FieldServiceMeeting } from '../entities/field-service-meeting.entity';
 import { Publisher } from '../entities/publisher.entity';
@@ -213,6 +215,8 @@ export class AssignmentRemindersService {
     private readonly talks: Repository<TalkExchange>,
     @InjectRepository(ExternalCongregation)
     private readonly hosts: Repository<ExternalCongregation>,
+    @InjectRepository(MeetingAnnouncement)
+    private readonly announcements: Repository<MeetingAnnouncement>,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -268,6 +272,32 @@ export class AssignmentRemindersService {
   }
 
   /**
+   * How many announcements wait to be read at each meeting of this week and
+   * the next, by «week|kind» — not read yet, not let go. Counted, never
+   * decrypted: the reminder carries the number only.
+   */
+  private async announcementsToRead(
+    congregationId: string,
+    fromWeek: string,
+  ): Promise<Map<string, number>> {
+    const rows = await this.announcements
+      .createQueryBuilder('a')
+      .select("to_char(a.week_start_date, 'YYYY-MM-DD')", 'week')
+      .addSelect('a.event_type', 'kind')
+      .addSelect('COUNT(*)::int', 'n')
+      .where('a.congregation_id = :congregationId', { congregationId })
+      .andWhere('a.week_start_date IN (:...weeks)', {
+        weeks: [fromWeek, addDaysISO(fromWeek, 7)],
+      })
+      .andWhere('a.read_at IS NULL')
+      .andWhere('a.dismissed_at IS NULL')
+      .groupBy('a.week_start_date')
+      .addGroupBy('a.event_type')
+      .getRawMany<{ week: string; kind: string; n: number }>();
+    return new Map(rows.map((r) => [`${r.week}|${r.kind}`, Number(r.n)]));
+  }
+
+  /**
    * Everything each person holds from today on, within the given weeks —
    * keyed by PUBLISHER, because that is what an assignment names.
    */
@@ -278,56 +308,60 @@ export class AssignmentRemindersService {
   ): Promise<Map<string, ReminderItem[]>> {
     const fromWeek = mondayOf(today);
     const lastWeek = addDaysISO(fromWeek, (Math.min(weeks, MAX_WEEKS) - 1) * 7);
-    const [days, parts, duties, service, cleaning, talks] = await Promise.all([
-      this.meetingDays(congregationId, fromWeek, weeks),
-      this.assignments.find({
-        where: {
-          congregationId,
-          status: AssignmentStatus.PUBLISHED,
-          deletedAt: IsNull(),
-          weekStartDate: Between(fromWeek, lastWeek),
-        },
-      }),
-      this.duties.find({
-        where: {
-          congregationId,
-          publisherId: Not(IsNull()),
-          weekStartDate: Between(fromWeek, lastWeek),
-        },
-      }),
-      // Only the next two weeks: a field-service meeting is recalled the
-      // evening before and at no other time.
-      this.serviceMeetings.find({
-        where: {
-          congregationId,
-          // Nobody is reminded of a draft he was never told about, nor of a
-          // meeting called off.
-          publishedAt: Not(IsNull()),
-          cancelledAt: IsNull(),
-          weekStartDate: Between(fromWeek, addDaysISO(fromWeek, 7)),
-        },
-      }),
-      // The hall after a meeting — recalled the evening before, so the next
-      // two weeks are all that can matter.
-      this.cleaning.find({
-        where: {
-          congregationId,
-          slotType: CleaningSlotType.AFTER_MEETING,
-          serviceGroupId: Not(IsNull()),
-          weekStartDate: Between(fromWeek, addDaysISO(fromWeek, 7)),
-        },
-      }),
-      // Talks our own brothers give elsewhere: a week before and the evening
-      // before.
-      this.talks.find({
-        where: {
-          congregationId,
-          direction: TalkExchangeDirection.OUTGOING,
-          publisherId: Not(IsNull()),
-          date: Between(today, addDaysISO(today, 8)),
-        },
-      }),
-    ]);
+    const [days, parts, duties, service, cleaning, talks, toRead] =
+      await Promise.all([
+        this.meetingDays(congregationId, fromWeek, weeks),
+        this.assignments.find({
+          where: {
+            congregationId,
+            status: AssignmentStatus.PUBLISHED,
+            deletedAt: IsNull(),
+            weekStartDate: Between(fromWeek, lastWeek),
+          },
+        }),
+        this.duties.find({
+          where: {
+            congregationId,
+            publisherId: Not(IsNull()),
+            weekStartDate: Between(fromWeek, lastWeek),
+          },
+        }),
+        // Only the next two weeks: a field-service meeting is recalled the
+        // evening before and at no other time.
+        this.serviceMeetings.find({
+          where: {
+            congregationId,
+            // Nobody is reminded of a draft he was never told about, nor of a
+            // meeting called off.
+            publishedAt: Not(IsNull()),
+            cancelledAt: IsNull(),
+            weekStartDate: Between(fromWeek, addDaysISO(fromWeek, 7)),
+          },
+        }),
+        // The hall after a meeting — recalled the evening before, so the next
+        // two weeks are all that can matter.
+        this.cleaning.find({
+          where: {
+            congregationId,
+            slotType: CleaningSlotType.AFTER_MEETING,
+            serviceGroupId: Not(IsNull()),
+            weekStartDate: Between(fromWeek, addDaysISO(fromWeek, 7)),
+          },
+        }),
+        // Talks our own brothers give elsewhere: a week before and the evening
+        // before.
+        this.talks.find({
+          where: {
+            congregationId,
+            direction: TalkExchangeDirection.OUTGOING,
+            publisherId: Not(IsNull()),
+            date: Between(today, addDaysISO(today, 8)),
+          },
+        }),
+        // The chairman is told the evening before how many announcements he
+        // reads (announcements R-09 step 5): this week and the next suffice.
+        this.announcementsToRead(congregationId, fromWeek),
+      ]);
 
     const out = new Map<string, ReminderItem[]>();
     const add = (publisherId: string | null, item: ReminderItem) => {
@@ -379,6 +413,10 @@ export class AssignmentRemindersService {
       };
       add(a.publisherId, {
         ...base,
+        // Only the chairman reads them; his assistant, if any, does not.
+        ...(a.partKey === chairmanPart(kind)
+          ? { announcements: toRead.get(`${a.weekStartDate}|${kind}`) ?? 0 }
+          : {}),
         assistant: false,
         partnerId: a.assistantPublisherId ?? null,
         with: withOf(a.assistantPublisherId),

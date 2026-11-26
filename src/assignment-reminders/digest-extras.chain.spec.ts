@@ -78,6 +78,23 @@ function world(
         meetingTime: '10:00',
       },
     ]) as any,
+    // announcements waiting to be read, counted by week and meeting
+    {
+      createQueryBuilder: () => {
+        const q: any = {};
+        for (const k of [
+          'select',
+          'addSelect',
+          'where',
+          'andWhere',
+          'groupBy',
+          'addGroupBy',
+        ])
+          q[k] = () => q;
+        q.getRawMany = async () => [];
+        return q;
+      },
+    } as any,
   );
   const cleans = (over2: Record<string, any> = {}) =>
     cleaning.rows.push({
