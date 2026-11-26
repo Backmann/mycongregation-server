@@ -89,11 +89,8 @@ export function textMadeBoolean(
   if (sent === null || typeof sent !== 'object') return [];
   const out: string[] = [];
   for (const key of Object.keys(got)) {
-    const at = Array.isArray(got)
-      ? `${path}[${key}]`
-      : path
-        ? `${path}.${key}`
-        : key;
+    // Written as the other refusals write it: «parts.1.done».
+    const at = path ? `${path}.${key}` : key;
     out.push(
       ...textMadeBoolean(
         (sent as Record<string, unknown>)[key],

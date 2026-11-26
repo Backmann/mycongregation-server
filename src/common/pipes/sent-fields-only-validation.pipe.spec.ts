@@ -95,7 +95,7 @@ describe('a yes/no in a JSON body (26 November 2026)', () => {
   it('inside a list of nested ones too', async () => {
     expect(
       await refusal({ parts: [{ done: true }, { done: 'false' }] }),
-    ).toEqual(['parts[1].done']);
+    ).toEqual(['parts.1.done']);
   });
 
   it('a real yes/no, or none, passes as sent', async () => {
