@@ -90,6 +90,8 @@ export interface SuggestionEvent {
   endDate: string | null;
   time: string | null;
   coMidweekDow: number | null;
+  /** Where it is held, when known (the Memorial may be elsewhere). */
+  address?: string | null;
 }
 
 export interface SuggestionFieldServiceMeeting {
@@ -177,8 +179,13 @@ function when(
 ): { text: string; gap: boolean } {
   const weekday = capital(fmt(lang, date, { weekday: 'long' }));
   const hour = clock(time);
+  // No «[время]» in the words: an hour not known yet is left out, and the
+  // words say it will be told (26 November 2026 — often not known weeks
+  // ahead). `gap` still tells the writer it is missing.
   return {
-    text: `${weekday}, ${day(lang, date)}, ${hour ?? w.gapTime}`,
+    text: hour
+      ? `${weekday}, ${day(lang, date)}, ${hour}`
+      : `${weekday}, ${day(lang, date)}`,
     gap: !hour,
   };
 }
@@ -281,10 +288,12 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
         targetWeek: p.week,
         meetings: p.meetings,
         defaultKinds: kinds(p),
-        text: w.generalCleaning({ when: at.text }),
+        text: w.generalCleaning({ when: at.text, later: at.gap }),
         template: 'general_cleaning',
         values: { when: at.text },
         enabled: true,
+        // Its only word, at the last meeting before: the writer is told the
+        // hour is still missing.
         gaps: at.gap ? ['time'] : [],
         facts: factsOf(e.date, clock(e.time)),
         eventId: e.id,
@@ -362,7 +371,12 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
 
     if (e.type === 'memorial') {
       const at = when(lang, w, e.date, e.time);
-      const facts = factsOf(e.date, clock(e.time));
+      const place = e.address?.trim() || null;
+      // The address joins the facts only once given: words taken before it
+      // was are then marked «changed» and can be refreshed.
+      const facts = factsOf(e.date, clock(e.time), ...(place ? [place] : []));
+      const said = { when: inner(lang, at.text), place, later: at.gap };
+      const values = { when: inner(lang, at.text), place };
       const next = lastWeekBefore(weeks, mondayOf(e.date));
       const ahead = weeksBefore(
         weeks,
@@ -381,11 +395,12 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           targetWeek: ahead.week,
           meetings: ahead.meetings,
           defaultKinds: midweekFirst(ahead),
-          text: w.memorialAhead({ when: inner(lang, at.text) }),
+          text: w.memorialAhead(said),
           template: 'memorial.ahead',
-          values: { when: inner(lang, at.text) },
+          values,
           enabled: offered,
-          gaps: at.gap ? ['time'] : [],
+          // Weeks ahead an hour not known yet is ordinary: no warning.
+          gaps: [],
           facts,
           eventId: e.id,
           anchorWeek: mondayOf(e.date),
@@ -399,9 +414,9 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           targetWeek: next.week,
           meetings: next.meetings,
           defaultKinds: kinds(next),
-          text: w.memorialNext({ when: inner(lang, at.text) }),
+          text: w.memorialNext(said),
           template: 'memorial.next',
-          values: { when: inner(lang, at.text) },
+          values,
           enabled: true,
           gaps: at.gap ? ['time'] : [],
           facts,

@@ -83,6 +83,16 @@ describe('template words', () => {
     expect(fill('Текст.\nПрограмма:\n{program}', none)).toBe('Текст.');
   });
 
+  it('the Memorial’s own words with {place}: no address yet leaves no stray comma', () => {
+    const words = defaultWords('memorial.ahead', 'ru')!;
+    expect(words).toBe(
+      'Вечеря воспоминания — {when}, {place}. Пригласим на неё всех, кого знаем.',
+    );
+    expect(fill(words, { when: 'понедельник, 22 марта', place: null })).toBe(
+      'Вечеря воспоминания — понедельник, 22 марта. Пригласим на неё всех, кого знаем.',
+    );
+  });
+
   it('a brace outside a placeholder and a control character are named', () => {
     expect(
       ['{{when}}', '{when\n}', 'a } b', '{when} и {program}'].map(strayBraces),

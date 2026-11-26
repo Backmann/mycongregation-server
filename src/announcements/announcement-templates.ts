@@ -33,8 +33,8 @@ export const TEMPLATE_TOKENS: Record<TemplateKey, readonly string[]> = {
   general_cleaning: ['when'],
   'co_visit.ahead': ['from', 'to', 'midweek'],
   'co_visit.next': ['from', 'to', 'midweek'],
-  'memorial.ahead': ['when'],
-  'memorial.next': ['when'],
+  'memorial.ahead': ['when', 'place'],
+  'memorial.next': ['when', 'place'],
   'convention.ahead': ['name', 'dates'],
   'convention.next': ['name', 'dates'],
   // Its words are the changed meetings themselves, line by line.
@@ -138,9 +138,9 @@ export function fill(
     let out = line
       // «встреча ({x})» → «встреча»
       .replace(new RegExp(`[ \\t]*\\([ \\t]*${GAP}[ \\t]*\\)`, 'g'), '')
-      // «будни — {x}.» → «будни.»; «в {x}: приходите» → «в: приходите»
+      // «будни — {x}.» → «будни.»; «марта, {x}.» → «марта.»; «в {x}: приходите» → «в: приходите»
       .replace(
-        new RegExp(`[ \\t]*[—–:]?[ \\t]*${GAP}[ \\t]*(?=([.,;:!?]|$))`, 'g'),
+        new RegExp(`[ \\t]*[,—–:]?[ \\t]*${GAP}[ \\t]*(?=([.,;:!?]|$))`, 'g'),
         '',
       )
       // «{x} — встреча» → «Встреча»
@@ -176,9 +176,9 @@ export function defaultWords(
         midweek: '{midweek}',
       });
     case 'memorial.ahead':
-      return w.memorialAhead({ when: '{when}' });
+      return w.memorialAhead({ when: '{when}', place: '{place}' });
     case 'memorial.next':
-      return w.memorialNext({ when: '{when}' });
+      return w.memorialNext({ when: '{when}', place: '{place}' });
     case 'convention.ahead':
       return w.conventionAhead({ name: '{name}', dates: '{dates}' });
     case 'convention.next':

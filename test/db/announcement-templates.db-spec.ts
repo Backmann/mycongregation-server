@@ -111,10 +111,10 @@ describe('announcement templates (real database)', () => {
         words: null,
         defaultWeeks: 5,
         weeksAhead: null,
-        tokens: ['when'],
+        tokens: ['when', 'place'],
       }),
     );
-    expect(memorial.defaultWords).toContain('{when}');
+    expect(memorial.defaultWords).toContain('{when}, {place}');
   });
 
   it('refuses a placeholder it does not know, words where there are none, weeks out of range', async () => {
