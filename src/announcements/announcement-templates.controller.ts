@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Get, Logger, Param, Patch } from '@nestjs/common';
 import {
   IsBoolean,
   IsInt,
@@ -7,7 +7,10 @@ import {
   MaxLength,
   ValidateIf,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { bodyBool } from '../common/body-bool';
 import { AnnouncementTemplatesService } from './announcement-templates.service';
+import { ConventionRulesService } from './convention-rules.service';
 import { WORDS_MAX } from './announcement-templates';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -15,6 +18,7 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 class UpdateTemplateDto {
   /** null is not «on» or «off»: refused (it was a 500 — independent check). */
   @ValidateIf((_, v) => v !== undefined)
+  @Transform(bodyBool)
   @IsBoolean()
   enabled?: boolean;
 
@@ -38,7 +42,11 @@ class UpdateTemplateDto {
  */
 @Controller('announcements/templates')
 export class AnnouncementTemplatesController {
-  constructor(private readonly service: AnnouncementTemplatesService) {}
+  private readonly logger = new Logger(AnnouncementTemplatesController.name);
+  constructor(
+    private readonly service: AnnouncementTemplatesService,
+    private readonly conventionRules: ConventionRulesService,
+  ) {}
 
   @Get()
   list(@CurrentUser() user: AuthenticatedUser) {
@@ -46,11 +54,21 @@ export class AnnouncementTemplatesController {
   }
 
   @Patch(':key')
-  update(
+  async update(
     @CurrentUser() user: AuthenticatedUser,
     @Param('key') key: string,
     @Body() dto: UpdateTemplateDto,
   ) {
-    return this.service.update(user, key, dto);
+    const view = await this.service.update(user, key, dto);
+    // A rule the daily run places: turned back on, it is placed now, not
+    // tomorrow morning (independent check).
+    if (key === 'assembly_screens' || key === 'campaign_part')
+      try {
+        await this.conventionRules.forCongregation(user.congregationId);
+      } catch (e) {
+        // The change is saved; the daily run places it in the morning.
+        this.logger.error(`Convention rules after a template change: ${e}`);
+      }
+    return view;
   }
 }

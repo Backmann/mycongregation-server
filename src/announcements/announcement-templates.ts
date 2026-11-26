@@ -87,6 +87,23 @@ export function unknownTokens(key: TemplateKey, words: string): string[] {
 }
 
 /**
+ * A brace that is not part of a placeholder — «{{when}}», a «{» never
+ * closed, a line break inside — would reach the chairman as written.
+ */
+export function strayBraces(words: string): boolean {
+  return /[{}]/.test(words.replace(/\{([^{}\n]*)\}/g, ''));
+}
+
+/**
+ * Control characters other than a line break or a tab: the database refuses
+ * a NUL (a 500), and none of them is meant to be read aloud.
+ */
+export function hasControlChars(words: string): boolean {
+  // eslint-disable-next-line no-control-regex
+  return /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(words);
+}
+
+/**
  * The words with the moment's values. A value the moment does not have — no
  * midweek meeting in a visit week, no programme link — becomes nothing, and
  * the spaces and stray punctuation around it are tidied.
@@ -104,26 +121,37 @@ export function fill(
     return v == null || v === '' ? GAP : v;
   });
   if (!s.includes(GAP)) return s.trim();
-  const lines = s.split('\n').flatMap((line) => {
-    if (!line.includes(GAP)) return [line];
+  const kept: string[] = [];
+  for (const line of s.split('\n')) {
+    if (!line.includes(GAP)) {
+      kept.push(line);
+      continue;
+    }
     const rest = line.replace(new RegExp(GAP, 'g'), '').trim();
-    // A label left with nothing after it — «Программа:» — goes whole.
-    if (!rest || /[:—–]$/.test(rest)) return [];
+    // Nothing but a label or a list mark left — «Программа:», «-» — the line
+    // goes whole; a label standing alone on the line above it goes too.
+    if (/^[\s\-–—•*:.,;()]*$/.test(rest) || /[:—–]$/.test(rest)) {
+      if (!rest.replace(/[\s\-–—•*]/g, '') && /:\s*$/.test(kept.at(-1) ?? ''))
+        kept.pop();
+      continue;
+    }
     let out = line
-      // «будни — {x}.» → «будни.»
+      // «встреча ({x})» → «встреча»
+      .replace(new RegExp(`[ \\t]*\\([ \\t]*${GAP}[ \\t]*\\)`, 'g'), '')
+      // «будни — {x}.» → «будни.»; «в {x}: приходите» → «в: приходите»
       .replace(
-        new RegExp(`[ \\t]*[—–:]?[ \\t]*${GAP}(?=[ \\t]*([.,;!?]|$))`, 'g'),
+        new RegExp(`[ \\t]*[—–:]?[ \\t]*${GAP}[ \\t]*(?=([.,;:!?]|$))`, 'g'),
         '',
       )
       // «{x} — встреча» → «Встреча»
       .replace(new RegExp(`^[ \\t]*${GAP}[ \\t]*[—–:]?[ \\t]*`), '')
       .replace(new RegExp(`[ \\t]*${GAP}[ \\t]*`, 'g'), ' ');
-    if (/^\s*$/.test(out)) return [];
+    if (/^\s*$/.test(out)) continue;
     if (line.trimStart().startsWith(GAP))
       out = out.charAt(0).toUpperCase() + out.slice(1);
-    return [out];
-  });
-  return lines.join('\n').trim();
+    kept.push(out);
+  }
+  return kept.join('\n').trim();
 }
 
 /** The app's own words for a template, with its placeholders in place. */

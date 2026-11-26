@@ -18,6 +18,8 @@ import {
   defaultWords,
   isTemplateKey,
   unknownTokens,
+  strayBraces,
+  hasControlChars,
   type TemplateKey,
   type TemplateSetting,
   type Templates,
@@ -128,8 +130,15 @@ export class AnnouncementTemplatesService {
           }),
         );
       }
+      if (hasControlChars(words)) {
+        throw new BadRequestException(
+          refusal('INVALID_FIELD', 'The words hold a control character.', {
+            field: 'words',
+          }),
+        );
+      }
       const unknown = unknownTokens(key, words);
-      if (unknown.length) {
+      if (unknown.length || strayBraces(words)) {
         throw new BadRequestException(
           refusal(
             'ANNOUNCEMENT_TEMPLATE_TOKEN',
@@ -164,9 +173,11 @@ export class AnnouncementTemplatesService {
     const congregationId = user.congregationId;
     const apply = async () => {
       let row = await this.repo.findOne({ where: { congregationId, key } });
+      // No row yet is the app's own: on, its words, its weeks. A change to
+      // exactly that writes nothing (found by the independent check).
       const before = row
         ? JSON.stringify([row.enabled, row.words, row.weeksAhead])
-        : null;
+        : JSON.stringify([true, null, null]);
       if (!row) row = this.repo.create({ congregationId, key, enabled: true });
       if (dto.enabled !== undefined) row.enabled = dto.enabled;
       if (words !== undefined) row.words = words;

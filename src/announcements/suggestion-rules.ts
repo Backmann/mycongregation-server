@@ -318,7 +318,11 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
         e.date,
         weeksOf(templates, 'co_visit.ahead'),
       );
-      if (ahead && (!next || ahead.week < next.week)) {
+      // An «ahead» that would fall on or after the last week is not offered,
+      // but still computed: one taken before the number of weeks was
+      // lowered must not turn «gone» (R-09 step 4).
+      if (ahead) {
+        const offered = !next || ahead.week < next.week;
         out.push({
           key: `co_visit:ahead:${e.id}`,
           topic: 'co_visit',
@@ -329,7 +333,7 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           text: w.coVisitAhead(words),
           template: 'co_visit.ahead',
           values: words,
-          enabled: true,
+          enabled: offered,
           gaps: mw?.gap ? ['time'] : [],
           facts,
           eventId: e.id,
@@ -365,7 +369,11 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
         e.date,
         weeksOf(templates, 'memorial.ahead'),
       );
-      if (ahead && (!next || ahead.week < next.week)) {
+      // An «ahead» that would fall on or after the last week is not offered,
+      // but still computed: one taken before the number of weeks was
+      // lowered must not turn «gone» (R-09 step 4).
+      if (ahead) {
+        const offered = !next || ahead.week < next.week;
         out.push({
           key: `memorial:ahead:${e.id}`,
           topic: 'memorial',
@@ -376,7 +384,7 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           text: w.memorialAhead({ when: inner(lang, at.text) }),
           template: 'memorial.ahead',
           values: { when: inner(lang, at.text) },
-          enabled: true,
+          enabled: offered,
           gaps: at.gap ? ['time'] : [],
           facts,
           eventId: e.id,
@@ -416,7 +424,11 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
         e.date,
         weeksOf(templates, 'convention.ahead'),
       );
-      if (ahead && (!next || ahead.week < next.week)) {
+      // An «ahead» that would fall on or after the last week is not offered,
+      // but still computed: one taken before the number of weeks was
+      // lowered must not turn «gone» (R-09 step 4).
+      if (ahead) {
+        const offered = !next || ahead.week < next.week;
         out.push({
           key: `convention:ahead:${e.id}`,
           topic: 'convention',
@@ -427,7 +439,7 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           text: w.conventionAhead(words),
           template: 'convention.ahead',
           values: words,
-          enabled: true,
+          enabled: offered,
           gaps: [],
           facts,
           eventId: e.id,
@@ -446,7 +458,7 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           template: 'convention.next',
           values: {
             ...words,
-            name: lang === 'ru' ? name.toLowerCase() : name,
+            name: lang === 'de' ? name : name.toLowerCase(),
           },
           enabled: true,
           gaps: [],
@@ -474,7 +486,7 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
       : s.gaps;
     return {
       ...s,
-      enabled: isOn(templates, s.template),
+      enabled: s.enabled && isOn(templates, s.template),
       gaps,
       text: say(templates, s.template, () => s.text, s.values),
     };

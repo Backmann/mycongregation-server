@@ -199,6 +199,18 @@ describe('announcement templates (real database)', () => {
     expect(
       (await patch('bc', 'memorial.ahead', { weeksAhead: 1 })).status,
     ).toBe(400);
+    // The string "false" is not «off», and certainly not «on»
+    // (implicit conversion made it true — independent check).
+    const asText = await patch('bc', 'memorial.ahead', { enabled: 'false' });
+    expect(asText.status).toBe(400);
+    // A NUL was a 500; a brace outside a placeholder reached the chairman.
+    for (const words of ['a\u0000b {when}', '{{when}}', 'Вечеря {when\n}'])
+      expect((await patch('bc', 'memorial.ahead', { words })).status).toBe(400);
+    expect(
+      (await h.as(login('bc')).get('/announcements/templates')).body.find(
+        (t: { key: string }) => t.key === 'memorial.ahead',
+      ).enabled,
+    ).toBe(true);
     expect(
       (await patch('bc', 'memorial.ahead', { weeksAhead: 3 })).body.weeksAhead,
     ).toBe(3);
@@ -225,6 +237,69 @@ describe('announcement templates (real database)', () => {
     await patch('bc', 'accounts_audit', { enabled: false });
     expect(await count()).toBe(before + 1);
     await patch('bc', 'accounts_audit', { enabled: true });
+  });
+
+  it('a change to exactly the app’s own, with nothing saved yet, saves and journals nothing', async () => {
+    const rows = () =>
+      h.sql(
+        `SELECT 1 FROM announcement_templates WHERE congregation_id = $1 AND key = 'field_service'`,
+        [tenant],
+      );
+    const journal = () =>
+      h.sql(
+        `SELECT 1 FROM audit_logs WHERE congregation_id = $1 AND entity_type = 'announcement_template'`,
+        [tenant],
+      );
+    const before = (await journal()).length;
+    for (const body of [{}, { enabled: true }, { words: null }])
+      expect((await patch('bc', 'field_service', body)).status).toBe(200);
+    expect([(await rows()).length, (await journal()).length]).toEqual([
+      0,
+      before,
+    ]);
+  });
+
+  it('the number of weeks changed after an «ahead» was taken: it stays as it is', async () => {
+    const date = addDays(THIS, 7 * 9 + 1);
+    const ev = await h.as('admin').post('/special-events', {
+      type: 'memorial',
+      title: 'memorial',
+      date,
+      time: '19:30',
+    });
+    expect(ev.status).toBe(201);
+    const target = addDays(THIS, 28);
+    const week = async () =>
+      (await h.as(login('bc')).get(`/announcements/suggestions?week=${target}`))
+        .body;
+    const s0 = (await week()).items.find((x: { key: string }) =>
+      x.key.startsWith('memorial:ahead:'),
+    );
+    expect(s0).toBeDefined();
+    const took = await h
+      .as(login('bc'))
+      .post('/announcements/suggestions/take', {
+        weekStartDate: target,
+        key: s0.key,
+        kinds: ['midweek'],
+        text: s0.text,
+      });
+    expect(took.status).toBe(201);
+    expect(
+      (await patch('bc', 'memorial.ahead', { weeksAhead: 3 })).status,
+    ).toBe(200);
+    expect((await week()).stale).toEqual([]);
+    const id = (
+      await h.sql<{ id: string }>(
+        `SELECT id FROM meeting_announcements WHERE congregation_id = $1 AND source_key LIKE 'memorial:ahead:%'`,
+        [tenant],
+      )
+    )[0].id;
+    const refreshed = await h
+      .as(login('bc'))
+      .post('/announcements/suggestions/refresh', { announcementId: id });
+    expect(refreshed.status).toBe(200);
+    await patch('bc', 'memorial.ahead', { weeksAhead: null });
   });
 
   it('the programme on the screens turned off: what was placed stays, nothing new is placed', async () => {
@@ -266,6 +341,10 @@ describe('announcement templates (real database)', () => {
     );
     await tick();
     expect(await count()).toEqual([0, 0]);
+    const state = await h
+      .as(login('bc'))
+      .get(`/announcements/screens?date=${ASSEMBLY}`);
+    expect(state.body.state).toBe('off');
     // On again, with own words: placed again, one item and one task per event.
     expect(
       (
@@ -275,7 +354,7 @@ describe('announcement templates (real database)', () => {
         })
       ).status,
     ).toBe(200);
-    await tick();
+    // Turned on: placed at once, not at the next daily run.
     const after = await count();
     expect(after[0]).toBeGreaterThan(0);
     expect(after[1]).toBe(after[0]);

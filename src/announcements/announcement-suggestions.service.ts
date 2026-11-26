@@ -73,13 +73,42 @@ export type StaleReason = 'changed' | 'moved' | 'gone';
 
 /** Whether a taken announcement still matches what it was taken from. */
 export function staleReason(
-  row: { weekStartDate: string; sourceFacts: string | null },
+  row: TakenRow,
   now: Suggestion | undefined,
+  held?: Held,
 ): StaleReason | null {
   if (!now) return 'gone';
-  if (now.targetWeek !== row.weekStartDate) return 'moved';
+  if (!fitsWeek(row, now, held)) return 'moved';
   if (now.facts !== row.sourceFacts) return 'changed';
   return null;
+}
+
+type TakenRow = {
+  weekStartDate: string;
+  sourceFacts: string | null;
+  eventType?: string;
+};
+/** Whether a meeting of this kind is held in this week. */
+export type Held = (week: string, kind: string) => boolean;
+
+/**
+ * Whether a taken announcement still stands in a right week. Its own week
+ * is always right. An «ahead» one was put weeks before by a number the
+ * writers may change (R-09 step 4): any earlier week still holding its
+ * meeting serves, so changing the number never makes a taken one «moved».
+ */
+export function fitsWeek(
+  row: TakenRow,
+  now: Suggestion,
+  held: Held = () => true,
+): boolean {
+  if (now.targetWeek === row.weekStartDate) return true;
+  return (
+    now.stage === 'ahead' &&
+    row.weekStartDate < now.anchorWeek &&
+    !!row.eventType &&
+    held(row.weekStartDate, row.eventType)
+  );
 }
 
 /** «co_visit:ahead:<id>.midweek» → «co_visit:ahead:<id>». */
@@ -123,9 +152,12 @@ export class AnnouncementSuggestionsService {
    * meetings already held included, to judge the announcements taken from
    * them (a taken one must not turn «gone» once its meeting is held).
    */
-  async compute(
-    congregationId: string,
-  ): Promise<{ today: string; all: Suggestion[]; raw: Suggestion[] }> {
+  async compute(congregationId: string): Promise<{
+    today: string;
+    all: Suggestion[];
+    raw: Suggestion[];
+    held: Held;
+  }> {
     const today = await this.clock.todayFor(congregationId);
     const start = mondayOf(today);
     const end = addDaysISO(start, 7 * HORIZON_WEEKS - 1);
@@ -208,7 +240,9 @@ export class AnnouncementSuggestionsService {
           defaultKinds: defaults.length ? defaults : [s.meetings[0].kind],
         };
       });
-    return { today, all: ahead, raw };
+    const held: Held = (week, kind) =>
+      !!rules.get(week)?.meetings.some((m) => m.kind === kind);
+    return { today, all: ahead, raw, held };
   }
 
   /** The keys already taken or let go, for one congregation. */
@@ -236,7 +270,7 @@ export class AnnouncementSuggestionsService {
     await this.announcements.assertWriter(user);
     const w = assertMonday(week);
     const congregationId = user.congregationId;
-    const [{ today, all, raw }, settled, rows] = await Promise.all([
+    const [{ today, all, raw, held }, settled, rows] = await Promise.all([
       this.compute(congregationId),
       this.settled(congregationId),
       this.repo.find({
@@ -250,6 +284,7 @@ export class AnnouncementSuggestionsService {
           sourceKey: true,
           sourceFacts: true,
           weekStartDate: true,
+          eventType: true,
         },
       }),
     ]);
@@ -276,6 +311,7 @@ export class AnnouncementSuggestionsService {
             const reason = staleReason(
               a,
               a.sourceKey ? byKey.get(baseKey(a.sourceKey)) : undefined,
+              held,
             );
             return reason ? [{ announcementId: a.id, reason }] : [];
           })
@@ -291,7 +327,7 @@ export class AnnouncementSuggestionsService {
   }> {
     await this.announcements.assertWriter(user);
     const congregationId = user.congregationId;
-    const { today, all, raw } = await this.compute(congregationId);
+    const { today, all, raw, held } = await this.compute(congregationId);
     const settled = await this.settled(congregationId);
     const w = mondayOf(today);
     const next = addDaysISO(w, 7);
@@ -310,6 +346,7 @@ export class AnnouncementSuggestionsService {
         sourceKey: true,
         sourceFacts: true,
         weekStartDate: true,
+        eventType: true,
       },
     });
     const byKey = new Map(raw.map((s) => [s.key, s]));
@@ -318,6 +355,7 @@ export class AnnouncementSuggestionsService {
         staleReason(
           a,
           a.sourceKey ? byKey.get(baseKey(a.sourceKey)) : undefined,
+          held,
         ) !== null,
     ).length;
     return { weekStartDate: w, suggestions, stale };
@@ -394,12 +432,12 @@ export class AnnouncementSuggestionsService {
     await this.announcements.assertWriter(user);
     const a = await this.announcements.own(user, announcementId);
     if (!a.sourceKey || !a.sourceFacts) throw gone();
-    const { raw } = await this.compute(user.congregationId);
+    const { raw, held } = await this.compute(user.congregationId);
     const s = raw.find((x) => x.key === baseKey(a.sourceKey!));
     if (!s) throw gone();
     // Moved to another week: new words here would say «next week» in the
     // wrong week. The writer deletes it and takes it again where it now is.
-    if (s.targetWeek !== a.weekStartDate) {
+    if (!fitsWeek(a, s, held)) {
       throw new ConflictException(
         refusal(
           'ANNOUNCEMENT_SUGGESTION_MOVED',

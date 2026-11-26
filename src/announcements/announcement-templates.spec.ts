@@ -5,12 +5,15 @@ import {
   defaultWords,
   fill,
   say,
+  strayBraces,
+  hasControlChars,
   tokensIn,
   unknownTokens,
   type TemplateKey,
   type TemplateSetting,
 } from './announcement-templates';
 import { suggestionsFrom, type SuggestionEvent } from './suggestion-rules';
+import { fitsWeek, staleReason } from './announcement-suggestions.service';
 import { SUPPORTED_LANGUAGES } from '../common/i18n/supported-languages';
 
 /** The «Templates» screen's rules (announcements R-09 step 4). */
@@ -66,6 +69,29 @@ describe('template words', () => {
       'Посещение. Встреча в будни.',
     );
     expect(fill('{program}', { program: null })).toBe('');
+  });
+
+  it('what an empty value leaves is tidied near it only (independent check)', () => {
+    const none = { when: null, program: null };
+    expect(fill('Внимание: важно.\n- {program}\n- Цена : 5', none)).toBe(
+      'Внимание: важно.\n- Цена : 5',
+    );
+    expect(fill('Уборка в {when}: приходите', none)).toBe(
+      'Уборка в: приходите',
+    );
+    expect(fill('Встреча ({when}) будет', none)).toBe('Встреча будет');
+    expect(fill('Текст.\nПрограмма:\n{program}', none)).toBe('Текст.');
+  });
+
+  it('a brace outside a placeholder and a control character are named', () => {
+    expect(
+      ['{{when}}', '{when\n}', 'a } b', '{when} и {program}'].map(strayBraces),
+    ).toEqual([true, true, true, false]);
+    expect(['a\u0000b', 'a\u0007', 'a\nb\tc'].map(hasControlChars)).toEqual([
+      true,
+      true,
+      false,
+    ]);
   });
 });
 
@@ -172,5 +198,79 @@ describe('say', () => {
         program: 'https://example.invalid/p',
       }),
     ).toBe('Программа: https://example.invalid/p');
+  });
+});
+
+describe('the number of weeks changed after one was taken', () => {
+  const weeks = (n: number) =>
+    run(
+      new Map([
+        ['memorial.ahead', { enabled: true, words: null, weeksAhead: n }],
+      ]),
+    );
+  it('a taken «ahead» stays right in its earlier week', () => {
+    const [was] = weeks(5);
+    const [now] = weeks(3);
+    expect(now.targetWeek).not.toBe(was.targetWeek);
+    const row = {
+      weekStartDate: was.targetWeek,
+      sourceFacts: was.facts,
+      eventType: 'midweek',
+    };
+    expect(staleReason(row, now, () => true)).toBeNull();
+    // Its meeting no longer held there (a convention that week): moved.
+    expect(staleReason(row, now, () => false)).toBe('moved');
+    // The event itself moved: its facts changed too — moved.
+    expect(fitsWeek(row, { ...now, anchorWeek: was.targetWeek })).toBe(false);
+  });
+  it('an «ahead» that now falls on the last week is computed, not offered', () => {
+    // An assembly the week before the Memorial holds no meeting: the last
+    // week before is two weeks back — where two weeks ahead also falls.
+    const assembly: SuggestionEvent = {
+      id: 'a',
+      type: 'circuit_assembly',
+      date: '2027-03-20',
+      endDate: null,
+      time: null,
+      coMidweekDow: null,
+    };
+    const got = suggestionsFrom({
+      lang: 'ru',
+      weeks: weeksFrom('2027-01-18', 12, [memorial, assembly]),
+      events: [memorial, assembly],
+      fieldService: [],
+      audits: [],
+      templates: new Map([
+        ['memorial.ahead', { enabled: true, words: null, weeksAhead: 2 }],
+      ]),
+    }).filter((s) => s.topic === 'memorial');
+    expect(got.map((s) => [s.stage, s.targetWeek, s.enabled])).toEqual([
+      ['ahead', '2027-03-08', false],
+      ['next', '2027-03-08', true],
+    ]);
+  });
+});
+
+describe('a gap is warned about only where the words have the placeholder', () => {
+  const noTime = { ...memorial, time: null };
+  const gapsWith = (words: string | null) =>
+    suggestionsFrom({
+      lang: 'ru',
+      weeks: weeksFrom('2027-01-18', 12, [noTime]),
+      events: [noTime],
+      fieldService: [],
+      audits: [],
+      templates: new Map([
+        ['memorial.next', { enabled: true, words, weeksAhead: null }],
+      ]),
+    }).find((s) => s.key === 'memorial:next:m')!.gaps;
+  it('the app’s words, own words with {when}: the time is missing', () => {
+    expect([gapsWith(null), gapsWith('Вечеря — {when}.')]).toEqual([
+      ['time'],
+      ['time'],
+    ]);
+  });
+  it('own words without {when}: nothing to warn about', () => {
+    expect(gapsWith('Вечеря на следующей неделе.')).toEqual([]);
   });
 });
