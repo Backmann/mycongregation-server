@@ -436,6 +436,8 @@ export const PLAN: Record<string, TablePlan> = {
    * words among them, encrypted, and gone after 30 days anyway — not copied.
    */
   meeting_announcements: 'skip',
+  /** «Not needed» marks of suggested announcements: no person, no copy needed. */
+  announcement_dismissals: 'skip',
   territory_settings: copy(
     'congregation_id verified_at verified_by_user_id map_built_at houses_built_at updated_at',
   ),

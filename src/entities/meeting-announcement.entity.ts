@@ -78,6 +78,14 @@ export class MeetingAnnouncement {
   sourceKey!: string | null;
 
   /**
+   * The fingerprint of the dates and hours a suggestion's words were made
+   * from (R-09). When the event changes, today's fingerprint differs and the
+   * writers are told the text is stale. Null for anything written by hand.
+   */
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  sourceFacts!: string | null;
+
+  /**
    * Put on the chairman's list by the guidelines themselves, not by a person
    * (R-05): the assembly programme on the screens. Shown with its own mark.
    */
