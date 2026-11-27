@@ -1,5 +1,6 @@
 import { addDaysISO, weekRules, type WeekRules } from '../common/week-rules';
 import {
+  factsOf,
   suggestionsFrom,
   type SuggestionEvent,
   type SuggestionInput,
@@ -75,9 +76,10 @@ describe('the general cleaning', () => {
     expect(s.eventId).toBe(cleaning.id);
   });
 
-  it('shows a gap, never a guess, when the event has no hour', () => {
+  it('no hour yet: never a guess, never «[время]» — said to be told later, and the writer warned', () => {
     const [s] = run([{ ...cleaning, time: null }], {}, '2027-02-22', 6);
-    expect(s.text).toContain('[время]');
+    expect(s.text).not.toContain('[');
+    expect(s.text).toContain('Время сообщим позже.');
     expect(s.gaps).toEqual(['time']);
   });
 
@@ -232,12 +234,39 @@ describe('the Memorial', () => {
     ]);
   });
 
-  it('marks the missing hour (as on the live site, 26 November 2026)', () => {
+  it('no hour yet (as on the live site, 26 November 2026): weeks ahead that is ordinary', () => {
     const [s] = run([memorial], {}, '2027-01-18', 12);
     expect(s.text).toBe(
-      'Вечеря воспоминания — понедельник, 22 марта, [время]. Пригласим на неё всех, кого знаем.',
+      'Вечеря воспоминания — понедельник, 22 марта. Время сообщим позже. Пригласим на неё всех, кого знаем.',
     );
-    expect(s.gaps).toEqual(['time']);
+    expect(s.gaps).toEqual([]);
+  });
+
+  it('the week before, an hour still missing is a warning to the writer', () => {
+    const next = run([memorial], {}, '2027-01-18', 12).find(
+      (s) => s.stage === 'next',
+    )!;
+    expect(next.text).toBe(
+      'На следующей неделе — Вечеря воспоминания: понедельник, 22 марта. Время сообщим дополнительно.',
+    );
+    expect(next.gaps).toEqual(['time']);
+  });
+
+  it('the hour and the address once known; a taken one is then «changed»', () => {
+    const before = run([memorial], {}, '2027-01-18', 12)[0];
+    const known = run(
+      [{ ...memorial, time: '19:30', address: 'Musterstraße 1, Hamm' }],
+      {},
+      '2027-01-18',
+      12,
+    )[0];
+    expect(known.text).toBe(
+      'Вечеря воспоминания — понедельник, 22 марта, 19:30, Musterstraße 1, Hamm. Пригласим на неё всех, кого знаем.',
+    );
+    expect(known.facts).not.toBe(before.facts);
+    // No address given: the fingerprint is what it was before addresses
+    // counted, so nothing taken earlier turns «changed» by itself.
+    expect(before.facts).toBe(factsOf(memorial.date, null));
   });
 });
 

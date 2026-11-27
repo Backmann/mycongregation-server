@@ -10,14 +10,20 @@ import type { SupportedLanguage } from '../common/i18n/supported-languages';
  * platform, so they are whole sentences in the congregation's language and
  * name no organisation.
  *
- * A missing fact is never guessed: it is left as a visible gap — «[время]» —
- * and the suggestion says so, so the writer fills it in or fixes the event.
+ * A missing fact is never guessed. A missing hour is left out and the words
+ * say it will be told; a missing report stays a visible gap. Where it matters
+ * the suggestion warns the writer, who fills it in or fixes the event.
  */
 export interface SuggestionWords {
-  gapTime: string;
   gapReport: string;
+  /**
+   * Said after the congregation's own words when their {when} has no hour
+   * yet — the app's own words carry it already (independent check: the hour
+   * silently vanished from own words).
+   */
+  laterTime: string;
   /** {when} — «Суббота, 13 марта, 9:00». */
-  generalCleaning: (p: { when: string }) => string;
+  generalCleaning: (p: { when: string; later?: boolean }) => string;
   /**
    * {from}, {to} — the visit's days; {midweek} — the moved midweek meeting,
    * null when the week holds none (an assembly in the visit week).
@@ -32,8 +38,22 @@ export interface SuggestionWords {
     to: string;
     midweek: string | null;
   }) => string;
-  memorialAhead: (p: { when: string }) => string;
-  memorialNext: (p: { when: string }) => string;
+  /**
+   * {when} — the day, with the hour once it is known; {place} — the
+   * event's address, when given. `later`: the hour is not known yet, and the
+   * app's own words say it will be told (Lionel, 26 November 2026: the time
+   * and the address of the Memorial are often not known weeks ahead).
+   */
+  memorialAhead: (p: {
+    when: string;
+    place?: string | null;
+    later?: boolean;
+  }) => string;
+  memorialNext: (p: {
+    when: string;
+    place?: string | null;
+    later?: boolean;
+  }) => string;
   /** {name} — «Районный конгресс»; {dates} — «24 января» or «30 июля – 1 августа». */
   conventionAhead: (p: { name: string; dates: string }) => string;
   conventionNext: (p: { name: string; dates: string }) => string;
@@ -56,20 +76,20 @@ export interface SuggestionWords {
 
 export const SUGGESTION_WORDS: Record<SupportedLanguage, SuggestionWords> = {
   ru: {
-    gapTime: '[время]',
     gapReport: '[текст отчёта]',
-    generalCleaning: ({ when }) =>
-      `${when} — генеральная уборка Зала царства. Приглашаются все.`,
+    laterTime: 'Время сообщим позже.',
+    generalCleaning: ({ when, later }) =>
+      `${when} — генеральная уборка Зала царства.${later ? ' Время сообщим позже.' : ''} Приглашаются все.`,
     coVisitAhead: ({ from, to, midweek }) =>
       `С ${from} по ${to} — посещение районного старейшины.` +
       (midweek ? ` Встреча в будни на той неделе — ${midweek}.` : ''),
     coVisitNext: ({ from, to, midweek }) =>
       `На следующей неделе, с ${from} по ${to}, — посещение районного старейшины.` +
       (midweek ? ` Встреча в будни — ${midweek}.` : ''),
-    memorialAhead: ({ when }) =>
-      `Вечеря воспоминания — ${when}. Пригласим на неё всех, кого знаем.`,
-    memorialNext: ({ when }) =>
-      `На следующей неделе — Вечеря воспоминания: ${when}.`,
+    memorialAhead: ({ when, place, later }) =>
+      `Вечеря воспоминания — ${when}${place ? `, ${place}` : ''}.${later ? ' Время сообщим позже.' : ''} Пригласим на неё всех, кого знаем.`,
+    memorialNext: ({ when, place, later }) =>
+      `На следующей неделе — Вечеря воспоминания: ${when}${place ? `, ${place}` : ''}.${later ? ' Время сообщим дополнительно.' : ''}`,
     conventionAhead: ({ name, dates }) =>
       `${name} — ${dates}. Запланируйте, пожалуйста, это время заранее.`,
     conventionNext: ({ name, dates }) =>
@@ -91,19 +111,20 @@ export const SUGGESTION_WORDS: Record<SupportedLanguage, SuggestionWords> = {
       (programUrl ? `\nПрограмма: ${programUrl}` : ''),
   },
   en: {
-    gapTime: '[time]',
     gapReport: '[report text]',
-    generalCleaning: ({ when }) =>
-      `${when}: general cleaning of the Kingdom Hall. Everyone is invited.`,
+    laterTime: 'The time will be announced.',
+    generalCleaning: ({ when, later }) =>
+      `${when}: general cleaning of the Kingdom Hall.${later ? ' The time will be announced.' : ''} Everyone is invited.`,
     coVisitAhead: ({ from, to, midweek }) =>
       `From ${from} to ${to}: the circuit overseer's visit.` +
       (midweek ? ` The midweek meeting that week: ${midweek}.` : ''),
     coVisitNext: ({ from, to, midweek }) =>
       `Next week, from ${from} to ${to}: the circuit overseer's visit.` +
       (midweek ? ` The midweek meeting: ${midweek}.` : ''),
-    memorialAhead: ({ when }) =>
-      `The Memorial: ${when}. Let us invite everyone we know.`,
-    memorialNext: ({ when }) => `Next week: the Memorial, ${when}.`,
+    memorialAhead: ({ when, place, later }) =>
+      `The Memorial: ${when}${place ? `, ${place}` : ''}.${later ? ' The time will be announced.' : ''} Let us invite everyone we know.`,
+    memorialNext: ({ when, place, later }) =>
+      `Next week: the Memorial, ${when}${place ? `, ${place}` : ''}.${later ? ' The time will be announced.' : ''}`,
     conventionAhead: ({ name, dates }) =>
       `${name}: ${dates}. Please plan this time in advance.`,
     conventionNext: ({ name, dates }) =>
@@ -125,10 +146,10 @@ export const SUGGESTION_WORDS: Record<SupportedLanguage, SuggestionWords> = {
       (programUrl ? `\nProgram: ${programUrl}` : ''),
   },
   de: {
-    gapTime: '[Uhrzeit]',
     gapReport: '[Text des Berichts]',
-    generalCleaning: ({ when }) =>
-      `${when}: Grundreinigung des Königreichssaals. Alle sind eingeladen.`,
+    laterTime: 'Die Uhrzeit wird noch bekannt gegeben.',
+    generalCleaning: ({ when, later }) =>
+      `${when}: Grundreinigung des Königreichssaals.${later ? ' Die Uhrzeit wird noch bekannt gegeben.' : ''} Alle sind eingeladen.`,
     coVisitAhead: ({ from, to, midweek }) =>
       `Vom ${from} bis ${to}: Besuch des Kreisaufsehers.` +
       (midweek
@@ -137,9 +158,10 @@ export const SUGGESTION_WORDS: Record<SupportedLanguage, SuggestionWords> = {
     coVisitNext: ({ from, to, midweek }) =>
       `Nächste Woche, vom ${from} bis ${to}: Besuch des Kreisaufsehers.` +
       (midweek ? ` Die Zusammenkunft unter der Woche: ${midweek}.` : ''),
-    memorialAhead: ({ when }) =>
-      `Das Gedächtnismahl: ${when}. Laden wir alle ein, die wir kennen.`,
-    memorialNext: ({ when }) => `Nächste Woche: das Gedächtnismahl, ${when}.`,
+    memorialAhead: ({ when, place, later }) =>
+      `Das Gedächtnismahl: ${when}${place ? `, ${place}` : ''}.${later ? ' Die Uhrzeit wird noch bekannt gegeben.' : ''} Laden wir alle ein, die wir kennen.`,
+    memorialNext: ({ when, place, later }) =>
+      `Nächste Woche: das Gedächtnismahl, ${when}${place ? `, ${place}` : ''}.${later ? ' Die Uhrzeit wird noch bekannt gegeben.' : ''}`,
     conventionAhead: ({ name, dates }) =>
       `${name}: ${dates}. Bitte planen Sie diese Zeit schon jetzt ein.`,
     conventionNext: ({ name, dates }) =>

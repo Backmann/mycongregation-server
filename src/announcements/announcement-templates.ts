@@ -33,8 +33,8 @@ export const TEMPLATE_TOKENS: Record<TemplateKey, readonly string[]> = {
   general_cleaning: ['when'],
   'co_visit.ahead': ['from', 'to', 'midweek'],
   'co_visit.next': ['from', 'to', 'midweek'],
-  'memorial.ahead': ['when'],
-  'memorial.next': ['when'],
+  'memorial.ahead': ['when', 'place'],
+  'memorial.next': ['when', 'place'],
   'convention.ahead': ['name', 'dates'],
   'convention.next': ['name', 'dates'],
   // Its words are the changed meetings themselves, line by line.
@@ -116,10 +116,17 @@ export function fill(
   // words stay exactly as written — colons, dashes, lists, links (found by
   // the independent check: a global tidy cut «Внимание:» and list dashes).
   const GAP = '\u0000';
-  let s = words.replace(/\{([^{}\n]*)\}/g, (_, t: string) => {
-    const v = values[t];
-    return v == null || v === '' ? GAP : v;
-  });
+  let s = words.replace(
+    /\{([^{}\n]*)\}/g,
+    (_, t: string, at: number, all: string) => {
+      const v = values[t];
+      if (v == null || v === '') return GAP;
+      // A value that starts a line starts a sentence: «Суббота, …» even
+      // where the value is given in lower case for inside one.
+      const lineStart = /(^|\n)[ \t]*$/.test(all.slice(0, at));
+      return lineStart ? v.charAt(0).toUpperCase() + v.slice(1) : v;
+    },
+  );
   if (!s.includes(GAP)) return s.trim();
   const kept: string[] = [];
   for (const line of s.split('\n')) {
@@ -138,13 +145,13 @@ export function fill(
     let out = line
       // «встреча ({x})» → «встреча»
       .replace(new RegExp(`[ \\t]*\\([ \\t]*${GAP}[ \\t]*\\)`, 'g'), '')
-      // «будни — {x}.» → «будни.»; «в {x}: приходите» → «в: приходите»
+      // «{x} — встреча» → «Встреча»; «{x}, понедельник» → «Понедельник»
+      .replace(new RegExp(`^[ \\t]*${GAP}[ \\t]*[,—–:]?[ \\t]*`), '')
+      // «будни — {x}.» → «будни.»; «марта, {x}.» → «марта.»; «в {x}: приходите» → «в: приходите»
       .replace(
-        new RegExp(`[ \\t]*[—–:]?[ \\t]*${GAP}[ \\t]*(?=([.,;:!?]|$))`, 'g'),
+        new RegExp(`[ \\t]*[,—–:]?[ \\t]*${GAP}[ \\t]*(?=([.,;:!?]|$))`, 'g'),
         '',
       )
-      // «{x} — встреча» → «Встреча»
-      .replace(new RegExp(`^[ \\t]*${GAP}[ \\t]*[—–:]?[ \\t]*`), '')
       .replace(new RegExp(`[ \\t]*${GAP}[ \\t]*`, 'g'), ' ');
     if (/^\s*$/.test(out)) continue;
     if (line.trimStart().startsWith(GAP))
@@ -176,9 +183,9 @@ export function defaultWords(
         midweek: '{midweek}',
       });
     case 'memorial.ahead':
-      return w.memorialAhead({ when: '{when}' });
+      return w.memorialAhead({ when: '{when}', place: '{place}' });
     case 'memorial.next':
-      return w.memorialNext({ when: '{when}' });
+      return w.memorialNext({ when: '{when}', place: '{place}' });
     case 'convention.ahead':
       return w.conventionAhead({ name: '{name}', dates: '{dates}' });
     case 'convention.next':
