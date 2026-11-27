@@ -18,6 +18,7 @@ import { TaskRemindersService } from '../tasks/task-reminders.service';
 import { GroupVisitTasksService } from '../field-service-meetings/group-visit-tasks.service';
 import { InactiveHoldsService } from '../tasks/inactive-holds.service';
 import { AdminNotElderService } from '../tasks/admin-not-elder.service';
+import { MemorialDetailsService } from '../tasks/memorial-details.service';
 import { FieldServiceAutomationService } from '../field-service-meetings/field-service-automation.service';
 import { EventNotificationsService } from '../special-events/event-notifications.service';
 import { AnnualSentService } from '../annual-report/annual-sent.service';
@@ -54,6 +55,7 @@ export class ScheduledJobsService {
     private readonly groupVisitTasks: GroupVisitTasksService,
     private readonly inactiveHolds: InactiveHoldsService,
     private readonly adminNotElder: AdminNotElderService,
+    private readonly memorialDetails: MemorialDetailsService,
     private readonly fieldServiceAutomation: FieldServiceAutomationService,
     private readonly memorial: MemorialService,
     private readonly eventNotifications: EventNotificationsService,
@@ -593,6 +595,12 @@ export class ScheduledJobsService {
       await this.adminNotElder.syncAll();
     } catch (e) {
       this.logger.error(`admin-not-elder failed: ${String(e)}`);
+    }
+    // «Указать время и место Вечери» (27 November 2026).
+    try {
+      await this.memorialDetails.syncAll();
+    } catch (e) {
+      this.logger.error(`memorial details failed: ${String(e)}`);
     }
     // «Возможно, одна и та же карточка» (1 November 2026).
     try {

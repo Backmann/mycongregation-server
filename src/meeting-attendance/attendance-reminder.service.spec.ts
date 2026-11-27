@@ -131,3 +131,16 @@ describe('the words', () => {
     );
   });
 });
+
+describe('the Memorial asked about the morning after (27 November 2026)', () => {
+  it('when it may still be going on at 20:00', () => {
+    const { memorialAsksNextMorning } = jest.requireActual(
+      './attendance-reminder.service',
+    ) as typeof import('./attendance-reminder.service');
+    expect(
+      [null, '19:30', '20:15', '19:01', '19:00', '18:30'].map((t) =>
+        memorialAsksNextMorning(t),
+      ),
+    ).toEqual([true, true, true, true, false, false]);
+  });
+});

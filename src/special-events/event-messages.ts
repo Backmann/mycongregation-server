@@ -25,6 +25,8 @@ export interface EventForMessage {
   time: string | null;
   timeEnd: string | null;
   address: string | null;
+  /** Somewhere other than the hall; no address yet: «место уточняется». */
+  elsewhere?: boolean | null;
   replacesMeeting: boolean;
   coFirstName?: string | null;
   coLastName?: string | null;
@@ -52,6 +54,10 @@ type Strings = {
   inAWeek: (t: string) => string;
   now: string;
   startsAt: (time: string) => string;
+  /** The Memorial's hour, not known yet (27 November 2026). */
+  timeLater: string;
+  /** Elsewhere, the address not known yet. */
+  placeLater: string;
   noMeetingsWeek: string;
   noMeetingsBack: string;
   midweekOn: (day: string) => string;
@@ -77,6 +83,8 @@ const STR: Record<SupportedLanguage, Strings> = {
     inAWeek: (t) => `Через неделю — ${t}`,
     now: 'Теперь',
     startsAt: (time) => `начало в ${time}`,
+    timeLater: 'время уточняется',
+    placeLater: 'место уточняется',
     noMeetingsWeek: 'Встреч собрания на этой неделе не будет.',
     noMeetingsBack: 'Встречи собрания на этой неделе идут как обычно.',
     midweekOn: (day) => `Будняя встреча — ${day}.`,
@@ -103,6 +111,8 @@ const STR: Record<SupportedLanguage, Strings> = {
     inAWeek: (t) => `In a week — ${t}`,
     now: 'Now',
     startsAt: (time) => `starts at ${time}`,
+    timeLater: 'time to be announced',
+    placeLater: 'place to be announced',
     noMeetingsWeek: 'No congregation meetings this week.',
     noMeetingsBack: 'The congregation meetings this week are held as usual.',
     midweekOn: (day) => `Midweek meeting — ${day}.`,
@@ -129,6 +139,8 @@ const STR: Record<SupportedLanguage, Strings> = {
     inAWeek: (t) => `In einer Woche — ${t}`,
     now: 'Jetzt',
     startsAt: (time) => `Beginn ${time}`,
+    timeLater: 'Uhrzeit folgt',
+    placeLater: 'Ort folgt',
     noMeetingsWeek: 'In dieser Woche finden keine Zusammenkünfte statt.',
     noMeetingsBack: 'Die Zusammenkünfte dieser Woche finden wie gewohnt statt.',
     midweekOn: (day) => `Zusammenkunft unter der Woche — ${day}.`,
@@ -208,8 +220,11 @@ function timePlace(e: EventForMessage, s: Strings): string {
     ? e.timeEnd
       ? `${e.time}–${e.timeEnd}`
       : s.startsAt(e.time)
-    : null;
-  return [time, e.address].filter(Boolean).join(' · ');
+    : e.type === 'memorial'
+      ? s.timeLater
+      : null;
+  const place = e.address?.trim() || (e.elsewhere ? s.placeLater : null);
+  return [time, place].filter(Boolean).join(' · ');
 }
 
 /** What the event means for the congregation's own meetings. */
@@ -340,6 +355,9 @@ export function signatureOf(e: EventForMessage): string {
     e.time ?? '',
     e.timeEnd ?? '',
     e.address ?? '',
+    // Only when set, so the signature of every other event stays the very
+    // string it was before the flag existed.
+    ...(e.elsewhere ? ['elsewhere'] : []),
     e.replacesMeeting ? '1' : '0',
     e.coMidweekDow ?? '',
     // «usual» is the absence of an answer: an old row and a new one agree.

@@ -208,6 +208,7 @@ export class AnnouncementSuggestionsService {
         time: e.time,
         coMidweekDow: e.coMidweekDow,
         address: e.address,
+        elsewhere: e.elsewhere,
       })),
       fieldService: fs.map((m) => ({
         date: addDaysISO(m.weekStartDate, m.dayOfWeek - 1),

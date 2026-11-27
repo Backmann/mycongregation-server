@@ -57,6 +57,15 @@ export class SpecialEvent {
   @Column({ type: 'text', nullable: true })
   address!: string | null;
 
+  /**
+   * Held somewhere other than the hall, the address perhaps not known yet
+   * (the Memorial, 27 November 2026). With no address the app says «место
+   * уточняется» instead of the hall's address. False: in the hall unless an
+   * address says otherwise.
+   */
+  @Column({ type: 'boolean', default: false })
+  elsewhere!: boolean;
+
   @Column({ type: 'text', nullable: true })
   mapUrl!: string | null;
 

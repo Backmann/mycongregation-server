@@ -305,6 +305,31 @@ describe('own words when the hour or the address is not known yet (independent c
       'Вечеря — понедельник, 22 марта. Время сообщим позже.',
     );
   });
+  it('own words with {place}, the place not known yet: said after them', () => {
+    const away = { ...memorial, elsewhere: true };
+    const got = suggestionsFrom({
+      lang: 'ru',
+      weeks: weeksFrom('2027-01-18', 12, [away]),
+      events: [away],
+      fieldService: [],
+      audits: [],
+      templates: own('memorial.ahead', 'Вечеря — {when}, {place}.'),
+    }).find((s) => s.key === 'memorial:ahead:m')!;
+    expect(got.text).toBe(
+      'Вечеря — понедельник, 22 марта, 19:30. Место сообщим позже.',
+    );
+    // Own words that never name the place say nothing about it.
+    const quiet = suggestionsFrom({
+      lang: 'ru',
+      weeks: weeksFrom('2027-01-18', 12, [away]),
+      events: [away],
+      fieldService: [],
+      audits: [],
+      templates: own('memorial.ahead', 'Вечеря — {when}.'),
+    }).find((s) => s.key === 'memorial:ahead:m')!;
+    expect(quiet.text).toBe('Вечеря — понедельник, 22 марта, 19:30.');
+  });
+
   it('an empty value that starts the line takes its comma with it', () => {
     expect(
       fill('{place}, {when} — Вечеря.', { when: 'понедельник', place: null }),

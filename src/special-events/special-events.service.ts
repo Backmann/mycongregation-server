@@ -51,6 +51,7 @@ const JOURNAL_FIELDS = [
   'time',
   'timeEnd',
   'address',
+  'elsewhere',
   'note',
   'meetingMode',
   'meetingNote',
@@ -424,12 +425,10 @@ export class SpecialEventsService {
     exceptId?: string,
   ) {
     if (next.type !== 'memorial') return;
-    if (!next.time?.trim()) {
-      throw new BadRequestException({
-        code: 'EVENT_MEMORIAL_NEEDS_TIME',
-        message: 'The Memorial needs its starting time',
-      });
-    }
+    // The hour may come later (27 November 2026): it is often not known
+    // weeks ahead. Reminders go by the day; the words say «время сообщим
+    // позже»; the body coordinator gets a task to fill it in
+    // (tasks/memorial-details.service.ts).
     const others = await this.specialEventsRepo.find({
       where: {
         congregationId: tenantId,
@@ -536,6 +535,8 @@ export class SpecialEventsService {
       congregationId: tenantId,
       // Only a campaign gives the auxiliary pioneers 15 hours.
       auxReducedHours: dto.type === 'campaign' && dto.auxReducedHours === true,
+      // Only the Memorial is «elsewhere»: any other event says its address.
+      elsewhere: dto.type === 'memorial' && dto.elsewhere === true,
     });
     Object.assign(
       event,
@@ -708,6 +709,8 @@ export class SpecialEventsService {
     // 18 November 2026). A newer client says so itself.
     const hadName = !!event.coWifeName?.trim();
     Object.assign(event, dto, meeting);
+    // Only the Memorial is «elsewhere» — a type changed away drops it.
+    if (event.type !== 'memorial') event.elsewhere = false;
     if (
       dto.coWifeComes === undefined &&
       dto.coWifeName !== undefined &&

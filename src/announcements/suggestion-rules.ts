@@ -3,7 +3,11 @@ import type { SupportedLanguage } from '../common/i18n/supported-languages';
 import type { MeetingKind, WeekRules } from '../common/week-rules';
 import { addDaysISO, visitMidweekDowOf } from '../common/week-rules';
 import { mondayOf } from '../common/week';
-import { SUGGESTION_WORDS, type SuggestionWords } from './suggestion-words';
+import {
+  SUGGESTION_WORDS,
+  type Later,
+  type SuggestionWords,
+} from './suggestion-words';
 import {
   NO_TEMPLATES,
   isOn,
@@ -46,7 +50,7 @@ export type SuggestionTopic =
 /** «ahead» — weeks in advance; «next» — the last week before. */
 export type SuggestionStage = 'ahead' | 'next' | 'once';
 
-export type SuggestionGap = 'time' | 'report';
+export type SuggestionGap = 'time' | 'place' | 'report';
 
 export interface Suggestion {
   /** Stable while the thing it comes from exists: «memorial:ahead:<id>». */
@@ -81,8 +85,8 @@ export interface Suggestion {
    * announcement taken before is not taken for «gone» (independent check).
    */
   enabled: boolean;
-  /** Its event has no hour yet: own words with {when} are told so. */
-  later?: boolean;
+  /** What its event does not know yet: own words are told so too. */
+  later?: Later;
 }
 
 export interface SuggestionEvent {
@@ -94,6 +98,8 @@ export interface SuggestionEvent {
   coMidweekDow: number | null;
   /** Where it is held, when known (the Memorial may be elsewhere). */
   address?: string | null;
+  /** Not in the hall; with no address yet the place is still to be told. */
+  elsewhere?: boolean | null;
 }
 
 export interface SuggestionFieldServiceMeeting {
@@ -290,11 +296,14 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
         targetWeek: p.week,
         meetings: p.meetings,
         defaultKinds: kinds(p),
-        text: w.generalCleaning({ when: at.text, later: at.gap }),
+        text: w.generalCleaning({
+          when: at.text,
+          later: at.gap ? 'time' : undefined,
+        }),
         template: 'general_cleaning',
         // Lower case inside own words; a line it starts gets its capital.
         values: { when: inner(lang, at.text) },
-        later: at.gap,
+        later: at.gap ? 'time' : undefined,
         enabled: true,
         // Its only word, at the last meeting before: the writer is told the
         // hour is still missing.
@@ -376,10 +385,26 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
     if (e.type === 'memorial') {
       const at = when(lang, w, e.date, e.time);
       const place = e.address?.trim() || null;
-      // The address joins the facts only once given: words taken before it
-      // was are then marked «changed» and can be refreshed.
-      const facts = factsOf(e.date, clock(e.time), ...(place ? [place] : []));
-      const said = { when: inner(lang, at.text), place, later: at.gap };
+      // Elsewhere, and where not known yet: «место сообщим позже».
+      const placeLater = !place && !!e.elsewhere;
+      const later: Later | undefined =
+        at.gap && placeLater
+          ? 'both'
+          : at.gap
+            ? 'time'
+            : placeLater
+              ? 'place'
+              : undefined;
+      // The address joins the facts only once given, «elsewhere» only while
+      // the address is missing: words taken before are then marked
+      // «changed» and can be refreshed; an event that has neither keeps the
+      // fingerprint it always had.
+      const facts = factsOf(
+        e.date,
+        clock(e.time),
+        ...(place ? [place] : placeLater ? ['@elsewhere'] : []),
+      );
+      const said = { when: inner(lang, at.text), place, later };
       const values = { when: inner(lang, at.text), place };
       const next = lastWeekBefore(weeks, mondayOf(e.date));
       const ahead = weeksBefore(
@@ -402,7 +427,7 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           text: w.memorialAhead(said),
           template: 'memorial.ahead',
           values,
-          later: at.gap,
+          later,
           enabled: offered,
           // Weeks ahead an hour not known yet is ordinary: no warning.
           gaps: [],
@@ -422,9 +447,13 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
           text: w.memorialNext(said),
           template: 'memorial.next',
           values,
-          later: at.gap,
+          later,
           enabled: true,
-          gaps: at.gap ? ['time'] : [],
+          // The week before: what is still missing is a warning.
+          gaps: [
+            ...(at.gap ? (['time'] as const) : []),
+            ...(placeLater ? (['place'] as const) : []),
+          ],
           facts,
           eventId: e.id,
           anchorWeek: mondayOf(e.date),
@@ -502,14 +531,23 @@ export function suggestionsFrom(input: SuggestionInput): Suggestion[] {
       ? s.gaps.filter((g) =>
           g === 'time'
             ? /\{(when|midweek)\}/.test(own)
-            : /\{report\}/.test(own),
+            : g === 'place'
+              ? /\{place\}/.test(own)
+              : /\{report\}/.test(own),
         )
       : s.gaps;
     let text = say(templates, s.template, () => s.text, s.values);
-    // Own words with {when} and no hour yet: what the app's words say, said
-    // after them — the hour must not just vanish (independent check).
-    if (own && s.later && /\{when\}/.test(own) && !text.includes(w.laterTime))
-      text = `${text.trimEnd()} ${w.laterTime}`;
+    // Own words name what the event does not know yet only through their
+    // placeholders: what they leave out is said after them, as the app's
+    // own words say it — the hour or the place must not just vanish.
+    if (own && s.later) {
+      const time = s.later !== 'place' && /\{when\}/.test(own);
+      const place = s.later !== 'time' && /\{place\}/.test(own);
+      const what: Later | null =
+        time && place ? 'both' : time ? 'time' : place ? 'place' : null;
+      if (what && !text.includes(w.later(what)))
+        text = `${text.trimEnd()} ${w.later(what)}`;
+    }
     return {
       ...s,
       enabled: s.enabled && isOn(templates, s.template),

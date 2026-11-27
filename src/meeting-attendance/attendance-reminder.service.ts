@@ -13,6 +13,7 @@ import { Publisher } from '../entities/publisher.entity';
 import { Absence } from '../entities/absence.entity';
 import { ResponsibilityType } from '../common/enums/responsibility-type.enum';
 import { EventType } from '../common/enums/event-type.enum';
+import { addDaysISO } from '../common/week-rules';
 import {
   DEFAULT_CONGREGATION_TIMEZONE,
   minutesOfDayIn,
@@ -27,6 +28,21 @@ import {
 
 /** 20:00 — the hour Lionel chose (31 October 2026). */
 export const REMIND_AT_MINUTES = 20 * 60;
+/** 08:00 — the morning after a Memorial that ends late or has no hour. */
+export const MORNING_AT_MINUTES = 8 * 60;
+/** About how long the Memorial lasts. */
+const MEMORIAL_MINUTES = 60;
+
+/**
+ * The Memorial is asked about the next morning when it may still be going on
+ * at 20:00 — its hour not given, or begun after 19:00 (independent check,
+ * 27 November 2026: a 19:30 Memorial was asked about during it, and one at
+ * 20:15 never at all).
+ */
+export function memorialAsksNextMorning(time: string | null): boolean {
+  const start = minutesOfClock(time);
+  return start === null || start + MEMORIAL_MINUTES > REMIND_AT_MINUTES;
+}
 
 /**
  * The words of the reminder — short, in each language, pure so they can be
@@ -35,6 +51,7 @@ export const REMIND_AT_MINUTES = 20 * 60;
 export function attendanceDueText(
   kind: EventType,
   lang: SupportedLanguage,
+  yesterday = false,
 ): { title: string; body: string } {
   const T = {
     ru: {
@@ -42,6 +59,7 @@ export function attendanceDueText(
       midweek: 'Будняя встреча сегодня ещё не внесена.',
       weekend: 'Выходная встреча сегодня ещё не внесена.',
       memorial: 'Вечеря воспоминания сегодня ещё не внесена.',
+      memorialYesterday: 'Вчерашняя Вечеря воспоминания ещё не внесена.',
     },
     de: {
       title: 'Anwesenheit der Zusammenkunft',
@@ -50,22 +68,28 @@ export function attendanceDueText(
       weekend:
         'Die Zusammenkunft am Wochenende ist heute noch nicht eingetragen.',
       memorial: 'Das Gedächtnismahl ist heute noch nicht eingetragen.',
+      memorialYesterday:
+        'Das Gedächtnismahl von gestern ist noch nicht eingetragen.',
     },
     en: {
       title: 'Meeting attendance',
       midweek: 'Today’s midweek meeting has not been recorded yet.',
       weekend: 'Today’s weekend meeting has not been recorded yet.',
       memorial: 'Today’s Memorial has not been recorded yet.',
+      memorialYesterday: 'Yesterday’s Memorial has not been recorded yet.',
     },
   }[lang] ?? {
     title: 'Посещаемость встречи',
     midweek: 'Будняя встреча сегодня ещё не внесена.',
     weekend: 'Выходная встреча сегодня ещё не внесена.',
     memorial: 'Вечеря воспоминания сегодня ещё не внесена.',
+    memorialYesterday: 'Вчерашняя Вечеря воспоминания ещё не внесена.',
   };
   const body =
     kind === EventType.MEMORIAL
-      ? T.memorial
+      ? yesterday
+        ? T.memorialYesterday
+        : T.memorial
       : kind === EventType.MIDWEEK
         ? T.midweek
         : T.weekend;
@@ -110,10 +134,15 @@ export class AttendanceReminderService {
       const minutes = minutesOfDayIn(now, tz);
       // From 20:00 until the quiet hours: a late tick still says it, the key
       // keeps it to once.
+      const today = todayIn(now, tz);
+      if (minutes >= MORNING_AT_MINUTES && minutes < MORNING_AT_MINUTES + 60) {
+        sent += await this.remindMorningAfter(c.id, addDaysISO(today, -1));
+        continue;
+      }
       if (minutes < REMIND_AT_MINUTES || minutes >= REMIND_AT_MINUTES + 60) {
         continue;
       }
-      sent += await this.remindFor(c.id, todayIn(now, tz));
+      sent += await this.remindFor(c.id, today);
     }
     return sent;
   }
@@ -122,7 +151,11 @@ export class AttendanceReminderService {
     const due = (await this.attendance.unrecordedToday(tenantId, today)).filter(
       (m) => {
         const start = minutesOfClock(m.time);
-        return start === null || start < REMIND_AT_MINUTES;
+        if (m.eventType === EventType.MEMORIAL)
+          return !memorialAsksNextMorning(m.time);
+        // Any other meeting without an hour, as before.
+        if (start === null) return true;
+        return start < REMIND_AT_MINUTES;
       },
     );
     if (due.length === 0) return 0;
@@ -133,6 +166,36 @@ export class AttendanceReminderService {
         tenantId,
         userIds: [userId],
         text: (lang) => attendanceDueText(m.eventType, lang),
+        kind: 'attendance_due',
+        key: `attendance-due:${m.date}:${m.eventType}`,
+        data: { type: 'attendance_due', date: m.date, eventType: m.eventType },
+      });
+    }
+    return due.length;
+  }
+
+  /**
+   * The morning after a Memorial that may have run past 20:00: «Вчерашняя
+   * Вечеря ещё не внесена», if it still is not.
+   */
+  async remindMorningAfter(
+    tenantId: string,
+    yesterday: string,
+  ): Promise<number> {
+    const due = (
+      await this.attendance.unrecordedToday(tenantId, yesterday)
+    ).filter(
+      (m) =>
+        m.eventType === EventType.MEMORIAL && memorialAsksNextMorning(m.time),
+    );
+    if (due.length === 0) return 0;
+    const userId = await this.whoIsTold(tenantId, addDaysISO(yesterday, 1));
+    if (!userId) return 0;
+    for (const m of due) {
+      await this.notifications.notify({
+        tenantId,
+        userIds: [userId],
+        text: (lang) => attendanceDueText(m.eventType, lang, true),
         kind: 'attendance_due',
         key: `attendance-due:${m.date}:${m.eventType}`,
         data: { type: 'attendance_due', date: m.date, eventType: m.eventType },
