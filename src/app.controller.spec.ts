@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { ServerErrors } from './server-errors/server-errors';
 
 describe('AppController', () => {
   let appController: AppController;
@@ -8,7 +9,7 @@ describe('AppController', () => {
   beforeEach(async () => {
     const app: TestingModule = await Test.createTestingModule({
       controllers: [AppController],
-      providers: [AppService],
+      providers: [AppService, ServerErrors],
     }).compile();
 
     appController = app.get<AppController>(AppController);
@@ -31,6 +32,7 @@ describe('AppController', () => {
 
       expect(result.status).toBe('ok');
       expect(typeof result.uptime).toBe('number');
+      expect(result.errors5xx).toBe(0);
       expect(result.uptime).toBeGreaterThanOrEqual(0);
       expect(typeof result.timestamp).toBe('string');
 
