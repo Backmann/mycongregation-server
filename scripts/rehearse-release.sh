@@ -3,6 +3,12 @@
 # it (3 November 2026, written for the move to Node 24).
 #
 #   bash rehearse-release.sh <branch>
+#   REHEARSAL_ENV="WHERE_INVALID_VALUES=throw" bash rehearse-release.sh main
+#
+# REHEARSAL_ENV: extra KEY=value settings for the rehearsal only (space
+# separated), on top of production's own — to try a setting before it is set
+# live. REHEARSAL_SWEEP=0 skips the sweep (scripts/rehearsal-sweep.cjs: every
+# GET route under every role, every scheduled job once).
 #
 # Builds the branch's image here, on the server, and runs it against a fresh
 # copy of the live database — next to production, never in its place:
@@ -33,6 +39,13 @@ NET="mcg-rehearsal-net"
 DB="mcg-rehearsal-db"
 APP="mcg-rehearsal-app"
 IMG="mycongregation-server:rehearsal"
+SWEEP="mcg-rehearsal-sweep"
+
+EXTRA_ENV=()
+for kv in ${REHEARSAL_ENV:-}; do
+  [[ "$kv" =~ ^[A-Z][A-Z0-9_]*=[A-Za-z0-9_.:-]*$ ]] || { echo "REHEARSAL_ENV: not KEY=value: $kv"; exit 1; }
+  EXTRA_ENV+=(-e "$kv")
+done
 
 SRC=$(mktemp -d)
 ENVF=$(mktemp -p /dev/shm 2>/dev/null || mktemp)
@@ -40,7 +53,7 @@ chmod 600 "$ENVF"
 FAILED=0
 
 cleanup() {
-  docker rm -f "$APP" "$DB" >/dev/null 2>&1 || true
+  docker rm -f "$SWEEP" "$APP" "$DB" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
   docker image rm "$IMG" >/dev/null 2>&1 || true
   rm -rf "$SRC" "$ENVF"
@@ -52,7 +65,7 @@ bad()  { echo "  FAIL  $*"; FAILED=1; }
 step() { echo ""; echo "== $*"; }
 
 # Leftovers of an interrupted earlier run would make this one lie.
-docker rm -f "$APP" "$DB" >/dev/null 2>&1 || true
+docker rm -f "$SWEEP" "$APP" "$DB" >/dev/null 2>&1 || true
 docker network rm "$NET" >/dev/null 2>&1 || true
 
 step "Source of $REF"
@@ -142,8 +155,9 @@ COPY_TABLES=$(docker exec "$DB" psql -At -U "$PG_USER" -d "$PG_DB" -c "$COUNT_SQ
 step "The new release, running on the copy"
 docker run -d --name "$APP" --network "$NET" --env-file "$ENVF" --memory 512m \
   -e POSTGRES_HOST="$DB" -e POSTGRES_PORT=5432 -e POSTGRES_SSL=false \
-  -e SMTP_HOST=smtp.rehearsal.invalid \
+  -e SMTP_HOST=smtp.rehearsal.invalid "${EXTRA_ENV[@]}" \
   "$IMG" >/dev/null
+[ ${#EXTRA_ENV[@]} -gt 0 ] && echo "  with  ${REHEARSAL_ENV} (rehearsal only)"
 UP=0
 for i in $(seq 1 90); do
   if docker exec "$APP" node -e 'require("http").get("http://127.0.0.1:3000/api/health",r=>process.exit(r.statusCode===200?0:1)).on("error",()=>process.exit(1))' 2>/dev/null; then
@@ -193,6 +207,31 @@ if [ -n "$COL" ]; then
   fi
 else
   bad "no password column found on users"
+fi
+
+if [ "${REHEARSAL_SWEEP:-1}" != 0 ]; then
+  step "Sweep: every GET route under every role, every scheduled job once (on the copy)"
+  # Its own container from the same image, on the same isolated network: the
+  # rehearsal app keeps its memory limit, and the jobs run in a second copy
+  # of the app whose scheduler is stopped first.
+  if docker run --rm --name "$SWEEP" --network "$NET" --env-file "$ENVF" --memory 640m \
+       -e POSTGRES_HOST="$DB" -e POSTGRES_PORT=5432 -e POSTGRES_SSL=false \
+       -e SMTP_HOST=smtp.rehearsal.invalid "${EXTRA_ENV[@]}" \
+       -e SWEEP_TARGET="http://$APP:3000" \
+       -v "$SRC/scripts/rehearsal-sweep.cjs:/sweep/rehearsal-sweep.cjs:ro" \
+       --entrypoint node "$IMG" /sweep/rehearsal-sweep.cjs; then
+    ok "sweep clean"
+  else
+    bad "the sweep found failures (above)"
+  fi
+fi
+
+# A where that met a null or undefined (TypeORM 1.x's rule, when it is on):
+# only the property is printed — the rest of such a line may name a person.
+WHERE_HITS=$(docker logs "$APP" 2>&1 | sed -n "s/.*\(Null\|Undefined\) value encountered in property '\([^']*\)'.*/\1 \2/p" | sort | uniq -c || true)
+if [ -n "$WHERE_HITS" ]; then
+  bad "where met an empty value in the rehearsal app:"
+  printf '%s\n' "$WHERE_HITS" | sed 's/^/        /'
 fi
 
 MEM=$(docker stats --no-stream --format '{{.MemUsage}}' "$APP")

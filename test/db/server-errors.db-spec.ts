@@ -71,7 +71,10 @@ describe('the server’s failures from the browser', () => {
   });
 
   it('the platform owner only: not another administrator, not a member', async () => {
-    expect((await h.as('admin').get('/health/errors')).status).toBe(200);
+    const own = await h.as('admin').get('/health/errors');
+    expect(own.status).toBe(200);
+    // The database tests run with 1.x's rule; the live answer says which.
+    expect(own.body.whereRule).toBe('throw');
     expect((await h.as('otheradmin').get('/health/errors')).status).toBe(403);
     expect((await h.as('plain').get('/health/errors')).status).toBe(403);
     expect((await h.as(null).get('/health/errors')).status).toBe(401);
