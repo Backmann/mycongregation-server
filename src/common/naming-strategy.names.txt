@@ -1,0 +1,1658 @@
+column absences.congregation_id
+column absences.created_at
+column absences.created_by_id
+column absences.deleted_at
+column absences.end_date
+column absences.id
+column absences.note
+column absences.pioneer_school_duty_id
+column absences.publisher_id
+column absences.special_event_id
+column absences.start_date
+column absences.talk_exchange_id
+column absences.updated_at
+column agenda_seen.congregation_id
+column agenda_seen.date
+column agenda_seen.item_id
+column agenda_seen.lang
+column agenda_seen.place
+column agenda_seen.seen_at
+column agenda_seen.start
+column agenda_seen.title
+column agenda_seen.user_id
+column agenda_seen.with
+column announcement_dismissals.congregation_id
+column announcement_dismissals.created_at
+column announcement_dismissals.id
+column announcement_dismissals.source_key
+column announcement_dismissals.week_start_date
+column announcement_templates.congregation_id
+column announcement_templates.enabled
+column announcement_templates.id
+column announcement_templates.key
+column announcement_templates.updated_at
+column announcement_templates.updated_by_user_id
+column announcement_templates.weeks_ahead
+column announcement_templates.words
+column assignment_notices.assistant
+column assignment_notices.congregation_id
+column assignment_notices.id
+column assignment_notices.item_id
+column assignment_notices.item_type
+column assignment_notices.label_key
+column assignment_notices.label_title
+column assignment_notices.meeting_date
+column assignment_notices.meeting_kind
+column assignment_notices.partner_known
+column assignment_notices.partner_publisher_id
+column assignment_notices.slot
+column assignment_notices.told_at
+column assignment_notices.user_id
+column assignments.assistant_publisher_id
+column assignments.changed_since_publish
+column assignments.congregation_id
+column assignments.created_at
+column assignments.deleted_at
+column assignments.event_type
+column assignments.id
+column assignments.imported_title
+column assignments.lesson
+column assignments.notes
+column assignments.part_duration_min
+column assignments.part_key
+column assignments.part_order
+column assignments.part_text
+column assignments.part_title
+column assignments.public_talk_id
+column assignments.publisher_id
+column assignments.setting
+column assignments.speaker_congregation
+column assignments.speaker_name
+column assignments.special_talk
+column assignments.status
+column assignments.talk_exchange_id
+column assignments.updated_at
+column assignments.visiting_speaker_id
+column assignments.week_start_date
+column audit_logs.action
+column audit_logs.actor_user_id
+column audit_logs.after_json
+column audit_logs.before_json
+column audit_logs.changed_fields
+column audit_logs.congregation_id
+column audit_logs.created_at
+column audit_logs.entity_id
+column audit_logs.entity_type
+column audit_logs.id
+column audit_logs.redacted_at
+column audit_logs.source
+column audit_logs.subject_id
+column aux_pioneer_application_seats.application_id
+column aux_pioneer_application_seats.approved_at
+column aux_pioneer_application_seats.approved_by
+column aux_pioneer_application_seats.approver_name
+column aux_pioneer_application_seats.congregation_id
+column aux_pioneer_application_seats.id
+column aux_pioneer_application_seats.open_reason
+column aux_pioneer_application_seats.opened_at
+column aux_pioneer_application_seats.opened_by
+column aux_pioneer_application_seats.reminded_at
+column aux_pioneer_application_seats.seat
+column aux_pioneer_applications.approved_at
+column aux_pioneer_applications.congregation_id
+column aux_pioneer_applications.created_at
+column aux_pioneer_applications.created_by
+column aux_pioneer_applications.id
+column aux_pioneer_applications.months
+column aux_pioneer_applications.paper_date
+column aux_pioneer_applications.period_ids
+column aux_pioneer_applications.publisher_id
+column aux_pioneer_applications.reduced_months
+column aux_pioneer_applications.source
+column aux_pioneer_applications.status
+column aux_pioneer_applications.until_cancelled
+column aux_pioneer_applications.updated_at
+column auxiliary_pioneers.congregation_id
+column auxiliary_pioneers.created_at
+column auxiliary_pioneers.created_by
+column auxiliary_pioneers.end_month
+column auxiliary_pioneers.id
+column auxiliary_pioneers.note
+column auxiliary_pioneers.publisher_id
+column auxiliary_pioneers.reduced_months
+column auxiliary_pioneers.start_month
+column auxiliary_pioneers.until_cancelled
+column auxiliary_pioneers.updated_at
+column calendar_feed_retired.congregation_id
+column calendar_feed_retired.lang
+column calendar_feed_retired.reason
+column calendar_feed_retired.retired_at
+column calendar_feed_retired.token_hash
+column calendar_feeds.congregation_id
+column calendar_feeds.created_at
+column calendar_feeds.id
+column calendar_feeds.include_events
+column calendar_feeds.include_mine
+column calendar_feeds.include_names
+column calendar_feeds.last_client
+column calendar_feeds.last_fetched_at
+column calendar_feeds.revoked_at
+column calendar_feeds.revoked_reason
+column calendar_feeds.token
+column calendar_feeds.token_hash
+column calendar_feeds.updated_at
+column calendar_feeds.user_id
+column cart_assignments.congregation_id
+column cart_assignments.created_at
+column cart_assignments.created_by_id
+column cart_assignments.day_id
+column cart_assignments.end_time
+column cart_assignments.external_name
+column cart_assignments.id
+column cart_assignments.publisher_id
+column cart_assignments.start_time
+column cart_assignments.updated_at
+column cart_cancellations.congregation_id
+column cart_cancellations.created_at
+column cart_cancellations.created_by_id
+column cart_cancellations.day_id
+column cart_cancellations.end_time
+column cart_cancellations.id
+column cart_cancellations.reason
+column cart_cancellations.start_time
+column cart_days.congregation_id
+column cart_days.created_at
+column cart_days.date
+column cart_days.end_time
+column cart_days.id
+column cart_days.location_id
+column cart_days.start_time
+column cart_days.week_id
+column cart_locations.address
+column cart_locations.congregation_id
+column cart_locations.created_at
+column cart_locations.equipment_at
+column cart_locations.id
+column cart_locations.is_active
+column cart_locations.kind
+column cart_locations.name
+column cart_locations.permit_until
+column cart_locations.updated_at
+column cart_request_partners.publisher_id
+column cart_request_partners.request_id
+column cart_requests.congregation_id
+column cart_requests.created_at
+column cart_requests.day_id
+column cart_requests.end_time
+column cart_requests.id
+column cart_requests.publisher_id
+column cart_requests.start_time
+column cart_requests.with_whom_note
+column cart_settings.congregation_id
+column cart_settings.memo
+column cart_settings.updated_at
+column cart_weeks.congregation_id
+column cart_weeks.created_at
+column cart_weeks.created_by_id
+column cart_weeks.end_time
+column cart_weeks.id
+column cart_weeks.published_at
+column cart_weeks.signup_until
+column cart_weeks.start_time
+column cart_weeks.status
+column cart_weeks.step_minutes
+column cart_weeks.updated_at
+column cart_weeks.week_start_date
+column circuit_overseers.congregation_id
+column circuit_overseers.created_at
+column circuit_overseers.first_name
+column circuit_overseers.id
+column circuit_overseers.is_primary
+column circuit_overseers.last_name
+column circuit_overseers.role
+column circuit_overseers.updated_at
+column circuit_overseers.wife_name
+column cleaning_assignments.congregation_id
+column cleaning_assignments.created_at
+column cleaning_assignments.id
+column cleaning_assignments.service_group_id
+column cleaning_assignments.slot_type
+column cleaning_assignments.thorough_planned_at
+column cleaning_assignments.updated_at
+column cleaning_assignments.week_start_date
+column cleaning_assignments.windows
+column client_errors.app_commit
+column client_errors.count
+column client_errors.day
+column client_errors.event
+column client_errors.fingerprint
+column client_errors.first_at
+column client_errors.id
+column client_errors.last_at
+column client_errors.message
+column client_errors.online
+column client_errors.place
+column client_errors.platform
+column client_errors.role
+column client_errors.route
+column client_errors.since_start_s
+column client_errors.source
+column client_errors.stack
+column co_visit_folder_marks.congregation_id
+column co_visit_folder_marks.id
+column co_visit_folder_marks.item_key
+column co_visit_folder_marks.marked_at
+column co_visit_folder_marks.marked_by_user_id
+column co_visit_folder_marks.special_event_id
+column co_visit_folder_marks.stamp
+column co_visit_folder_marks.state
+column co_visit_folders.answers
+column co_visit_folders.answers_erased_at
+column co_visit_folders.congregation_id
+column co_visit_folders.created_at
+column co_visit_folders.files_deleted
+column co_visit_folders.handed_over_at
+column co_visit_folders.handed_over_by_user_id
+column co_visit_folders.id
+column co_visit_folders.s62_checked_at
+column co_visit_folders.s62_checked_by_user_id
+column co_visit_folders.s62_sent_at
+column co_visit_folders.s62_sent_by_user_id
+column co_visit_folders.special_event_id
+column co_visit_folders.updated_at
+column co_visit_items.assignee_publisher_id
+column co_visit_items.assignee_text
+column co_visit_items.cart_location_id
+column co_visit_items.congregation_id
+column co_visit_items.created_at
+column co_visit_items.deleted_at
+column co_visit_items.for_wife
+column co_visit_items.id
+column co_visit_items.item_date
+column co_visit_items.kind
+column co_visit_items.note
+column co_visit_items.place_kind
+column co_visit_items.place_text
+column co_visit_items.sort_order
+column co_visit_items.special_event_id
+column co_visit_items.start_time
+column co_visit_items.updated_at
+column co_visit_items.with_wife
+column co_visit_told.congregation_id
+column co_visit_told.id
+column co_visit_told.lines
+column co_visit_told.publisher_id
+column co_visit_told.special_event_id
+column co_visit_told.told_at
+column conduct_averages.congregation_id
+column conduct_averages.event_type
+column conduct_averages.id
+column conduct_averages.measure
+column conduct_averages.updated_at
+column conduct_averages.values
+column conduct_live.chairman_seen_at
+column conduct_live.congregation_id
+column conduct_live.controller_device_id
+column conduct_live.controller_seen_at
+column conduct_live.controller_user_id
+column conduct_live.epoch
+column conduct_live.event_type
+column conduct_live.id
+column conduct_live.practice
+column conduct_live.room
+column conduct_live.state
+column conduct_live.updated_at
+column conduct_live.week_start_date
+column conduct_runs.congregation_id
+column conduct_runs.created_at
+column conduct_runs.event_type
+column conduct_runs.id
+column conduct_runs.planned_sec
+column conduct_runs.room
+column conduct_runs.saved_at
+column conduct_runs.saved_by
+column conduct_runs.segments
+column conduct_runs.started_at
+column conduct_runs.total_sec
+column conduct_runs.week_start_date
+column congregations.assignment_automation_enabled
+column congregations.country
+column congregations.created_at
+column congregations.deleted_at
+column congregations.hours_log_from
+column congregations.id
+column congregations.language
+column congregations.name
+column congregations.timezone
+column congregations.updated_at
+column duties.congregation_id
+column duties.created_at
+column duties.custom_label
+column duties.duty_type
+column duties.event_type
+column duties.id
+column duties.notes
+column duties.publisher_id
+column duties.slot_index
+column duties.sort_order
+column duties.updated_at
+column duties.week_start_date
+column duty_places.capability
+column duty_places.congregation_id
+column duty_places.count
+column duty_places.created_at
+column duty_places.custom_label
+column duty_places.duty_type
+column duty_places.id
+column duty_places.meeting_kind
+column duty_places.notes
+column duty_places.sort_order
+column duty_places.updated_at
+column elder_task_assignees.publisher_id
+column elder_task_assignees.task_id
+column elder_task_calendar_log.congregation_id
+column elder_task_calendar_log.created_at
+column elder_task_calendar_log.kind
+column elder_task_calendar_log.period
+column elder_tasks.area
+column elder_tasks.assignee_kind
+column elder_tasks.assignee_publisher_id
+column elder_tasks.congregation_id
+column elder_tasks.created_at
+column elder_tasks.created_by_id
+column elder_tasks.details
+column elder_tasks.done_at
+column elder_tasks.done_by_id
+column elder_tasks.due_date
+column elder_tasks.due_time
+column elder_tasks.elders_meeting_id
+column elder_tasks.id
+column elder_tasks.kind
+column elder_tasks.kind_period
+column elder_tasks.status
+column elder_tasks.title
+column elder_tasks.updated_at
+column elders_meeting_items.area
+column elders_meeting_items.congregation_id
+column elders_meeting_items.created_at
+column elders_meeting_items.created_by_id
+column elders_meeting_items.id
+column elders_meeting_items.meeting_id
+column elders_meeting_items.minutes
+column elders_meeting_items.outcome
+column elders_meeting_items.outcome_note
+column elders_meeting_items.position
+column elders_meeting_items.presenter_publisher_id
+column elders_meeting_items.source_text
+column elders_meeting_items.source_url
+column elders_meeting_items.task_id
+column elders_meeting_items.title
+column elders_meeting_items.updated_at
+column elders_meetings.approved_at
+column elders_meetings.approved_by_id
+column elders_meetings.closing_prayer_publisher_id
+column elders_meetings.congregation_id
+column elders_meetings.created_at
+column elders_meetings.created_by_id
+column elders_meetings.date
+column elders_meetings.hall_id
+column elders_meetings.id
+column elders_meetings.minute_taker_publisher_id
+column elders_meetings.note
+column elders_meetings.opening_prayer_publisher_id
+column elders_meetings.place_text
+column elders_meetings.start_time
+column elders_meetings.updated_at
+column external_congregations.address
+column external_congregations.city
+column external_congregations.congregation_id
+column external_congregations.contact_name
+column external_congregations.contact_phone
+column external_congregations.created_at
+column external_congregations.deleted_at
+column external_congregations.id
+column external_congregations.map_url
+column external_congregations.meeting_dow
+column external_congregations.meeting_time
+column external_congregations.name
+column external_congregations.note
+column external_congregations.updated_at
+column field_service_meetings.address
+column field_service_meetings.cancel_reason
+column field_service_meetings.cancelled_at
+column field_service_meetings.conductor_publisher_id
+column field_service_meetings.congregation_id
+column field_service_meetings.created_at
+column field_service_meetings.day_of_week
+column field_service_meetings.id
+column field_service_meetings.is_general
+column field_service_meetings.moved_from_date
+column field_service_meetings.notice
+column field_service_meetings.published_at
+column field_service_meetings.service_group_id
+column field_service_meetings.service_overseer_assistant_id
+column field_service_meetings.service_overseer_publisher_id
+column field_service_meetings.service_overseer_visit
+column field_service_meetings.source_url
+column field_service_meetings.start_time
+column field_service_meetings.territory_id
+column field_service_meetings.topic
+column field_service_meetings.updated_at
+column field_service_meetings.week_start_date
+column field_service_month_runs.auto_published_at
+column field_service_month_runs.congregation_id
+column field_service_month_runs.month
+column field_service_month_runs.prepared_at
+column field_service_month_runs.reminded_at
+column field_service_month_runs.year
+column field_service_month_themes.congregation_id
+column field_service_month_themes.created_at
+column field_service_month_themes.id
+column field_service_month_themes.month
+column field_service_month_themes.theme
+column field_service_month_themes.updated_at
+column field_service_month_themes.year
+column field_service_removed_days.address
+column field_service_removed_days.congregation_id
+column field_service_removed_days.date
+column field_service_removed_days.id
+column field_service_removed_days.is_general
+column field_service_removed_days.removed_at
+column field_service_removed_days.service_group_id
+column field_service_removed_days.start_time
+column field_service_settings.auto_pick_conductors
+column field_service_settings.auto_prepare
+column field_service_settings.co_visit_from_schedule
+column field_service_settings.congregation_id
+column field_service_settings.prepare_lead
+column field_service_settings.skip_assemblies
+column field_service_settings.unpublished_policy
+column field_service_settings.updated_at
+column field_service_template_slots.address
+column field_service_template_slots.conductor_rule
+column field_service_template_slots.congregation_id
+column field_service_template_slots.created_at
+column field_service_template_slots.day_of_week
+column field_service_template_slots.id
+column field_service_template_slots.is_general
+column field_service_template_slots.last_only
+column field_service_template_slots.ordinal
+column field_service_template_slots.ordinals
+column field_service_template_slots.position
+column field_service_template_slots.service_group_id
+column field_service_template_slots.start_time
+column field_service_template_slots.updated_at
+column halls.address
+column halls.congregation_id
+column halls.created_at
+column halls.id
+column halls.is_default
+column halls.name
+column halls.updated_at
+column inbox_seen.seen_at
+column inbox_seen.user_id
+column local_needs_topics.congregation_id
+column local_needs_topics.created_at
+column local_needs_topics.created_by_id
+column local_needs_topics.deleted_at
+column local_needs_topics.duration_min
+column local_needs_topics.id
+column local_needs_topics.notes
+column local_needs_topics.planned_week
+column local_needs_topics.speaker_publisher_id
+column local_needs_topics.title
+column local_needs_topics.updated_at
+column local_needs_topics.used_assignment_id
+column local_needs_topics.used_week
+column local_needs_uses.assignment_id
+column local_needs_uses.congregation_id
+column local_needs_uses.created_at
+column local_needs_uses.duration_min
+column local_needs_uses.id
+column local_needs_uses.speaker_publisher_id
+column local_needs_uses.topic_id
+column local_needs_uses.week_start_date
+column map_addresses.congregation_id
+column map_addresses.lat
+column map_addresses.lon
+column map_addresses.number
+column map_addresses.oid
+column map_addresses.street
+column map_home_marks.congregation_id
+column map_home_marks.created_at
+column map_home_marks.created_by
+column map_home_marks.home
+column map_home_marks.id
+column map_home_marks.lat
+column map_home_marks.lon
+column map_home_marks.official_id
+column map_home_marks.updated_at
+column map_houses.area_m2
+column map_houses.congregation_id
+column map_houses.floors
+column map_houses.home
+column map_houses.home_by_rule
+column map_houses.lat
+column map_houses.lon
+column map_houses.numbers
+column map_houses.official
+column map_houses.official_id
+column map_houses.osm_id
+column map_places.congregation_id
+column map_places.kind
+column map_places.lat
+column map_places.lon
+column map_places.name
+column map_places.osm_id
+column map_roads.congregation_id
+column map_roads.east
+column map_roads.kind
+column map_roads.lines
+column map_roads.north
+column map_roads.road_no
+column map_roads.south
+column map_roads.west
+column map_streets.congregation_id
+column map_streets.east
+column map_streets.kind
+column map_streets.lines
+column map_streets.name
+column map_streets.north
+column map_streets.south
+column map_streets.street_no
+column map_streets.west
+column meeting_announcements.by_rule
+column meeting_announcements.carried_from
+column meeting_announcements.congregation_id
+column meeting_announcements.created_at
+column meeting_announcements.created_by_user_id
+column meeting_announcements.dismissed_at
+column meeting_announcements.event_type
+column meeting_announcements.id
+column meeting_announcements.is_letter
+column meeting_announcements.position
+column meeting_announcements.read_at
+column meeting_announcements.read_by_user_id
+column meeting_announcements.source
+column meeting_announcements.source_facts
+column meeting_announcements.source_key
+column meeting_announcements.text
+column meeting_announcements.updated_at
+column meeting_announcements.week_start_date
+column meeting_attendance.congregation_id
+column meeting_attendance.count
+column meeting_attendance.created_at
+column meeting_attendance.date
+column meeting_attendance.event_type
+column meeting_attendance.id
+column meeting_attendance.not_held
+column meeting_attendance.not_held_reason
+column meeting_attendance.note
+column meeting_attendance.online_count
+column meeting_attendance.recorded_by
+column meeting_attendance.updated_at
+column meeting_moves.address
+column meeting_moves.congregation_id
+column meeting_moves.created_at
+column meeting_moves.date
+column meeting_moves.event_type
+column meeting_moves.id
+column meeting_moves.moved_by_id
+column meeting_moves.time
+column meeting_moves.updated_at
+column meeting_moves.week_start_date
+column meeting_settings.address
+column meeting_settings.congregation_id
+column meeting_settings.created_at
+column meeting_settings.effective_from
+column meeting_settings.id
+column meeting_settings.microphone_slots
+column meeting_settings.midweek_dow
+column meeting_settings.midweek_time
+column meeting_settings.updated_at
+column meeting_settings.weekend_dow
+column meeting_settings.weekend_time
+column memorial_items.congregation_id
+column memorial_items.created_at
+column memorial_items.deleted_at
+column memorial_items.id
+column memorial_items.label
+column memorial_items.note
+column memorial_items.part_key
+column memorial_items.person_text
+column memorial_items.publisher_id
+column memorial_items.section
+column memorial_items.song_number
+column memorial_items.sort_order
+column memorial_items.special_event_id
+column memorial_items.updated_at
+column not_held_alerts.alerted_at
+column not_held_alerts.congregation_id
+column not_held_alerts.count
+column not_held_alerts.event_type
+column not_held_alerts.week_start_date
+column not_held_clearances.cleared_at
+column not_held_clearances.cleared_by_id
+column not_held_clearances.congregation_id
+column not_held_clearances.duties
+column not_held_clearances.event_type
+column not_held_clearances.held_again_told_at
+column not_held_clearances.id
+column not_held_clearances.parts
+column not_held_clearances.reason
+column not_held_clearances.reason_event_id
+column not_held_clearances.restored_at
+column not_held_clearances.restored_by_id
+column not_held_clearances.week_start_date
+column notification_outbox.body
+column notification_outbox.channel
+column notification_outbox.congregation_id
+column notification_outbox.created_at
+column notification_outbox.data
+column notification_outbox.dedupe_key
+column notification_outbox.email_fallback
+column notification_outbox.id
+column notification_outbox.kind
+column notification_outbox.not_before
+column notification_outbox.sent_at
+column notification_outbox.status
+column notification_outbox.title
+column notification_outbox.user_id
+column notification_preferences.category
+column notification_preferences.created_at
+column notification_preferences.enabled
+column notification_preferences.id
+column notification_preferences.updated_at
+column notification_preferences.user_id
+column pioneer_meetings.conductor_name
+column pioneer_meetings.conductor_publisher_id
+column pioneer_meetings.congregation_id
+column pioneer_meetings.created_at
+column pioneer_meetings.created_by_id
+column pioneer_meetings.date
+column pioneer_meetings.deleted_at
+column pioneer_meetings.id
+column pioneer_meetings.note
+column pioneer_meetings.place
+column pioneer_meetings.second_conductor_name
+column pioneer_meetings.second_conductor_publisher_id
+column pioneer_meetings.time_end
+column pioneer_meetings.time_start
+column pioneer_meetings.updated_at
+column pioneer_school_days.congregation_id
+column pioneer_school_days.date
+column pioneer_school_days.end_time
+column pioneer_school_days.id
+column pioneer_school_days.school_id
+column pioneer_school_days.start_time
+column pioneer_school_duties.congregation_id
+column pioneer_school_duties.custom_label
+column pioneer_school_duties.day_id
+column pioneer_school_duties.duty_type
+column pioneer_school_duties.helper_id
+column pioneer_school_duties.id
+column pioneer_school_duties.slot_index
+column pioneer_school_helpers.congregation_id
+column pioneer_school_helpers.congregation_name
+column pioneer_school_helpers.created_at
+column pioneer_school_helpers.deleted_at
+column pioneer_school_helpers.first_name
+column pioneer_school_helpers.id
+column pioneer_school_helpers.last_name
+column pioneer_school_helpers.publisher_id
+column pioneer_school_helpers.updated_at
+column pioneer_schools.congregation_id
+column pioneer_schools.created_at
+column pioneer_schools.deleted_at
+column pioneer_schools.end_date
+column pioneer_schools.end_time
+column pioneer_schools.hall_address
+column pioneer_schools.hall_name
+column pioneer_schools.id
+column pioneer_schools.microphone_slots
+column pioneer_schools.notes
+column pioneer_schools.start_date
+column pioneer_schools.start_time
+column pioneer_schools.title
+column pioneer_schools.updated_at
+column pioneer_spells.congregation_id
+column pioneer_spells.created_at
+column pioneer_spells.created_by
+column pioneer_spells.end_month
+column pioneer_spells.id
+column pioneer_spells.no_quota_decided_on
+column pioneer_spells.no_quota_ended_on
+column pioneer_spells.note
+column pioneer_spells.pioneer_type
+column pioneer_spells.publisher_id
+column pioneer_spells.start_month
+column pioneer_spells.updated_at
+column programme_notices.congregation_id
+column programme_notices.event_type
+column programme_notices.hold_until
+column programme_notices.id
+column programme_notices.sent_at
+column programme_notices.sent_names
+column programme_notices.updated_at
+column programme_notices.week_start_date
+column public_talks.created_at
+column public_talks.id
+column public_talks.is_active
+column public_talks.number
+column public_talks.retired_from
+column public_talks.retired_reason
+column public_talks.retired_until
+column public_talks.title
+column public_talks.updated_at
+column publisher_distinct_pairs.a_id
+column publisher_distinct_pairs.b_id
+column publisher_distinct_pairs.by_user_id
+column publisher_distinct_pairs.congregation_id
+column publisher_distinct_pairs.created_at
+column publisher_merges.by_user_id
+column publisher_merges.congregation_id
+column publisher_merges.created_at
+column publisher_merges.expires_at
+column publisher_merges.id
+column publisher_merges.kept_id
+column publisher_merges.merged_id
+column publisher_merges.payload
+column publisher_merges.summary
+column publisher_merges.undone_at
+column publishers.address
+column publishers.anonymized_at
+column publishers.appointment
+column publishers.baptism_date
+column publishers.birth_date
+column publishers.capabilities
+column publishers.congregation_id
+column publishers.contacts_confirmed_at
+column publishers.contacts_confirmed_by_user_id
+column publishers.created_at
+column publishers.deleted_at
+column publishers.display_name
+column publishers.email
+column publishers.first_name
+column publishers.gender
+column publishers.id
+column publishers.is_active
+column publishers.is_blind
+column publishers.is_deaf
+column publishers.is_imprisoned
+column publishers.last_edited_by_id
+column publishers.last_name
+column publishers.member_since
+column publishers.middle_name
+column publishers.ministry_start_date
+column publishers.mobile_phone
+column publishers.notes
+column publishers.pioneer_month_goal
+column publishers.pioneer_since
+column publishers.pioneer_type
+column publishers.public_talk_numbers
+column publishers.removal_reason
+column publishers.removed_at
+column publishers.removed_note
+column publishers.restored_at
+column publishers.service_group_id
+column publishers.spiritual_status
+column publishers.status
+column publishers.status_manually_overridden
+column publishers.status_overridden_at
+column publishers.status_overridden_by_id
+column publishers.updated_at
+column publishers.user_id
+column push_receipts.checked_at
+column push_receipts.congregation_id
+column push_receipts.created_at
+column push_receipts.error_code
+column push_receipts.id
+column push_receipts.sent_at
+column push_receipts.status
+column push_receipts.ticket_id
+column push_receipts.token
+column push_receipts.user_id
+column push_tokens.congregation_id
+column push_tokens.created_at
+column push_tokens.device_info
+column push_tokens.id
+column push_tokens.role
+column push_tokens.token
+column push_tokens.updated_at
+column push_tokens.user_id
+column refresh_sessions.client_app_version
+column refresh_sessions.client_kind
+column refresh_sessions.client_os
+column refresh_sessions.client_platform
+column refresh_sessions.created_at
+column refresh_sessions.expires_at
+column refresh_sessions.family_id
+column refresh_sessions.id
+column refresh_sessions.last_used_at
+column refresh_sessions.revoked_at
+column refresh_sessions.token_hash
+column refresh_sessions.user_id
+column reminder_log.congregation_id
+column reminder_log.id
+column reminder_log.key
+column reminder_log.kind
+column reminder_log.sent_at
+column report_month_closures.closed_at
+column report_month_closures.closed_by_id
+column report_month_closures.congregation_id
+column report_month_closures.id
+column report_month_closures.report_month
+column report_snapshots.appointments
+column report_snapshots.confirmed
+column report_snapshots.congregation_id
+column report_snapshots.created_at
+column report_snapshots.figures
+column report_snapshots.id
+column report_snapshots.kind
+column report_snapshots.members
+column report_snapshots.period
+column report_snapshots.saved_by_id
+column report_snapshots.sent_on
+column report_snapshots.updated_at
+column responsibilities.assigned_at
+column responsibilities.assigned_by
+column responsibilities.congregation_id
+column responsibilities.id
+column responsibilities.type
+column responsibilities.user_id
+column service_groups.assistant_publisher_id
+column service_groups.congregation_id
+column service_groups.created_at
+column service_groups.deleted_at
+column service_groups.id
+column service_groups.meeting_location
+column service_groups.name
+column service_groups.notes
+column service_groups.overseer_publisher_id
+column service_groups.updated_at
+column service_log_entries.congregation_id
+column service_log_entries.created_at
+column service_log_entries.day
+column service_log_entries.id
+column service_log_entries.kind
+column service_log_entries.minutes
+column service_log_entries.note
+column service_log_entries.publisher_id
+column service_log_entries.updated_at
+column service_log_entries.user_id
+column service_reports.bible_studies
+column service_reports.congregation_id
+column service_reports.created_at
+column service_reports.deleted_at
+column service_reports.hours_reported
+column service_reports.id
+column service_reports.last_edited_at
+column service_reports.last_edited_by_id
+column service_reports.notes
+column service_reports.publisher_id
+column service_reports.report_month
+column service_reports.served_this_month
+column service_reports.submitted_at
+column service_reports.submitted_by_id
+column service_reports.submitted_on_behalf_of
+column service_reports.updated_at
+column songs.created_at
+column songs.duration_sec
+column songs.id
+column songs.is_active
+column songs.number
+column songs.title
+column songs.updated_at
+column special_events.address
+column special_events.aux_reduced_hours
+column special_events.co_accommodation_address
+column special_events.co_accommodation_publisher_id
+column special_events.co_first_name
+column special_events.co_last_name
+column special_events.co_midweek_dow
+column special_events.co_noticed_at
+column special_events.co_published_at
+column special_events.co_revert_data
+column special_events.co_role
+column special_events.co_wife_comes
+column special_events.co_wife_name
+column special_events.congregation_id
+column special_events.created_at
+column special_events.date
+column special_events.deleted_at
+column special_events.elsewhere
+column special_events.end_date
+column special_events.id
+column special_events.map_url
+column special_events.meeting_address
+column special_events.meeting_mode
+column special_events.meeting_note
+column special_events.meeting_time
+column special_events.memorial_published_at
+column special_events.memorial_theme
+column special_events.memorial_theme_url
+column special_events.note
+column special_events.program_url
+column special_events.replaces_meeting
+column special_events.time
+column special_events.time_end
+column special_events.title
+column special_events.type
+column special_events.updated_at
+column talk_exchange.circuit_visit_id
+column talk_exchange.congregation_id
+column talk_exchange.created_at
+column talk_exchange.date
+column talk_exchange.deleted_at
+column talk_exchange.direction
+column talk_exchange.hospitality_publisher_id
+column talk_exchange.host_congregation_id
+column talk_exchange.id
+column talk_exchange.linked_absence_id
+column talk_exchange.meeting_cancelled
+column talk_exchange.note
+column talk_exchange.opening_song
+column talk_exchange.origin
+column talk_exchange.public_talk_id
+column talk_exchange.publisher_id
+column talk_exchange.risk_ack_reason
+column talk_exchange.set_aside_by
+column talk_exchange.speaker_congregation
+column talk_exchange.speaker_name
+column talk_exchange.special_theme
+column talk_exchange.status
+column talk_exchange.updated_at
+column talk_exchange.visiting_speaker_id
+column territories.archived_at
+column territories.category
+column territories.congregation_id
+column territories.created_at
+column territories.geometry
+column territories.id
+column territories.kind
+column territories.last_completed_on
+column territories.locality
+column territories.note
+column territories.number
+column territories.updated_at
+column territories.worked_from
+column territory_assignments.assigned_on
+column territory_assignments.completed_on
+column territory_assignments.congregation_id
+column territory_assignments.created_at
+column territory_assignments.created_by_user_id
+column territory_assignments.due_on
+column territory_assignments.extended
+column territory_assignments.for_group_id
+column territory_assignments.for_group_name
+column territory_assignments.holder_name
+column territory_assignments.id
+column territory_assignments.imported
+column territory_assignments.link_created_at
+column territory_assignments.link_hash
+column territory_assignments.method
+column territory_assignments.paper_wanted_at
+column territory_assignments.publisher_id
+column territory_assignments.returned_on
+column territory_assignments.territory_id
+column territory_assignments.transferred
+column territory_assignments.updated_at
+column territory_boundaries.congregation_id
+column territory_boundaries.created_at
+column territory_boundaries.created_by_user_id
+column territory_boundaries.description
+column territory_boundaries.geometry
+column territory_boundaries.id
+column territory_boundaries.s54_on
+column territory_boundaries.valid_from
+column territory_business_visits.assignment_id
+column territory_business_visits.business_id
+column territory_business_visits.congregation_id
+column territory_business_visits.id
+column territory_business_visits.on_date
+column territory_business_visits.state
+column territory_businesses.congregation_id
+column territory_businesses.created_at
+column territory_businesses.created_by_user_id
+column territory_businesses.id
+column territory_businesses.kind
+column territory_businesses.lat
+column territory_businesses.lon
+column territory_businesses.name
+column territory_businesses.osm_id
+column territory_businesses.territory_id
+column territory_businesses.updated_at
+column territory_no_calls.address
+column territory_no_calls.congregation_id
+column territory_no_calls.created_at
+column territory_no_calls.created_by_user_id
+column territory_no_calls.id
+column territory_no_calls.noted_on
+column territory_no_calls.review_on
+column territory_no_calls.surname
+column territory_no_calls.territory_id
+column territory_recut_proposals.applied_at
+column territory_recut_proposals.approved_at
+column territory_recut_proposals.base
+column territory_recut_proposals.congregation_id
+column territory_recut_proposals.created_at
+column territory_recut_proposals.hold_ids
+column territory_recut_proposals.id
+column territory_recut_proposals.keep
+column territory_recut_proposals.keep_id
+column territory_recut_proposals.kind
+column territory_recut_proposals.lines
+column territory_recut_proposals.lines_changed_at
+column territory_recut_proposals.numbers
+column territory_recut_proposals.queue
+column territory_recut_proposals.recut_id
+column territory_recut_proposals.reopened_at
+column territory_recut_proposals.state
+column territory_recut_proposals.suggested_lines
+column territory_recut_proposals.territory_ids
+column territory_recut_proposals.updated_at
+column territory_recut_remarks.congregation_id
+column territory_recut_remarks.created_at
+column territory_recut_remarks.id
+column territory_recut_remarks.ok
+column territory_recut_remarks.proposal_id
+column territory_recut_remarks.text
+column territory_recut_remarks.updated_at
+column territory_recut_remarks.user_id
+column territory_recuts.classes
+column territory_recuts.congregation_id
+column territory_recuts.created_at
+column territory_recuts.id
+column territory_recuts.measure
+column territory_recuts.metrics
+column territory_recuts.metrics_at
+column territory_recuts.updated_at
+column territory_recuts.walks
+column territory_requests.closed_at
+column territory_requests.closed_by_user_id
+column territory_requests.closed_how
+column territory_requests.congregation_id
+column territory_requests.created_at
+column territory_requests.id
+column territory_requests.publisher_id
+column territory_settings.congregation_id
+column territory_settings.houses_built_at
+column territory_settings.map_built_at
+column territory_settings.updated_at
+column territory_settings.verified_at
+column territory_settings.verified_by_user_id
+column territory_shapes.congregation_id
+column territory_shapes.created_at
+column territory_shapes.created_by_user_id
+column territory_shapes.detail
+column territory_shapes.edit_id
+column territory_shapes.from_territory_ids
+column territory_shapes.geometry
+column territory_shapes.id
+column territory_shapes.reason
+column territory_shapes.territory_id
+column territory_splits.assignment_id
+column territory_splits.congregation_id
+column territory_splits.created_at
+column territory_splits.day
+column territory_splits.id
+column territory_splits.left_out
+column territory_splits.made_by_user_id
+column territory_splits.mode
+column territory_splits.parts
+column territory_splits.start
+column territory_splits.territory_id
+column territory_street_marks.assignment_id
+column territory_street_marks.congregation_id
+column territory_street_marks.homes
+column territory_street_marks.id
+column territory_street_marks.marked_at
+column territory_street_marks.street_key
+column users.can_view_private_data
+column users.client_app_version
+column users.client_kind
+column users.client_os
+column users.client_platform
+column users.client_seen_at
+column users.congregation_id
+column users.created_at
+column users.deleted_at
+column users.display_label
+column users.email
+column users.hide_presence
+column users.id
+column users.invite_code_attempts
+column users.invite_code_expires_at
+column users.invite_code_hash
+column users.is_active
+column users.is_owner
+column users.last_failed_login_at
+column users.last_failed_login_reason
+column users.last_login_at
+column users.last_seen_at
+column users.login_name
+column users.password_hash
+column users.push_state
+column users.push_state_at
+column users.reminder_ladder
+column users.reset_token_expires_at
+column users.reset_token_hash
+column users.role
+column users.stage_pin_hash
+column users.ui_language
+column users.updated_at
+column visiting_speaker_distinct_pairs.congregation_id
+column visiting_speaker_distinct_pairs.created_at
+column visiting_speaker_distinct_pairs.created_by_user_id
+column visiting_speaker_distinct_pairs.id
+column visiting_speaker_distinct_pairs.speaker_a_id
+column visiting_speaker_distinct_pairs.speaker_b_id
+column visiting_speakers.auto_created
+column visiting_speakers.circuit_overseer
+column visiting_speakers.congregation_id
+column visiting_speakers.created_at
+column visiting_speakers.deleted_at
+column visiting_speakers.external_congregation_id
+column visiting_speakers.first_name
+column visiting_speakers.id
+column visiting_speakers.last_name
+column visiting_speakers.merge_record
+column visiting_speakers.merged_into_id
+column visiting_speakers.note
+column visiting_speakers.phone
+column visiting_speakers.talk_numbers
+column visiting_speakers.updated_at
+column web_push_subscriptions.auth
+column web_push_subscriptions.congregation_id
+column web_push_subscriptions.created_at
+column web_push_subscriptions.device_kind
+column web_push_subscriptions.endpoint
+column web_push_subscriptions.id
+column web_push_subscriptions.last_failed_at
+column web_push_subscriptions.last_used_at
+column web_push_subscriptions.p256dh
+column web_push_subscriptions.role
+column web_push_subscriptions.user_agent
+column web_push_subscriptions.user_id
+fk absences.FK_3f462597e0217899df353020322 (congregation_id)
+fk absences.FK_f7a5ab1facdde2b109458606b61 (publisher_id)
+fk assignments.FK_0fd42187245a304e76152295c89 (visiting_speaker_id)
+fk assignments.FK_1ea043e41698186378a42b3cb63 (assistant_publisher_id)
+fk assignments.FK_50777db3d13e27dd1b563db2ceb (congregation_id)
+fk assignments.FK_b3a37b6d077d08ff102a155b31d (publisher_id)
+fk assignments.FK_c89b36b2bcf3f7717b5638c1a61 (public_talk_id)
+fk aux_pioneer_application_seats.FK_588471a1826a7b35894b33dff51 (application_id)
+fk aux_pioneer_applications.FK_022847b53b690cae77c80604f49 (publisher_id)
+fk aux_pioneer_applications.FK_408e0099041bbb37032175687a9 (congregation_id)
+fk auxiliary_pioneers.FK_6f37045f125ee5dbcf855b41f50 (congregation_id)
+fk auxiliary_pioneers.FK_e82dd94356a45703e4a9fbb643a (publisher_id)
+fk calendar_feeds.FK_3212ce9ff23847e66347a6730d3 (user_id)
+fk calendar_feeds.FK_a3fcb2c0a686622e979752fc16c (congregation_id)
+fk cart_assignments.FK_087d5ac97e5547bfaad8c8478f3 (congregation_id)
+fk cart_assignments.FK_0d50da8e02f2b5366086e0c8b5e (day_id)
+fk cart_assignments.FK_c3e320c19e5916a6513e6ab41ec (publisher_id)
+fk cart_cancellations.FK_6d228cb2b54e12e7f3eb18d62d7 (day_id)
+fk cart_cancellations.FK_c5bf011a973219c7932bce8e850 (congregation_id)
+fk cart_days.FK_9f7d5dc3aa13d846e5f5e432990 (location_id)
+fk cart_days.FK_aead675fcd9abb1aec5e1d92426 (congregation_id)
+fk cart_days.FK_c482dad8681016e1f02f58c7114 (week_id)
+fk cart_locations.FK_57613c2bcd20a4df6d901f31667 (congregation_id)
+fk cart_request_partners.FK_7ce13ae39c17b11c9b0f58b792c (publisher_id)
+fk cart_request_partners.FK_97f35fba82f9ff2d58d45b405d9 (request_id)
+fk cart_requests.FK_72788d1c9a056570f7de79d31fe (congregation_id)
+fk cart_requests.FK_a432af830f99f47ae34a50823d5 (publisher_id)
+fk cart_requests.FK_e1a9d728930c351457a3f46e579 (day_id)
+fk cart_weeks.FK_2e769572c86e817f2f23470fd65 (congregation_id)
+fk circuit_overseers.FK_4b962fad04d444398f916dae2f3 (congregation_id)
+fk cleaning_assignments.FK_14cbe3bbe35f89ae7b3a70940fa (congregation_id)
+fk cleaning_assignments.FK_f9b83958cfad554fb889b9f73d4 (service_group_id)
+fk co_visit_items.FK_809e5b464c617603a604e9817c2 (congregation_id)
+fk co_visit_items.FK_944f4fd036a606c0754f131640d (assignee_publisher_id)
+fk co_visit_items.FK_a1cbd4b90375eb44ea7881d6357 (special_event_id)
+fk co_visit_items.FK_e52b1b00bd7eb39c2bbafd9b14a (cart_location_id)
+fk conduct_averages.FK_d6b51145091609b3d3b767d8462 (congregation_id)
+fk conduct_live.FK_e63a5a75c6f1e8d4b89010f3454 (congregation_id)
+fk conduct_runs.FK_c3cf514a20b037c93fb60462b03 (congregation_id)
+fk duties.FK_3ecce4d392fef89128b2ccf2a99 (congregation_id)
+fk duties.FK_b5814b6de35fd1022b64c246df5 (publisher_id)
+fk elder_task_assignees.FK_4a9d21636a153860eb0f803afda (publisher_id)
+fk elder_task_assignees.FK_930c35e56a69e50aec4ab6705c7 (task_id)
+fk elder_tasks.FK_12e359ae1da3c8c37d51e6fa473 (congregation_id)
+fk elder_tasks.FK_bea92ddd549a8e94d5cbf400c1e (elders_meeting_id)
+fk elders_meeting_items.FK_5bcaaaca84aadde053b5351e86f (presenter_publisher_id)
+fk elders_meeting_items.FK_840a1eace9a9d286099ba386c96 (meeting_id)
+fk elders_meetings.FK_c8b16e3eddb6a3fd75329cac7dc (congregation_id)
+fk external_congregations.FK_08b93b497e2c2b04ca4281e60f8 (congregation_id)
+fk field_service_meetings.FK_38ae9c086e956dd12f8b10649aa (service_group_id)
+fk field_service_meetings.FK_461ecf4b2a66343b240f49a123b (conductor_publisher_id)
+fk field_service_meetings.FK_640cdb50eda323aeb10aa16dbc3 (congregation_id)
+fk field_service_template_slots.FK_60e9621ac8eba5420e5855425fd (service_group_id)
+fk halls.FK_f45e393293d3f3fff562645ff17 (congregation_id)
+fk local_needs_topics.FK_363fddd3e04cc1b8c1cbac0cad9 (speaker_publisher_id)
+fk local_needs_topics.FK_d483233595455f8aed4b1c55724 (congregation_id)
+fk meeting_announcements.FK_3acf4fee8a1b32a5fa22c48b70a (congregation_id)
+fk meeting_attendance.FK_c82e087e6023eb4099800eea157 (congregation_id)
+fk meeting_moves.FK_76801353f2f12495644ee4d2298 (congregation_id)
+fk meeting_settings.FK_c8403c20d92627af07d01254c72 (congregation_id)
+fk memorial_items.FK_04fc9602adb866b3f67184073bb (publisher_id)
+fk memorial_items.FK_9c499154fbf4b2ed294627a2909 (special_event_id)
+fk memorial_items.FK_f8792d0ba23030c90ecf45ce887 (congregation_id)
+fk pioneer_school_days.FK_123560b38bdcac03f3bdf4cb564 (school_id)
+fk pioneer_school_duties.FK_523e13f62eeee1573a89a7c6791 (helper_id)
+fk pioneer_school_duties.FK_52f26376de3986f41ed91f44579 (day_id)
+fk pioneer_school_helpers.FK_28126a7e68d606729150e81725c (publisher_id)
+fk pioneer_school_helpers.FK_dedecf3311a689f1bc67ff38051 (congregation_id)
+fk pioneer_schools.FK_93be8b6291e906d754344dbe928 (congregation_id)
+fk pioneer_spells.FK_5e4971e813c1dac2cf7ecdee70f (publisher_id)
+fk pioneer_spells.FK_ca41b5d90a5c053db8ee70ec4bd (congregation_id)
+fk publishers.FK_022658ed9d063307aab18f993a4 (congregation_id)
+fk publishers.FK_40c3defdcca3616fd21ede9063d (user_id)
+fk publishers.FK_476996479b2a21d5f70c6b13ac8 (service_group_id)
+fk refresh_sessions.FK_a7ab4fd82c654c85b9de53d971a (user_id)
+fk report_month_closures.FK_e23d7166b10185cee9f90c0ab87 (closed_by_id)
+fk report_month_closures.FK_fe766da768cc13a182a081b59a8 (congregation_id)
+fk report_snapshots.FK_70b47c2f9b5068f2630209b8ed7 (saved_by_id)
+fk report_snapshots.FK_f3860349c4e9461ad0a11e8a63a (congregation_id)
+fk responsibilities.FK_0e0f6a425e79878a572af9109e4 (congregation_id)
+fk service_groups.FK_62576102282da1664ec7072be19 (congregation_id)
+fk service_reports.FK_30cb8eb7325ab83d657f3ce4f70 (submitted_by_id)
+fk service_reports.FK_73e651c4752f39b8fa3d48e1f84 (congregation_id)
+fk service_reports.FK_74bb4678ceff5f5128cdfddc2bf (publisher_id)
+fk service_reports.FK_769fc9f5a4ecf4ea2469450f03d (last_edited_by_id)
+fk special_events.FK_664143bd1309e2487ba8cad0ff6 (congregation_id)
+fk talk_exchange.FK_38e91405632ba81f4e622cdb924 (public_talk_id)
+fk talk_exchange.FK_3dd08d04e085d8324589d0595ac (publisher_id)
+fk talk_exchange.FK_5d7779d9a9ce5194295e57b6c2a (congregation_id)
+fk talk_exchange.FK_a4bbb108b88743abec8097b0967 (hospitality_publisher_id)
+fk talk_exchange.FK_abee3c716202a7c1ab2bfd55d14 (visiting_speaker_id)
+fk talk_exchange.FK_bd22b9295ab13223f2855609a3f (host_congregation_id)
+fk territories.FK_da733e9c0a092626f9b67343c70 (congregation_id)
+fk users.FK_cb5653e0842d8e5f3d3759df70c (congregation_id)
+fk visiting_speaker_distinct_pairs.FK_32d329492dda177bda1b4fc343e (speaker_a_id)
+fk visiting_speaker_distinct_pairs.FK_63556a54d2c775c124a8d3df59f (congregation_id)
+fk visiting_speaker_distinct_pairs.FK_7dea7b5310c6a513b10a0b87472 (speaker_b_id)
+fk visiting_speakers.FK_23c84b5639bb67ae1d61fabf5d2 (external_congregation_id)
+fk visiting_speakers.FK_54f93e450d859abf1becdbcf41f (congregation_id)
+index absences.IDX_337e08803f148d10cb633c8e41 (publisher_id,start_date)
+index absences.IDX_3f462597e0217899df35302032 (congregation_id)
+index absences.IDX_c9f4f29123e9ee92b071f61d96 (special_event_id)
+index absences.IDX_cd53eef623543125e42e0535d8 (pioneer_school_duty_id)
+index absences.IDX_d19476788b44daee1e997e2ad3 (talk_exchange_id)
+index absences.IDX_f7a5ab1facdde2b109458606b6 (publisher_id)
+index agenda_seen.IDX_agenda_seen_congregation (congregation_id)
+index announcement_dismissals.IDX_323d5c48d44570b2fd1ae301e7 (congregation_id,source_key)
+index announcement_templates.IDX_17505a7dcbf1a50244916fe0c9 (congregation_id,key)
+index assignment_notices.idx_assignment_notices_cong_date (congregation_id,meeting_date)
+index assignment_notices.uq_assignment_notices_user_item (user_id,item_type,item_id)
+index assignments.IDX_0bca5f618c3380bba5afd960bb (congregation_id,week_start_date,event_type)
+index assignments.IDX_0fd42187245a304e76152295c8 (visiting_speaker_id)
+index assignments.IDX_c4f518c9a594bc946922280288 (talk_exchange_id)
+index assignments.IDX_c89b36b2bcf3f7717b5638c1a6 (public_talk_id)
+index assignments.IDX_fd81585b6d51c29aa7aeba4b70 (congregation_id,publisher_id)
+index audit_logs.IDX_1b39e9693981cad4b57d03f3f3 (congregation_id,subject_id)
+index audit_logs.IDX_b1a2d4a16d43356ec20f792510 (congregation_id,entity_type,entity_id,created_at)
+index audit_logs.IDX_c97416578327e9ee98cbb708c9 (congregation_id,actor_user_id)
+index aux_pioneer_application_seats.IDX_588471a1826a7b35894b33dff5 (application_id)
+index aux_pioneer_application_seats.IDX_7dd73e469a69eaffe319b5903c (application_id,seat)
+index aux_pioneer_applications.IDX_022847b53b690cae77c80604f4 (publisher_id)
+index aux_pioneer_applications.IDX_0dc989f35ee6a8f84c811823b2 (congregation_id,status)
+index auxiliary_pioneers.IDX_6f37045f125ee5dbcf855b41f5 (congregation_id)
+index auxiliary_pioneers.IDX_805d10266ad227f25b1b0e0f90 (congregation_id,publisher_id)
+index auxiliary_pioneers.IDX_bd1ab2def895de07c78d029ec3 (congregation_id,start_month)
+index calendar_feeds.IDX_df53b5f17d35a6bac0fb13e16a (token_hash)
+index cart_assignments.IDX_0d50da8e02f2b5366086e0c8b5 (day_id)
+index cart_cancellations.IDX_6d228cb2b54e12e7f3eb18d62d (day_id)
+index cart_days.IDX_92f7e69cecbdee802e82d36048 (congregation_id,date)
+index cart_locations.IDX_57613c2bcd20a4df6d901f3166 (congregation_id)
+index cart_requests.IDX_e1a9d728930c351457a3f46e57 (day_id)
+index circuit_overseers.IDX_4b962fad04d444398f916dae2f (congregation_id)
+index cleaning_assignments.IDX_78735244678938eac108c5d106 (congregation_id,week_start_date)
+index client_errors.UQ_client_errors_day_fingerprint (day,fingerprint)
+index co_visit_folder_marks.UQ_co_visit_folder_marks_item (special_event_id,item_key)
+index co_visit_folders.UQ_co_visit_folders_event (special_event_id)
+index co_visit_items.IDX_54ea9bd79d17e7789c99681125 (congregation_id,special_event_id)
+index co_visit_items.IDX_795bc15d86218735ef32212972 (deleted_at)
+index conduct_live.IDX_9f404c0e155b3d62331251662e (updated_at)
+index conduct_runs.IDX_8162203eb8eebc93e84b37fa34 (saved_at)
+index duties.IDX_753d816ccff44cf51c5efee0bd (congregation_id,publisher_id)
+index duties.IDX_f65d97d03cb73a30268ae9911c (congregation_id,week_start_date,event_type)
+index duty_places.IDX_0ef258daa43fc07c8651714f3b (congregation_id,meeting_kind)
+index elder_task_assignees.IDX_4a9d21636a153860eb0f803afd (publisher_id)
+index elder_task_assignees.IDX_930c35e56a69e50aec4ab6705c (task_id)
+index elder_tasks.IDX_e1cc01a3a887dd52d8fa0a40b3 (congregation_id,status)
+index elder_tasks.IDX_edbd460b996ec139ec24343dfe (congregation_id,elders_meeting_id)
+index elders_meeting_items.IDX_0a68d830734ce33fb72f4b7ff2 (congregation_id,meeting_id,position)
+index elders_meetings.IDX_60fdb8c6d45b4ffa7d65b9d8a5 (congregation_id,date)
+index external_congregations.IDX_08b93b497e2c2b04ca4281e60f (congregation_id)
+index external_congregations.IDX_1d09f0bf3bbebe501a54da9b01 (congregation_id,name)
+index field_service_meetings.IDX_3a05511f00599c25a96ac45bf6 (congregation_id,conductor_publisher_id)
+index field_service_meetings.IDX_59a85a0ecd88d6903052f36fc3 (congregation_id,week_start_date)
+index field_service_month_themes.IDX_1821fcb5ee2c779311dd7187b8 (congregation_id,year,month)
+index field_service_removed_days.IDX_field_service_removed_days_day (congregation_id,date)
+index field_service_template_slots.IDX_fd3c9e9539dc8dd2d08bd67df1 (congregation_id)
+index halls.IDX_f45e393293d3f3fff562645ff1 (congregation_id)
+index local_needs_topics.IDX_363fddd3e04cc1b8c1cbac0cad (speaker_publisher_id)
+index local_needs_topics.IDX_8f467a380fb10a8cb641b925ab (used_assignment_id)
+index local_needs_topics.IDX_a14e833b29352fde31f2300902 (congregation_id,used_week)
+index local_needs_topics.IDX_d483233595455f8aed4b1c5572 (congregation_id)
+index local_needs_uses.IDX_49f3e84b4a8c6da0186c6a2909 (topic_id,week_start_date)
+index local_needs_uses.IDX_c931049f5022e70fbddbe8aa97 (congregation_id)
+index map_home_marks.IDX_map_home_marks_congregation (congregation_id)
+index meeting_announcements.IDX_0804af7a0a9e78a137c7ad15dd (congregation_id,week_start_date,event_type)
+index meeting_announcements.IDX_6b487df39dc778144662933ce7 (congregation_id,source_key)
+index meeting_attendance.IDX_8aa4cb5f56c29a12e4b5c54ae5 (congregation_id,date)
+index meeting_settings.IDX_3609d8586834f837352a0a6295 (congregation_id,effective_from)
+index memorial_items.IDX_98fda57f638982477e81f850b5 (congregation_id,special_event_id)
+index memorial_items.IDX_ab9aaff490b2823c091d9db234 (deleted_at)
+index not_held_clearances.IDX_ec9ff2e2f30f94f148c6008283 (congregation_id,week_start_date)
+index notification_outbox.idx_notification_outbox_congregation (congregation_id)
+index notification_outbox.idx_notification_outbox_not_before (not_before)
+index notification_outbox.idx_notification_outbox_status (status)
+index notification_preferences.uq_notification_preferences_user_category (user_id,category)
+index pioneer_meetings.IDX_d8476aa176bf1d9c3c17b2cea4 (congregation_id,date)
+index pioneer_school_days.IDX_c73405dbb4047da1a2aa55942a (congregation_id,date)
+index pioneer_school_duties.IDX_714e85aaeb1e6cae38d7151500 (congregation_id,helper_id)
+index pioneer_school_helpers.IDX_28126a7e68d606729150e81725 (publisher_id)
+index pioneer_school_helpers.IDX_b8292a4dc12c7d5451f8c3d94a (congregation_id,last_name)
+index pioneer_school_helpers.IDX_dedecf3311a689f1bc67ff3805 (congregation_id)
+index pioneer_schools.IDX_93be8b6291e906d754344dbe92 (congregation_id)
+index pioneer_schools.IDX_e68aa7388f5b9cce537981c88b (congregation_id,start_date)
+index pioneer_spells.IDX_2e703c92df38f3b59065ad2b05 (congregation_id,start_month)
+index pioneer_spells.IDX_6b5e4c3ef4f63838c18116492c (congregation_id,publisher_id)
+index pioneer_spells.IDX_ca41b5d90a5c053db8ee70ec4b (congregation_id)
+index programme_notices.IDX_45b849e8eb6520699b5f7b2e21 (congregation_id,week_start_date,event_type)
+index public_talks.IDX_34385a6bec1de44eb082fa75ad (is_active)
+index publisher_merges.IDX_81f3f8d80e1799785a4f4a132b (congregation_id,kept_id)
+index publisher_merges.IDX_f9e6e2184155ea92ac955e9161 (congregation_id,merged_id)
+index publishers.IDX_022658ed9d063307aab18f993a (congregation_id)
+index publishers.IDX_1d34de8ae0ebdc6e72229e34c8 (last_name,first_name)
+index publishers.IDX_476996479b2a21d5f70c6b13ac (service_group_id)
+index push_receipts.IDX_1ac4ff44f8ea82ebe0a1c737a3 (token)
+index push_receipts.IDX_6d222f90a2edbc24e595b3be1e (congregation_id)
+index push_receipts.IDX_d82e0c38d2307032975504fca2 (status,sent_at)
+index push_tokens.IDX_9f6c39c64ccf8284d3f4403949 (congregation_id,role)
+index push_tokens.IDX_cccfba5a4a655d21688fbebc9f (user_id,token)
+index refresh_sessions.IDX_a7ab4fd82c654c85b9de53d971 (user_id)
+index refresh_sessions.IDX_f22ad614014a610b9851827b84 (family_id)
+index reminder_log.idx_reminder_log_sent_at (sent_at)
+index report_month_closures.IDX_68d1d3f567c5b941a264097f6b (report_month)
+index report_month_closures.IDX_fe766da768cc13a182a081b59a (congregation_id)
+index report_snapshots.IDX_f3860349c4e9461ad0a11e8a63 (congregation_id)
+index responsibilities.IDX_0e0f6a425e79878a572af9109e (congregation_id)
+index responsibilities.IDX_16a2df56f657f1b0d0dc54673f (user_id)
+index service_groups.IDX_24c0c48a4f58d775f4777be388 (overseer_publisher_id)
+index service_groups.IDX_62576102282da1664ec7072be1 (congregation_id)
+index service_groups.IDX_fb3eca7d3fd9bf9412ca0d85f8 (assistant_publisher_id)
+index service_log_entries.IDX_9349a76e5e37d1c6f412d5de3f (congregation_id,publisher_id,day)
+index service_log_entries.IDX_e2b41e55bd6abada728529ed6e (user_id)
+index service_reports.IDX_73e651c4752f39b8fa3d48e1f8 (congregation_id)
+index service_reports.IDX_74bb4678ceff5f5128cdfddc2b (publisher_id)
+index service_reports.IDX_cef1b9122aba101f7e7f212373 (report_month)
+index songs.IDX_6b918c2533980572985f54e49d (is_active)
+index special_events.IDX_664143bd1309e2487ba8cad0ff (congregation_id)
+index special_events.IDX_b121f03d18bc386b58ed95a2a3 (date)
+index talk_exchange.IDX_38e91405632ba81f4e622cdb92 (public_talk_id)
+index talk_exchange.IDX_3dd08d04e085d8324589d0595a (publisher_id)
+index talk_exchange.IDX_5d7779d9a9ce5194295e57b6c2 (congregation_id)
+index talk_exchange.IDX_abee3c716202a7c1ab2bfd55d1 (visiting_speaker_id)
+index talk_exchange.IDX_da7b5d843c107f9580847035f2 (congregation_id,date)
+index territories.IDX_da733e9c0a092626f9b67343c7 (congregation_id)
+index territory_assignments.IDX_8200d9236161bc4f272a1ad409 (territory_id)
+index territory_assignments.IDX_9cd94e2d02c55994a52c47dc27 (congregation_id)
+index territory_boundaries.IDX_37ce0b29831ecaeee3052560ef (congregation_id)
+index territory_business_visits.IDX_9a8b28a6b94f889fcab44a922c (business_id,assignment_id)
+index territory_businesses.IDX_680ed2c19e88b065d7f63b2984 (territory_id)
+index territory_no_calls.IDX_bd0e2d2ffa99bb912c34a962d8 (territory_id)
+index territory_recut_proposals.IDX_territory_recut_proposals_recut (recut_id)
+index territory_recut_remarks.UQ_territory_recut_remarks_person (proposal_id,user_id)
+index territory_recuts.UQ_territory_recuts_congregation (congregation_id)
+index territory_requests.UQ_territory_requests_open (congregation_id,publisher_id)
+index territory_shapes.IDX_24a8a9a9c438ef1dbb3b92b50c (territory_id)
+index territory_splits.UQ_territory_splits_day (assignment_id,day)
+index territory_street_marks.UQ_territory_street_marks (assignment_id,street_key)
+index users.IDX_cb5653e0842d8e5f3d3759df70 (congregation_id)
+index visiting_speaker_distinct_pairs.IDX_63556a54d2c775c124a8d3df59 (congregation_id)
+index visiting_speaker_distinct_pairs.IDX_bc4bf21dc8e0ecd3c17f9210ec (congregation_id,speaker_a_id,speaker_b_id)
+index visiting_speakers.IDX_06feb5abf76cb44c6e3f205c08 (merged_into_id)
+index visiting_speakers.IDX_23c84b5639bb67ae1d61fabf5d (external_congregation_id)
+index visiting_speakers.IDX_54f93e450d859abf1becdbcf41 (congregation_id)
+index visiting_speakers.IDX_9ab98d3ec7789b12fc075954f6 (congregation_id,last_name)
+index web_push_subscriptions.IDX_e81472656bd918c4e0b022e6c5 (congregation_id)
+index web_push_subscriptions.IDX_f7a3193a683de94c68fcaf09a7 (user_id)
+junction elder_tasks.assignees elder_task_assignees
+pk absences.PK_bd79346866fea8ac6f269252748
+pk agenda_seen.PK_dfa68c36bfe99593a2383f4e50b
+pk announcement_dismissals.PK_c9c04d0bc15eebe43a4b1dbed58
+pk announcement_templates.PK_68ad7037ac4199207d06d8006f3
+pk assignment_notices.PK_b6cf31bd27e942f4df3bba6f77b
+pk assignments.PK_c54ca359535e0012b04dcbd80ee
+pk audit_logs.PK_1bb179d048bbc581caa3b013439
+pk aux_pioneer_application_seats.PK_81beab515d98f3d5e4ac6826855
+pk aux_pioneer_applications.PK_0452cad64a9d3f281dfdcf8c9b3
+pk auxiliary_pioneers.PK_c6a7013835f78a6f0987825c72d
+pk calendar_feed_retired.PK_b3a90d4ec75c30a653f4dd6f087
+pk calendar_feeds.PK_045067d8bb57f971f3c5426ea71
+pk cart_assignments.PK_36e3b7855eff2d392310207e2f8
+pk cart_cancellations.PK_085228bccbd8804fa09aaaf898d
+pk cart_days.PK_42258961d9be98a26c79ccd025b
+pk cart_locations.PK_afb9c5e0ace12971e3a2a322cd8
+pk cart_request_partners.PK_8f3dd0326ce284669a78ca48810
+pk cart_requests.PK_0193253f391b63df5fbd30a49ef
+pk cart_settings.PK_91c42a39127923e5867c489700b
+pk cart_weeks.PK_8a31b79a64788850bf690523865
+pk circuit_overseers.PK_15cd0cebcec0ec6638622f3d76e
+pk cleaning_assignments.PK_ff224d7c4384622ad7c71647987
+pk client_errors.PK_beed96d4d7b40bd3d239ed6251a
+pk co_visit_folder_marks.PK_3d5b920df2660d670aa35d72293
+pk co_visit_folders.PK_dda1c7e0c2aa2fd99e92c6abb0c
+pk co_visit_items.PK_21d5ae9744a6e050a18f8e11013
+pk co_visit_told.PK_7a9e8084c90b844fda4c5761dac
+pk conduct_averages.PK_58c632f8dbaad07410a3faaaef4
+pk conduct_live.PK_331aab770d39089bd47957a45b7
+pk conduct_runs.PK_81c8f8709b095c8320e8a3ca1b1
+pk congregations.PK_f8d59734333e7f735ba8d6bff90
+pk duties.PK_f35c74c0ad8c80299ca5d511f95
+pk duty_places.PK_6b0cba5206822d30cb67d3584f7
+pk elder_task_assignees.PK_70c436355f25103ee79bf95a908
+pk elder_task_calendar_log.PK_4ee18184b55158024ac60a94d22
+pk elder_tasks.PK_5b4277b430de6cf7afdcbbea6f7
+pk elders_meeting_items.PK_d70a352c9d5cdc38744671285ac
+pk elders_meetings.PK_7228e21bd3a63be11485e417e87
+pk external_congregations.PK_19c3f625afa6ec95cc79002e3b1
+pk field_service_meetings.PK_60ae72cd7cef33fd99238fb9ffa
+pk field_service_month_runs.PK_1ccfb847c8af96dce1eaea2773c
+pk field_service_month_themes.PK_de48e40fcde7e06e37f0fdd4c1a
+pk field_service_removed_days.PK_832bda649e6c1766b86c856a240
+pk field_service_settings.PK_29781990c25bbfb5ab224ab29bf
+pk field_service_template_slots.PK_a5a6d258e60b223cc5abfae760e
+pk halls.PK_4665c2f3b1e718e12b06278bae8
+pk inbox_seen.PK_7eb4aa0e2c9ca643cad2a367c61
+pk local_needs_topics.PK_7198a422b545b73530daefa05c7
+pk local_needs_uses.PK_d04ca5de7f3cf11f36f5c8d4a1e
+pk map_addresses.PK_2590b1c2cc22be489409a91988a
+pk map_home_marks.PK_f2ce4069fcd5e98c500ec119e44
+pk map_houses.PK_583ed1d66581bd859fa97c4d8c3
+pk map_places.PK_1f1ca586a5892f1877062e032aa
+pk map_roads.PK_ed0cfb53870afdca3770e0966d7
+pk map_streets.PK_b8d36cf2715dd54d99880707092
+pk meeting_announcements.PK_b3601a0c0d11f0cbeac1a7ab908
+pk meeting_attendance.PK_1ece13054cdfcd65f8487e71267
+pk meeting_moves.PK_e3b3f3d852e4256bdb127967137
+pk meeting_settings.PK_7587b21acf22b56086eba5539ad
+pk memorial_items.PK_e79a59e800bc586fedf22f40960
+pk not_held_alerts.PK_55f86e6f7efc72e12c96d61c68a
+pk not_held_clearances.PK_b6187a801aee2582d27878b0785
+pk notification_outbox.PK_83d47c7dba1da2d038749fe757e
+pk notification_preferences.PK_e94e2b543f2f218ee68e4f4fad2
+pk pioneer_meetings.PK_e042441c13ab52bb1e4d15aa968
+pk pioneer_school_days.PK_3b3207cb96b8249bace7b453067
+pk pioneer_school_duties.PK_c57b1cd55bd1777f729f4ba1482
+pk pioneer_school_helpers.PK_d21f5f0607cc5e8cb60159d89d2
+pk pioneer_schools.PK_7e14f1910509dd0b4046e730b4a
+pk pioneer_spells.PK_f496c9fde602ac7dc19c8479a6c
+pk programme_notices.PK_a703086b9412656e8537ddd9c75
+pk public_talks.PK_ef397822fc39e017344f9010ff3
+pk publisher_distinct_pairs.PK_0d36a65735da5e7c32815b317b7
+pk publisher_merges.PK_655945d8a219767b13a63d7f1bd
+pk publishers.PK_9d73f23749dca512efc3ccbea6a
+pk push_receipts.PK_1695748132ade3ad13d39492950
+pk push_tokens.PK_32734e87f299c29ca3878861f4f
+pk refresh_sessions.PK_9190032f6967b7971dca07d69f3
+pk reminder_log.PK_c113d227b2fabdbdb73f91c7456
+pk report_month_closures.PK_b4451d8bd2155649122d57beead
+pk report_snapshots.PK_b72010989c40cd0883ed90f674a
+pk responsibilities.PK_e22aa58654a4ecfe29d882b85eb
+pk service_groups.PK_c541600efebc3f4fefd3d082ef3
+pk service_log_entries.PK_5c950006ed072e5e1b5dfb71945
+pk service_reports.PK_e5a32eeb2a4641510a3b9bbf844
+pk songs.PK_e504ce8ad2e291d3a1d8f1ea2f4
+pk special_events.PK_872fcb3effc72ddc6a289a6059b
+pk talk_exchange.PK_f35a2ad02bbd1576afd0433d445
+pk territories.PK_5fd98f342e49509ee461d86f54f
+pk territory_assignments.PK_9563ecc3c4ce7c84b8778544ed8
+pk territory_boundaries.PK_f6d75045294e302c653a058b63f
+pk territory_business_visits.PK_e66e6a7121e4103ee6b05bd7ed7
+pk territory_businesses.PK_70d67a84d492d4c9542c884c1e0
+pk territory_no_calls.PK_e518aff02ae652626fa7e84aa77
+pk territory_recut_proposals.PK_23d4d62eec2919092b868626db1
+pk territory_recut_remarks.PK_ce430e084d363b8f52afbc7feb7
+pk territory_recuts.PK_7a40e833e3fb92a07509699bdcf
+pk territory_requests.PK_0b3dcc9a098295806198451165b
+pk territory_settings.PK_febd8c5214b1fcb93e69e7dbf70
+pk territory_shapes.PK_3bd1681f9b704ee4b07de455e45
+pk territory_splits.PK_9ceb7d82051d2f9fbab2215c314
+pk territory_street_marks.PK_d8b85456cde2a95b6b9c60f4abe
+pk users.PK_a3ffb1c0c8416b9fc6f907b7433
+pk visiting_speaker_distinct_pairs.PK_48b0db869dc9c85ad88e493c0e7
+pk visiting_speakers.PK_f45bbbb799c0da46eb7339478a6
+pk web_push_subscriptions.PK_8fdd353125d839be247dfdd8caa
+table absences
+table agenda_seen
+table announcement_dismissals
+table announcement_templates
+table assignment_notices
+table assignments
+table audit_logs
+table aux_pioneer_application_seats
+table aux_pioneer_applications
+table auxiliary_pioneers
+table calendar_feed_retired
+table calendar_feeds
+table cart_assignments
+table cart_cancellations
+table cart_days
+table cart_locations
+table cart_request_partners
+table cart_requests
+table cart_settings
+table cart_weeks
+table circuit_overseers
+table cleaning_assignments
+table client_errors
+table co_visit_folder_marks
+table co_visit_folders
+table co_visit_items
+table co_visit_told
+table conduct_averages
+table conduct_live
+table conduct_runs
+table congregations
+table duties
+table duty_places
+table elder_task_assignees
+table elder_task_calendar_log
+table elder_tasks
+table elders_meeting_items
+table elders_meetings
+table external_congregations
+table field_service_meetings
+table field_service_month_runs
+table field_service_month_themes
+table field_service_removed_days
+table field_service_settings
+table field_service_template_slots
+table halls
+table inbox_seen
+table local_needs_topics
+table local_needs_uses
+table map_addresses
+table map_home_marks
+table map_houses
+table map_places
+table map_roads
+table map_streets
+table meeting_announcements
+table meeting_attendance
+table meeting_moves
+table meeting_settings
+table memorial_items
+table not_held_alerts
+table not_held_clearances
+table notification_outbox
+table notification_preferences
+table pioneer_meetings
+table pioneer_school_days
+table pioneer_school_duties
+table pioneer_school_helpers
+table pioneer_schools
+table pioneer_spells
+table programme_notices
+table public_talks
+table publisher_distinct_pairs
+table publisher_merges
+table publishers
+table push_receipts
+table push_tokens
+table refresh_sessions
+table reminder_log
+table report_month_closures
+table report_snapshots
+table responsibilities
+table service_groups
+table service_log_entries
+table service_reports
+table songs
+table special_events
+table talk_exchange
+table territories
+table territory_assignments
+table territory_boundaries
+table territory_business_visits
+table territory_businesses
+table territory_no_calls
+table territory_recut_proposals
+table territory_recut_remarks
+table territory_recuts
+table territory_requests
+table territory_settings
+table territory_shapes
+table territory_splits
+table territory_street_marks
+table users
+table visiting_speaker_distinct_pairs
+table visiting_speakers
+table web_push_subscriptions
+unique calendar_feeds.UQ_3212ce9ff23847e66347a6730d3 (user_id)
+unique cart_days.uq_cart_day_week_date_location (week_id,date,location_id)
+unique cart_weeks.uq_cart_week_congregation_week (congregation_id,week_start_date)
+unique cleaning_assignments.uq_cleaning_slot (congregation_id,week_start_date,slot_type)
+unique co_visit_told.UQ_co_visit_told_person (special_event_id,publisher_id)
+unique conduct_averages.UQ_cb8c2452ba8af2118933b053297 (congregation_id,event_type,measure)
+unique conduct_live.UQ_f99823fcf3073f85e904b140f32 (congregation_id,week_start_date,event_type,room,practice)
+unique conduct_runs.UQ_da0d1eb4e1172d77c49172c1d6e (congregation_id,week_start_date,event_type,room)
+unique duties.uq_duty_slot (congregation_id,week_start_date,event_type,duty_type,slot_index)
+unique meeting_attendance.UQ_6896f302d06d24b1941d845fbd4 (congregation_id,date,event_type)
+unique meeting_moves.uq_meeting_move_week_kind (congregation_id,week_start_date,event_type)
+unique meeting_settings.uq_meeting_settings_cong_effective (congregation_id,effective_from)
+unique pioneer_school_days.uq_pioneer_school_day (school_id,date)
+unique pioneer_school_duties.uq_pioneer_school_duty (day_id,duty_type,slot_index)
+unique public_talks.UQ_b62da6669f824af65f8fc9e83cc (number)
+unique publishers.UQ_40c3defdcca3616fd21ede9063d (user_id)
+unique push_receipts.UQ_6e73afd996d7ae53fee6b96502b (ticket_id)
+unique reminder_log.uq_reminder_log_cong_kind_key (congregation_id,kind,key)
+unique report_month_closures.uq_report_month_closures_cong_month (congregation_id,report_month)
+unique report_snapshots.uq_report_snapshots_cong_kind_period (congregation_id,kind,period)
+unique responsibilities.uq_responsibilities_cong_type_user (congregation_id,type,user_id)
+unique service_reports.uq_service_reports_publisher_month (publisher_id,report_month)
+unique songs.UQ_a39f61963faddd6c8548439adfc (number)
+unique web_push_subscriptions.UQ_92aa70cad0f08382b5ebb87704e (endpoint)

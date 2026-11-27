@@ -89,7 +89,7 @@ export class ClientErrorsService {
       };
       const network = isNetwork(row.message, row.online);
       const fingerprint = fingerprintOf(row);
-      const seenBefore = await this.errors.exist({ where: { fingerprint } });
+      const seenBefore = await this.errors.exists({ where: { fingerprint } });
       // One row per failure per day: a repeat counts, it does not add a row.
       // The context as the last report gave it; an older build's report
       // (none) does not wipe what a newer one told.

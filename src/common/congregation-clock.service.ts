@@ -29,7 +29,7 @@ export class CongregationClock {
   async timezoneOf(tenantId: string): Promise<string> {
     const congregation = await this.congregationsRepo.findOne({
       where: { id: tenantId },
-      select: ['id', 'timezone'],
+      select: { id: true, timezone: true },
     });
     return congregation?.timezone || DEFAULT_CONGREGATION_TIMEZONE;
   }

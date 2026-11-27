@@ -282,7 +282,7 @@ describe('AuxiliaryPioneersService', () => {
       const { where, select } = publisherRepo.find.mock.calls[0][0];
       expect(where.congregationId).toBe(CONG);
       expect(where.removedAt).toEqual(IsNull());
-      expect(select).toEqual(['id', 'displayName']);
+      expect(select).toEqual({ id: true, displayName: true });
     });
 
     it('the month is the congregation’s, not the server’s: 23:30 UTC on the 31st is already November in Berlin', async () => {

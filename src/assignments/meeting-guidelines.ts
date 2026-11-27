@@ -265,7 +265,7 @@ export async function assertGuidelines(
   if (typeof manager?.getRepository !== 'function') return;
   const people = await manager.getRepository(Publisher).find({
     where: { congregationId, id: In(ids) },
-    select: ['id', 'gender', 'appointment', 'capabilities'],
+    select: { id: true, gender: true, appointment: true, capabilities: true },
     withDeleted: true,
   });
   const byId = new Map(people.map((p) => [p.id, p]));
@@ -331,7 +331,7 @@ export async function assertLocalNeedsSpeaker(
   if (typeof manager?.getRepository !== 'function') return;
   const p = await manager.getRepository(Publisher).findOne({
     where: { congregationId, id: speakerId },
-    select: ['id', 'appointment'],
+    select: { id: true, appointment: true },
     withDeleted: true,
   });
   if (p && p.appointment !== PublisherAppointment.ELDER)

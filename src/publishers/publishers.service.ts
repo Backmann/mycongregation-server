@@ -322,7 +322,7 @@ export class PublishersService {
     // both of which can sit outside a six-month window.
     const reports = await this.reportsRepo.find({
       where: { publisherId: publisher.id, congregationId: tenantId },
-      select: ['reportMonth', 'servedThisMonth', 'hoursReported'],
+      select: { reportMonth: true, servedThisMonth: true, hoursReported: true },
     });
     const firstReportMonth = reports.reduce<string | null>((earliest, r) => {
       const m = r.reportMonth.slice(0, 7);
@@ -426,7 +426,7 @@ export class PublishersService {
     );
     const reports = await this.reportsRepo.find({
       where: { publisherId, congregationId: tenantId },
-      select: ['reportMonth', 'servedThisMonth', 'hoursReported'],
+      select: { reportMonth: true, servedThisMonth: true, hoursReported: true },
     });
     const firstReportMonth = reports.reduce<string | null>((earliest, r) => {
       const m = r.reportMonth.slice(0, 7);
