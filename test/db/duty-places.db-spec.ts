@@ -177,6 +177,50 @@ describe('duty places and the month of duties (real database)', () => {
     ]);
   });
 
+  it('a place without a name is renamed and removed alone, not with every place of the week', async () => {
+    const week = monday(9);
+    const make = (customLabel: string) =>
+      h.as('admin').post('/duties/custom', {
+        weekStartDate: week,
+        eventType: 'midweek',
+        customLabel,
+      });
+    const nameless = await make('Eingang');
+    const other = await make('Parkplatz');
+    expect([nameless.status, other.status]).toEqual([201, 201]);
+    // A row of old data: a place of the congregation's own with no name.
+    await h.sql(`UPDATE duties SET custom_label = NULL WHERE id = $1`, [
+      nameless.body.duty.id,
+    ]);
+    const customs = () =>
+      h.sql<{ id: string; custom_label: string | null }>(
+        `SELECT id, custom_label FROM duties
+          WHERE week_start_date = $1 AND duty_type = 'custom' ORDER BY id`,
+        [week],
+      );
+
+    const renamed = await h
+      .as('admin')
+      .patch(`/duties/${nameless.body.duty.id}/label`, { customLabel: 'Tür' });
+    expect([renamed.status, renamed.body?.message]).toEqual([200, undefined]);
+    const labels = new Map(
+      (await customs()).map((r) => [r.id, r.custom_label]),
+    );
+    expect([
+      labels.get(nameless.body.duty.id),
+      labels.get(other.body.duty.id),
+    ]).toEqual(['Tür', 'Parkplatz']);
+
+    await h.sql(`UPDATE duties SET custom_label = NULL WHERE id = $1`, [
+      nameless.body.duty.id,
+    ]);
+    const removed = await h
+      .as('admin')
+      .delete(`/duties/${nameless.body.duty.id}/place`);
+    expect(removed.status).toBe(204);
+    expect((await customs()).map((r) => r.id)).toEqual([other.body.duty.id]);
+  });
+
   it('a rename follows the rows, the people included', async () => {
     const got = await h.as('admin').get('/duties/places/midweek');
     expect(got.body.stored).toBe(true);

@@ -6,6 +6,9 @@ export const validationSchema = Joi.object({
     .default('development'),
   PORT: Joi.number().default(3000),
   API_PREFIX: Joi.string().default('api'),
+  // TypeORM 1.x's rule for a null/undefined in a where (src/common/where-values.ts);
+  // a typo must stop the start, not quietly mean «off».
+  WHERE_INVALID_VALUES: Joi.string().valid('throw', 'off', '').optional(),
   CORS_ORIGIN: Joi.string().allow('').default(''),
 
   POSTGRES_HOST: Joi.string().required(),

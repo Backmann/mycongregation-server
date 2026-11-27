@@ -12,6 +12,7 @@ import { join } from 'path';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation.schema';
 import { AppController } from './app.controller';
+import { invalidWhereValuesBehavior } from './common/where-values';
 import { ServerErrorsModule } from './server-errors/server-errors.module';
 import {
   ServerErrorKindInterceptor,
@@ -115,6 +116,9 @@ import { AnnouncementsModule } from './announcements/announcements.module';
         entities: [join(__dirname, '**', '*.entity.{ts,js}')],
         migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
         namingStrategy: new SnakeNamingStrategy(),
+        // A null or undefined in a find's where: skipped or refused —
+        // common/where-values.ts (WHERE_INVALID_VALUES).
+        invalidWhereValuesBehavior: invalidWhereValuesBehavior(),
         synchronize: false,
         autoLoadEntities: true,
         logging: config.get<string>('app.nodeEnv') === 'development',

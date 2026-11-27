@@ -96,11 +96,15 @@ export class MemorialDetailsService {
         // the new day can raise its own.
         if (t.status === 'open') {
           await this.tasks.delete(t.id);
-          await this.log.delete({
-            congregationId,
-            kind: KIND,
-            period: t.kindPeriod!,
-          });
+          // Only its own line: a task without a day must never clear the
+          // whole log of this kind.
+          if (t.kindPeriod) {
+            await this.log.delete({
+              congregationId,
+              kind: KIND,
+              period: t.kindPeriod,
+            });
+          }
           changed += 1;
         }
         continue;
