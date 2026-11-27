@@ -7,8 +7,6 @@ import {
   MaxLength,
   ValidateIf,
 } from 'class-validator';
-import { Transform } from 'class-transformer';
-import { bodyBool } from '../common/body-bool';
 import { AnnouncementTemplatesService } from './announcement-templates.service';
 import { ConventionRulesService } from './convention-rules.service';
 import { WORDS_MAX } from './announcement-templates';
@@ -18,7 +16,6 @@ import type { AuthenticatedUser } from '../auth/decorators/current-user.decorato
 class UpdateTemplateDto {
   /** null is not «on» or «off»: refused (it was a 500 — independent check). */
   @ValidateIf((_, v) => v !== undefined)
-  @Transform(bodyBool)
   @IsBoolean()
   enabled?: boolean;
 
