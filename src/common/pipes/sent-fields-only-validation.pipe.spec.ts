@@ -1,5 +1,11 @@
 import { SentFieldsOnlyValidationPipe } from './sent-fields-only-validation.pipe';
-import { IsOptional, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 
 class PatchDto {
   @IsOptional() @IsString() title?: string;
@@ -47,5 +53,64 @@ describe('SentFieldsOnlyValidationPipe', () => {
     )) as Record<string, unknown>;
     expect(out.address).toBeNull();
     expect('address' in out).toBe(true);
+  });
+});
+
+class Part {
+  @IsBoolean() done!: boolean;
+}
+class FlagsDto {
+  @IsOptional() @IsBoolean() enabled?: boolean;
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => Part)
+  parts?: Part[];
+}
+const flags = { type: 'body' as const, metatype: FlagsDto, data: undefined };
+
+describe('a yes/no in a JSON body (26 November 2026)', () => {
+  const pipe = new SentFieldsOnlyValidationPipe({
+    whitelist: true,
+    transform: true,
+    forbidNonWhitelisted: true,
+    transformOptions: { enableImplicitConversion: true },
+  });
+  const refusal = async (body: unknown, meta = flags) => {
+    try {
+      await pipe.transform(body, meta);
+      return null;
+    } catch (e) {
+      return (e as { getResponse(): { fields: { field: string }[] } })
+        .getResponse()
+        .fields.map((f) => f.field);
+    }
+  };
+
+  it('the text "false" is refused, not read as true', async () => {
+    expect(await refusal({ enabled: 'false' })).toEqual(['enabled']);
+    expect(await refusal({ enabled: 'true' })).toEqual(['enabled']);
+    expect(await refusal({ enabled: 0 })).toEqual(['enabled']);
+  });
+
+  it('inside a list of nested ones too', async () => {
+    expect(
+      await refusal({ parts: [{ done: true }, { done: 'false' }] }),
+    ).toEqual(['parts.1.done']);
+  });
+
+  it('a real yes/no, or none, passes as sent', async () => {
+    expect(await refusal({ enabled: false })).toBeNull();
+    expect(
+      await refusal({ enabled: true, parts: [{ done: false }] }),
+    ).toBeNull();
+    expect(await refusal({})).toBeNull();
+    const out = (await pipe.transform({ enabled: false }, flags)) as FlagsDto;
+    expect(out.enabled).toBe(false);
+  });
+
+  it('the query string is not touched: there yes/no is text', async () => {
+    expect(
+      await refusal({ enabled: 'false' }, { ...flags, type: 'query' as never }),
+    ).toBeNull();
   });
 });

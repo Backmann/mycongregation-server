@@ -203,6 +203,17 @@ describe('announcement templates (real database)', () => {
     // (implicit conversion made it true — independent check).
     const asText = await patch('bc', 'memorial.ahead', { enabled: 'false' });
     expect(asText.status).toBe(400);
+    // Refused for every yes/no of a body, by the global pipe: another route.
+    const event = await h.as('admin').post('/special-events', {
+      type: 'other',
+      title: 'flag as text',
+      date: addDays(THIS, 60),
+      auxReducedHours: 'false',
+    });
+    expect([event.status, event.body.fields]).toEqual([
+      400,
+      [{ field: 'auxReducedHours', rules: ['isBoolean'] }],
+    ]);
     // A NUL was a 500; a brace outside a placeholder reached the chairman.
     for (const words of ['a\u0000b {when}', '{{when}}', 'Вечеря {when\n}'])
       expect((await patch('bc', 'memorial.ahead', { words })).status).toBe(400);
