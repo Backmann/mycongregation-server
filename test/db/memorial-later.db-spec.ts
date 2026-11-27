@@ -193,6 +193,36 @@ describe('the Memorial: the hour and the place later', () => {
     expect((await tasks()).every((t) => t.status === 'done')).toBe(true);
   });
 
+  it('a task of the app without a day goes alone, the log of other days stays', async () => {
+    await h.sql(
+      `INSERT INTO elder_task_calendar_log (congregation_id, kind, period)
+       VALUES ($1, 'memorial_details', '2001-04-08'), ($1, 'memorial_details', '2002-03-28')`,
+      [tenant],
+    );
+    // Old data: one the app raised, open, its day lost.
+    await h.sql(
+      `INSERT INTO elder_tasks
+       SELECT (jsonb_populate_record(NULL::elder_tasks, to_jsonb(t) || jsonb_build_object(
+         'id', gen_random_uuid(), 'kind_period', NULL, 'status', 'open',
+         'created_by_id', NULL, 'done_at', NULL, 'done_by_id', NULL))).*
+         FROM elder_tasks t
+        WHERE t.congregation_id = $1 AND t.kind = 'memorial_details' LIMIT 1`,
+      [tenant],
+    );
+    const before = (await tasks()).length;
+    await sync();
+    const after = await tasks();
+    expect(after.length).toBe(before - 1);
+    expect(after.some((t) => t.kind_period === null)).toBe(false);
+    const kept = await h.sql<{ period: string }>(
+      `SELECT period FROM elder_task_calendar_log
+        WHERE congregation_id = $1 AND kind = 'memorial_details'
+          AND period IN ('2001-04-08', '2002-03-28') ORDER BY period`,
+      [tenant],
+    );
+    expect(kept.map((r) => r.period)).toEqual(['2001-04-08', '2002-03-28']);
+  });
+
   it('its attendance: not at 20:00 that evening, the morning after instead', async () => {
     const recorderCard = await h.addPublisher({
       firstName: 'Счётчик',

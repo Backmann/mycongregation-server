@@ -13,6 +13,7 @@ import { SpecialEvent } from '../entities/special-event.entity';
 import {
   Between,
   In,
+  IsNull,
   LessThan,
   MoreThanOrEqual,
   Not,
@@ -867,7 +868,8 @@ export class DutiesService {
         weekStartDate: duty.weekStartDate,
         eventType: duty.eventType,
         dutyType: DutyType.CUSTOM,
-        customLabel: duty.customLabel ?? undefined,
+        // A place without a name is that place, not «every place» (27.11.2026).
+        customLabel: duty.customLabel ?? IsNull(),
       },
     });
     const before = duty.customLabel;
@@ -914,7 +916,8 @@ export class DutiesService {
         weekStartDate: duty.weekStartDate,
         eventType: duty.eventType,
         dutyType: DutyType.CUSTOM,
-        customLabel: duty.customLabel ?? undefined,
+        // A place without a name is that place, not «every place» (27.11.2026).
+        customLabel: duty.customLabel ?? IsNull(),
       },
     });
     await this.repo.remove(rows);
