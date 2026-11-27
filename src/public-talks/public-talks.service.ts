@@ -244,7 +244,7 @@ export class PublicTalksService {
         publicTalkId: In(talkIds),
         congregationId,
       },
-      relations: ['publisher'],
+      relations: { publisher: true },
       order: { weekStartDate: 'DESC' },
     });
 

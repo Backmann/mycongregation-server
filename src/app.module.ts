@@ -7,7 +7,7 @@ import { UserOrIpThrottlerGuard } from './common/guards/throttler.guard';
 import { RequestContextInterceptor } from './common/request-context.interceptor';
 import { BackupsModule } from './backups/backups.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
+import { SnakeNamingStrategy } from './common/snake-naming.strategy';
 import { join } from 'path';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation.schema';

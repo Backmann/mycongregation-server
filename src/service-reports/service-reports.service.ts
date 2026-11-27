@@ -921,7 +921,7 @@ export class ServiceReportsService {
         congregationId: tenantId,
         publisherId: In(publisherIds),
       },
-      select: ['publisherId', 'reportMonth'],
+      select: { publisherId: true, reportMonth: true },
     });
     const out = new Map<string, string>();
     for (const r of rows) {
@@ -1700,7 +1700,7 @@ export class ServiceReportsService {
               publisherId: In(publisherIds),
               reportMonth: MoreThanOrEqual(lookbackStr),
             },
-            select: ['publisherId', 'reportMonth'],
+            select: { publisherId: true, reportMonth: true },
           });
     const reportedMonths = new Map<string, Set<string>>();
     for (const r of historyRows) {
@@ -2247,7 +2247,7 @@ export class ServiceReportsService {
 
     const publishers = await this.publishersRepo.find({
       where: reportingPublisherWhere(tenantId),
-      select: ['id', 'serviceGroupId'],
+      select: { id: true, serviceGroupId: true },
     });
     const inScope = ctx.alwaysEdit
       ? publishers
@@ -2266,7 +2266,7 @@ export class ServiceReportsService {
               reportMonth,
               publisherId: In(inScope.map((p) => p.id)),
             },
-            select: ['publisherId'],
+            select: { publisherId: true },
           });
     const submitted = new Set(reports.map((r) => r.publisherId));
 
@@ -2318,7 +2318,7 @@ export class ServiceReportsService {
     const earliest = await this.reportsRepo.findOne({
       where: { congregationId: tenantId },
       order: { reportMonth: 'ASC' },
-      select: ['id', 'reportMonth'],
+      select: { id: true, reportMonth: true },
     });
     if (!earliest) return { inactive: [], unknown: [] };
     const firstCovered = String(earliest.reportMonth).slice(0, 7);
@@ -2331,13 +2331,13 @@ export class ServiceReportsService {
         publisherId: In(members.map((p) => p.id)),
         reportMonth: LessThanOrEqual(reportMonth),
       },
-      select: [
-        'publisherId',
-        'reportMonth',
-        'servedThisMonth',
-        'hoursReported',
-        'createdAt',
-      ],
+      select: {
+        publisherId: true,
+        reportMonth: true,
+        servedThisMonth: true,
+        hoursReported: true,
+        createdAt: true,
+      },
     });
     const shared = new Map<string, Set<string>>();
     const first = new Map<string, string>();
@@ -2730,13 +2730,13 @@ export class ServiceReportsService {
         congregationId: tenantId,
         reportMonth: Between(`${sixMonthFloor}-01`, reportMonth),
       },
-      select: [
-        'publisherId',
-        'reportMonth',
-        'servedThisMonth',
-        'hoursReported',
-        'createdAt',
-      ],
+      select: {
+        publisherId: true,
+        reportMonth: true,
+        servedThisMonth: true,
+        hoursReported: true,
+        createdAt: true,
+      },
     });
     const activeIds = [
       ...new Set(

@@ -650,7 +650,7 @@ export class MonthlySentService {
     const cards = await this.publishersRepo.find({
       where: { congregationId: tenantId, id: In(ids) },
       withDeleted: true,
-      select: ['id', 'appointment'],
+      select: { id: true, appointment: true },
     });
     return Object.fromEntries(cards.map((c) => [c.id, c.appointment]));
   }
@@ -663,7 +663,7 @@ export class MonthlySentService {
     const cards = await this.publishersRepo.find({
       where: { congregationId: tenantId, id: In(ids) },
       withDeleted: true,
-      select: ['id', 'firstName', 'lastName'],
+      select: { id: true, firstName: true, lastName: true },
     });
     return new Map(
       cards.map((c) => [
@@ -677,7 +677,7 @@ export class MonthlySentService {
     const card = await this.publishersRepo.findOne({
       where: { userId },
       withDeleted: true,
-      select: ['id', 'firstName', 'lastName'],
+      select: { id: true, firstName: true, lastName: true },
     });
     return card
       ? [card.lastName, card.firstName].filter(Boolean).join(' ').trim()

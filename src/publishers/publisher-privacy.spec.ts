@@ -1,6 +1,6 @@
 import { join } from 'path';
 import { DataSource } from 'typeorm';
-import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
+import { SnakeNamingStrategy } from '../common/snake-naming.strategy';
 import {
   redactPrivateFields,
   PRIVATE_PUBLISHER_FIELDS,

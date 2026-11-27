@@ -165,7 +165,7 @@ export class ServiceLogService {
     // month is nobody's to log: its report goes in as it always did.
     const cong = await this.congregations.findOne({
       where: { id: congregationId },
-      select: ['id', 'hoursLogFrom'],
+      select: { id: true, hoursLogFrom: true },
     });
     if (!cong?.hoursLogFrom || month < cong.hoursLogFrom) {
       return { role: null, goal: null };
@@ -187,7 +187,7 @@ export class ServiceLogService {
       // the months before it too — only on this screen, never in a report.
       const card = await this.publishers.findOne({
         where: { congregationId, id: publisherId },
-        select: ['id', 'pioneerMonthGoal'],
+        select: { id: true, pioneerMonthGoal: true },
       });
       return {
         role: type === PioneerType.SPECIAL ? 'special' : 'missionary',
@@ -287,7 +287,7 @@ export class ServiceLogService {
         (
           await this.congregations.findOne({
             where: { id: congregationId },
-            select: ['id', 'hoursLogFrom'],
+            select: { id: true, hoursLogFrom: true },
           })
         )?.hoursLogFrom ?? null,
     };
@@ -392,7 +392,7 @@ export class ServiceLogService {
         userId: user.id,
         day: input.day,
       },
-      select: ['id', 'minutes'],
+      select: { id: true, minutes: true },
     });
     const others = sameDay
       .filter((e) => e.id !== id)

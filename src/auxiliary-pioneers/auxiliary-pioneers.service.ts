@@ -471,7 +471,7 @@ export class AuxiliaryPioneersService {
         congregationId,
         type: In(REDUCED_HOUR_EVENT_TYPES as unknown as string[]),
       },
-      select: ['type', 'date', 'endDate', 'auxReducedHours'],
+      select: { type: true, date: true, endDate: true, auxReducedHours: true },
     });
     return events.map((e) => ({
       type: e.type,
@@ -641,7 +641,7 @@ export class AuxiliaryPioneersService {
         ? []
         : await this.publisherRepo.find({
             where: { id: In(ids), congregationId, removedAt: IsNull() },
-            select: ['id', 'displayName'],
+            select: { id: true, displayName: true },
           });
     const people = publishers
       .map((p) => ({ publisherId: p.id, name: p.displayName }))
@@ -1003,7 +1003,7 @@ export class AuxiliaryPioneersService {
   ): Promise<{ period: AuxiliaryPioneer; publisherId: string }> {
     const card = await this.publisherRepo.findOne({
       where: { congregationId, userId: user.id },
-      select: ['id'],
+      select: { id: true },
     });
     const row = card
       ? await this.repo.findOne({
@@ -1131,7 +1131,7 @@ export class AuxiliaryPioneersService {
   ): Promise<MyAuxPioneerStatus> {
     const publisher = await this.publisherRepo.findOne({
       where: { congregationId, userId: user.id },
-      select: ['id'],
+      select: { id: true },
     });
     if (!publisher)
       return { serving: false, current: null, upcoming: null, hourGoal: null };
@@ -1372,7 +1372,7 @@ export class AuxiliaryPioneersService {
     if (ids.length === 0) return new Map();
     const publishers = await this.publisherRepo.find({
       where: { id: In(ids), congregationId },
-      select: ['id', 'displayName'],
+      select: { id: true, displayName: true },
     });
     return new Map(publishers.map((p) => [p.id, p.displayName]));
   }
@@ -1386,7 +1386,7 @@ export class AuxiliaryPioneersService {
     if (ids.length === 0) return new Map();
     const publishers = await this.publisherRepo.find({
       where: { id: In(ids), congregationId },
-      select: ['id', 'pioneerType'],
+      select: { id: true, pioneerType: true },
     });
     return new Map(publishers.map((p) => [p.id, p.pioneerType]));
   }

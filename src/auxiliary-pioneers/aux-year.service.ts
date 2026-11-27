@@ -124,7 +124,7 @@ export class AuxYearService {
         reportMonth: Between(`${from}-01`, `${to}-01`),
         deletedAt: IsNull(),
       },
-      select: ['publisherId', 'reportMonth', 'hoursReported'],
+      select: { publisherId: true, reportMonth: true, hoursReported: true },
     });
     const out = new Map<string, number>();
     for (const r of rows) {
@@ -392,7 +392,7 @@ export class AuxYearService {
         submittedById: userId,
         hoursReported: IsNull(),
       },
-      select: ['id', 'reportMonth'],
+      select: { id: true, reportMonth: true },
     });
     if (rows.length === 0) return [];
     const periods = await this.periods.find({
@@ -430,7 +430,7 @@ export class AuxYearService {
     if (ids.length === 0) return new Map();
     const rows = await this.publishers.find({
       where: { id: In(ids), congregationId },
-      select: ['id', 'displayName'],
+      select: { id: true, displayName: true },
       withDeleted: true,
     });
     return new Map(rows.map((p) => [p.id, p.displayName]));

@@ -73,7 +73,7 @@ export async function assertMayWriteSections(
     (
       await responsibilities.find({
         where: { congregationId: user.congregationId, userId: user.id },
-        select: ['type'],
+        select: { type: true },
       })
     ).map((r) => r.type),
   );
@@ -171,7 +171,7 @@ export class AssignmentSectionGuard implements CanActivate {
         userId: user.id,
         type: In([...candidates]),
       },
-      select: ['type'],
+      select: { type: true },
     });
     const heldTypes = new Set(held.map((r) => r.type));
 
@@ -203,7 +203,7 @@ export class AssignmentSectionGuard implements CanActivate {
       const record = await this.assignmentsRepo.findOne({
         where: { id, congregationId },
         withDeleted: true,
-        select: ['id', 'eventType'],
+        select: { id: true, eventType: true },
       });
       if (!record) {
         throw new NotFoundException('Assignment not found');
