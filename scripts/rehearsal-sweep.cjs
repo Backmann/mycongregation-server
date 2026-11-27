@@ -23,13 +23,14 @@ const TARGET = process.env.SWEEP_TARGET || 'http://mcg-rehearsal-app:3000';
 const PREFIX = '/' + (process.env.API_PREFIX || 'api');
 const JOB_TIMEOUT_MS = 120_000;
 const req = (m) => require(require.resolve(m, { paths: [APP_ROOT] }));
+/** TypeORM's refusals of an empty where value: only the property is kept. */
+const WHERE_EMPTY =
+  /(Null|Undefined) value encountered in (?:property|nested relation) '([^']+)'/;
 
 /** What may be printed about an error: its class and a where's property. */
 function describe(e) {
   const kind = (e && e.constructor && e.constructor.name) || typeof e;
-  const m = /(Null|Undefined) value encountered in property '([^']+)'/.exec(
-    String((e && e.message) || ''),
-  );
+  const m = WHERE_EMPTY.exec(String((e && e.message) || ''));
   return m ? `${kind}: ${m[1].toLowerCase()} in where '${m[2]}'` : kind;
 }
 
@@ -44,6 +45,8 @@ function get(path, token) {
           if (body.length < 4000) body += d;
         });
         res.on('end', () => resolve({ status: res.statusCode, body }));
+        res.on('error', () => resolve({ status: 0, body: '' }));
+        res.on('aborted', () => resolve({ status: 0, body: '' }));
       },
     );
     r.on('timeout', () => r.destroy(new Error('timeout')));
@@ -82,17 +85,34 @@ const DATES = {
 };
 const MONTHS = { ...DATES, from: month, to: month };
 function queryFor(body) {
-  const named = Object.keys(DATES).filter((k) =>
-    new RegExp(`\\b${k}\\b`).test(body),
-  );
-  if (!named.length) return [];
-  const q = (vals) => '?' + named.map((k) => `${k}=${vals[k]}`).join('&');
+  // The names come from the refusal's own fields (a message like «… must be
+  // a valid ISO 8601 date string» would also match «date»; an extra field is
+  // refused). A refusal without fields names its field in the message.
+  let fields = [];
+  try {
+    fields = (JSON.parse(body).fields || []).map((f) => f.field);
+  } catch {}
+  const named = new Set(fields.filter((f) => f in DATES));
+  for (const k of ['weekStart', 'weekStartDate', 'reportMonth', 'startYear'])
+    if (new RegExp(`\\b${k}\\b`).test(body)) named.add(k);
+  if (/\bfrom and to\b/.test(body)) named.add('from').add('to');
+  if (named.has('month') && named.has('from')) named.delete('month');
+  if (!named.size) return [];
+  const q = (vals) => '?' + [...named].map((k) => `${k}=${vals[k]}`).join('&');
   return /\bmonths?\b/i.test(body)
     ? [q(MONTHS), q(DATES)]
     : [q(DATES), q(MONTHS)];
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// An error nobody awaited would otherwise be printed whole by Node — a
+// QueryFailedError carries its parameters. Only its class goes out.
+for (const ev of ['unhandledRejection', 'uncaughtException'])
+  process.on(ev, (e) => {
+    console.log(`SWEEP STOPPED: unhandled ${describe(e)}`);
+    process.exit(3);
+  });
 
 async function main() {
   const { NestFactory, ModulesContainer } = req('@nestjs/core');
@@ -111,34 +131,38 @@ async function main() {
   // where's property are kept — and counted against the job that ran.
   const logged = [];
   const quiet = () => {};
-  const keep = (msg, ...rest) => {
-    const text = [msg, ...rest]
-      .map((x) => (x && x.stack) || String(x))
-      .join(' ');
-    const m = /(Null|Undefined) value encountered in property '([^']+)'/.exec(
-      text,
-    );
-    const ctx =
-      typeof rest[rest.length - 1] === 'string' &&
-      !/\n/.test(rest[rest.length - 1])
-        ? rest[rest.length - 1]
-        : '?';
-    logged.push(m ? `${ctx}: ${m[1].toLowerCase()} in where '${m[2]}'` : ctx);
-  };
+  const keep =
+    (level) =>
+    (msg, ...rest) => {
+      const text = [msg, ...rest]
+        .map((x) => (x && x.stack) || String(x))
+        .join(' ');
+      const m = WHERE_EMPTY.exec(text);
+      if (!m && level === 'warn') return; // a warning counts only for a where
+      const ctx =
+        typeof rest[rest.length - 1] === 'string' &&
+        !/\n/.test(rest[rest.length - 1])
+          ? rest[rest.length - 1]
+          : '?';
+      logged.push(m ? `${ctx}: ${m[1].toLowerCase()} in where '${m[2]}'` : ctx);
+    };
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: {
       log: quiet,
-      warn: quiet,
+      warn: keep('warn'),
       debug: quiet,
       verbose: quiet,
-      fatal: keep,
-      error: keep,
+      fatal: keep('error'),
+      error: keep('error'),
     },
+    // A failed start must come back here as an error, not exit silently.
+    abortOnError: false,
   });
   const bootErrors = logged.splice(0);
   if (bootErrors.length)
     console.log(`  errors logged while starting: ${bootErrors.join('; ')}`);
   const registry = app.get(SchedulerRegistry);
+  const registered = registry.getCronJobs().size;
   for (const job of registry.getCronJobs().values()) job.stop();
   console.log(
     `  where rule in this process: ${process.env.WHERE_INVALID_VALUES === 'throw' ? 'throw' : 'off (0.3)'}`,
@@ -192,7 +216,7 @@ async function main() {
   const ds = app.get(DataSource);
   const users = await ds.query(
     `SELECT DISTINCT ON (congregation_id, role) id, email, role, congregation_id
-       FROM users WHERE is_active
+       FROM users WHERE is_active AND deleted_at IS NULL
       ORDER BY congregation_id, role,
                NOT EXISTS (SELECT 1 FROM publishers p WHERE p.user_id = users.id), created_at`,
   );
@@ -203,22 +227,38 @@ async function main() {
   console.log(
     `\n== Reading: ${list.length} GET routes x ${users.length} users (one per role and congregation); ${withParam} routes with a path parameter not swept`,
   );
-  const tally = { ok: 0, refused: 0, failed: 0 };
+  // 403 is a role's answer and 400 a query this sweep could not guess; 401
+  // and a 429 that stayed mean the sweep itself did not get through — they
+  // fail it, so a CLEAN cannot hide a sweep that never reached the code.
+  const tally = { ok: 0, refused: 0, still400: 0, failed: 0 };
+  // 404 is listed, not failed: some routes answer it by design (/health/dev
+  // outside development). A user who got no answer at all fails below.
+  const notFound = new Map();
   let withQuery = 0;
   const failures = new Map(); // "status GET route" -> roles
   for (const u of users) {
-    const token = jwt.sign({
-      sub: u.id,
-      email: u.email,
-      role: u.role,
-      congregationId: u.congregation_id,
-    });
+    // Signed again every five minutes: a token lives fifteen.
+    let token = '';
+    let signedAt = 0;
+    const fresh = () => {
+      if (Date.now() - signedAt > 5 * 60_000) {
+        token = jwt.sign({
+          sub: u.id,
+          email: u.email,
+          role: u.role,
+          congregationId: u.congregation_id,
+        });
+        signedAt = Date.now();
+      }
+      return token;
+    };
+    let answeredForUser = 0;
     for (const route of list) {
       const ask = async (path) => {
-        let r = await get(path, token);
+        let r = await get(path, fresh());
         if (r.status === 429) {
           await sleep(11_000);
-          r = await get(path, token);
+          r = await get(path, fresh());
         }
         await sleep(220); // under 300 a minute per account
         return r;
@@ -237,24 +277,44 @@ async function main() {
         }
       }
       const status = r.status;
-      if (status >= 200 && status < 400) tally.ok++;
-      else if (status >= 400 && status < 500) tally.refused++;
+      if (status >= 200 && status < 400) {
+        tally.ok++;
+        answeredForUser++;
+      } else if (status === 403) tally.refused++;
+      else if (status === 404)
+        notFound.set(shown, (notFound.get(shown) || new Set()).add(u.role));
+      else if (status === 400) tally.still400++;
       else {
         tally.failed++;
         const k = `${status || 'no answer'} GET ${PREFIX}${shown}`;
         failures.set(k, (failures.get(k) || new Set()).add(u.role));
       }
     }
+    if (answeredForUser === 0) {
+      tally.failed++;
+      const k = `no route answered for one user`;
+      failures.set(k, (failures.get(k) || new Set()).add(u.role));
+    }
   }
   console.log(
-    `  answered ${tally.ok} (${withQuery} after adding the week/month/year a refusal asked for), refused (4xx) ${tally.refused}, failed (5xx / none) ${tally.failed}`,
+    `  answered ${tally.ok} (${withQuery} after adding the week/month/year a refusal asked for); 403 for the role ${tally.refused}; still 400 (query not guessed) ${tally.still400}; failed ${tally.failed}`,
   );
+  for (const [k, roles] of [...notFound].sort())
+    console.log(
+      `  note  404 GET ${PREFIX}${k}  [${[...roles].sort().join(', ')}]`,
+    );
   for (const [k, roles] of [...failures].sort())
     console.log(`  FAIL  ${k}  [${[...roles].sort().join(', ')}]`);
 
   // ---- 2. every scheduled job, once ----
   console.log(`\n== Scheduled jobs: ${jobs.length}, each called once`);
   let jobFails = 0;
+  if (jobs.length !== registered) {
+    jobFails++;
+    console.log(
+      `  FAIL  found ${jobs.length} job methods, the scheduler has ${registered}`,
+    );
+  }
   for (const j of jobs.sort((a, b) => a.label.localeCompare(b.label))) {
     const t0 = Date.now();
     try {
@@ -285,7 +345,9 @@ async function main() {
     }
   }
 
-  await app.close();
+  // A job left running past its timeout may hold a connection: never wait
+  // on it forever.
+  await Promise.race([app.close().catch(() => {}), sleep(15_000)]);
   const bad = tally.failed + jobFails;
   console.log(`\nSWEEP ${bad ? 'FOUND ' + bad + ' FAILURE(S)' : 'CLEAN'}`);
   process.exit(bad ? 1 : 0);

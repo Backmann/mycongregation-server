@@ -44,8 +44,15 @@ SWEEP="mcg-rehearsal-sweep"
 EXTRA_ENV=()
 for kv in ${REHEARSAL_ENV:-}; do
   [[ "$kv" =~ ^[A-Z][A-Z0-9_]*=[A-Za-z0-9_.:-]*$ ]] || { echo "REHEARSAL_ENV: not KEY=value: $kv"; exit 1; }
+  # What keeps the rehearsal away from production is not for this to change.
+  [[ "$kv" =~ ^(POSTGRES_|SMTP_|JWT_|KEK_|SWEEP_|REDIS_) ]] && { echo "REHEARSAL_ENV: $kv is not allowed here"; exit 1; }
   EXTRA_ENV+=(-e "$kv")
 done
+
+# Tokens signed during the rehearsal (the sweep signs one per role) must not
+# be valid on production: the rehearsal gets secrets of its own, never shown.
+rand() { head -c 48 /dev/urandom | base64 | tr -d '/+=\n' | head -c 48; }
+OWN_SECRETS=(-e "JWT_SECRET=$(rand)" -e "JWT_REFRESH_SECRET=$(rand)")
 
 SRC=$(mktemp -d)
 ENVF=$(mktemp -p /dev/shm 2>/dev/null || mktemp)
@@ -154,8 +161,9 @@ COPY_TABLES=$(docker exec "$DB" psql -At -U "$PG_USER" -d "$PG_DB" -c "$COUNT_SQ
 
 step "The new release, running on the copy"
 docker run -d --name "$APP" --network "$NET" --env-file "$ENVF" --memory 512m \
+  "${EXTRA_ENV[@]}" "${OWN_SECRETS[@]}" \
   -e POSTGRES_HOST="$DB" -e POSTGRES_PORT=5432 -e POSTGRES_SSL=false \
-  -e SMTP_HOST=smtp.rehearsal.invalid "${EXTRA_ENV[@]}" \
+  -e SMTP_HOST=smtp.rehearsal.invalid \
   "$IMG" >/dev/null
 [ ${#EXTRA_ENV[@]} -gt 0 ] && echo "  with  ${REHEARSAL_ENV} (rehearsal only)"
 UP=0
@@ -214,21 +222,32 @@ if [ "${REHEARSAL_SWEEP:-1}" != 0 ]; then
   # Its own container from the same image, on the same isolated network: the
   # rehearsal app keeps its memory limit, and the jobs run in a second copy
   # of the app whose scheduler is stopped first.
-  if docker run --rm --name "$SWEEP" --network "$NET" --env-file "$ENVF" --memory 640m \
-       -e POSTGRES_HOST="$DB" -e POSTGRES_PORT=5432 -e POSTGRES_SSL=false \
-       -e SMTP_HOST=smtp.rehearsal.invalid "${EXTRA_ENV[@]}" \
-       -e SWEEP_TARGET="http://$APP:3000" \
-       -v "$SRC/scripts/rehearsal-sweep.cjs:/sweep/rehearsal-sweep.cjs:ro" \
-       --entrypoint node "$IMG" /sweep/rehearsal-sweep.cjs; then
-    ok "sweep clean"
+  if [ ! -f "$SRC/scripts/rehearsal-sweep.cjs" ]; then
+    bad "${REF} has no scripts/rehearsal-sweep.cjs — rehearse a branch that has it, or REHEARSAL_SWEEP=0"
   else
-    bad "the sweep found failures (above)"
+    set +e
+    docker run --rm --init --name "$SWEEP" --network "$NET" --env-file "$ENVF" --memory 640m \
+      "${EXTRA_ENV[@]}" "${OWN_SECRETS[@]}" \
+      -e POSTGRES_HOST="$DB" -e POSTGRES_PORT=5432 -e POSTGRES_SSL=false \
+      -e SMTP_HOST=smtp.rehearsal.invalid \
+      -e SWEEP_TARGET="http://$APP:3000" \
+      --mount "type=bind,src=$SRC/scripts/rehearsal-sweep.cjs,dst=/sweep/rehearsal-sweep.cjs,readonly" \
+      --entrypoint node "$IMG" /sweep/rehearsal-sweep.cjs
+    SWEEP_RC=$?
+    set -e
+    case "$SWEEP_RC" in
+      0) ok "sweep clean" ;;
+      1) bad "the sweep found failures (listed above)" ;;
+      2|3) bad "the sweep could not run to the end (reason above)" ;;
+      137) bad "the sweep was killed (out of memory?)" ;;
+      *) bad "the sweep stopped with exit $SWEEP_RC" ;;
+    esac
   fi
 fi
 
 # A where that met a null or undefined (TypeORM 1.x's rule, when it is on):
 # only the property is printed — the rest of such a line may name a person.
-WHERE_HITS=$(docker logs "$APP" 2>&1 | sed -n "s/.*\(Null\|Undefined\) value encountered in property '\([^']*\)'.*/\1 \2/p" | sort | uniq -c || true)
+WHERE_HITS=$(docker logs "$APP" 2>&1 | sed -n "s/.*\(Null\|Undefined\) value encountered in \(property\|nested relation\) '\([^']*\)'.*/\1 \3/p" | sort | uniq -c || true)
 if [ -n "$WHERE_HITS" ]; then
   bad "where met an empty value in the rehearsal app:"
   printf '%s\n' "$WHERE_HITS" | sed 's/^/        /'
