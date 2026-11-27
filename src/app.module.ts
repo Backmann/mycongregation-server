@@ -12,6 +12,8 @@ import { join } from 'path';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation.schema';
 import { AppController } from './app.controller';
+import { ServerErrorsModule } from './server-errors/server-errors.module';
+import { ServerErrorsInterceptor } from './server-errors/server-errors';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
@@ -79,6 +81,7 @@ import { MapPhotoModule } from './map-photo/map-photo.module';
 import { AnnouncementsModule } from './announcements/announcements.module';
 @Module({
   imports: [
+    ServerErrorsModule,
     ActivityFeedModule,
     PublisherActivityModule,
     ConfigModule.forRoot({
@@ -193,6 +196,11 @@ import { AnnouncementsModule } from './announcements/announcements.module';
     {
       provide: APP_GUARD,
       useClass: UserOrIpThrottlerGuard,
+    },
+    {
+      // Every 5xx counted by route and kind, for /health (27 November 2026).
+      provide: APP_INTERCEPTOR,
+      useClass: ServerErrorsInterceptor,
     },
     {
       // Runs after authentication, so request.user is already there. It makes
