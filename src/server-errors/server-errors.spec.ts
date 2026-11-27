@@ -1,59 +1,83 @@
-import {
-  BadRequestException,
-  InternalServerErrorException,
-} from '@nestjs/common';
+import { EventEmitter } from 'events';
+import { BadRequestException } from '@nestjs/common';
 import { lastValueFrom, throwError } from 'rxjs';
-import { ServerErrors, ServerErrorsInterceptor } from './server-errors';
+import {
+  ServerErrorKindInterceptor,
+  ServerErrors,
+  ServerErrorsMiddleware,
+} from './server-errors';
 
 describe('the server’s own failures, counted (27 November 2026)', () => {
-  const ctx = (method: string, path: string) =>
-    ({
-      getType: () => 'http',
-      switchToHttp: () => ({
-        getRequest: () => ({ method, baseUrl: '', route: { path } }),
-      }),
-    }) as never;
-  const fail = async (
+  /** One answer: the middleware sees it finish with this status. */
+  const answer = (
     errors: ServerErrors,
-    e: unknown,
-    path = '/api/announcements/:id',
+    status: number,
+    opts: { path?: string; kind?: string } = {},
   ) => {
-    const i = new ServerErrorsInterceptor(errors);
-    await lastValueFrom(
-      i.intercept(ctx('GET', path), { handle: () => throwError(() => e) }),
-    ).catch(() => undefined);
+    const res = Object.assign(new EventEmitter(), {
+      statusCode: status,
+      locals: opts.kind ? { serverErrorKind: opts.kind } : {},
+    });
+    const req = {
+      method: 'GET',
+      baseUrl: '',
+      route:
+        opts.path === undefined
+          ? { path: '/api/x/:id' }
+          : opts.path
+            ? { path: opts.path }
+            : undefined,
+    };
+    new ServerErrorsMiddleware(errors).use(req, res, () => undefined);
+    res.emit('finish');
   };
 
-  it('a crash and a 500 count; a refusal (4xx) does not', async () => {
+  it('every 5xx counts, wherever raised; a refusal (4xx) and a success do not', () => {
     const errors = new ServerErrors();
-    await fail(errors, new TypeError('x of undefined'));
-    await fail(errors, new InternalServerErrorException());
-    await fail(errors, new BadRequestException('no'));
-    expect(errors.count()).toBe(2);
+    answer(errors, 500, { kind: 'TypeError' });
+    answer(errors, 500); // raised in a guard: no class known
+    answer(errors, 503);
+    answer(errors, 404);
+    answer(errors, 200);
+    expect(errors.count()).toBe(3);
     expect(
       errors
         .list()
         .map((l) => [l.route, l.kind, l.count])
         .sort(),
     ).toEqual([
-      ['GET /api/announcements/:id', 'InternalServerErrorException', 1],
-      ['GET /api/announcements/:id', 'TypeError', 1],
+      ['GET /api/x/:id', 'TypeError', 1],
+      ['GET /api/x/:id', 'unknown', 2],
     ]);
   });
 
-  it('the route’s pattern and the class only — never the message', async () => {
+  it('the route’s pattern, never a raw path; nothing that was sent', () => {
     const errors = new ServerErrors();
-    await fail(errors, new Error('Anna Müller, +49 151 …'));
-    expect(JSON.stringify(errors.list())).not.toContain('Anna');
+    answer(errors, 500, { path: '' });
+    expect(errors.list()[0].route).toBe('GET (no route)');
   });
 
-  it('the same failure again adds up; distinct routes stop at a hundred', async () => {
+  it('the handler’s error class is left for the count — the error itself goes on', async () => {
+    const res = { locals: {} as Record<string, unknown> };
+    const ctx = {
+      getType: () => 'http',
+      switchToHttp: () => ({ getResponse: () => res }),
+    } as never;
+    const boom = new BadRequestException('Anna Müller');
+    await expect(
+      lastValueFrom(
+        new ServerErrorKindInterceptor().intercept(ctx, {
+          handle: () => throwError(() => boom),
+        }),
+      ),
+    ).rejects.toBe(boom);
+    expect(res.locals.serverErrorKind).toBe('BadRequestException');
+  });
+
+  it('distinct lines stop at a hundred, and the list says it is not all', () => {
     const errors = new ServerErrors();
-    await fail(errors, new TypeError());
-    await fail(errors, new TypeError());
-    expect(errors.list()[0].count).toBe(2);
     for (let i = 0; i < 150; i++) errors.record(`GET /r${i}`, 'Error');
     expect(errors.list()).toHaveLength(100);
-    expect(errors.count()).toBe(152);
+    expect([errors.count(), errors.truncated()]).toEqual([150, true]);
   });
 });

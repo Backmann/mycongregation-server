@@ -2,7 +2,6 @@ import { Controller, Get } from '@nestjs/common';
 import { AppService } from './app.service';
 import { Public } from './auth/decorators/public.decorator';
 import { BUILD_COMMIT } from './build-stamp';
-import { ServerErrors } from './server-errors/server-errors';
 
 interface HealthResponse {
   status: 'ok';
@@ -10,16 +9,11 @@ interface HealthResponse {
   timestamp: string;
   /** The commit this build came from; null outside a deploy. */
   commit: string | null;
-  /** Answers that failed with a 5xx since start — the count only. */
-  errors5xx: number;
 }
 
 @Controller()
 export class AppController {
-  constructor(
-    private readonly appService: AppService,
-    private readonly errors: ServerErrors,
-  ) {}
+  constructor(private readonly appService: AppService) {}
 
   @Public()
   @Get()
@@ -48,7 +42,6 @@ export class AppController {
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
       commit: BUILD_COMMIT,
-      errors5xx: this.errors.count(),
     };
   }
 }

@@ -1,5 +1,5 @@
 import { PrintDocsModule } from './print-docs/print-docs.module';
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -13,7 +13,10 @@ import configuration from './config/configuration';
 import { validationSchema } from './config/validation.schema';
 import { AppController } from './app.controller';
 import { ServerErrorsModule } from './server-errors/server-errors.module';
-import { ServerErrorsInterceptor } from './server-errors/server-errors';
+import {
+  ServerErrorKindInterceptor,
+  ServerErrorsMiddleware,
+} from './server-errors/server-errors';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
@@ -198,9 +201,9 @@ import { AnnouncementsModule } from './announcements/announcements.module';
       useClass: UserOrIpThrottlerGuard,
     },
     {
-      // Every 5xx counted by route and kind, for /health (27 November 2026).
+      // The class of a handler's error, for the 5xx count (27 November 2026).
       provide: APP_INTERCEPTOR,
-      useClass: ServerErrorsInterceptor,
+      useClass: ServerErrorKindInterceptor,
     },
     {
       // Runs after authentication, so request.user is already there. It makes
@@ -211,4 +214,9 @@ import { AnnouncementsModule } from './announcements/announcements.module';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  /** Every answer that finishes with a 5xx is counted — server-errors.ts. */
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(ServerErrorsMiddleware).forRoutes('*');
+  }
+}

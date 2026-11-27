@@ -1,39 +1,78 @@
 import { Harness, startHarness } from './harness';
-import { ServerErrors } from '../../src/server-errors/server-errors';
 
-/** /health counts the 5xx; the administrator sees where (27 November 2026). */
+/**
+ * The server's 5xx, counted wherever raised, shown to the platform owner
+ * (27 November 2026). A real failure: a table renamed away for a moment.
+ */
 describe('the server’s failures from the browser', () => {
   let h: Harness;
   beforeAll(async () => {
     h = await startHarness();
     await h.addUser({ login: 'plain', role: 'publisher' });
+    const elder = await h.addPublisher({
+      firstName: 'Другой',
+      lastName: 'Админ',
+      appointment: 'elder',
+      baptismDate: '2000-01-01',
+    });
+    // An administrator of the congregation who is not the platform owner.
+    await h.addUser({
+      login: 'otheradmin',
+      role: 'elder',
+      publisherId: elder,
+    });
+    await h.sql(
+      `UPDATE users SET role = 'admin' WHERE login_name = 'otheradmin'`,
+    );
+    await h.sql(
+      `UPDATE users SET is_owner = true WHERE login_name = 'dbtest-admin'`,
+    );
   });
   afterAll(async () => {
     await h?.close();
   });
 
-  it('health says how many, to anyone, and nothing more', async () => {
+  it('public health says nothing new', async () => {
     const r = await h.as(null).get('/health');
-    expect(r.status).toBe(200);
-    expect(typeof r.body.errors5xx).toBe('number');
     expect(Object.keys(r.body).sort()).toEqual(
-      ['commit', 'errors5xx', 'status', 'timestamp', 'uptime'].sort(),
+      ['commit', 'status', 'timestamp', 'uptime'].sort(),
     );
   });
 
-  it('where and what kind — the administrator only', async () => {
-    const before = (await h.as(null).get('/health')).body.errors5xx as number;
-    h.app.get(ServerErrors).record('GET /api/x/:id', 'TypeORMError');
-    expect((await h.as(null).get('/health')).body.errors5xx).toBe(before + 1);
-    const admin = await h.as('admin').get('/health/errors');
-    expect(admin.status).toBe(200);
-    expect(admin.body.lines).toContainEqual(
+  it('a real 5xx — in a handler and in a guard — is counted with its route', async () => {
+    const lines = async () =>
+      (await h.as('admin').get('/health/errors')).body.lines as {
+        route: string;
+        kind: string;
+        count: number;
+      }[];
+    // In a handler: the songs it reads are gone for a moment.
+    await h.sql(`ALTER TABLE songs RENAME TO songs_gone`);
+    const failed = await h.as('admin').get('/songs');
+    await h.sql(`ALTER TABLE songs_gone RENAME TO songs`);
+    expect(failed.status).toBe(500);
+    // In a guard: the responsibilities a guard reads are gone for a moment.
+    await h.sql(`ALTER TABLE responsibilities RENAME TO responsibilities_gone`);
+    const guarded = await h.as('plain').get('/readiness');
+    await h.sql(`ALTER TABLE responsibilities_gone RENAME TO responsibilities`);
+    const got = await lines();
+    expect(got).toContainEqual(
       expect.objectContaining({
-        route: 'GET /api/x/:id',
-        kind: 'TypeORMError',
-        count: 1,
+        route: 'GET /api/songs',
+        kind: 'QueryFailedError',
       }),
     );
+    expect(guarded.status).toBe(500);
+    // Raised in a guard, before any handler: counted all the same.
+    expect(got).toContainEqual(
+      expect.objectContaining({ route: 'GET /api/readiness', kind: 'unknown' }),
+    );
+    expect(JSON.stringify(got)).not.toContain('songs_gone');
+  });
+
+  it('the platform owner only: not another administrator, not a member', async () => {
+    expect((await h.as('admin').get('/health/errors')).status).toBe(200);
+    expect((await h.as('otheradmin').get('/health/errors')).status).toBe(403);
     expect((await h.as('plain').get('/health/errors')).status).toBe(403);
     expect((await h.as(null).get('/health/errors')).status).toBe(401);
   });
