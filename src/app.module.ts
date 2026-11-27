@@ -1,5 +1,5 @@
 import { PrintDocsModule } from './print-docs/print-docs.module';
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -7,12 +7,17 @@ import { UserOrIpThrottlerGuard } from './common/guards/throttler.guard';
 import { RequestContextInterceptor } from './common/request-context.interceptor';
 import { BackupsModule } from './backups/backups.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
+import { SnakeNamingStrategy } from './common/snake-naming.strategy';
 import { join } from 'path';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation.schema';
 import { AppController } from './app.controller';
 import { invalidWhereValuesBehavior } from './common/where-values';
+import { ServerErrorsModule } from './server-errors/server-errors.module';
+import {
+  ServerErrorKindInterceptor,
+  ServerErrorsMiddleware,
+} from './server-errors/server-errors';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
@@ -80,6 +85,7 @@ import { MapPhotoModule } from './map-photo/map-photo.module';
 import { AnnouncementsModule } from './announcements/announcements.module';
 @Module({
   imports: [
+    ServerErrorsModule,
     ActivityFeedModule,
     PublisherActivityModule,
     ConfigModule.forRoot({
@@ -199,6 +205,11 @@ import { AnnouncementsModule } from './announcements/announcements.module';
       useClass: UserOrIpThrottlerGuard,
     },
     {
+      // The class of a handler's error, for the 5xx count (27 November 2026).
+      provide: APP_INTERCEPTOR,
+      useClass: ServerErrorKindInterceptor,
+    },
+    {
       // Runs after authentication, so request.user is already there. It makes
       // the acting person available to the journal without every service
       // having to be handed one.
@@ -207,4 +218,9 @@ import { AnnouncementsModule } from './announcements/announcements.module';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  /** Every answer that finishes with a 5xx is counted — server-errors.ts. */
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(ServerErrorsMiddleware).forRoutes('*');
+  }
+}

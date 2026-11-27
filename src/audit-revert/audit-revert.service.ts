@@ -353,7 +353,7 @@ export class AuditRevertService {
       const row = await this.assignmentsRepo.findOne({
         where: { id: log.entityId, congregationId: tenantId },
         withDeleted: true,
-        select: ['id', 'weekStartDate', 'eventType'],
+        select: { id: true, weekStartDate: true, eventType: true },
       });
       if (
         row &&

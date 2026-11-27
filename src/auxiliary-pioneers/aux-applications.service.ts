@@ -221,7 +221,7 @@ export class AuxApplicationsService {
         congregationId,
         type: In(Object.values(SEAT_RESP)),
       },
-      select: ['type', 'userId'],
+      select: { type: true, userId: true },
     });
     const out = {} as Record<CommitteeSeat, string[]>;
     for (const s of COMMITTEE_SEATS) {
@@ -597,7 +597,7 @@ export class AuxApplicationsService {
     const p = await this.publishers.findOne({
       where: { id: app.publisherId },
       withDeleted: true,
-      select: ['id', 'userId'],
+      select: { id: true, userId: true },
     });
     return p?.userId ?? null;
   }
@@ -1114,7 +1114,7 @@ export class AuxApplicationsService {
                 applicationId: In(rows.map((r) => r.id)),
                 approvedBy: Not(IsNull()),
               },
-              select: ['applicationId'],
+              select: { applicationId: true },
             })
           ).map((s) => s.applicationId)
         : [],
@@ -1428,7 +1428,7 @@ export class AuxApplicationsService {
     if (userIds.length === 0) return false;
     const cards = await this.publishers.find({
       where: { congregationId, userId: In(userIds) },
-      select: ['id'],
+      select: { id: true },
     });
     if (cards.length === 0) return false;
     for (const c of cards) {

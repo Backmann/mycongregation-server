@@ -209,7 +209,7 @@ export class ReportRemindersService {
     if (publishers.length === 0) return [];
     const reports = await this.reportRepo.find({
       where: { congregationId: tenantId, reportMonth },
-      select: ['publisherId'],
+      select: { publisherId: true },
     });
     const submitted = new Set(reports.map((r) => r.publisherId));
     return publishers
@@ -242,7 +242,7 @@ export class ReportRemindersService {
   async tick(): Promise<void> {
     const now = new Date();
     const congregations = await this.congregationRepo.find({
-      select: ['id', 'timezone'],
+      select: { id: true, timezone: true },
     });
     for (const c of congregations) {
       const timezone = c.timezone || DEFAULT_CONGREGATION_TIMEZONE;
@@ -405,7 +405,7 @@ export class ReportRemindersService {
     if (recipientIds.length === 0) {
       const admins = await this.userRepo.find({
         where: { congregationId: tenantId, role: UserRole.ADMIN },
-        select: ['id'],
+        select: { id: true },
       });
       recipientIds = admins.map((a) => a.id);
     }
