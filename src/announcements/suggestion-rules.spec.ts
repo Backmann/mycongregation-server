@@ -247,9 +247,37 @@ describe('the Memorial', () => {
       (s) => s.stage === 'next',
     )!;
     expect(next.text).toBe(
-      'На следующей неделе — Вечеря воспоминания: понедельник, 22 марта. Время сообщим дополнительно.',
+      'На следующей неделе — Вечеря воспоминания: понедельник, 22 марта. Время сообщим позже.',
     );
     expect(next.gaps).toEqual(['time']);
+  });
+
+  it('elsewhere, the address not known yet: the place is still to be told (27 November 2026)', () => {
+    const away = { ...memorial, time: '19:30', elsewhere: true };
+    const [ahead] = run([away], {}, '2027-01-18', 12);
+    expect(ahead.text).toBe(
+      'Вечеря воспоминания — понедельник, 22 марта, 19:30. Место сообщим позже. Пригласим на неё всех, кого знаем.',
+    );
+    expect(ahead.gaps).toEqual([]);
+    const both = run([{ ...memorial, elsewhere: true }], {}, '2027-01-18', 12);
+    expect(both[0].text).toContain('Время и место сообщим позже.');
+    expect(both.find((s) => s.stage === 'next')!.gaps).toEqual([
+      'time',
+      'place',
+    ]);
+    // Said to be elsewhere: words taken before turn «changed»; once the
+    // address is there, the marker goes and the address counts instead.
+    expect(ahead.facts).not.toBe(
+      run([memorial], {}, '2027-01-18', 12)[0].facts,
+    );
+    const given = run(
+      [{ ...away, address: 'Lindenstraße 5, Hamm' }],
+      {},
+      '2027-01-18',
+      12,
+    )[0];
+    expect(given.text).toContain('19:30, Lindenstraße 5, Hamm.');
+    expect(given.text).not.toContain('сообщим');
   });
 
   it('the hour and the address once known; a taken one is then «changed»', () => {

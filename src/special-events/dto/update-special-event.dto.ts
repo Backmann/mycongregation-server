@@ -57,6 +57,11 @@ export class UpdateSpecialEventDto {
   @IsString()
   address?: string | null;
 
+  /** Somewhere other than the hall; with no address: «место уточняется». */
+  @IsOptional()
+  @IsBoolean()
+  elsewhere?: boolean;
+
   @IsOptional()
   @IsString()
   mapUrl?: string | null;

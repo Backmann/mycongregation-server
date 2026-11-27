@@ -96,7 +96,12 @@ export type TaskKind =
   // Six weeks before a regional convention: plan the 15-minute part before
   // the invitation campaign; due when the campaign begins. Period: the
   // convention's first day. Lives in announcements/convention-rules.
-  | 'campaign_part';
+  | 'campaign_part'
+  // «Указать время и место Вечери»: six weeks before a Memorial still
+  // without its hour, or elsewhere without its address; closes itself once
+  // both are given (27 November 2026). Period: the Memorial's date. Lives in
+  // tasks/memorial-details.service.ts.
+  | 'memorial_details';
 
 @Entity('elder_tasks')
 @Index(['congregationId', 'status'])

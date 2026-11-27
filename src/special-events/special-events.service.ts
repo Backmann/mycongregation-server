@@ -51,6 +51,7 @@ const JOURNAL_FIELDS = [
   'time',
   'timeEnd',
   'address',
+  'elsewhere',
   'note',
   'meetingMode',
   'meetingNote',
@@ -424,12 +425,10 @@ export class SpecialEventsService {
     exceptId?: string,
   ) {
     if (next.type !== 'memorial') return;
-    if (!next.time?.trim()) {
-      throw new BadRequestException({
-        code: 'EVENT_MEMORIAL_NEEDS_TIME',
-        message: 'The Memorial needs its starting time',
-      });
-    }
+    // The hour may come later (27 November 2026): it is often not known
+    // weeks ahead. Reminders go by the day; the words say «время сообщим
+    // позже»; the body coordinator gets a task to fill it in
+    // (tasks/memorial-details.service.ts).
     const others = await this.specialEventsRepo.find({
       where: {
         congregationId: tenantId,

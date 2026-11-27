@@ -557,17 +557,16 @@ describe('how the meeting goes that day', () => {
 });
 
 describe('the Memorial', () => {
-  it('needs its hour', async () => {
+  it('may wait for its hour and its place (27 November 2026)', async () => {
     const { svc } = build({});
     await expect(
       svc.create(TENANT, {
         title: 'Вечеря',
         type: 'memorial',
         date: '2027-03-22',
+        elsewhere: true,
       }),
-    ).rejects.toMatchObject({
-      response: { code: 'EVENT_MEMORIAL_NEEDS_TIME' },
-    });
+    ).resolves.toMatchObject({ type: 'memorial', elsewhere: true });
   });
 
   it('is held once a service year', async () => {

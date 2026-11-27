@@ -52,6 +52,11 @@ export class CreateSpecialEventDto {
   @IsString()
   address?: string;
 
+  /** Somewhere other than the hall; with no address: «место уточняется». */
+  @IsOptional()
+  @IsBoolean()
+  elsewhere?: boolean;
+
   @IsOptional()
   @IsString()
   mapUrl?: string;

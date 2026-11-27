@@ -296,7 +296,7 @@ export const PLAN: Record<string, TablePlan> = {
       deleted_at end_date co_midweek_dow co_role
       co_accommodation_publisher_id time_end memorial_published_at
       co_published_at co_noticed_at co_wife_comes
-      meeting_mode meeting_time aux_reduced_hours`),
+      meeting_mode meeting_time aux_reduced_hours elsewhere`),
     {
       title: 'eventTitle',
       time: 'time',
