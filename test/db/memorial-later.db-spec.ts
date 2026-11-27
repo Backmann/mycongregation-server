@@ -90,6 +90,19 @@ describe('the Memorial: the hour and the place later', () => {
     memorialId = ev.body.id;
     const got = await h.as('admin').get(`/special-events/${memorialId}`);
     expect(got.body.elsewhere).toBe(true);
+    // A yes or a no: null is refused, not a server error.
+    const nul = await h
+      .as('admin')
+      .patch(`/special-events/${memorialId}`, { elsewhere: null });
+    expect(nul.status).toBe(400);
+    // Only the Memorial is elsewhere.
+    const other = await h.as('admin').post('/special-events', {
+      type: 'other',
+      title: 'Другое',
+      date: add(DATE, 60),
+      elsewhere: true,
+    });
+    expect([other.status, other.body.elsewhere]).toEqual([201, false]);
   });
 
   it('the body coordinator gets a task, due four weeks before', async () => {
@@ -135,7 +148,7 @@ describe('the Memorial: the hour and the place later', () => {
     expect((await tasks()).map((t) => t.status)).toEqual(['done']);
   });
 
-  it('moved, with the hour gone again: the old one stays done, the new day raises its own', async () => {
+  it('moved, with the hour gone again: the new day raises its own', async () => {
     const moved = add(DATE, 7);
     const r = await h
       .as('admin')
@@ -147,18 +160,34 @@ describe('the Memorial: the hour and the place later', () => {
       [DATE, 'done'],
       [moved, 'open'],
     ]);
-    // Moved back before anyone acts: the open one goes with its day.
+    // Moved back before anyone acts: the open one goes with its day, and
+    // the old day's, closed by the app, opens again — the hour is missing.
     await h.as('admin').patch(`/special-events/${memorialId}`, { date: DATE });
     await sync();
     expect((await tasks()).map((t) => [t.kind_period, t.status])).toEqual([
-      [DATE, 'done'],
+      [DATE, 'open'],
     ]);
   });
 
+  it('closed by the app, it opens again when the hour is taken away', async () => {
+    await h
+      .as('admin')
+      .patch(`/special-events/${memorialId}`, { time: '19:30' });
+    await sync();
+    expect((await tasks()).map((t) => t.status)).toEqual(['done']);
+    await h.as('admin').patch(`/special-events/${memorialId}`, { time: null });
+    await sync();
+    expect((await tasks()).map((t) => t.status)).toEqual(['open']);
+  });
+
   it('closed by hand, it stays closed', async () => {
+    const [{ id: coordUser }] = await h.sql<{ id: string }>(
+      `SELECT user_id AS id FROM publishers WHERE id = $1`,
+      [coordCard],
+    );
     await h.sql(
-      `UPDATE elder_tasks SET status = 'done' WHERE congregation_id = $1 AND kind = 'memorial_details'`,
-      [tenant],
+      `UPDATE elder_tasks SET status = 'done', done_at = now(), done_by_id = $2 WHERE congregation_id = $1 AND kind = 'memorial_details'`,
+      [tenant, coordUser],
     );
     await sync();
     expect((await tasks()).every((t) => t.status === 'done')).toBe(true);
@@ -189,10 +218,17 @@ describe('the Memorial: the hour and the place later', () => {
       [recorder],
     );
     expect(body).toBe('Вчерашняя Вечеря воспоминания ещё не внесена.');
-    // With its hour given it is the evening's, as every meeting.
+    // Begun early enough to be over by 20:00: the evening's, as every meeting.
+    await h
+      .as('admin')
+      .patch(`/special-events/${memorialId}`, { time: '18:30' });
+    expect(await reminder.remindMorningAfter(tenant, DATE)).toBe(0);
+    expect(await reminder.remindFor(tenant, DATE)).toBe(1);
+    // At 19:30 it may still be going on at 20:00: the morning after again.
     await h
       .as('admin')
       .patch(`/special-events/${memorialId}`, { time: '19:30' });
-    expect(await reminder.remindMorningAfter(tenant, DATE)).toBe(0);
+    expect(await reminder.remindFor(tenant, DATE)).toBe(0);
+    expect(await reminder.remindMorningAfter(tenant, DATE)).toBe(1);
   });
 });

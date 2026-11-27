@@ -36,6 +36,8 @@ export interface MemorialSheet {
     date: string;
     time: string | null;
     address: string | null;
+    /** Held elsewhere; with no address yet «место уточняется». */
+    elsewhere: boolean;
     theme: string | null;
     themeUrl: string | null;
     publishedAt: string | null;
@@ -141,6 +143,7 @@ export class MemorialService {
           date: event.date,
           time: event.time ?? null,
           address: event.address ?? null,
+          elsewhere: event.elsewhere ?? false,
           theme: null,
           themeUrl: null,
           publishedAt: null,
@@ -160,6 +163,7 @@ export class MemorialService {
         date: event.date,
         time: event.time ?? null,
         address: event.address ?? null,
+        elsewhere: event.elsewhere ?? false,
         theme: event.memorialTheme,
         themeUrl: event.memorialThemeUrl,
         publishedAt: event.memorialPublishedAt?.toISOString() ?? null,

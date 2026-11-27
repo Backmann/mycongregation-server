@@ -28,8 +28,21 @@ import {
 
 /** 20:00 — the hour Lionel chose (31 October 2026). */
 export const REMIND_AT_MINUTES = 20 * 60;
-/** 08:00 — the morning after a Memorial with no hour given. */
+/** 08:00 — the morning after a Memorial that ends late or has no hour. */
 export const MORNING_AT_MINUTES = 8 * 60;
+/** About how long the Memorial lasts. */
+const MEMORIAL_MINUTES = 60;
+
+/**
+ * The Memorial is asked about the next morning when it may still be going on
+ * at 20:00 — its hour not given, or begun after 19:00 (independent check,
+ * 27 November 2026: a 19:30 Memorial was asked about during it, and one at
+ * 20:15 never at all).
+ */
+export function memorialAsksNextMorning(time: string | null): boolean {
+  const start = minutesOfClock(time);
+  return start === null || start + MEMORIAL_MINUTES > REMIND_AT_MINUTES;
+}
 
 /**
  * The words of the reminder — short, in each language, pure so they can be
@@ -138,10 +151,10 @@ export class AttendanceReminderService {
     const due = (await this.attendance.unrecordedToday(tenantId, today)).filter(
       (m) => {
         const start = minutesOfClock(m.time);
-        // A Memorial whose hour was never given may still be going on at
-        // 20:00: it is asked about the next morning instead (27 November
-        // 2026). Any other meeting without an hour, as before.
-        if (start === null) return m.eventType !== EventType.MEMORIAL;
+        if (m.eventType === EventType.MEMORIAL)
+          return !memorialAsksNextMorning(m.time);
+        // Any other meeting without an hour, as before.
+        if (start === null) return true;
         return start < REMIND_AT_MINUTES;
       },
     );
@@ -162,8 +175,8 @@ export class AttendanceReminderService {
   }
 
   /**
-   * The morning after a Memorial held without a given hour: «Вчерашняя Вечеря
-   * ещё не внесена», if it still is not.
+   * The morning after a Memorial that may have run past 20:00: «Вчерашняя
+   * Вечеря ещё не внесена», if it still is not.
    */
   async remindMorningAfter(
     tenantId: string,
@@ -173,7 +186,7 @@ export class AttendanceReminderService {
       await this.attendance.unrecordedToday(tenantId, yesterday)
     ).filter(
       (m) =>
-        m.eventType === EventType.MEMORIAL && minutesOfClock(m.time) === null,
+        m.eventType === EventType.MEMORIAL && memorialAsksNextMorning(m.time),
     );
     if (due.length === 0) return 0;
     const userId = await this.whoIsTold(tenantId, addDaysISO(yesterday, 1));

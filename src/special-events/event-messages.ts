@@ -355,8 +355,9 @@ export function signatureOf(e: EventForMessage): string {
     e.time ?? '',
     e.timeEnd ?? '',
     e.address ?? '',
-    // Elsewhere told only when set: an old row and a new one agree.
-    e.elsewhere ? 'elsewhere' : '',
+    // Only when set, so the signature of every other event stays the very
+    // string it was before the flag existed.
+    ...(e.elsewhere ? ['elsewhere'] : []),
     e.replacesMeeting ? '1' : '0',
     e.coMidweekDow ?? '',
     // «usual» is the absence of an answer: an old row and a new one agree.

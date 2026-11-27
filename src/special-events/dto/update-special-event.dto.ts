@@ -57,8 +57,11 @@ export class UpdateSpecialEventDto {
   @IsString()
   address?: string | null;
 
-  /** Somewhere other than the hall; with no address: «место уточняется». */
-  @IsOptional()
+  /**
+   * Somewhere other than the hall; with no address: «место уточняется».
+   * The Memorial only. A yes or a no — null is refused, not saved.
+   */
+  @ValidateIf((_, v) => v !== undefined)
   @IsBoolean()
   elsewhere?: boolean;
 

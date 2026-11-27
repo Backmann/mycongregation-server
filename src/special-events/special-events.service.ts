@@ -535,6 +535,8 @@ export class SpecialEventsService {
       congregationId: tenantId,
       // Only a campaign gives the auxiliary pioneers 15 hours.
       auxReducedHours: dto.type === 'campaign' && dto.auxReducedHours === true,
+      // Only the Memorial is «elsewhere»: any other event says its address.
+      elsewhere: dto.type === 'memorial' && dto.elsewhere === true,
     });
     Object.assign(
       event,
@@ -707,6 +709,8 @@ export class SpecialEventsService {
     // 18 November 2026). A newer client says so itself.
     const hadName = !!event.coWifeName?.trim();
     Object.assign(event, dto, meeting);
+    // Only the Memorial is «elsewhere» — a type changed away drops it.
+    if (event.type !== 'memorial') event.elsewhere = false;
     if (
       dto.coWifeComes === undefined &&
       dto.coWifeName !== undefined &&

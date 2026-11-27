@@ -34,8 +34,9 @@ export function memorialMissing(e: {
  * without an address: often neither is known weeks before. Lest it reach its
  * evening still without them, the body coordinator (and his assistant) get a
  * task six weeks before, due four weeks before. It closes itself once both
- * are there; goes when the Memorial is moved or deleted (and comes back for
- * the new day if still needed). One closed by hand stays closed.
+ * are there and opens again if one is taken away; goes when the Memorial is
+ * moved or deleted (and comes back for the new day if still needed) or its
+ * evening passes with nothing done. One closed by hand stays closed.
  * Period: the Memorial's date.
  */
 @Injectable()
@@ -104,10 +105,33 @@ export class MemorialDetailsService {
         }
         continue;
       }
-      if (t.status === 'open' && (!memorialMissing(m) || m.date < today)) {
+      // Its evening came and went with the details still missing: there is
+      // nothing left to do, and «done» would say it was done — it goes.
+      if (t.status === 'open' && m.date < today) {
+        await this.tasks.delete(t.id);
+        changed += 1;
+        continue;
+      }
+      if (t.status === 'open' && !memorialMissing(m)) {
         await this.tasks.update(t.id, {
           status: 'done',
           doneAt: new Date(),
+          doneById: null,
+        });
+        changed += 1;
+        continue;
+      }
+      // Closed by the app (nobody's hand) and the hour or place taken away
+      // again: it opens again. One an elder closed stays closed.
+      if (
+        t.status === 'done' &&
+        !t.doneById &&
+        memorialMissing(m) &&
+        m.date >= today
+      ) {
+        await this.tasks.update(t.id, {
+          status: 'open',
+          doneAt: null,
           doneById: null,
         });
         changed += 1;
