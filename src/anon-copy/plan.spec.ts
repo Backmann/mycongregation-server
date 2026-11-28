@@ -38,6 +38,26 @@ describe('anon-copy plan', () => {
     for (const column of ['id', 'timestamp', 'name']) {
       schema.push({ table: 'migrations', column, nullable: false });
     }
+    // Not entities: what migrations keep for their down (the database test
+    // test/db/anon-plan.db-spec.ts checks the real list after every migration).
+    for (const column of ['id', 'title']) {
+      schema.push({
+        table: 'special_events_title_1937',
+        column,
+        nullable: false,
+      });
+    }
+    for (const column of [
+      'id',
+      'congregation_id',
+      'week_start_date',
+      'thorough_planned_at',
+      'created_at',
+      'updated_at',
+      'event_id',
+    ]) {
+      schema.push({ table: 'cleaning_general_1943', column, nullable: true });
+    }
   });
 
   it('sees the entities at all', () => {

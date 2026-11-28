@@ -860,6 +860,11 @@ column responsibilities.congregation_id
 column responsibilities.id
 column responsibilities.type
 column responsibilities.user_id
+column server_errors_daily.count
+column server_errors_daily.day
+column server_errors_daily.kind
+column server_errors_daily.last_at
+column server_errors_daily.route
 column service_groups.assistant_publisher_id
 column service_groups.congregation_id
 column service_groups.created_at
@@ -1502,6 +1507,7 @@ pk reminder_log.PK_c113d227b2fabdbdb73f91c7456
 pk report_month_closures.PK_b4451d8bd2155649122d57beead
 pk report_snapshots.PK_b72010989c40cd0883ed90f674a
 pk responsibilities.PK_e22aa58654a4ecfe29d882b85eb
+pk server_errors_daily.PK_server_errors_daily
 pk service_groups.PK_c541600efebc3f4fefd3d082ef3
 pk service_log_entries.PK_5c950006ed072e5e1b5dfb71945
 pk service_reports.PK_e5a32eeb2a4641510a3b9bbf844
@@ -1608,6 +1614,7 @@ table reminder_log
 table report_month_closures
 table report_snapshots
 table responsibilities
+table server_errors_daily
 table service_groups
 table service_log_entries
 table service_reports

@@ -87,6 +87,17 @@ export const PLAN: Record<string, TablePlan> = {
   agenda_seen: 'skip',
   /** Failures met in the app: technical, thirty days, of no use to a copy. */
   client_errors: 'skip',
+  /** The server's 5xx by route and class: technical, thirty days. */
+  server_errors_daily: 'skip',
+  /**
+   * What a migration kept so that its down can put things back (1937: event
+   * titles before; 1943: the general-cleaning rows moved into events). Only
+   * a rollback reads them; a copy has no use for them. Missing here, they
+   * stopped the copy on production — found by the database test
+   * test/db/anon-plan.db-spec.ts (28 November 2026).
+   */
+  special_events_title_1937: 'skip',
+  cleaning_general_1943: 'skip',
   not_held_clearances: 'skip',
   not_held_alerts: 'skip',
   /** Addresses of real devices. */
