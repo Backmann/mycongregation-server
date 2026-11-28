@@ -2,9 +2,12 @@ import {
   CallHandler,
   ExecutionContext,
   Injectable,
+  Logger,
   NestInterceptor,
   NestMiddleware,
 } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
+import { DataSource } from 'typeorm';
 import { Observable, catchError, throwError } from 'rxjs';
 
 /** One kind of failure on one route. */
@@ -18,6 +21,10 @@ export interface ServerErrorLine {
 }
 
 const MAX_LINES = 100;
+/** Days kept in the table (28 November 2026): a week of watching, and room. */
+export const KEEP_DAYS = 30;
+/** Distinct new lines a process writes per day — a flood stays bounded. */
+const MAX_NEW_ROWS_PER_DAY = 200;
 
 /**
  * Failures of this server since it started (27 November 2026).
@@ -31,11 +38,18 @@ const MAX_LINES = 100;
  */
 @Injectable()
 export class ServerErrors {
+  private readonly logger = new Logger(ServerErrors.name);
   private total = 0;
   private readonly lines = new Map<string, ServerErrorLine>();
   private dropped = false;
+  /** Keys written to the table today by this process, and that day. */
+  private writtenDay = '';
+  private readonly writtenKeys = new Set<string>();
+
+  constructor(private readonly ds: DataSource) {}
 
   record(route: string, kind: string, at = new Date()): void {
+    this.keep(route, kind, at);
     this.total += 1;
     const key = `${route}|${kind}`;
     const line = this.lines.get(key);
@@ -50,6 +64,94 @@ export class ServerErrors {
       return;
     }
     this.lines.set(key, { route, kind, count: 1, lastAt: at.toISOString() });
+  }
+
+  /**
+   * Also into the table (28 November 2026), so a restart or a deploy does
+   * not wipe what was seen. Never awaited by the answer, never thrown: a
+   * failed write — the database being the very thing down — leaves the
+   * count in memory, as before.
+   */
+  private keep(route: string, kind: string, at: Date): void {
+    const day = at.toISOString().slice(0, 10);
+    if (day !== this.writtenDay) {
+      this.writtenDay = day;
+      this.writtenKeys.clear();
+    }
+    const key = `${route}|${kind}`;
+    if (!this.writtenKeys.has(key)) {
+      if (this.writtenKeys.size >= MAX_NEW_ROWS_PER_DAY) return;
+      this.writtenKeys.add(key);
+    }
+    this.ds
+      .query(
+        `INSERT INTO server_errors_daily (day, route, kind, count, last_at)
+         VALUES ($1, $2, $3, 1, $4)
+         ON CONFLICT (day, route, kind)
+         DO UPDATE SET count = server_errors_daily.count + 1, last_at = EXCLUDED.last_at`,
+        [day, route.slice(0, 200), kind.slice(0, 80), at.toISOString()],
+      )
+      .catch(() => {
+        // Counted in memory still; the table catches up with the next one.
+      });
+  }
+
+  /**
+   * What the table holds for the last `days` days — across restarts. Null
+   * when it cannot be read: the caller answers from memory instead.
+   */
+  async kept(days: number): Promise<{
+    since: string;
+    total: number;
+    lines: ServerErrorLine[];
+  } | null> {
+    try {
+      const rows: {
+        route: string;
+        kind: string;
+        count: string;
+        last_at: Date;
+      }[] = await this.ds.query(
+        `SELECT route, kind, sum(count)::text AS count, max(last_at) AS last_at
+             FROM server_errors_daily
+            WHERE day > (now() AT TIME ZONE 'UTC')::date - $1::int
+            GROUP BY route, kind
+            ORDER BY max(last_at) DESC
+            LIMIT ${MAX_LINES}`,
+        [days],
+      );
+      const since = new Date(Date.now() - (days - 1) * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      const lines = rows.map((r) => ({
+        route: r.route,
+        kind: r.kind,
+        count: Number(r.count),
+        lastAt: new Date(r.last_at).toISOString(),
+      }));
+      return {
+        since,
+        total: lines.reduce((s, l) => s + l.count, 0),
+        lines,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Older days go, each night. */
+  @Cron('25 4 * * *')
+  async prune(): Promise<void> {
+    try {
+      await this.ds.query(
+        `DELETE FROM server_errors_daily WHERE day < (now() AT TIME ZONE 'UTC')::date - $1::int`,
+        [KEEP_DAYS],
+      );
+    } catch (err) {
+      this.logger.warn(
+        `server errors prune failed: ${(err as Error)?.constructor?.name}`,
+      );
+    }
   }
 
   count(): number {

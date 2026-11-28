@@ -1,4 +1,5 @@
 import { Harness, startHarness } from './harness';
+import { ServerErrors } from '../../src/server-errors/server-errors';
 
 /**
  * The server's 5xx, counted wherever raised, shown to the platform owner
@@ -68,6 +69,56 @@ describe('the server’s failures from the browser', () => {
       expect.objectContaining({ route: 'GET /api/readiness', kind: 'unknown' }),
     );
     expect(JSON.stringify(got)).not.toContain('songs_gone');
+  });
+
+  it('kept across a restart: the table answers, not the memory (28 November 2026)', async () => {
+    // The write is not awaited by the answer: wait for the row.
+    let rows: { route: string; kind: string; count: number }[] = [];
+    for (let i = 0; i < 40 && rows.length === 0; i++) {
+      rows = await h.sql(
+        `SELECT route, kind, count FROM server_errors_daily WHERE route = 'GET /api/songs'`,
+      );
+      if (rows.length === 0) await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(rows).toEqual([
+      { route: 'GET /api/songs', kind: 'QueryFailedError', count: 1 },
+    ]);
+    // A restart: this process forgets everything it counted.
+    const mem = h.app.get(ServerErrors) as unknown as {
+      lines: Map<string, unknown>;
+      total: number;
+    };
+    mem.lines.clear();
+    mem.total = 0;
+    const after = await h.as('admin').get('/health/errors');
+    expect(after.body.source).toBe('table');
+    expect(after.body.lines).toContainEqual(
+      expect.objectContaining({ route: 'GET /api/songs', count: 1 }),
+    );
+    expect(after.body.total).toBeGreaterThanOrEqual(2);
+  });
+
+  it('days ask a window; old days go at night', async () => {
+    await h.sql(
+      `INSERT INTO server_errors_daily (day, route, kind, count)
+       VALUES ((now() AT TIME ZONE 'UTC')::date - 3, 'GET /api/three-days', 'TypeError', 4),
+              ((now() AT TIME ZONE 'UTC')::date - 40, 'GET /api/forty-days', 'TypeError', 1)`,
+    );
+    const routes = async (q: string) =>
+      (
+        (await h.as('admin').get(`/health/errors${q}`)).body.lines as {
+          route: string;
+        }[]
+      ).map((l) => l.route);
+    expect(await routes('?days=1')).not.toContain('GET /api/three-days');
+    expect(await routes('?days=7')).toContain('GET /api/three-days');
+    expect(await routes('?days=7')).not.toContain('GET /api/forty-days');
+    await h.app.get(ServerErrors).prune();
+    const left = await h.sql<{ route: string }>(
+      `SELECT route FROM server_errors_daily`,
+    );
+    expect(left.map((r) => r.route)).toContain('GET /api/three-days');
+    expect(left.map((r) => r.route)).not.toContain('GET /api/forty-days');
   });
 
   it('the platform owner only: not another administrator, not a member', async () => {

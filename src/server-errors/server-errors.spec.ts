@@ -1,3 +1,4 @@
+import type { DataSource } from 'typeorm';
 import { EventEmitter } from 'events';
 import { BadRequestException } from '@nestjs/common';
 import { lastValueFrom, throwError } from 'rxjs';
@@ -6,6 +7,11 @@ import {
   ServerErrors,
   ServerErrorsMiddleware,
 } from './server-errors';
+
+/** No table in a unit test: every write fails quietly, as when the database is down. */
+const noTable = {
+  query: () => Promise.reject(new Error('no database')),
+} as unknown as DataSource;
 
 describe('the server’s own failures, counted (27 November 2026)', () => {
   /** One answer: the middleware sees it finish with this status. */
@@ -33,7 +39,7 @@ describe('the server’s own failures, counted (27 November 2026)', () => {
   };
 
   it('every 5xx counts, wherever raised; a refusal (4xx) and a success do not', () => {
-    const errors = new ServerErrors();
+    const errors = new ServerErrors(noTable);
     answer(errors, 500, { kind: 'TypeError' });
     answer(errors, 500); // raised in a guard: no class known
     answer(errors, 503);
@@ -52,7 +58,7 @@ describe('the server’s own failures, counted (27 November 2026)', () => {
   });
 
   it('the route’s pattern, never a raw path; nothing that was sent', () => {
-    const errors = new ServerErrors();
+    const errors = new ServerErrors(noTable);
     answer(errors, 500, { path: '' });
     expect(errors.list()[0].route).toBe('GET (no route)');
   });
@@ -75,7 +81,7 @@ describe('the server’s own failures, counted (27 November 2026)', () => {
   });
 
   it('distinct lines stop at a hundred, and the list says it is not all', () => {
-    const errors = new ServerErrors();
+    const errors = new ServerErrors(noTable);
     for (let i = 0; i < 150; i++) errors.record(`GET /r${i}`, 'Error');
     expect(errors.list()).toHaveLength(100);
     expect([errors.count(), errors.truncated()]).toEqual([150, true]);
