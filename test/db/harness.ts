@@ -44,9 +44,8 @@ let counter = 0;
 export async function startHarness(): Promise<Harness> {
   const env = dbEnv();
   Object.assign(process.env, env);
-  // TypeORM 1.x's rule, always, in every database test: a null or undefined
-  // in a find's where fails here, the day the code is written.
-  process.env.WHERE_INVALID_VALUES = 'throw';
+  // TypeORM 1.x's rule (a null or undefined in a where throws) is its own
+  // default and the app's — no switch to set here any more.
   // A fresh copy of the migrated template for this file: its own data, and
   // the reference rows the migrations seed (catalogue, songs) already there.
   const own = `${env.POSTGRES_DB}_${process.pid}_${++counter}`;

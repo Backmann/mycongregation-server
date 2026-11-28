@@ -59,19 +59,15 @@ describe('a missing value in a where', () => {
     expect(after).toBe(before);
   });
 
-  it('the switch: throw only when asked; otherwise the option is left out — 0.3 exactly', () => {
-    expect(whereValuesMode({ WHERE_INVALID_VALUES: 'throw' })).toBe('throw');
-    expect(whereValuesMode({})).toBe('off');
-    expect(whereValuesMode({ WHERE_INVALID_VALUES: 'off' })).toBe('off');
-    expect(invalidWhereValuesBehavior('throw')).toEqual({
+  it('TypeORM 1.x: the rule is always on — there is no «as 0.3» to switch back to', () => {
+    expect(whereValuesMode()).toBe('throw');
+    expect(invalidWhereValuesBehavior()).toEqual({
       null: 'throw',
       undefined: 'throw',
     });
-    // Not { ignore, ignore }: that would widen update and delete.
-    expect(invalidWhereValuesBehavior('off')).toBeUndefined();
   });
 
-  it('a mistyped value stops the start instead of meaning «off»', () => {
+  it('an old .env still starts; a mistyped value still stops the start', () => {
     const check = (v: string) =>
       validationSchema.extract('WHERE_INVALID_VALUES').validate(v).error
         ?.message;

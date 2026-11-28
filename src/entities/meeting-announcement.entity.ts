@@ -28,7 +28,9 @@ import { encryptedTransformer } from '../crypto/encrypted.transformer';
  */
 @Entity('meeting_announcements')
 @Index(['congregationId', 'weekStartDate', 'eventType'])
-@Index(['congregationId', 'sourceKey'], {
+// Named as its migration made it (1942): a generated name differed from
+// the database's, and TypeORM 1.x generates yet another one.
+@Index('UQ_meeting_announcements_source', ['congregationId', 'sourceKey'], {
   unique: true,
   where: '"source_key" IS NOT NULL',
 })
