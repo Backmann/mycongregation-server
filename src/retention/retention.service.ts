@@ -251,21 +251,26 @@ export class RetentionService {
         .getRepository(Congregation)
         .find({ select: { id: true } });
       const totals = new Map<string, number>();
+      // One congregation failing is told and the next is still counted.
       for (const c of congregations) {
-        for (const row of await this.preview(c.id)) {
-          totals.set(row.key, (totals.get(row.key) ?? 0) + row.count);
+        try {
+          for (const row of await this.preview(c.id)) {
+            totals.set(row.key, (totals.get(row.key) ?? 0) + row.count);
+          }
+        } catch (err) {
+          this.logger.error(`retention preview failed: ${errorKind(err)}`);
         }
       }
       const due = [...totals].filter(([, n]) => n > 0);
       this.logger.log(
         due.length === 0
           ? 'retention preview: nothing past its time'
-          : `retention preview (nothing deleted): ${due
+          : `retention preview (still kept or not switched on): ${due
               .map(([key, n]) => `${key}=${n}`)
               .join(' ')}`,
       );
     } catch (err) {
-      this.logger.error(`retention preview failed: ${String(err)}`);
+      this.logger.error(`retention preview failed: ${errorKind(err)}`);
     }
   }
 }

@@ -213,7 +213,7 @@ const STILL_NEEDED: Readonly<
            jsonb_array_elements(CASE WHEN jsonb_typeof(e.co_revert_data) = 'array'
              THEN e.co_revert_data ELSE '[]'::jsonb END) op
          WHERE e.congregation_id = $1 AND op->>'op' = 'deleted'
-           AND op->>'id' ~ '^[0-9a-f-]{36}$'`,
+           AND op->>'id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`,
         congregationId,
       ),
     kept: 'кроме частей, которые скрыл визит районного: они вернутся при его переносе',
@@ -253,7 +253,7 @@ const STILL_NEEDED: Readonly<
            jsonb_array_elements(CASE WHEN jsonb_typeof(e.co_revert_data) = 'array'
              THEN e.co_revert_data ELSE '[]'::jsonb END) op
          WHERE e.congregation_id = $1 AND op->>'op' = 'speaker'
-           AND op->'prev'->>'visitingSpeakerId' ~ '^[0-9a-f-]{36}$'`,
+           AND op->'prev'->>'visitingSpeakerId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`,
         congregationId,
       ),
     kept: 'кроме карточек, на которые ещё ссылаются записи, части, объединённые карточки или визит районного',
