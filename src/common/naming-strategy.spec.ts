@@ -48,10 +48,14 @@ async function names(): Promise<string[]> {
     for (const k of m.checks) out.push(`check ${t}.${k.name}`);
     if (m.primaryColumns.length)
       out.push(
-        `pk ${t}.${db.namingStrategy.primaryKeyName(
-          t,
-          m.primaryColumns.map((c) => c.databaseName),
-        )}`,
+        // A name the entity gives is the one TypeORM uses (28 November 2026).
+        `pk ${t}.${
+          m.primaryColumns[0].primaryKeyConstraintName ??
+          db.namingStrategy.primaryKeyName(
+            t,
+            m.primaryColumns.map((c) => c.databaseName),
+          )
+        }`,
       );
   }
   return out.sort();

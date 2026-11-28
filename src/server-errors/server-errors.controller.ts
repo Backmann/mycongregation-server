@@ -47,7 +47,7 @@ export class ServerErrorsController {
         source: 'table',
         whereRule: whereValuesMode(),
         total: kept.total,
-        truncated: this.errors.truncated(),
+        truncated: kept.truncated,
         lines: kept.lines,
       };
     }

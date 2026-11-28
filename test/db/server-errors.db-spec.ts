@@ -56,7 +56,16 @@ describe('the server’s failures from the browser', () => {
     await h.sql(`ALTER TABLE responsibilities RENAME TO responsibilities_gone`);
     const guarded = await h.as('plain').get('/readiness');
     await h.sql(`ALTER TABLE responsibilities_gone RENAME TO responsibilities`);
-    const got = await lines();
+    // The table is written beside the answer, not before it: wait for it.
+    let got = await lines();
+    for (
+      let i = 0;
+      i < 40 && !got.some((l) => l.route === 'GET /api/readiness');
+      i++
+    ) {
+      await new Promise((r) => setTimeout(r, 50));
+      got = await lines();
+    }
     expect(got).toContainEqual(
       expect.objectContaining({
         route: 'GET /api/songs',
@@ -96,6 +105,35 @@ describe('the server’s failures from the browser', () => {
       expect.objectContaining({ route: 'GET /api/songs', count: 1 }),
     );
     expect(after.body.total).toBeGreaterThanOrEqual(2);
+  });
+
+  it('a write that failed is kept and written later — nothing told is lost', async () => {
+    // The table is away for a moment: the failure is counted, not written.
+    await h.sql(
+      `ALTER TABLE server_errors_daily RENAME TO server_errors_daily_gone`,
+    );
+    await h.sql(`ALTER TABLE songs RENAME TO songs_gone`);
+    const failed = await h.as('admin').get('/songs');
+    await h.sql(`ALTER TABLE songs_gone RENAME TO songs`);
+    expect(failed.status).toBe(500);
+    await new Promise((r) => setTimeout(r, 200));
+    await h.sql(
+      `ALTER TABLE server_errors_daily_gone RENAME TO server_errors_daily`,
+    );
+    // Shown at once, though not in the table yet.
+    const shown = await h.as('admin').get('/health/errors');
+    expect(shown.body.source).toBe('table');
+    expect(shown.body.lines).toContainEqual(
+      expect.objectContaining({ route: 'GET /api/songs', count: 2 }),
+    );
+    // Written once the table is back (the next try; here asked at once).
+    await (
+      h.app.get(ServerErrors) as unknown as { write(): Promise<void> }
+    ).write();
+    const [row] = await h.sql<{ count: number }>(
+      `SELECT count FROM server_errors_daily WHERE route = 'GET /api/songs'`,
+    );
+    expect(row.count).toBe(2);
   });
 
   it('days ask a window; old days go at night', async () => {
