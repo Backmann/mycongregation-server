@@ -126,10 +126,17 @@ describe('the server’s failures from the browser', () => {
     expect(shown.body.lines).toContainEqual(
       expect.objectContaining({ route: 'GET /api/songs', count: 2 }),
     );
-    // Written once the table is back (the next try; here asked at once).
-    await (
-      h.app.get(ServerErrors) as unknown as { write(): Promise<void> }
-    ).write();
+    const writer = h.app.get(ServerErrors) as unknown as {
+      write(force?: boolean): Promise<void>;
+    };
+    // Meanwhile a try waits for the retry timer: nothing written yet.
+    await writer.write();
+    const [early] = await h.sql<{ count: number }>(
+      `SELECT count FROM server_errors_daily WHERE route = 'GET /api/songs'`,
+    );
+    expect(early.count).toBe(1);
+    // The timer's own try (here asked at once): written, nothing lost.
+    await writer.write(true);
     const [row] = await h.sql<{ count: number }>(
       `SELECT count FROM server_errors_daily WHERE route = 'GET /api/songs'`,
     );

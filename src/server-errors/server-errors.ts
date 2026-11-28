@@ -5,7 +5,6 @@ import {
   Logger,
   NestInterceptor,
   NestMiddleware,
-  OnApplicationShutdown,
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { DataSource } from 'typeorm';
@@ -38,7 +37,7 @@ const MAX_NEW_ROWS_PER_DAY = 200;
  * what.
  */
 @Injectable()
-export class ServerErrors implements OnApplicationShutdown {
+export class ServerErrors {
   private readonly logger = new Logger(ServerErrors.name);
   private total = 0;
   private readonly lines = new Map<string, ServerErrorLine>();
@@ -119,12 +118,25 @@ export class ServerErrors implements OnApplicationShutdown {
     void this.write();
   }
 
-  /** Everything pending in one statement; one at a time; kept on failure. */
-  private write(): Promise<void> {
+  /**
+   * Everything pending in one statement; one at a time; kept on failure.
+   * After a failure the next try waits for its timer, however many failures
+   * come meanwhile (they add up in pending). Counts are lost only if the
+   * process ends while writes are failing: this app has no shutdown hooks,
+   * so there is no last try. A write that commits and then loses its reply
+   * is written twice — a diagnostic count; accepted.
+   */
+  private write(force = false): Promise<void> {
     if (this.writing) return this.writing;
+    if (this.retry && !force) return Promise.resolve();
     if (this.pending.size === 0) return Promise.resolve();
-    const batch = [...this.pending.values()];
+    // A day the table already deletes is not written at all.
+    const oldest = new Date(Date.now() - KEEP_DAYS * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const batch = [...this.pending.values()].filter((b) => b.day >= oldest);
     this.pending.clear();
+    if (batch.length === 0) return Promise.resolve();
     this.writing = this.ds
       .query(
         `INSERT INTO server_errors_daily AS t (day, route, kind, count, last_at)
@@ -155,7 +167,7 @@ export class ServerErrors implements OnApplicationShutdown {
           if (!this.retry)
             this.retry = setTimeout(() => {
               this.retry = null;
-              void this.write();
+              void this.write(true);
             }, 30_000);
           // A retry never keeps the process (or a test run) alive.
           this.retry?.unref?.();
@@ -171,26 +183,13 @@ export class ServerErrors implements OnApplicationShutdown {
 
   /** Not written yet — shown with what the table holds. */
   private pendingLines(): {
+    day: string;
     route: string;
     kind: string;
     count: number;
     lastAt: string;
   }[] {
     return [...this.pending.values()];
-  }
-
-  /** Stopping: one last try, so a deploy loses nothing it was told. */
-  async onApplicationShutdown(): Promise<void> {
-    if (this.retry) {
-      clearTimeout(this.retry);
-      this.retry = null;
-    }
-    try {
-      if (this.writing) await this.writing;
-      await this.write();
-    } catch {
-      // nothing more to do on the way out
-    }
   }
 
   /**
@@ -230,8 +229,12 @@ export class ServerErrors implements OnApplicationShutdown {
           count: Number(r.count),
           lastAt: new Date(r.last_at).toISOString(),
         });
+      // The first day of the window, UTC.
+      const since = new Date(Date.now() - (days - 1) * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
       let total = rows.length ? Number(rows[0].all_count) : 0;
-      for (const p of this.pendingLines()) {
+      for (const p of this.pendingLines().filter((x) => x.day >= since)) {
         total += p.count;
         const key = `${p.route}|${p.kind}`;
         const m = merged.get(key);
@@ -246,19 +249,17 @@ export class ServerErrors implements OnApplicationShutdown {
             lastAt: p.lastAt,
           });
       }
-      // The first day of the window, UTC.
-      const since = new Date(Date.now() - (days - 1) * 86_400_000)
-        .toISOString()
-        .slice(0, 10);
+      const all = [...merged.values()].sort((a, b) =>
+        b.lastAt.localeCompare(a.lastAt),
+      );
       return {
         since,
         total,
         truncated:
           (rows.length ? Number(rows[0].groups) > MAX_LINES : false) ||
+          all.length > MAX_LINES ||
           this.capHit,
-        lines: [...merged.values()].sort((a, b) =>
-          b.lastAt.localeCompare(a.lastAt),
-        ),
+        lines: all.slice(0, MAX_LINES),
       };
     } catch {
       return null;
