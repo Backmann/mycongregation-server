@@ -234,9 +234,11 @@ const STILL_NEEDED: Readonly<
       ),
     kept: 'кроме записей, которые отложил визит или на которые ещё указывает строка программы',
   },
-  // A card still named by an entry, a part or a card merged into it: an
-  // entry may carry only the card, and merged cards would come back as
-  // duplicates.
+  // A card still named by an entry, a part, a card merged into it, or the
+  // speaker a visit took off his slot and puts back on revert (op 'speaker':
+  // erased, the put-back breaks its foreign key and the visit cannot be
+  // taken away). An entry may carry only the card, and merged cards would
+  // come back as duplicates.
   'visiting-speakers': {
     heldIds: (ds, congregationId) =>
       ids(
@@ -246,10 +248,15 @@ const STILL_NEEDED: Readonly<
          UNION SELECT visiting_speaker_id FROM assignments
            WHERE congregation_id = $1 AND visiting_speaker_id IS NOT NULL
          UNION SELECT merged_into_id FROM visiting_speakers
-           WHERE congregation_id = $1 AND merged_into_id IS NOT NULL`,
+           WHERE congregation_id = $1 AND merged_into_id IS NOT NULL
+         UNION SELECT (op->'prev'->>'visitingSpeakerId')::uuid FROM special_events e,
+           jsonb_array_elements(CASE WHEN jsonb_typeof(e.co_revert_data) = 'array'
+             THEN e.co_revert_data ELSE '[]'::jsonb END) op
+         WHERE e.congregation_id = $1 AND op->>'op' = 'speaker'
+           AND op->'prev'->>'visitingSpeakerId' ~ '^[0-9a-f-]{36}$'`,
         congregationId,
       ),
-    kept: 'кроме карточек, на которые ещё ссылаются записи, части или объединённые карточки',
+    kept: 'кроме карточек, на которые ещё ссылаются записи, части, объединённые карточки или визит районного',
   },
 };
 

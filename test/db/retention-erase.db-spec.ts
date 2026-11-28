@@ -156,10 +156,6 @@ describe('retention: the switched-on rules remove (real database)', () => {
        VALUES ($1, current_date + 60, 'weekend', 'watchtower_reader', ${old}) RETURNING id`,
       [tenantId],
     );
-    await h.sql(
-      `UPDATE special_events SET co_revert_data = $2::jsonb WHERE id = $1`,
-      [visit, JSON.stringify([{ op: 'deleted', id: hidden }])],
-    );
     // Entries the visit set aside, or its overseer's own, and one whose
     // programme line still exists.
     const setAside = await one(
@@ -203,6 +199,23 @@ describe('retention: the switched-on rules remove (real database)', () => {
     );
     const cardMergedInto = await card();
     await card(cardMergedInto);
+    // The speaker the visit took off a weekend slot: it puts him back.
+    const cardOfVisit = await card();
+    const slot = await one(
+      `INSERT INTO assignments (congregation_id, week_start_date, event_type, part_key, speaker_name)
+       VALUES ($1, current_date + 60, 'weekend', 'public_talk', 'Районный') RETURNING id`,
+      [tenantId],
+    );
+    await h.sql(
+      `UPDATE special_events SET co_revert_data = $2::jsonb WHERE id = $1`,
+      [
+        visit,
+        JSON.stringify([
+          { op: 'deleted', id: hidden },
+          { op: 'speaker', id: slot, prev: { visitingSpeakerId: cardOfVisit } },
+        ]),
+      ],
+    );
     // One-day absences (no end): one 40 days ago goes, yesterday's stays.
     const pub = await h.addPublisher({ firstName: 'Один', lastName: 'День' });
     const oneDay = (start: string) =>
@@ -213,6 +226,38 @@ describe('retention: the switched-on rules remove (real database)', () => {
       );
     const dayLongAgo = await oneDay('current_date - 40');
     const dayYesterday = await oneDay('current_date - 1');
+    // Another congregation's one-day absence 40 days ago.
+    const pubOther = await h.addPublisher({
+      firstName: 'Чужой',
+      lastName: 'День',
+    });
+    await h.sql(`UPDATE publishers SET congregation_id = $1 WHERE id = $2`, [
+      otherTenant,
+      pubOther,
+    ]);
+    const otherDay = await one(
+      `INSERT INTO absences (congregation_id, publisher_id, start_date, end_date)
+       VALUES ($1, $2, current_date - 40, NULL) RETURNING id`,
+      [otherTenant, pubOther],
+    );
+    // A publisher card and a sign-in deleted 40 days ago: never erased here.
+    const cardGone = await h.addPublisher({
+      firstName: 'Удалён',
+      lastName: 'Давно',
+    });
+    await h.sql(`UPDATE publishers SET deleted_at = ${old} WHERE id = $1`, [
+      cardGone,
+    ]);
+    const [{ id: userGone }] = await h.sql<{ id: string }>(
+      `SELECT id FROM users WHERE congregation_id = $1 LIMIT 1`,
+      [tenantId],
+    );
+    const userWas = await h.sql(`SELECT deleted_at FROM users WHERE id = $1`, [
+      userGone,
+    ]);
+    await h.sql(`UPDATE users SET deleted_at = ${old} WHERE id = $1`, [
+      userGone,
+    ]);
     // Another congregation's part deleted 40 days ago.
     const otherPart = await one(
       `INSERT INTO assignments (congregation_id, week_start_date, event_type, part_key, deleted_at)
@@ -223,6 +268,10 @@ describe('retention: the switched-on rules remove (real database)', () => {
     const svc = h.app.get(RetentionService);
     const preview = await svc.preview(tenantId);
     await svc.applyDated(tenantId);
+    await h.sql(`UPDATE users SET deleted_at = $2 WHERE id = $1`, [
+      userGone,
+      (userWas[0] as { deleted_at: string | null }).deleted_at,
+    ]);
 
     for (const [table, id] of [
       ['assignments', hidden],
@@ -234,6 +283,10 @@ describe('retention: the switched-on rules remove (real database)', () => {
       ['visiting_speakers', cardMergedInto],
       ['absences', dayYesterday],
       ['assignments', otherPart],
+      ['visiting_speakers', cardOfVisit],
+      ['absences', otherDay],
+      ['publishers', cardGone],
+      ['users', userGone],
     ] as const)
       expect([table, id, await exists(table, id)]).toEqual([table, id, true]);
     expect(await exists('absences', dayLongAgo)).toBe(false);
@@ -254,6 +307,12 @@ describe('retention: the switched-on rules remove (real database)', () => {
       [hidden],
     );
     expect(back).toEqual({ deleted_at: null });
+    // …and the speaker it had taken off his slot is his again.
+    const [onSlot] = await h.sql<{ visiting_speaker_id: string | null }>(
+      `SELECT visiting_speaker_id FROM assignments WHERE id = $1`,
+      [slot],
+    );
+    expect(onSlot).toEqual({ visiting_speaker_id: cardOfVisit });
   });
 
   it('the preview says which rules remove', async () => {
