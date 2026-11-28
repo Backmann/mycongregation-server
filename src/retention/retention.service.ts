@@ -72,6 +72,7 @@ export class RetentionService {
         ...(rule.kind === 'soft-deleted' && rule.caution
           ? { caution: rule.caution }
           : {}),
+        ...(rule.on ? { on: true, does: 'delete' as const } : {}),
       });
     }
     return rows;
@@ -85,6 +86,18 @@ export class RetentionService {
     const repo = this.dataSource.getRepository(rule.entity);
     // Built as find options, not SQL text: the property names come from the
     // rule list and TypeORM maps them to columns itself.
+    return repo.count({
+      where: this.pastWhere(rule, congregationId, before),
+      withDeleted: true,
+    });
+  }
+
+  /** The rows past their time — the same condition for counting and removing. */
+  private pastWhere(
+    rule: Exclude<RetentionRule, { kind: 'counted' }>,
+    congregationId: string,
+    before: string,
+  ): FindOptionsWhere<object> {
     const where: Record<string, unknown> = { congregationId };
     if (rule.kind === 'dated') {
       where[rule.column] = LessThan(before);
@@ -94,10 +107,44 @@ export class RetentionService {
       // `<` is never true for NULL, so rows that were never deleted stay out.
       where.deletedAt = LessThan(before);
     }
-    return repo.count({
-      where: where as FindOptionsWhere<object>,
-      withDeleted: true,
-    });
+    return where as FindOptionsWhere<object>;
+  }
+
+  /**
+   * The switched-on dated and soft-deleted rules (R-20, 28 November 2026):
+   * the rows past their time go for good — one statement per rule, the
+   * database taking what hangs on them (ON DELETE CASCADE / SET NULL, listed
+   * per rule). A soft-deleted row is erased, not deleted again: the query
+   * builder's delete is the real one. Returns how many rows each removed.
+   */
+  async applyDated(
+    congregationId: string,
+    now: Date = new Date(),
+  ): Promise<Record<string, number>> {
+    const congregation = await this.dataSource
+      .getRepository(Congregation)
+      .findOne({ where: { id: congregationId } });
+    const today = todayIn(now, congregation?.timezone);
+    const done: Record<string, number> = {};
+    for (const rule of RETENTION_RULES) {
+      if (rule.kind === 'counted' || !rule.on) continue;
+      const before = cutoffDate(today, rule.keep);
+      // One rule failing is told and the next still acts.
+      try {
+        const res = await this.dataSource
+          .createQueryBuilder()
+          .delete()
+          .from(rule.entity)
+          .where(this.pastWhere(rule, congregationId, before))
+          .execute();
+        done[rule.key] = res.affected ?? 0;
+      } catch (err) {
+        this.logger.error(
+          `retention ${rule.key} failed: ${(err as Error)?.constructor?.name}`,
+        );
+      }
+    }
+    return done;
   }
 
   /**
@@ -140,6 +187,9 @@ export class RetentionService {
         for (const [key, n] of Object.entries(await this.applyCounted(c.id))) {
           totals.set(key, (totals.get(key) ?? 0) + n);
         }
+        for (const [key, n] of Object.entries(await this.applyDated(c.id))) {
+          totals.set(key, (totals.get(key) ?? 0) + n);
+        }
       }
       const done = [...totals].filter(([, n]) => n > 0);
       this.logger.log(
@@ -148,7 +198,9 @@ export class RetentionService {
           : `retention done: ${done.map(([k, n]) => `${k}=${n}`).join(' ')}`,
       );
     } catch (err) {
-      this.logger.error(`retention failed: ${String(err)}`);
+      this.logger.error(
+        `retention failed: ${(err as Error)?.constructor?.name ?? typeof err}`,
+      );
     }
   }
 

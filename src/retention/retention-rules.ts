@@ -74,6 +74,11 @@ export interface DatedRule {
   only?: Record<string, string>;
   /** Rows that leave with this one through ON DELETE CASCADE. */
   cascades?: string[];
+  /**
+   * Switched on: removed every night, not only counted (R-20, 28 November
+   * 2026: switched on one by one, each once its counts were seen).
+   */
+  on?: true;
 }
 
 export interface SoftDeletedRule {
@@ -88,6 +93,8 @@ export interface SoftDeletedRule {
    * RESTRICTs, or rows that reference this one and would lose their name.
    */
   caution?: string;
+  /** Switched on: erased every night (R-20), see DatedRule.on. */
+  on?: true;
 }
 
 /**
@@ -145,6 +152,15 @@ const SCHEDULE =
   '§19: «Расписание встреч и список назначений — хранить не следует»; ' +
   'решение 31.10.2026 — 12 месяцев, ради очерёдности';
 const TWELVE_MONTHS: RetentionKeep = { months: 12 };
+
+/** The soft-deleted kinds erased every night (R-20) — keys without «deleted:». */
+const ERASED_NOW: ReadonlySet<string> = new Set([
+  'assignments',
+  'absences',
+  'special-events',
+  'talk-exchange',
+  'visiting-speakers',
+]);
 
 export const RETENTION_RULES: RetentionRule[] = [
   {
@@ -271,6 +287,7 @@ export const RETENTION_RULES: RetentionRule[] = [
     entity: Absence,
     column: 'endDate',
     keep: { months: 1 },
+    on: true,
   },
   {
     kind: 'dated',
@@ -368,6 +385,20 @@ export const RETENTION_RULES: RetentionRule[] = [
   // «Deleted» rows stay in the table so a deletion can be undone. After
   // thirty days the undo window is over and the row goes for good
   // (decision of 31 October 2026).
+  //
+  // Erased every night since R-20 (28 November 2026) — those whose counts
+  // were seen on the live data and whose rows nothing alive leans on:
+  //  - assignments: nothing points at one;
+  //  - absences: nothing points at one;
+  //  - special-events: its own visit items, folder, Memorial rows and the
+  //    absences made for it go with it (CASCADE); a talk set aside for it
+  //    or tied to its visit only loses that link (SET NULL);
+  //  - talk-exchange: a programme part or an absence only loses the link;
+  //  - visiting-speakers: a past part keeps the speaker's name and
+  //    congregation in its own columns; pairs said to be two people go.
+  // The others stay counted until rows appear and are looked at: groups and
+  // external congregations still referenced by living rows (SET NULL), and
+  // cards and sign-ins (R-20 step 3).
   ...(
     [
       [Assignment, 'assignments'],
@@ -393,6 +424,7 @@ export const RETENTION_RULES: RetentionRule[] = [
       basis: 'Решение 31.10.2026 — окончательно стирать через 30 дней',
       entity,
       keep: { days: 30 },
+      ...(ERASED_NOW.has(key) ? { on: true as const } : {}),
     }),
   ),
   {
