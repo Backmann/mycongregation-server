@@ -1,7 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, FindOptionsWhere, LessThan } from 'typeorm';
+import {
+  DataSource,
+  FindOptionsWhere,
+  In,
+  IsNull,
+  LessThan,
+  Not,
+} from 'typeorm';
 import { Congregation } from '../entities/congregation.entity';
 import { todayIn } from '../common/congregation-clock';
 import { RETENTION_RULES, RetentionRule, cutoffDate } from './retention-rules';
@@ -15,6 +22,8 @@ export interface RetentionPreviewRow {
   count: number;
   cascades?: string[];
   caution?: string;
+  /** What stays whatever its age, in plain words. */
+  kept?: string;
   /** What removal will do once switched on, where it is not plain deletion. */
   does?: 'anonymise' | 'delete';
   /** Switched on: done every night, not only counted. */
@@ -72,6 +81,9 @@ export class RetentionService {
         ...(rule.kind === 'soft-deleted' && rule.caution
           ? { caution: rule.caution }
           : {}),
+        ...(rule.kind === 'soft-deleted' && rule.kept
+          ? { kept: rule.kept }
+          : {}),
         ...(rule.on ? { on: true, does: 'delete' as const } : {}),
       });
     }
@@ -87,27 +99,47 @@ export class RetentionService {
     // Built as find options, not SQL text: the property names come from the
     // rule list and TypeORM maps them to columns itself.
     return repo.count({
-      where: this.pastWhere(rule, congregationId, before),
+      where: await this.pastWhere(rule, congregationId, before),
       withDeleted: true,
     });
   }
 
-  /** The rows past their time — the same condition for counting and removing. */
-  private pastWhere(
+  /**
+   * The rows past their time — the same condition for counting and removing.
+   * Several objects are joined with OR, each one complete.
+   */
+  private async pastWhere(
     rule: Exclude<RetentionRule, { kind: 'counted' }>,
     congregationId: string,
     before: string,
-  ): FindOptionsWhere<object> {
-    const where: Record<string, unknown> = { congregationId };
+  ): Promise<FindOptionsWhere<object>[]> {
     if (rule.kind === 'dated') {
-      where[rule.column] = LessThan(before);
+      const base: Record<string, unknown> = { congregationId };
       for (const [key, value] of Object.entries(rule.only ?? {}))
-        where[key] = value;
-    } else {
-      // `<` is never true for NULL, so rows that were never deleted stay out.
-      where.deletedAt = LessThan(before);
+        base[key] = value;
+      const dated = { ...base, [rule.column]: LessThan(before) };
+      if (!rule.emptyMeans) return [dated as FindOptionsWhere<object>];
+      return [
+        dated,
+        {
+          ...base,
+          [rule.column]: IsNull(),
+          [rule.emptyMeans]: LessThan(before),
+        },
+      ] as FindOptionsWhere<object>[];
     }
-    return where as FindOptionsWhere<object>;
+    // `<` is never true for NULL, so rows that were never deleted stay out.
+    const held = rule.heldIds
+      ? await rule.heldIds(this.dataSource, congregationId)
+      : [];
+    return [
+      {
+        ...(rule.keepWhile ?? {}),
+        ...(held.length > 0 ? { id: Not(In(held)) } : {}),
+        congregationId,
+        deletedAt: LessThan(before),
+      } as FindOptionsWhere<object>,
+    ];
   }
 
   /**
@@ -135,13 +167,11 @@ export class RetentionService {
           .createQueryBuilder()
           .delete()
           .from(rule.entity)
-          .where(this.pastWhere(rule, congregationId, before))
+          .where(await this.pastWhere(rule, congregationId, before))
           .execute();
         done[rule.key] = res.affected ?? 0;
       } catch (err) {
-        this.logger.error(
-          `retention ${rule.key} failed: ${(err as Error)?.constructor?.name}`,
-        );
+        this.logger.error(`retention ${rule.key} failed: ${errorKind(err)}`);
       }
     }
     return done;
@@ -183,12 +213,20 @@ export class RetentionService {
         .getRepository(Congregation)
         .find({ select: { id: true } });
       const totals = new Map<string, number>();
+      // One congregation failing is told and the next still acts.
       for (const c of congregations) {
-        for (const [key, n] of Object.entries(await this.applyCounted(c.id))) {
-          totals.set(key, (totals.get(key) ?? 0) + n);
-        }
-        for (const [key, n] of Object.entries(await this.applyDated(c.id))) {
-          totals.set(key, (totals.get(key) ?? 0) + n);
+        const steps: [string, () => Promise<Record<string, number>>][] = [
+          ['applyCounted', () => this.applyCounted(c.id)],
+          ['applyDated', () => this.applyDated(c.id)],
+        ];
+        for (const [name, step] of steps) {
+          try {
+            for (const [key, n] of Object.entries(await step())) {
+              totals.set(key, (totals.get(key) ?? 0) + n);
+            }
+          } catch (err) {
+            this.logger.error(`retention ${name} failed: ${errorKind(err)}`);
+          }
         }
       }
       const done = [...totals].filter(([, n]) => n > 0);
@@ -198,9 +236,7 @@ export class RetentionService {
           : `retention done: ${done.map(([k, n]) => `${k}=${n}`).join(' ')}`,
       );
     } catch (err) {
-      this.logger.error(
-        `retention failed: ${(err as Error)?.constructor?.name ?? typeof err}`,
-      );
+      this.logger.error(`retention failed: ${errorKind(err)}`);
     }
   }
 
@@ -232,4 +268,16 @@ export class RetentionService {
       this.logger.error(`retention preview failed: ${String(err)}`);
     }
   }
+}
+
+/**
+ * The kind of a failure for the log: the class and the database's own code
+ * (23503 is a foreign key) — never the message, which may quote a row.
+ */
+export function errorKind(err: unknown): string {
+  const name = (err as Error)?.constructor?.name ?? typeof err;
+  const code = (err as { driverError?: { code?: unknown } })?.driverError?.code;
+  return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code)
+    ? `${name} ${code}`
+    : name;
 }

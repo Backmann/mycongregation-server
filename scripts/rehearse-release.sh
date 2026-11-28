@@ -258,7 +258,7 @@ ok "memory now: $MEM (limit as in production)"
 
 # What the retention rules removed from the copy: rule keys and counts only
 # (and a failed rule's error class) — the lines never carry a row.
-RET=$(docker logs "$APP" 2>&1 | grep -oE 'retention(: nothing past its time| done: .*| [a-z:-]+ failed: [A-Za-z]+)' || true)
+RET=$(docker logs "$APP" 2>&1 | grep -oE 'retention(: nothing past its time| done: .*| [A-Za-z:-]+ failed: [A-Za-z]+( [0-9A-Z]{5})?)' || true)
 [ -n "$RET" ] && printf '%s\n' "$RET" | sed 's/^/  note  /'
 
 # Error lines, by kind only — the messages themselves may name people.

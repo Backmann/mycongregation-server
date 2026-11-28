@@ -1,4 +1,10 @@
-import type { DataSource, EntityTarget, ObjectLiteral } from 'typeorm';
+import { IsNull } from 'typeorm';
+import type {
+  DataSource,
+  EntityTarget,
+  FindOperator,
+  ObjectLiteral,
+} from 'typeorm';
 import { Absence } from '../entities/absence.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { AssignmentNotice } from '../entities/assignment-notice.entity';
@@ -72,6 +78,11 @@ export interface DatedRule {
   keep: RetentionKeep;
   /** Extra condition, as a property → value pair. */
   only?: Record<string, string>;
+  /**
+   * A row whose `column` is empty is dated by this property instead (an
+   * absence without an end is one day long: it ends on its start).
+   */
+  emptyMeans?: string;
   /** Rows that leave with this one through ON DELETE CASCADE. */
   cascades?: string[];
   /**
@@ -93,6 +104,18 @@ export interface SoftDeletedRule {
    * RESTRICTs, or rows that reference this one and would lose their name.
    */
   caution?: string;
+  /**
+   * What still holds the row, whatever its age: the row stays while this
+   * says so (property → operator, joined with AND to the age).
+   */
+  keepWhile?: Record<string, FindOperator<unknown>>;
+  /**
+   * The ids still held by living rows, read in plain SQL with the tables
+   * named: they stay whatever their age.
+   */
+  heldIds?: (ds: DataSource, congregationId: string) => Promise<string[]>;
+  /** Plain words for what keepWhile keeps, for the preview. */
+  kept?: string;
   /** Switched on: erased every night (R-20), see DatedRule.on. */
   on?: true;
 }
@@ -161,6 +184,74 @@ const ERASED_NOW: ReadonlySet<string> = new Set([
   'talk-exchange',
   'visiting-speakers',
 ]);
+
+/**
+ * A deleted row is not always rubbish (review of R-20 step 1, 28 November
+ * 2026): `deleted_at` also holds what a living visit took away and will give
+ * back. The column of the row itself stays outside every subquery, so no
+ * column of the subquery can stand in for it.
+ */
+const ids = async (
+  ds: DataSource,
+  sql: string,
+  congregationId: string,
+): Promise<string[]> =>
+  ((await ds.query(sql, [congregationId])) as { id: string }[]).map(
+    (r) => r.id,
+  );
+
+const STILL_NEEDED: Readonly<
+  Record<string, Pick<SoftDeletedRule, 'keepWhile' | 'heldIds' | 'kept'>>
+> = {
+  // A part hidden by a circuit overseer's visit (co-visit-template hidePart)
+  // comes back when the visit is moved or taken away (revert, restore by id).
+  assignments: {
+    heldIds: (ds, congregationId) =>
+      ids(
+        ds,
+        `SELECT DISTINCT op->>'id' AS id FROM special_events e,
+           jsonb_array_elements(CASE WHEN jsonb_typeof(e.co_revert_data) = 'array'
+             THEN e.co_revert_data ELSE '[]'::jsonb END) op
+         WHERE e.congregation_id = $1 AND op->>'op' = 'deleted'
+           AND op->>'id' ~ '^[0-9a-f-]{36}$'`,
+        congregationId,
+      ),
+    kept: 'кроме частей, которые скрыл визит районного: они вернутся при его переносе',
+  },
+  // An entry set aside by a visit, or the overseer's own, comes back with
+  // its note and host when the visit leaves the week or returns
+  // (returnEntry, circuitVisitApplied); one removed with its programme line
+  // comes back with the line. The visit links are foreign keys: a set one
+  // points at an event that still exists, and erasing the event clears it.
+  'talk-exchange': {
+    keepWhile: { setAsideBy: IsNull(), circuitVisitId: IsNull() },
+    heldIds: (ds, congregationId) =>
+      ids(
+        ds,
+        `SELECT DISTINCT talk_exchange_id AS id FROM assignments
+         WHERE congregation_id = $1 AND talk_exchange_id IS NOT NULL`,
+        congregationId,
+      ),
+    kept: 'кроме записей, которые отложил визит или на которые ещё указывает строка программы',
+  },
+  // A card still named by an entry, a part or a card merged into it: an
+  // entry may carry only the card, and merged cards would come back as
+  // duplicates.
+  'visiting-speakers': {
+    heldIds: (ds, congregationId) =>
+      ids(
+        ds,
+        `SELECT visiting_speaker_id AS id FROM talk_exchange
+           WHERE congregation_id = $1 AND visiting_speaker_id IS NOT NULL
+         UNION SELECT visiting_speaker_id FROM assignments
+           WHERE congregation_id = $1 AND visiting_speaker_id IS NOT NULL
+         UNION SELECT merged_into_id FROM visiting_speakers
+           WHERE congregation_id = $1 AND merged_into_id IS NOT NULL`,
+        congregationId,
+      ),
+    kept: 'кроме карточек, на которые ещё ссылаются записи, части или объединённые карточки',
+  },
+};
 
 export const RETENTION_RULES: RetentionRule[] = [
   {
@@ -286,6 +377,7 @@ export const RETENTION_RULES: RetentionRule[] = [
     basis: 'Решение 31.10.2026 — месяц после окончания',
     entity: Absence,
     column: 'endDate',
+    emptyMeans: 'startDate',
     keep: { months: 1 },
     on: true,
   },
@@ -387,15 +479,17 @@ export const RETENTION_RULES: RetentionRule[] = [
   // (decision of 31 October 2026).
   //
   // Erased every night since R-20 (28 November 2026) — those whose counts
-  // were seen on the live data and whose rows nothing alive leans on:
-  //  - assignments: nothing points at one;
+  // were seen on the live data. What a living row still leans on stays
+  // (STILL_NEEDED); the rest goes with what is its own:
+  //  - assignments: nothing points at one; a part hidden by a visit stays;
   //  - absences: nothing points at one;
   //  - special-events: its own visit items, folder, Memorial rows and the
   //    absences made for it go with it (CASCADE); a talk set aside for it
-  //    or tied to its visit only loses that link (SET NULL);
-  //  - talk-exchange: a programme part or an absence only loses the link;
-  //  - visiting-speakers: a past part keeps the speaker's name and
-  //    congregation in its own columns; pairs said to be two people go.
+  //    or tied to its visit is freed (SET NULL) and goes the next night;
+  //  - talk-exchange: an absence only loses the link; one a programme line
+  //    or a visit still holds stays;
+  //  - visiting-speakers: only cards nothing names any more; pairs said to
+  //    be two people go with them.
   // The others stay counted until rows appear and are looked at: groups and
   // external congregations still referenced by living rows (SET NULL), and
   // cards and sign-ins (R-20 step 3).
@@ -424,6 +518,7 @@ export const RETENTION_RULES: RetentionRule[] = [
       basis: 'Решение 31.10.2026 — окончательно стирать через 30 дней',
       entity,
       keep: { days: 30 },
+      ...(STILL_NEEDED[key] ?? {}),
       ...(ERASED_NOW.has(key) ? { on: true as const } : {}),
     }),
   ),
